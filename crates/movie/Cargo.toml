@@ -7,6 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+bink.workspace = true
 image.workspace = true
 
 [lints]

@@ -16,7 +16,9 @@
 //! - a sheet that knows power and feat row 400 survives a snapshot, and an
 //!   old one loads;
 //! - the Force routines mods call are bound, and a call of an unbound
-//!   routine warns once.
+//!   routine warns once;
+//! - Force Aura and Resist Force, both cast through their scripts, run at
+//!   the same time.
 
 use script_ncs::asm::{Expr, call, script};
 use script_ncs::catalog::Catalog;
@@ -497,6 +499,69 @@ fn sheet_rows(old: bool) -> Result<String, String> {
     )
 }
 
+/// Force Aura and Resist Force, each cast through an impact script, run
+/// together: KOTOR's scripts replace only powers of the cast power's own
+/// tree. JA's rule that protect and absorb exclude each other is not
+/// applied to them (the Jedi turns on Force Aura, then Resist Force).
+fn buff_trees_coexist() -> Result<String, String> {
+    use crate::combat::spells::{FORCE_POWER_FORCE_AURA, FORCE_POWER_RESIST_FORCE};
+    let rows = [FORCE_POWER_FORCE_AURA, FORCE_POWER_RESIST_FORCE];
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let size = usize::from(FORCE_POWER_RESIST_FORCE) + 1;
+    data.force_costs = vec![0; size];
+    let mut spells = vec![Talent::default(); size];
+    let mut impacts = vec![String::new(); size];
+    for row in rows {
+        data.force_costs[usize::from(row)] = COST;
+        spells[usize::from(row)] = Talent {
+            menu: Menu::Friendly,
+            ..Talent::default()
+        };
+        impacts[usize::from(row)] = "probe_buff".into();
+    }
+    let catalog = Catalog::parse(CATALOG).map_err(|e| format!("{e:?}"))?;
+    let talents = Talents {
+        spells,
+        impacts,
+        ..Talents::default()
+    };
+    let library =
+        crate::probe::library_with(CATALOG, [("probe_buff", script(&catalog, &[])?)], talents);
+    let mut jedi = Sheet::dev_jedi();
+    jedi.powers = rows
+        .iter()
+        .fold(Rows::default(), |known, &row| known.with(row));
+    jedi.flags |= flags::IMMORTAL;
+    let config = WorldConfig {
+        sheet: jedi,
+        ..WorldConfig::one_seat()
+    };
+    let level = ground.with_module(data).with_scripts(library);
+    let mut world = SimWorld::new(config, level).map_err(|e| e.to_string())?;
+    let me = world.snapshot().body(Seat(0)).ok_or("no player")?.id;
+    for row in rows {
+        let press = Command {
+            force: row,
+            buttons: buttons::FORCE_POWER,
+            ..Command::default()
+        };
+        step(&mut world, press);
+        for _ in 0..4 {
+            step(&mut world, press.idle());
+        }
+    }
+    let at = now(&world);
+    let force = fighter(&mut world, me).ok_or("no Jedi")?.force;
+    check(
+        force.protect_until > at && force.absorb_until > at,
+        format!(
+            "at {at} ms: Force Aura until {}, Resist Force until {}",
+            force.protect_until, force.absorb_until
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     let shapes: [(&'static str, u16, [bool; 3]); 2] = [
         // Reach 3 m + 1: the foe aimed at and the one beside it in the
@@ -512,6 +577,7 @@ pub fn probes() -> Checks {
     checks.push(("power_rows_minds_read_rows", minds_read_rows()));
     checks.extend(creature_casts());
     checks.push(("power_rows_force_routines_bound", force_routines_bound()));
+    checks.push(("power_rows_buff_trees_coexist", buff_trees_coexist()));
     let sheets: [(&'static str, bool); 2] = [
         ("power_rows_sheet_row_400_round_trip", false),
         ("power_rows_old_sheet_loads", true),

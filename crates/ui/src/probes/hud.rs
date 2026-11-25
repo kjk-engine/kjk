@@ -562,6 +562,7 @@ pub(super) fn action_bar() -> Vec<Check> {
                     dim,
                     lit,
                     kinds: 0,
+                    fire: None,
                 }
             })
             .collect()

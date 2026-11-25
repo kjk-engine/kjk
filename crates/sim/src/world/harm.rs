@@ -215,7 +215,9 @@ pub(super) fn hurt(
                     let delta = i32::from(*amount) * 100 * if gain { 1 } else { -1 };
                     if let Some(at) = at {
                         let (.., object, sheet, _, fighting) = &mut actors[at];
-                        let most = i32::from(sheet_of(*sheet, *object).pool()) * 100;
+                        let worn = sheet_of(*sheet, *object);
+                        let most =
+                            i32::from(effects::sheet_now(worn, &fighting.0, now).pool()) * 100;
                         fighting.0.fp = (fighting.0.fp + delta).clamp(0, most);
                     }
                 }
@@ -444,7 +446,7 @@ pub(super) fn hurt(
                         if fighter.alive() && !immune && !fighter.saber.floored() {
                             let held = until.map_or(0, |until| until.saturating_sub(now));
                             let ms = held.saturating_add(rules::force_effects::knockdown::EXTRA_MS);
-                            fighter.saber.knock_down(now, ms);
+                            fighter.knock_down(now, ms);
                         }
                     }
                 }
@@ -551,7 +553,8 @@ pub(super) fn hurt(
     for (target, centi) in heals {
         if let Some(at) = find(&actors, target) {
             let (.., object, sheet, _, fighting) = &mut actors[at];
-            let max = i32::from(sheet_of(*sheet, *object).max_hp) * 100;
+            let worn = sheet_of(*sheet, *object);
+            let max = i32::from(effects::sheet_now(worn, &fighting.0, clock.time_ms).max_hp) * 100;
             let hp = fighting.0.hp;
             if fighting.0.alive() {
                 fighting.0.hp = (hp + centi).min(max).max(hp);

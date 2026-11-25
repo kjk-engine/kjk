@@ -388,7 +388,8 @@ fn overhead(
             at.y = follow(followed.get(&entity.id).copied(), at.y, time.delta_secs());
             followed.insert(entity.id, at.y);
             let over = on_screen(at, camera)?;
-            let health = fighter.hp as f32 / (f32::from(sheet.max_hp).max(1.0) * 100.0);
+            let most = sim::combat::effects::sheet_now(sheet, fighter, snapshot.time_ms).max_hp;
+            let health = fighter.hp as f32 / (f32::from(most).max(1.0) * 100.0);
             Some((
                 entity.id,
                 OverheadView {

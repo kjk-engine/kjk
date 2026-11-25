@@ -308,8 +308,9 @@ fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> 
     (0..limit).filter(move |row| rows(*row)).map(usize::from)
 }
 
-/// What an item `look` says of itself: TSL's "Cannot Equip: Bao-Dur" lines
-/// first once he has been met (`bao_dur_met`, `sim::cannot_equip`), then
+/// What an item `look` says of itself: what a character needs to use it
+/// (`ItemLook::requirements`), TSL's "Cannot Equip: Bao-Dur" lines once he
+/// has been met (`bao_dur_met`, `sim::cannot_equip`), then
 /// its stats in force (`ItemLook::in_force`: with `item`'s upgrades fitted,
 /// K1's by its bits, TSL's by the upgrade items in its slots, whose own
 /// stats follow), then its own description, then the rulebook's lines for
@@ -341,8 +342,8 @@ pub(crate) fn described(
     text
 }
 
-/// What an item `look` says of itself, in parts (`ItemText`): TSL's
-/// "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
+/// What an item `look` says of itself, in parts (`ItemText`): its
+/// requirements, TSL's "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
 /// `item`'s upgrade bits, and its own text.
 fn item_text(
     assets: &mut GuiAssets,
@@ -352,6 +353,7 @@ fn item_text(
 ) -> ItemText {
     let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
     ItemText {
+        requirements: look.requirements.clone(),
         head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
         stats: look.stats.clone(),
         fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
@@ -853,7 +855,7 @@ fn members(
                 .or(persona.map(|persona| persona.gender))
                 .unwrap_or(0),
             abilities: sheet.abilities,
-            player: seat.is_some(),
+            is_pc: seat.is_some(),
             tag: data.map_or_else(String::new, |data| data.tag.clone()),
             tsl,
             // As the sim weighs it (`script::items::wearer`): its body's row.
@@ -862,6 +864,8 @@ fn members(
                 .map_or(0, |(row, library)| library.locked_slots(row)),
         };
         let who = crate::headgear::who(instances.as_ref(), entity);
+        // Its bars count the most as effects and worn items leave it.
+        let most = sim::combat::effects::sheet_now(sheet, &fighter, snapshot.time_ms);
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
@@ -883,11 +887,12 @@ fn members(
                 class,
                 level: sheet.level,
                 portrait,
-                hp: (fighter.hp / 100, i32::from(sheet.max_hp)),
-                fp: force_bar(snapshot.saber_rules, &sheet, fighter.fp),
+                hp: (fighter.hp / 100, i32::from(most.max_hp)),
+                fp: force_bar(snapshot.saber_rules, &most, fighter.fp),
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
+                played_by: seat.filter(|seat| *seat != own).map(|seat| seat.0),
                 effects: effect_icons(assets, &fighter, snapshot.time_ms),
                 debilitated: fighter.debilitated(snapshot.time_ms),
                 poisoned: fighter.pack.poison.is_some(),
@@ -1239,7 +1244,7 @@ fn show(
     let listed = if open {
         crate::cast::pages_of(snapshot, own.0)
     } else {
-        crate::cast::party_of(snapshot, own.0)
+        crate::cast::bar_of(snapshot, own.0)
     };
     let party = members(assets, snapshot, (own.0, listed), level, &made);
     ui.vm.party = party.iter().map(|member| member.view.clone()).collect();

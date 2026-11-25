@@ -37,7 +37,7 @@
 //!
 //! Scripts see the switch at once, in the step that made it: `GetFirstPC`,
 //! `GetIsPC`, `GetPCSpeaker` and the party's index 0 answer the creature
-//! (`script::View::pcs`). A companion with no creature in the module is
+//! (`script::View::main_characters`). A companion with no creature in the module is
 //! made from its template beside the PC, as the party selection screen
 //! makes those it calls (`script::engine`).
 //!
@@ -94,12 +94,13 @@ pub(super) fn sync(world: &mut World) {
     }
     // A switch to a companion with no creature (gone, or its slot gone)
     // is forgotten: nothing switches the seat into one made for it later.
+    // The party's XP goes back to what it was at the switch, as a switch
+    // back sets it (`script::xp::SWITCHED_OUT`).
     if body.is_none() {
-        world
-            .resource_mut::<super::scripts::Scripts>()
-            .state
-            .party
-            .switched = None;
+        let state = &mut world.resource_mut::<super::scripts::Scripts>().state;
+        if state.party.switched.take().is_some() {
+            state.take_back_xp();
+        }
     }
     let angles = world
         .resource::<Inputs>()

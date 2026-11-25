@@ -901,7 +901,8 @@ impl Course {
             }
         }
         let fire = command.buttons & buttons::ATTACK != 0;
-        if fire && !self.fire_held {
+        let pressed = fire && !self.fire_held;
+        if pressed {
             Course::raise(rules, &mut raised, self.shift_hook(rules), 0, 0);
         }
         self.fire_held = fire;
@@ -927,7 +928,7 @@ impl Course {
             turn_turret(rules, &mut gunner.aim_from, &mut gunner.offset, &command);
         }
         self.move_followers(rules, (dt, creating), &mut raised);
-        self.shoot(rules, fire, tick);
+        self.shoot(rules, pressed, tick);
         self.gunners_shoot(rules, gunning);
         self.fly(rules, &mut raised);
         self.touch(rules, &before, &mut raised);
@@ -1062,8 +1063,12 @@ impl Course {
         }
     }
 
-    /// The gun banks: the player's while fire is held, an enemy's at the
-    /// player when it is near and ahead (strayed by a roll of the tick's).
+    /// The gun banks: the player's once each time fire is pressed (`fire`),
+    /// an enemy's at the player when it is near and ahead (strayed by a
+    /// roll of the tick's). Both executables fire the player's guns on the
+    /// key's press alone, and a bank still cooling from its last bolt (its
+    /// `Rate_Of_Fire`) lets that press go by: holding the key fires one
+    /// bolt, not a stream.
     fn shoot(&mut self, rules: &Rules, fire: bool, tick: u64) {
         let now = self.time_ms;
         // Where enemies aim: the player's middle moved by its
@@ -1157,9 +1162,10 @@ impl Course {
         rotate(follower.path.turn(mover.track), v)
     }
 
-    /// The gunners' banks while their fire is held (`gunning`: gunner,
-    /// command), each along its barrel as the gunner turns the hull's gun:
-    /// the player's bolts, numbered by gunner.
+    /// The gunners' banks once each time their fire is pressed (`gunning`:
+    /// gunner, command), as the player's (`shoot`), each along its barrel as
+    /// the gunner turns the hull's gun: the player's bolts, numbered by
+    /// gunner.
     fn gunners_shoot(&mut self, rules: &Rules, gunning: &[(usize, Command)]) {
         let now = self.time_ms;
         if !self.movers.first().is_some_and(|mover| mover.alive) {
@@ -1168,8 +1174,9 @@ impl Course {
         let at = self.position(rules, 0).unwrap_or([0.0; 3]);
         for &(k, command) in gunning {
             let fire = command.buttons & buttons::ATTACK != 0;
+            let pressed = fire && !self.gunners[k].fire_held;
             self.gunners[k].fire_held = fire;
-            if !fire {
+            if !pressed {
                 continue;
             }
             let offset = self.gunners[k].offset;

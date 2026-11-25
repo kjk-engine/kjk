@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+503onda 0.6136
+503ondb 0.3817
+503ondc 0.3814
+503ondd 0.3007
+503onde 0.3538

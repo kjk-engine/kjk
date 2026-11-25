@@ -3,7 +3,7 @@
 //! Carth" over it (shortened to fit) and Leave on TSL's Forfeit button,
 //! a wager or a side deck being chosen told in words, as is a pause and
 //! why (R39), and no move sent whatever is pressed, on any of the three
-//! screens.
+//! screens. For the player's own table, where a pad's focus may go.
 
 use fmt_odyssey::gui::Kind;
 
@@ -33,6 +33,7 @@ fn screens() -> [(&'static str, &'static str, PazaakStage, Vec<String>); 3] {
     let named = |tags: &[&str]| tags.iter().map(|tag| tag.to_string()).collect::<Vec<_>>();
     let game = [
         numbered(&["BTN_PLRSIDE", "LBL_PLRSIDE", "BTN_FLIP", "BTN_CHANGE"], 4),
+        numbered(&["BTN_NPCSIDE"], 1),
         named(&[
             "BTN_XTEXT",
             "BTN_YTEXT",
@@ -326,7 +327,47 @@ pub(super) fn all() -> Vec<Check> {
         .flat_map(|(_, raised)| raised)
         .filter(|intent| !matches!(intent, Intent::Game(GameAction::StopWatching)))
         .collect();
+    // A pad's player at the table, the opponent holding a card: the focus
+    // walked down and up the table never comes to the opponent's card. On
+    // the opponent's turn nothing has the focus and A does nothing. When
+    // the turn comes back, the focus is where the player left it.
+    let turn = |whose: usize| {
+        let mut vm = player.clone();
+        if let Some(table) = vm.pazaak.as_mut() {
+            table.sides[1].hand[0] = Some(card());
+            table.turn = Some(whose);
+        }
+        vm
+    };
+    let (mine, theirs) = (turn(0), turn(1));
+    let mut pad = game(&mut assets, &mine);
+    let mut visited = Vec::new();
+    for key in [[Key::Down; 12], [Key::Up; 12]].concat() {
+        pad.step(&mut assets, &mine, &keys(&[key]));
+        visited.extend(pad.focused().map(str::to_string));
+    }
+    let left_on = pad.focused().map(str::to_string);
+    pad.step(&mut assets, &theirs, &keys(&[]));
+    let waiting = pad.focused().map(str::to_string);
+    let mashed = pad
+        .step(&mut assets, &theirs, &keys(&[Key::Activate, Key::Primary]))
+        .intents;
+    pad.step(&mut assets, &mine, &keys(&[]));
+    let back_on = pad.focused().map(str::to_string);
+    let opponent_focused = visited.iter().any(|tag| tag.starts_with("BTN_NPCSIDE"));
+    let pad_focus = expect(
+        &format!(
+            "visited {visited:?}; left on {left_on:?}, on the opponent's turn {waiting:?} raising {mashed:?}, back on {back_on:?}"
+        ),
+        !opponent_focused
+            && left_on.is_some()
+            && waiting.is_none()
+            && moves(&mashed).is_empty()
+            && back_on == left_on,
+    )
+    .map(|()| format!("the focus back on {left_on:?}"));
     vec![
+        check("pazaak_pad_focus", pad_focus),
         check(
             "pazaak_watch_table",
             expect(

@@ -3,7 +3,8 @@
 //! trades with; wearing what the party carries, on the seat's own
 //! character or, for the host, a companion nobody plays; taking a level (its
 //! picks); Security on a lock; closing the party selection screen; making
-//! a companion the party's leader; using an object (a door, a container, a
+//! a companion the party's leader; playing a companion no player controls;
+//! using an object (a door, a container, a
 //! placeable, a creature); reviving a downed party member; using an item
 //! (on itself, or a droid's on a foe); fitting an upgrade into an item and
 //! taking one out; calling or ending a break; readiness for, or forcing, a
@@ -101,6 +102,14 @@ pub enum Action {
     /// or the seat's own character, the player again. As `SetLeader`, the
     /// first seat's only.
     Lead(crate::snapshot::SimId),
+    /// Play party member `body`, a companion no player controls (the HUD's
+    /// portrait click, the leader key, for every seat but the first): the
+    /// seat's choice is kept for it (`drivers::Kept`), so it drives that
+    /// companion from this step, and the one it leaves goes back to its
+    /// mind. Refused for a companion another seat drives or the first seat
+    /// leads, and while the seat's body or the companion is in a
+    /// conversation, a pazaak match or a store (`drivers::assign`).
+    Play(crate::snapshot::SimId),
     /// Solo mode on or off (KOTOR's solo-mode button): the companions
     /// stand where they are rather than following the leader
     /// (`GetSoloMode`).
@@ -264,6 +273,16 @@ pub enum Action {
         whom: crate::snapshot::SimId,
         set: u8,
     },
+    /// The seat's player turned "Join nearby conversations" on or off. With
+    /// it on, the seat's body joins a conversation of the first seat's own
+    /// when it is free and near (`script::dialogue`). A player's game sends
+    /// it each time it connects, because options are not part of a save.
+    JoinTalks(bool),
+    /// The seat's player opened (true) or closed (false) a screen of its
+    /// own machine: a menu, the level-up screen or the workbench. While
+    /// one is open the seat counts as busy and joins no conversation by
+    /// standing near it.
+    Screen(bool),
 }
 
 /// What a player orders in a combat arena (`world::arena`).
@@ -499,6 +518,19 @@ const BAR: u8 = 65;
 const FEAT: u8 = 66;
 const GRENADE: u8 = 67;
 const MINE_KIT: u8 = 68;
+const PLAY: u8 = 69;
+const JOIN_TALKS: u8 = 72;
+const SCREEN: u8 = 73;
+
+/// A byte that is 0 (false) or 1 (true), as an action's flag.
+fn flag(input: &mut Reader) -> Result<bool, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(input.invalid("flag", at)),
+    }
+}
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -609,6 +641,10 @@ impl Action {
             }
             Action::Lead(body) => {
                 out.u8(LEAD);
+                out.u32(body.0);
+            }
+            Action::Play(body) => {
+                out.u8(PLAY);
                 out.u32(body.0);
             }
             Action::Solo(on) => {
@@ -745,6 +781,14 @@ impl Action {
                 out.u8(*page);
             }
             Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
+            Action::JoinTalks(on) => {
+                out.u8(JOIN_TALKS);
+                out.u8(u8::from(*on));
+            }
+            Action::Screen(open) => {
+                out.u8(SCREEN);
+                out.u8(u8::from(*open));
+            }
             Action::PickStance { whom, set } => {
                 out.u8(PICK_STANCE);
                 out.u32(whom.0);
@@ -843,6 +887,7 @@ impl Action {
             SCREEN_CLOSED => Action::ScreenClosed,
             SET_LEADER => Action::SetLeader(input.u8()?),
             LEAD => Action::Lead(crate::snapshot::SimId(input.u32()?)),
+            PLAY => Action::Play(crate::snapshot::SimId(input.u32()?)),
             TRAVEL => Action::Travel(input.u8()?),
             SOLO => Action::Solo(input.u8()? != 0),
             PUT => Action::Put {
@@ -947,6 +992,8 @@ impl Action {
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
             RETURN_TO_SHIP => Action::ReturnToShip,
+            JOIN_TALKS => Action::JoinTalks(flag(input)?),
+            SCREEN => Action::Screen(flag(input)?),
             PICK_STANCE => Action::PickStance {
                 whom: crate::snapshot::SimId(input.u32()?),
                 set: input.u8()?,
@@ -987,6 +1034,7 @@ impl Action {
             | Action::ShowParty
             | Action::SetLeader(_)
             | Action::Lead(_)
+            | Action::Play(_)
             | Action::Solo(_)
             | Action::Travel(_)
             | Action::Use { .. }
@@ -1023,7 +1071,9 @@ impl Action {
             | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_)
-            | Action::PickStance { .. } => None,
+            | Action::PickStance { .. }
+            | Action::JoinTalks(_)
+            | Action::Screen(_) => None,
         }
     }
 

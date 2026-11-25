@@ -974,6 +974,7 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
             uv_scroll: None,
             skin: None,
             dangly: None,
+            referenced: false,
         };
         match owner {
             Some((door, _)) => door_meshes[door].push(mesh),

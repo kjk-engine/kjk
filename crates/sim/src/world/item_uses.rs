@@ -60,6 +60,41 @@ pub(super) fn spend(
         .collect()
 }
 
+/// The `spells.2da` rows of the devices among `held` (items with their uses
+/// left) that a character of race `race` may use (`inventory::device_row`),
+/// each row once, lowest first. An item with no use left is not counted.
+fn device_rows<'a>(
+    library: &Library,
+    race: u8,
+    held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
+) -> Vec<u16> {
+    let mut rows: Vec<u16> = held
+        .into_iter()
+        .filter(|(uses, _)| *uses > 0)
+        .filter_map(|(_, facts)| {
+            crate::inventory::device_row(facts, race, |row| library.item_row(row))
+        })
+        .collect();
+    rows.sort_unstable();
+    rows.dedup();
+    rows
+}
+
+/// The `spells.2da` rows of the devices the party carries that a character
+/// of race `race` may use (`device_rows`).
+pub(super) fn party_devices(state: &State, library: &Library, race: u8) -> Vec<u16> {
+    let catalog = library.items();
+    let held = state
+        .items
+        .held_by(crate::inventory::PARTY)
+        .filter(|(_, item)| item.slot.is_none())
+        .filter_map(|(_, item)| {
+            let facts = state.item_facts(catalog, &item.template)?;
+            Some((item.uses(facts), facts))
+        });
+    device_rows(library, race, held)
+}
+
 /// Each character's usable kinds as its holder's goods have them, where
 /// those goods hold anything for it or its sheet shows kinds it no longer
 /// holds (a world whose goods are not kept, a test's arena, keeps its
@@ -134,7 +169,16 @@ pub(super) fn usable(
                 .filter(|(user, of)| *user == who.0 && *of == row)
                 .count()
         };
-        if items == sheet.items && taken.iter().all(|(user, _)| *user != who.0) {
+        // A party member's bar takes each device the party carries the
+        // first time the party carries it (`Bar::place_devices`).
+        let mut bar = sheet.bar;
+        if from != who.0 {
+            let carried = ready.get(&from).into_iter().flatten();
+            let devices = device_rows(library, sheet.race, carried.copied());
+            bar.place_devices(&devices);
+        }
+        if items == sheet.items && bar == sheet.bar && taken.iter().all(|(user, _)| *user != who.0)
+        {
             continue;
         }
         let used = std::array::from_fn(|at| {
@@ -151,7 +195,11 @@ pub(super) fn usable(
         });
         changes.push(Change::Usable {
             who,
-            sheet: Sheet { items, ..sheet },
+            sheet: Sheet {
+                items,
+                bar,
+                ..sheet
+            },
             used,
         });
     }

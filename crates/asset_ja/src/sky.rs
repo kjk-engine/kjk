@@ -75,6 +75,7 @@ pub fn model(level: &str, pictures: [String; 6], half: f32) -> ModelIr {
                 uv_scroll: None,
                 skin: None,
                 dangly: None,
+                referenced: false,
             }
         })
         .collect();

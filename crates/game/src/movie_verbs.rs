@@ -1,8 +1,9 @@
-//! The games' movies in the store (I20, `docs/SOUND.md`, "Movies"): a
-//! Bink from the install's `movies` folder, made ours by `ffmpeg` the first
-//! time it is wanted (`movie::ffmpeg`) and kept by its bytes' hash, so a
-//! movie is transcoded once per machine. Without `ffmpeg` there are no
-//! movies, and the reason is said.
+//! The games' movies (I20, `docs/SOUND.md`, "Movies"), from the install's
+//! `movies` folder. A Bink 1 movie, which every KOTOR and TSL movie is, is
+//! decoded by kjk as it plays (`film`). A movie of another kind is made
+//! ours by `ffmpeg` the first time it is wanted (`movie::ffmpeg`) and kept
+//! in the store by its bytes' hash, so it is transcoded once per machine.
+//! Without `ffmpeg`, such a movie is skipped, and the reason is said.
 //!
 //! - `kjk movie check`: the container and the JPEG splitting, on frames
 //!   made here;
@@ -85,6 +86,38 @@ pub(crate) fn movie(
     Ok((Movie::decode(made)?, Made::Now))
 }
 
+/// A movie to play: a Bink this build decodes as it plays, or a movie that
+/// `ffmpeg` made into the store.
+pub(crate) enum Film {
+    Bink(movie::Bink),
+    Stored(Movie),
+}
+
+/// `game`'s movie `name`, to play. Every KOTOR and TSL movie is Bink 1,
+/// which kjk decodes itself. Only a movie of another kind (a mod's Bink 2,
+/// say) is made by `ffmpeg`, as `movie` does.
+pub(crate) fn film(
+    store: Option<&Store>,
+    game: Game,
+    resolver: &Resolver,
+    name: &str,
+) -> Result<Film, String> {
+    let bytes = resolver
+        .stream(FOLDER, name, bik())
+        .ok_or(format!("no movie {name}"))?
+        .read()
+        .map_err(|error| format!("{name}: {error}"))?;
+    match movie::Bink::parse(bytes) {
+        Ok(bink) => Ok(Film::Bink(bink)),
+        Err(why) => {
+            bevy::log::info!(target: "movie", %name, %why, "made by ffmpeg");
+            movie(store, game, resolver, name)
+                .map(|(movie, _)| Film::Stored(movie))
+                .map_err(|error| format!("{why}, and {error}"))
+        }
+    }
+}
+
 /// `kjk movie check`: a movie made of frames made here reads back as made,
 /// and the frames split from one stream are the frames joined.
 pub fn check() -> ExitCode {
@@ -151,6 +184,69 @@ pub fn check() -> ExitCode {
         "a frame decodes to its picture".into(),
     );
     report.finish(json!({}))
+}
+
+/// `kjk movie compare <game> [names…] [--frames N]`: kjk's Bink decoder
+/// against `ffmpeg` on the install's movies (every one when none is named).
+/// Each picture must match exactly and each sound sample closely
+/// (`movie::compare`).
+pub fn compare(
+    discovery: &vfs::Discovery,
+    game: &str,
+    names: &[String],
+    frames: Option<usize>,
+) -> ExitCode {
+    let mut report = Report::default();
+    let run = |report: &mut Report| -> Result<serde_json::Value, String> {
+        let game = Game::from_key(game).ok_or(format!("{game}: k1 or tsl"))?;
+        let resolver = crate::viewer::resolver(discovery, game, None)?;
+        let mut wanted = names.to_vec();
+        if wanted.is_empty() {
+            wanted = self::names(&resolver);
+            wanted.sort();
+        }
+        let mut facts = Vec::new();
+        for name in &wanted {
+            let started = Instant::now();
+            let compared = (|| {
+                let location = resolver
+                    .stream(FOLDER, name, bik())
+                    .ok_or(format!("no movie {name}"))?;
+                let bink = movie::Bink::parse(location.read().map_err(|e| e.to_string())?)?;
+                let video =
+                    movie::compare::video(&location.path, &bink, frames.unwrap_or(usize::MAX))?;
+                let audio = movie::compare::audio(&location.path, &bink)?;
+                Ok::<_, String>((bink.width, bink.height, video, audio))
+            })();
+            let seconds = started.elapsed().as_secs_f64();
+            match &compared {
+                Ok((width, height, video, audio)) => outln!(
+                    "  {name}: {width}×{height}, {video} frames match, sound {} ({seconds:.1} s)",
+                    audio.map_or("none".into(), |largest| format!("within {largest}")),
+                ),
+                Err(why) => outln!("  {name}: {why}"),
+            }
+            report.check(
+                compared.is_ok(),
+                format!("{name} decodes as ffmpeg decodes it"),
+            );
+            facts.push(match compared {
+                Ok((width, height, video, audio)) => json!({
+                    "name": name, "size": [width, height], "frames": video,
+                    "largest_sample_difference": audio, "seconds": seconds,
+                }),
+                Err(why) => json!({ "name": name, "error": why }),
+            });
+        }
+        Ok(json!({ "game": game.key(), "movies": facts }))
+    };
+    match run(&mut report) {
+        Ok(facts) => report.finish(facts),
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// `kjk movie import <game> [names…]`: each movie made ours now (every one

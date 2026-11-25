@@ -136,6 +136,7 @@ pub fn install_hook(folder: PathBuf, facts: String) {
     if !first {
         return;
     }
+    native::install();
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let hooked = HOOKED.try_lock().ok().and_then(|hooked| hooked.clone());
@@ -176,22 +177,29 @@ pub fn install_hook(folder: PathBuf, facts: String) {
             if let Err(error) = written {
                 eprintln!("cannot write {}: {error}", folder.join(CRASH).display());
             }
-            // A Mac shows a dialog only from its main thread, and the render
-            // world may run on another. It tells the player on the next
-            // start (`notice`).
-            if lost.is_some() && cfg!(not(target_os = "macos")) {
-                tell_player();
+            if lost.is_some() {
+                default(info);
+                end_process();
             }
         }
         default(info);
     }));
 }
 
-/// What the player is told when the graphics driver stopped responding.
-pub const DRIVER_STOPPED: &str = "The graphics driver stopped responding, so kjk had to close. Updating the graphics driver may fix this. If it happens again, set Shadows to Low or Off in the options.";
+/// Ends the process at once, once the render device is lost. The other
+/// threads are not waited for. A lost device can make every later call into
+/// the driver hang, for example after the computer wakes from sleep, and the
+/// window would then stay on the screen and ignore all input. A dialog is not
+/// shown, because it could open behind a borderless window. The main menu
+/// tells the player what happened on the next start (`notice`).
+fn end_process() -> ! {
+    use std::io::Write;
+    let _ = std::io::stderr().flush();
+    std::process::exit(1)
+}
 
-/// What the main menu says once after a run that ended that way. `{report}`
-/// is the key bound to the bug report.
+/// What the main menu says once after a run that ended because the graphics
+/// driver stopped responding. `{report}` is the key bound to the bug report.
 pub const DRIVER_NOTICE: &str = "kjk closed last time because the graphics driver stopped responding. Updating the graphics driver may fix this. If it happens again, set Shadows to Low or Off in the options. Press {report} to create a bug report.";
 
 /// How `crash.txt` begins when the render device was lost. The notice looks
@@ -200,18 +208,6 @@ const LOST_MARK: &str = "the graphics driver stopped responding (render device l
 
 /// The driver's reason, once the render device was lost (`watch_device`).
 static LOST: Mutex<Option<String>> = Mutex::new(None);
-
-/// Whether the player was told already, by the panic hook or by
-/// `end_on_lost_device`.
-static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Whether this run is a player's, who is shown a dialog (`PlayerRun`).
-static PLAYER_DIALOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Makes a lost render device show a dialog in this run (a player's).
-pub fn dialog_on_lost_device(player: PlayerRun) {
-    PLAYER_DIALOG.store(player.0, std::sync::atomic::Ordering::Relaxed);
-}
 
 /// Records that the render device was lost, and why.
 pub fn lose_device(reason: String) {
@@ -235,29 +231,13 @@ pub fn lost_device_in(folder: &Path) -> bool {
     std::fs::read_to_string(folder.join(CRASH)).is_ok_and(|text| text.contains(LOST_MARK))
 }
 
-/// Shows `DRIVER_STOPPED` in a dialog, once, in a player's run.
-fn tell_player() {
-    use std::sync::atomic::Ordering;
-    if !PLAYER_DIALOG.load(Ordering::Relaxed) || TOLD.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    rfd::MessageDialog::new()
-        .set_title("kjk")
-        .set_description(DRIVER_STOPPED)
-        .set_level(rfd::MessageLevel::Error)
-        .show();
-}
-
 /// Ends the game when the render device is lost. Bevy's own callback for a
-/// lost device is replaced by `watch_device`, which records the loss for
-/// the panic hook. A loss that no panic follows ends the game here, with
-/// the same report.
+/// lost device is replaced by `watch_device`, which writes the report and
+/// ends the process before anything calls the driver again.
 pub struct DeviceLostPlugin;
 
 impl bevy::app::Plugin for DeviceLostPlugin {
-    fn build(&self, app: &mut bevy::app::App) {
-        app.add_systems(bevy::app::First, end_on_lost_device);
-    }
+    fn build(&self, _app: &mut bevy::app::App) {}
 
     fn finish(&self, app: &mut bevy::app::App) {
         if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
@@ -269,51 +249,35 @@ impl bevy::app::Plugin for DeviceLostPlugin {
 }
 
 /// Replaces Bevy's callback for a lost device, which it set as it made the
-/// device. Bevy's callback logs the loss and quits at the next frame's extract, but
-/// the render systems still run before that and panic on the first buffer
-/// they write. This one logs the loss too, and records it before any of
-/// that, so the panic's report and the player are told what happened.
+/// device. Bevy's callback logs the loss and quits at the next frame's
+/// extract. The render systems still run before that, and they call into a
+/// driver that may no longer answer. This one writes `crash.txt` and ends
+/// the process at once. A device that the game destroys itself, as it quits,
+/// is not a loss.
 fn watch_device(device: bevy::prelude::Res<bevy::render::renderer::RenderDevice>) {
     device
         .wgpu_device()
-        .set_device_lost_callback(|reason, text| on_device_lost(format!("{reason:?} {text}")));
+        .set_device_lost_callback(|reason, text| {
+            if reason == wgpu::DeviceLostReason::Destroyed {
+                bevy::log::info!("the render device was destroyed: {text}");
+                return;
+            }
+            on_device_lost(format!("{reason:?} {text}"));
+        });
 }
 
-fn on_device_lost(reason: String) {
+fn on_device_lost(reason: String) -> ! {
     bevy::log::error!("Caught DeviceLost error: {reason}");
     bevy::log::error!("{}", crate::render_facts::text());
-    lose_device(reason);
-}
-
-/// `facts` with the render facts of the last frames below them
-/// (`render_facts`), for the crash of a lost render device.
-pub fn with_render_facts(facts: &str) -> String {
-    format!("{facts}{}", crate::render_facts::text())
-}
-
-/// Ends the game once the render device is lost, with `crash.txt` and the
-/// dialog, unless a panic did so first.
-fn end_on_lost_device(
-    folder: Option<bevy::prelude::Res<console::RunFolder>>,
-    mut exit: bevy::prelude::MessageWriter<bevy::app::AppExit>,
-    mut ended: bevy::prelude::Local<bool>,
-) {
-    let Some(reason) = device_lost().filter(|_| !*ended) else {
-        return;
-    };
-    *ended = true;
+    lose_device(reason.clone());
     bevy::log::error!("the render device was lost, so the game ends");
-    if let Some(folder) = folder
-        && !folder.0.join(CRASH).exists()
+    let hooked = HOOKED.try_lock().ok().and_then(|hooked| hooked.clone());
+    if let Some((folder, facts)) = hooked
+        && !folder.join(CRASH).exists()
     {
-        let facts = HOOKED
-            .try_lock()
-            .ok()
-            .and_then(|hooked| hooked.as_ref().map(|(_, facts)| facts.clone()))
-            .unwrap_or_else(facts);
         let thread = std::thread::current();
         if let Err(error) = write_crash(
-            &folder.0,
+            &folder,
             &lost_line(&reason),
             "the render device",
             thread.name().unwrap_or("unnamed"),
@@ -321,11 +285,16 @@ fn end_on_lost_device(
             &with_render_facts(&facts),
             crumbs().as_ref(),
         ) {
-            bevy::log::error!("cannot write {}: {error}", folder.0.join(CRASH).display());
+            eprintln!("cannot write {}: {error}", folder.join(CRASH).display());
         }
     }
-    tell_player();
-    exit.write(bevy::app::AppExit::error());
+    end_process()
+}
+
+/// `facts` with the render facts of the last frames below them
+/// (`render_facts`), for the crash of a lost render device.
+pub fn with_render_facts(facts: &str) -> String {
+    format!("{facts}{}", crate::render_facts::text())
 }
 
 /// What the player is told when the only graphics adapter that Vulkan,
@@ -376,14 +345,10 @@ pub fn refuse_software_adapter(
 }
 
 /// `KJK_LOSE_DEVICE=N` (probes only): loses the render device on the render
-/// world's Nth frame, as a driver that stops responding loses it. wgpu then
-/// calls the callback at once and makes the device invalid. Here the
-/// callback is called first, and destroying the device makes it invalid.
+/// world's Nth frame, as a driver that stops responding loses it: the
+/// callback that wgpu calls then runs, and it ends the process.
 #[cfg(feature = "probes")]
-fn probe_lose_device(
-    device: bevy::prelude::Res<bevy::render::renderer::RenderDevice>,
-    mut frames: bevy::prelude::Local<u32>,
-) {
+fn probe_lose_device(mut frames: bevy::prelude::Local<u32>) {
     let Some(at) = std::env::var("KJK_LOSE_DEVICE")
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
@@ -394,7 +359,6 @@ fn probe_lose_device(
     if *frames == at {
         bevy::log::warn!("KJK_LOSE_DEVICE: the render device is lost");
         on_device_lost("Unknown KJK_LOSE_DEVICE".into());
-        device.wgpu_device().destroy();
     }
 }
 
@@ -534,6 +498,7 @@ pub(crate) fn kept(mut folders: Vec<PathBuf>, keep: usize, now: SystemTime) -> V
     crashed
 }
 
+pub mod native;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]

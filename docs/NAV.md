@@ -142,7 +142,21 @@ route stands and looks again after KOTOR's pathfinding wait, 2 s and
 puts `AddPathfindingWaitActionToFront` before the move when `PlotPath`
 fails; its `HandlePathfindError` only logs, so it never gives the move
 up): a scene that opens a door a moment after sending a walker through
-it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens. A
+it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens.
+The script's move that started the walk decides whether it waits. A move
+to a place with no way there fails after `scripts.moves.grace_ms`, as
+TSL's `ActionMoveToLocation` queues the move alone, and the move is dropped
+when no path is found. A move to an object does not fail. TSL's
+`ActionMoveToObject` queues a check behind the move, and the check queues
+the move again after each pathfinding wait until the mover is in range. A
+walk to an object with no way past the doors as they stand plans through
+the doors that will not open for it (`walk::ThroughShut`): it walks up to
+the first such door, stands before its panel with its stalls not counted,
+never passes it, and walks through once a script opens it. With no way
+even through those doors, it stands and looks again after each pathfinding
+wait. TSLRCM sends
+Atris into her meditation chamber at the Telos academy this way, 15 s
+before the scene unlocks its door (`a_262walkatris3`). A
 new walk (no corner yet) is not stalled: planned as one, it passed over a
 goal within a skip of it, and a scripted step of a metre or so was given
 up at once (`Walker::command_round`). A body whose box its step would enter (not one at the walk's
@@ -207,6 +221,44 @@ kjk collision nav k1 end_m01aa     # the bake twice, 500 routes checked leg by l
 kjk collision walk k1 end_m01aa    # 50 walks through move_body, doors opened by use
 kjk --project P collision walk k1 danm13 --from 90,92,5.14 --to 95,92,6.14   # one walk, across links
 ```
+
+## Where walks still differ from the original
+
+TSL's executable was read on 2026-11-22 to check how a scripted walk meets a
+closed or locked door. kjk matches it for a walk to an object behind a
+locked door: the walker goes up to the door and waits, and walks through
+once the door opens. Four differences are left. Each one changes many
+scenes in both games, so each needs its own change and a run of every
+route in both games.
+
+1. **A walk to a place, blocked only by a door.** In the original, a walk
+   to a place plans through any door that is not Static, walks up to the
+   door, runs the walker's OnBlocked script there, and ends as done. In
+   kjk the walk ends after `scripts.moves.grace_ms` and the walker stays
+   where it stood. Only when no route exists at all, through a Static door
+   or off the walkmesh, does the original stand still, wait 2 to 4 s and
+   drop the move, as kjk does.
+2. **Doors in path planning.** The original plans through every door that
+   is not Static, closed, open or locked alike. It never checks the lock or
+   whether the walker could open the door, and it does not prefer a way
+   round through an open door. kjk plans round a door that will not open
+   for the walker, and plans through one only when no other route exists.
+3. **Who opens a door.** In the original the engine never opens a door for
+   a walker. The walker stops about one body width short of the closed
+   door and runs its OnBlocked script. The default script
+   (`k_def_blocked01`, which runs `k_ai_master` with event 1009) opens an
+   unlocked door, or bashes it if it can be bashed. A creature with no such
+   script, or a character the player controls, stands at an unlocked door.
+   In kjk the walker opens the door itself. This difference has to change
+   together with difference 2.
+4. **Walking part of the way.** When the original finds no route, and the
+   straight line to the goal stays on the walkmesh but an object blocks
+   it, the walker walks along that line to the farthest clear point. kjk
+   does not walk part of the way.
+
+The suggested order is 1, then 2 and 3 together, then 4. Before changing
+difference 1, log every walk to a place that ends with no route, and run
+every route in both games, to list the scenes it changes.
 
 The walk test plans its module without scripts (`Level::without_scripts`):
 a scene's trigger held the walker in its conversation where it stood (the

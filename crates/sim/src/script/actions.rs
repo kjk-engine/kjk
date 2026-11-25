@@ -68,6 +68,12 @@
 //!   completes;
 //! - **bark** (`ActionBarkString`): the object barks the line as
 //!   `BarkString` does, and completes;
+//! - **sound** (`PlaySound`): the object plays the sound, and completes.
+//!   TSL's executable queues `PlaySound` behind the object's other
+//!   actions, so a sound waits for what is before it [verify in K1's
+//!   exe]. A Tach on Kashyyyk wanders (`ActionRandomWalk`, which never
+//!   completes), so the screech its conversation event queues for every
+//!   combat shout it hears waits, and the next heartbeat clears it;
 //! - **follow owner** (TSL's `ActionFollowOwner`, a puppet's): while its
 //!   owner (`GetPUPOwner`) stands within its range (2D), or it has none, it
 //!   holds the queue; farther, a run to where the owner stands, within the
@@ -219,6 +225,11 @@ pub enum Action {
     Bark {
         strref: u32,
     },
+    /// `PlaySound`: the object plays the sound `resref` when its turn
+    /// comes.
+    Sound {
+        resref: String,
+    },
     /// TSL's `ActionFollowOwner`: a puppet keeps within `range` (metres) of
     /// its owner.
     FollowOwner {
@@ -266,6 +277,7 @@ impl Action {
             Action::Cast { .. } => "cast",
             Action::Surrender => "surrender",
             Action::Bark { .. } => "bark",
+            Action::Sound { .. } => "sound",
             Action::FollowOwner { .. } => "follow owner",
             Action::Follow { .. } => "force follow",
             Action::PickUp { .. } => "pick up",
@@ -303,7 +315,8 @@ impl Action {
             | Action::SwitchWeapons
             | Action::Instant { .. }
             | Action::Surrender
-            | Action::Bark { .. } => "ACTION_INVALID",
+            | Action::Bark { .. }
+            | Action::Sound { .. } => "ACTION_INVALID",
         }
     }
 }
@@ -313,6 +326,23 @@ impl Action {
 pub struct Queued {
     pub action: Action,
     pub started_ms: Option<u64>,
+}
+
+/// Whether the script move first in `queue` waits at a door that will not
+/// open for its walk (`walk::ThroughShut`): a move to an object, not a
+/// forced one. TSL's `ActionMoveToObject` keeps its move going until the
+/// mover is in range, and a forced move jumps at its timeout instead.
+pub fn waits_at_doors(queue: Option<&Vec<Queued>>) -> bool {
+    queue.and_then(|queue| queue.first()).is_some_and(|queued| {
+        matches!(
+            queued.action,
+            Action::Move {
+                to: Target::Object(_),
+                force_ms: None,
+                ..
+            }
+        )
+    })
 }
 
 /// Where a moving object's mind should route it this step (units).

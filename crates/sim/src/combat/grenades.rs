@@ -440,7 +440,7 @@ pub fn afflict(
                 return fighter.force.weary(now);
             }
         }
-        Secondary::Knockdown => fighter.saber.knock_down(now, ja::KNOCKDOWN_MS),
+        Secondary::Knockdown => fighter.knock_down(now, ja::KNOCKDOWN_MS),
         // Knight and Master Valor and the improved Energy Resistance keep
         // poison off, and so does one already running.
         Secondary::Poison { .. }

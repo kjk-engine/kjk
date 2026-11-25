@@ -18,6 +18,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("shared button", shared_button()),
         ("bar defaults", bar_defaults()),
         ("unbound menu and interface keys", unbound_defaults()),
+        ("photo mode key", photo_mode_key()),
         ("aim defaults", aim_defaults()),
         ("aim command", aim_command()),
         ("layout 8", layout_8()),
@@ -120,6 +121,28 @@ fn unbound_defaults() -> Result<String, String> {
     check(
         wrong.is_empty() && on_pad.is_empty(),
         format!("wrong {wrong:?}, no controller row {on_pad:?}"),
+    )
+}
+
+/// A fresh settings file puts Photo mode on F2, with no chord on the
+/// controller, and its row on both of the Controls screen's tabs. Every
+/// action has a saved name of its own and a label.
+fn photo_mode_key() -> Result<String, String> {
+    let settings = Settings::defaults();
+    let wrong = unlike_defaults(&settings, &[("photo_mode", "Photo mode", "F2", "")]);
+    let names: std::collections::BTreeSet<&str> =
+        ACTIONS.iter().map(|(_, name, ..)| *name).collect();
+    let unlabelled: Vec<&str> = (ACTIONS.iter())
+        .filter(|(_, name, label, ..)| name.is_empty() || label.is_empty())
+        .map(|(_, name, ..)| *name)
+        .collect();
+    check(
+        wrong.is_empty() && names.len() == ACTIONS.len() && unlabelled.is_empty(),
+        format!(
+            "wrong {wrong:?}, {} names for {} actions, unlabelled {unlabelled:?}",
+            names.len(),
+            ACTIONS.len()
+        ),
     )
 }
 

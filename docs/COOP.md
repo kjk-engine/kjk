@@ -16,6 +16,29 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
   connection ends leaves its companion to its AI, kept for it 60 s
   (`KEEP_MS`, `Snapshot::kept`): no other seat takes it, back it takes it
   first, planning counts it meanwhile.
+- A guest can take any companion no player controls, at any time outside
+  a conversation, a pazaak match or a store. A party conversation, one that
+  holds every player, refuses every take, and so does a pazaak match the
+  guest's companion watches. The guest clicks the
+  companion's portrait or presses the leader key, and its game sends
+  `Action::Play`. The guest's HUD lists the whole party for this, its own
+  body first (`cast::bar_of`). The host writes the choice to `Kept`, so in
+  that step the guest drives the companion and the one it left goes back
+  to its AI. A companion kept for a guest who is away counts as free,
+  because its AI plays it. Two guests who ask for one companion in a step
+  are decided in seat order. A guest whose companion is down keeps it
+  until the guest takes another. A guest flying a droid can take a
+  companion too, and its HUD then lists the whole party as the first seat
+  sees it. The host's machine uses the same action when a guest
+  plays the main character. The main character is never free in play.
+  Probes `take_free_companion` to `set_leader_before_a_take`, and the
+  `leader key` group of `kjk sim probes`.
+- No seat takes a character another seat plays. The first seat's leader
+  switch (`Action::Lead`, `Action::SetLeader`) onto a guest's companion is
+  refused, and so is a guest's take of it. The first seat's leader switch
+  onto a free companion comes before a guest's take of it in the same
+  step. A portrait of a character another player plays shows that
+  player's number ("P2").
 - The companion stays a creature (`Kind::Object`): its mind's `driver`
   names the seat and the world derives `Avatar(seat)`, so moving, Use,
   containers, locks and exits are its seat's. A story's script or a
@@ -121,8 +144,11 @@ instead of a welcome (`net::session::lobby`, messages 16 to 20).
 - One rule says which companions can be chosen
   (`sim::script::party_choice`), the same one the in-game party selection
   screen uses. A companion the story has taken away cannot be chosen.
-- The host chooses the saber rules and the collision, and fills the
-  companion places no guest took. The game controls those companions.
+- The host chooses the saber rules, the collision and "Show chosen
+  replies", and fills the companion places no guest took. The game
+  controls those companions. With "Show chosen replies" on (the default),
+  the reply a player takes is shown to every player in the conversation
+  before it runs (`DIALOGUE.md`, "The chosen reply").
 - Start writes the lobby's party into the save as the party changes the
   games' own scripts make (`Save::queue_party`), seeds each guest's seat
   with its companion (`Save::seat_companions`, through `Kept`), and plans
@@ -175,7 +201,9 @@ Any player can play the main character
   companions nobody plays.
 - The host's machine runs the world from whatever seat its player has. It
   saves, autosaves, loads and reloads after the party falls, and its lost
-  box offers Load. Its own controls are read from its own seat
+  box offers Load. Its in-game Load loads one of its own saves in place
+  for every player, as the reload after a fall does. A guest's Load is
+  greyed. Its own controls are read from its own seat
   (`sim_host::Authority::seat`, the `OwnSeat` the screens read).
 - The seats last the whole session: a module change and the reload after
   the party fell keep them. A save keeps no seats. Loaded alone or hosted

@@ -25,7 +25,8 @@ pub enum Key {
     PrevPage,
     /// The screen's OK, Done or Accept (gamepad Menu); one with none closes.
     Accept,
-    /// The screen's second button (gamepad Y): Default, Take all.
+    /// The screen's second button (gamepad Y): Default, Take all. On an
+    /// in-game page with no use of its own for it, the next party member.
     Second,
     ScrollUp,
     ScrollDown,

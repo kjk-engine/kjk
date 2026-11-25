@@ -1,0 +1,8 @@
+# 1.0 of the lit level of each room.
+231tela 0.3990
+231telb 0.4019
+231telc 0.3634
+231teld 0.3497
+231tele 0.3055
+231telea 0.2951
+231telwe 0.2380

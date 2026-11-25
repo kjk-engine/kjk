@@ -425,9 +425,15 @@ the games' own compiled scripts; nothing of them is in the repo.
   (`snapshot::WorldFadeIn`; `end_m01aa`'s own fade in, a 3 s hold, stands;
   `tar_m03af`'s `k_ptar_postswoop` cut to black after a race is lifted);
   `HoldWorldFadeInForDialog` there defers it to a conversation's start
-  (`ebo_m41aa`: black until Carth speaks); a conversation starting (not
-  a bark or a one-liner) lifts one too (`k_ptar_postrace`'s fade to
-  black before Brejik's scene). TSL's `SetFadeUntilScript` locks the
+  (`ebo_m41aa`: black until Carth speaks). Any conversation started lets
+  go of that hold, even a bark, a one-liner or one with no entry to start
+  from. The Ebon Hawk's vision talk after the last Star Map
+  (`ebo_bast_vision`) has no line left to say, and the area fades in all
+  the same (issue 645). A conversation starting (not a bark or a
+  one-liner) lifts any covering fade too (`k_ptar_postrace`'s fade to
+  black before Brejik's scene). A loaded game's area fades in, its hold
+  gone, as the games keep neither the fade nor the hold in a save
+  (`Snapshot::fade_in_as_loaded`). TSL's `SetFadeUntilScript` locks the
   fade standing: only `SetGlobalFadeIn` lifts it. [verify in the game]
   the moments: after the arrival's scripts, at a conversation's start.
   DLG nodes' own fades (`FadeType`): `DIALOGUE.md`, "Fades"; scripts and

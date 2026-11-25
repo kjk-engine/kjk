@@ -563,6 +563,23 @@ impl<'r> Reader<'r> {
             .clone()
     }
 
+    /// The faces of room `name`'s walkmesh one can walk on, in the area's
+    /// space, as the game reads a room's floor (`floor` in
+    /// `crates/game/src/viewer.rs`).
+    pub(crate) fn walkable_faces(&self, name: &str) -> Vec<[[f32; 3]; 3]> {
+        let Some(walkmesh) = self.resolver.read(name, ResType::WOK).and_then(|bytes| Walkmesh::parse(&bytes).ok())
+        else {
+            return Vec::new();
+        };
+        (walkmesh.faces.iter())
+            .filter(|face| self.walk.get(face.material as usize).copied().unwrap_or(false))
+            .filter_map(|face| {
+                let corner = |i: usize| walkmesh.vertices.get(face.vertices[i] as usize).copied();
+                Some([corner(0)?, corner(1)?, corner(2)?])
+            })
+            .collect()
+    }
+
     /// Whether room `name`'s walkmesh has a face one can walk on. A room
     /// without one is a sky, a backdrop or a cutscene set.
     fn walkable(&self, name: &str) -> bool {
@@ -624,7 +641,7 @@ pub(crate) struct Object {
     pub(crate) frame: Matrix,
 }
 
-fn frame(offset: [f32; 3], facing: f32) -> Matrix {
+pub(crate) fn frame(offset: [f32; 3], facing: f32) -> Matrix {
     let (sin, cos) = facing.sin_cos();
     [
         [cos, -sin, 0.0, offset[0]],

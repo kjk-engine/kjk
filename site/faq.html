@@ -68,14 +68,8 @@
       <details id="movies">
         <summary>The movies don't play.</summary>
         <div class="a">
-          <p>The movies need ffmpeg. kjk runs without it, but skips the movies. The launcher tells you when ffmpeg is missing.</p>
-          <p>To install ffmpeg on Windows:</p>
-          <ol>
-            <li>Press Win + R, type <code>cmd</code> and press Enter.</li>
-            <li>Type <code>winget install Gyan.FFmpeg</code> and press Enter.</li>
-            <li>Close the command window, then restart the launcher and kjk.</li>
-          </ol>
-          <p>If winget says "Failed to update source", open the command window as administrator and try again. On macOS and Linux, install <a href="https://ffmpeg.org/download.html">ffmpeg</a> with your package manager.</p>
+          <p>kjk plays the games' movies by itself, so you do not need to install anything else. This includes high-resolution movies from mods.</p>
+          <p>If a movie still does not play, update kjk to the latest version. Then check that the game's Movies folder has the movie files.</p>
         </div>
       </details>
 
@@ -269,7 +263,15 @@
       <details id="reshade">
         <summary>Does ReShade work?</summary>
         <div class="a">
-          <p>Some players have run ReShade 5.8 with kjk's Vulkan renderer. Newer ReShade versions have crashed kjk. Tools that change the original game's program do not work, because kjk does not run that program.</p>
+          <p>Yes, on Windows, with launcher 0.3.1 or newer. ReShade 5.8.0 and 6.8.0 both work. You set ReShade up once, and it stays set up when kjk updates.</p>
+          <ol>
+            <li>Run ReShade's setup.</li>
+            <li>When it asks for a game, choose <code>kjk-launcher.exe</code>, not <code>kjk.exe</code>.</li>
+            <li>When it asks for the rendering API, choose Vulkan. kjk draws with Vulkan, so the other choices do nothing.</li>
+            <li>Start kjk with the launcher's Play button.</li>
+          </ol>
+          <p>If you set ReShade up on <code>kjk.exe</code> instead, ReShade 6 stops kjk from starting.</p>
+          <p>Tools that change the original game's program do not work, because kjk does not run that program.</p>
         </div>
       </details>
     </section>

@@ -268,7 +268,7 @@ fn wears(
                     &|_| false,
                 ))
                 .and_then(|(resolver, worn)| {
-                    crate::persona::wear((resolver, None), &mut tables, worn)
+                    crate::persona::wear((resolver, (None, None)), &mut tables, worn)
                 });
             Ok(worn.unwrap_or_else(|| {
                 let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];
@@ -372,6 +372,8 @@ pub fn compose(
     let mut ambient_effects = Vec::new();
     let mut sound = None;
     let mut probes = Default::default();
+    let (mut baked, mut dark_unlit) = (false, false);
+    let mut stored_lightmaps = BTreeMap::new();
     let mut name = body.label.clone();
     // A module's scene comes first: its rooms and doors name their models
     // by index.
@@ -398,6 +400,9 @@ pub fn compose(
         notes.extend(module.creature_notes);
         sound = module.sound;
         probes = module.probes;
+        baked = module.baked;
+        dark_unlit = module.dark_unlit;
+        stored_lightmaps = module.stored_lightmaps;
     }
     let mut blades = Vec::new();
     let mut arms = BTreeMap::new();
@@ -434,6 +439,9 @@ pub fn compose(
         missing_body_textures: Vec::new(),
         default_envmap: None,
         probes,
+        baked,
+        dark_unlit,
+        stored_lightmaps,
         entry: None,
         missing_models: Vec::new(),
         rooms,

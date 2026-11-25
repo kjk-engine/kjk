@@ -105,10 +105,6 @@ pub(crate) enum Verb {
         /// The folder the files are written to
         #[arg(long, default_value_os_t = room_light_fit::default_out())]
         out: std::path::PathBuf,
-        /// Also bake the area's lightmaps from the fitted lights into this
-        /// folder, as kjk detail-bake writes them (step 10)
-        #[arg(long)]
-        bake: Option<std::path::PathBuf>,
         /// Also try this many places for lights the files do not list
         #[arg(long, default_value_t = 0)]
         free: usize,
@@ -125,10 +121,11 @@ pub(crate) enum Verb {
         #[arg(long)]
         found: bool,
     },
-    /// An area's lightmaps made four times larger, with the detail the
-    /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
-    /// one PNG for each lightmap. The game draws them when
-    /// KJK_DETAIL_BAKE names the area's folder.
+    /// An area's lightmaps baked anew from the game's fitted lights, at
+    /// four times their stored size, on the graphics card. Writes one PNG
+    /// for each lightmap into two sets: a, the live look with shadows and
+    /// bounced light, and b, the lamps alone, which the lighting download
+    /// ships. The game shows b with KJK_FITTED_LIGHTS=baked
     DetailBake(crate::editor_tools::DetailBakeArgs),
     /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
@@ -512,7 +509,6 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             game,
             every_glow,
             out,
-            bake,
             free,
             free_keep,
             free_dark,
@@ -523,7 +519,6 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             game.as_deref(),
             every_glow,
             &out,
-            bake.as_deref(),
             if found && free == 0 {
                 (1000, 200, 1.0)
             } else {
@@ -1148,7 +1143,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the player's, or a hand card played away) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>

@@ -322,6 +322,7 @@ impl Restore<'_> {
         state.unescapable = story.unescapable.iter().cloned().collect();
         state.transit = story.transit.clone();
         state.party.party_ai = story.party_ai;
+        state.hints = story.hints.state();
     }
 
     /// The players' characters, on their seats' bodies: sheet, points,
@@ -543,9 +544,13 @@ impl Restore<'_> {
                 continue;
             };
             for item in items {
-                let made =
-                    self.state
-                        .make_item(catalog, &item.template, holder, item.stack, item.slot);
+                let made = self.state.restore_item_unstacked(
+                    catalog,
+                    &item.template,
+                    holder,
+                    item.stack,
+                    item.slot,
+                );
                 let Some(made) = made else {
                     self.lost.push(format!(
                         "{label}: item {}, not among this module's items or the install's",
@@ -560,9 +565,7 @@ impl Restore<'_> {
                     if sim::inventory::resref_of(&kept.template) == item.template {
                         kept.template = item.template.clone();
                     }
-                    kept.charges = item.charges;
-                    kept.upgrades = item.upgrades;
-                    kept.fitted = item.fitted.clone();
+                    item.apply(&mut kept);
                 }
             }
         }

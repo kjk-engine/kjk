@@ -68,6 +68,37 @@ pub struct Story {
     pub transit: BTreeMap<String, bool>,
     /// What is kept of each module visited, by lowercase name.
     pub visited: BTreeMap<String, StoryModule>,
+    pub hints: StoryHints,
+}
+
+/// The next row to show of the gameplay hints, and of the story hints. KOTOR
+/// 1 has one story counter and KOTOR 2 has one for each planet. A story
+/// from before the counters were kept starts each at its first row.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StoryHints {
+    pub gameplay: u8,
+    pub story: Vec<u8>,
+}
+
+impl StoryHints {
+    fn of(hints: sim::script::Hints) -> StoryHints {
+        StoryHints {
+            gameplay: hints.gameplay,
+            story: hints.story.to_vec(),
+        }
+    }
+
+    pub(crate) fn state(&self) -> sim::script::Hints {
+        let mut hints = sim::script::Hints {
+            gameplay: self.gameplay,
+            ..sim::script::Hints::default()
+        };
+        for (row, kept) in hints.story.iter_mut().zip(&self.story) {
+            *row = *kept;
+        }
+        hints
+    }
 }
 
 /// Where the leader stands.
@@ -146,6 +177,65 @@ pub struct StoryItem {
     /// upgrade items by template.
     pub upgrades: u32,
     pub fitted: Vec<String>,
+    /// The flags scripts may have changed (`Item::plot`, `droppable`,
+    /// `identified` and `non_equippable`). A story written before they were
+    /// kept has none, and the template's value stands.
+    pub plot: Option<bool>,
+    pub droppable: Option<bool>,
+    pub identified: Option<bool>,
+    pub non_equippable: Option<bool>,
+}
+
+impl StoryItem {
+    /// What a story keeps of `item`. Every field of `Item` is named, so an
+    /// `Item` that gains a field does not compile until the story keeps it
+    /// or leaves it out on purpose. Two fields are left out on purpose.
+    /// The holder is left out because the story's key names it, and
+    /// `infinite` is left out because a store's template gives it again.
+    pub fn of(item: &sim::inventory::Item) -> StoryItem {
+        let sim::inventory::Item {
+            template,
+            holder: _,
+            slot,
+            stack,
+            charges,
+            droppable,
+            plot,
+            identified,
+            infinite: _,
+            non_equippable,
+            upgrades,
+            fitted,
+        } = item;
+        StoryItem {
+            template: template.clone(),
+            slot: *slot,
+            stack: *stack,
+            charges: *charges,
+            upgrades: *upgrades,
+            fitted: fitted.clone(),
+            plot: Some(*plot),
+            droppable: Some(*droppable),
+            identified: Some(*identified),
+            non_equippable: Some(*non_equippable),
+        }
+    }
+
+    /// Puts what the story kept onto `item`, which a restore made from the
+    /// item's template. The template, the holder and `infinite` stay as
+    /// they are, and a flag an old story did not keep stays as the
+    /// template gave it.
+    pub fn apply(&self, item: &mut sim::inventory::Item) {
+        item.slot = self.slot;
+        item.stack = self.stack.max(1);
+        item.charges = self.charges;
+        item.upgrades = self.upgrades;
+        item.fitted = self.fitted.clone();
+        item.plot = self.plot.unwrap_or(item.plot);
+        item.droppable = self.droppable.unwrap_or(item.droppable);
+        item.identified = self.identified.unwrap_or(item.identified);
+        item.non_equippable = self.non_equippable.unwrap_or(item.non_equippable);
+    }
 }
 
 /// The galaxy map's planets (`planetary.2da` rows).
@@ -287,6 +377,7 @@ impl Story {
             unescapable: script.unescapable.iter().cloned().collect(),
             transit: script.transit.clone(),
             visited: visited(snapshot, script),
+            hints: StoryHints::of(script.hints),
             ..Story::default()
         }
     }
@@ -333,6 +424,25 @@ impl Story {
                 again.roster.clear();
             }
         }
+        // An item flag kept as none (a story from before the flags were
+        // kept) is compared without it, as the template's value stands.
+        for (holder, kept) in &before.items {
+            let Some(again) = after.items.get_mut(holder) else {
+                continue;
+            };
+            for (kept, again) in kept.iter().zip(again.iter_mut()) {
+                for (kept, again) in [
+                    (kept.plot, &mut again.plot),
+                    (kept.droppable, &mut again.droppable),
+                    (kept.identified, &mut again.identified),
+                    (kept.non_equippable, &mut again.non_equippable),
+                ] {
+                    if kept.is_none() {
+                        *again = None;
+                    }
+                }
+            }
+        }
         (before.differing(&after), off)
     }
 
@@ -358,6 +468,7 @@ impl Story {
             ("unescapable", a.unescapable == b.unescapable),
             ("transit", a.transit == b.transit),
             ("visited", a.visited == b.visited),
+            ("hints", a.hints.state() == b.hints.state()),
         ];
         fields
             .into_iter()
@@ -564,14 +675,7 @@ fn held_items(
             let items: Vec<StoryItem> = script
                 .items
                 .held_by(holder)
-                .map(|(_, item)| StoryItem {
-                    template: item.template.clone(),
-                    slot: item.slot,
-                    stack: item.stack,
-                    charges: item.charges,
-                    upgrades: item.upgrades,
-                    fitted: item.fitted.clone(),
-                })
+                .map(|(_, item)| StoryItem::of(item))
                 .collect();
             (!items.is_empty()).then_some((label, items))
         })

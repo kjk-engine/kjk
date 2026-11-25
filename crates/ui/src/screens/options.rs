@@ -372,8 +372,17 @@ const ANTIALIAS: &str = "display.msaa";
 const SHADOWS_KEY: &str = "display.shadows";
 const ULTRA: &str = "ultra";
 
+/// The lighting setting, its value that needs the lighting download, and
+/// its control (`game::lighting_bakes`).
+const LIGHTING_KEY: &str = "display.lighting";
+const BAKED: &str = "baked";
+const LIGHTING_TAG: &str = "CB_FRAMEBUFF";
+
 /// The ambient occlusion setting (`game::ambient_occlusion`).
 const AO_KEY: &str = "display.ambient_occlusion";
+
+/// The anisotropic filtering setting (`game::scene`).
+pub const ANISOTROPY_KEY: &str = "display.anisotropy";
 
 /// Whether `value` of `key` may be chosen as far as Movie Duels goes:
 /// every value with Movie Duels installed, and without it only those
@@ -388,7 +397,9 @@ fn movie_duels_offers(vm: &ViewModel, key: &str, value: &str) -> bool {
 
 /// Whether a step comes to `value` of `key`. An anti-aliasing choice is
 /// offered when this machine has it (DLSS needs its card). Shadows at Ultra
-/// is offered when the card traces rays (`ViewModel::ultra_shadows`). A
+/// is offered when the card traces rays (`ViewModel::ultra_shadows`).
+/// Lighting at Enhanced Lightmaps is offered when the lighting download is
+/// installed for the game (`ViewModel::baked_lighting`). A
 /// choice of Movie Duels' own is offered with Movie Duels installed
 /// (`movie_duels_offers`).
 fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
@@ -397,6 +408,9 @@ fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
     }
     if key == SHADOWS_KEY && value == ULTRA {
         return vm.ultra_shadows;
+    }
+    if key == LIGHTING_KEY && value == BAKED {
+        return vm.baked_lighting;
     }
     movie_duels_offers(vm, key, value)
 }
@@ -437,11 +451,13 @@ const SHADOWS: &[(&str, &str)] = &[
     (ULTRA, strings::SHADOWS_ULTRA),
 ];
 
-/// Lighting: the original game's lighting, or kjk's own with glow
-/// (`display.lighting`).
+/// Lighting: the original game's lighting, kjk's own with glow, or kjk's
+/// own with the baked lightmaps of the lighting download (`display.lighting`).
+/// Enhanced Lightmaps is offered only with the download (`offered`).
 const LIGHTING: &[(&str, &str)] = &[
     ("classic", strings::LIGHTING_CLASSIC),
     ("enhanced", strings::LIGHTING_ENHANCED),
+    (BAKED, strings::LIGHTING_BAKED),
 ];
 
 /// Effects Quality: particles drawn at the frame's size, or at half its
@@ -456,6 +472,16 @@ const EFFECTS: &[(&str, &str)] = &[
 const AMBIENT_OCCLUSION: &[(&str, &str)] = &[
     ("off", strings::AMBIENT_OCCLUSION_OFF),
     ("on", strings::AMBIENT_OCCLUSION_ON),
+];
+
+/// Anisotropic Filtering: how many samples a texture seen at a shallow
+/// angle takes (`display.anisotropy`, `game::scene`).
+const ANISOTROPY: &[(&str, &str)] = &[
+    ("1", strings::ANISOTROPY_OFF),
+    ("2", strings::ANISOTROPY_2X),
+    ("4", strings::ANISOTROPY_4X),
+    ("8", strings::ANISOTROPY_8X),
+    ("16", strings::ANISOTROPY_16X),
 ];
 
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -737,10 +763,22 @@ const PAGES: [Spec; 12] = [
             ("CB_VSYNC", Stepped("display.effects", EFFECTS)),
             // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
             // turned the game's own glow on and off.
-            ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
-            ("BTN_TEXQUAL", Greyed),
-            ("BTN_TEXQUALLEFT", Greyed),
-            ("BTN_TEXQUALRIGHT", Greyed),
+            (LIGHTING_TAG, Stepped(LIGHTING_KEY, LIGHTING)),
+            // Anisotropic Filtering sits in KOTOR 2's Texture Quality row,
+            // which kjk does not use. KOTOR 2's own Anisotropy row below it
+            // is Ambient Occlusion.
+            (
+                "BTN_TEXQUAL",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::Shown),
+            ),
+            (
+                "BTN_TEXQUALLEFT",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::Back),
+            ),
+            (
+                "BTN_TEXQUALRIGHT",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::On),
+            ),
             // Ambient Occlusion sits in KOTOR 2's Anisotropy row, which kjk
             // does not use, just above Lighting.
             (
@@ -765,7 +803,9 @@ const PAGES: [Spec; 12] = [
             ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
-            ("BTN_TEXQUAL", Told(48712)),
+            ("BTN_TEXQUAL", Ours(strings::ANISOTROPY_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::ANISOTROPY_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::ANISOTROPY_HELP)),
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Ours(strings::AMBIENT_OCCLUSION_HELP)),
             ("BTN_ANISOTROPYLEFT", Ours(strings::AMBIENT_OCCLUSION_HELP)),
@@ -913,9 +953,11 @@ const PAGES: [Spec; 12] = [
 
 /// The Interface page's rows: the menu width, whether pictures keep their
 /// shape, the text size, the text scale, the notifications in the corner,
-/// the target block at the top centre and the frame rate limit. Each one is
-/// off or at KOTOR 2's value while its setting is unset.
-const INTERFACE: [Line; 7] = [
+/// the target block at the top centre, the frame rate limit, and whether
+/// the player joins nearby conversations in co-op. Each one but the last is
+/// off or at KOTOR 2's value while its setting is unset. The last is on
+/// while unset.
+const INTERFACE: [Line; 8] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -951,7 +993,16 @@ const INTERFACE: [Line; 7] = [
         FRAME_LIMIT,
         Values::Rates(FRAME_LIMITS),
     ),
+    ticked_on_by(JOIN_TALKS, strings::JOIN_TALKS, strings::JOIN_TALKS_HELP),
 ];
+
+/// The key of "Join nearby conversations" (`game::dialogue_view`): `true`
+/// or `false`, true while unset.
+pub const JOIN_TALKS: &str = "game.join_talks";
+
+/// The key of the host's "Show chosen replies" (`game::lobby_host`): `true`
+/// or `false`, true while unset.
+pub const SHOW_REPLIES: &str = "game.show_replies";
 
 /// The combat page's rows: the saber rules a session played here plays by,
 /// the three duel options, the hilts KOTOR's single- and double-bladed
@@ -1202,6 +1253,10 @@ impl Page {
             return line.help.state_after(needs, vm);
         }
         let focus = self.focus.as_deref();
+        // The Lighting help speaks of Enhanced Lightmaps where it is offered.
+        if focus == Some(LIGHTING_TAG) && vm.baked_lighting {
+            return Ours(strings::LIGHTING_BAKED_HELP).state(vm);
+        }
         self.spec
             .help
             .iter()

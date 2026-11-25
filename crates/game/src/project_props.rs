@@ -60,11 +60,12 @@ fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
     let light = scene
         .probes
         .light_at(&scene.rooms, Some(room), sample)
-        .ok()?;
+        .ok()?
+        .0;
     use crate::fitted_lights::Mode;
     // A baked lightmap is stored at half its level (`BAKED_GAIN` in
     // `odyssey.wgsl`), and the probes read it as stored.
-    let kept = match crate::fitted_lights::mode() {
+    let kept = match crate::fitted_lights::mode_of_area(scene.baked) {
         Mode::Off => 1.0,
         Mode::Baked => BAKED_GAIN,
         Mode::Live => 0.5,
@@ -477,6 +478,7 @@ pub fn model(name: &str, md3: &fmt_ja::md3::Md3) -> ModelIr {
             uv_scroll: None,
             skin: None,
             dangly: None,
+            referenced: false,
         })
         .collect();
     ModelIr {
@@ -580,7 +582,11 @@ pub fn add(
                     .then(|| floor_for(scene, prop.position))
                     .flatten();
                 let baked = floor.and_then(|(room, sample)| {
-                    scene.probes.light_at(&scene.rooms, Some(room), sample).ok()
+                    scene
+                        .probes
+                        .light_at(&scene.rooms, Some(room), sample)
+                        .ok()
+                        .map(|(light, _)| light)
                 });
                 if let Some(lightmap) = from_bake {
                     let name = baked_name(prop);
@@ -606,7 +612,11 @@ pub fn add(
                         let light_near = |at: bevy::math::Vec3| {
                             let (room, sample) = floor?;
                             let at = bevy::math::Vec3::new(at.x, at.y, sample.z);
-                            scene.probes.light_at(&scene.rooms, Some(room), at).ok()
+                            scene
+                                .probes
+                                .light_at(&scene.rooms, Some(room), at)
+                                .ok()
+                                .map(|(light, _)| light)
                         };
                         let lightmap = lit_by_probes(&mut made, &light, &light_near, &name);
                         scene.textures.insert(name, lightmap);

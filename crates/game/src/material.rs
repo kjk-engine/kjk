@@ -135,10 +135,30 @@ const DARK_UNLIT: u32 = 131072;
 /// of 401dxn blend (their alpha is under 1), and they showed their bake at
 /// a quarter of its light, black beside the baked ground.
 const ROOM_LIGHTMAP: u32 = 262144;
+/// A placeable's mesh whose vertex colours hold its baked light
+/// (`placeable_light`). Under the baked trial the light replaces the
+/// probes' light.
+const VERTEX_LIGHT: u32 = 524288;
+/// Such a mesh takes none of the game's own lamps
+/// (`placeable_light::alone`).
+const VERTEX_LIGHT_ALONE: u32 = 1048576;
+/// A punch-through surface (`Surface::Cutout`): its texels whose alpha is
+/// not above `PUNCH_THROUGH_CUT` are left out.
+const PUNCH_THROUGH: u32 = 2097152;
 /// A level editor project's Jedi Academy prop: its glow is the room's light
 /// where it stands (`project_props`), which the light probes give it under
 /// Enhanced lighting instead, so there it glows not at all.
-const ROOM_GLOW: u32 = 524288;
+const ROOM_GLOW: u32 = 4194304;
+
+/// The alpha a punch-through texel must be above to be drawn. Both games'
+/// executables draw a texture whose TXI says `blending punchthrough` with
+/// the alpha test "greater than 0.35", and every other texture with
+/// "greater than 0". The shaders keep the same number (`odyssey.wgsl`,
+/// `odyssey_prepass.wgsl`). At a distance, where the GPU reads a smaller mip
+/// level, the small holes of a cut-out (the gaps in Telos's tree crowns)
+/// average to a faint alpha. Cut at 0, they showed the colours stored in the
+/// holes as dark and blue blotches.
+pub const PUNCH_THROUGH_CUT: f32 = 0.35;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -408,11 +428,28 @@ pub struct Lighting {
     /// (as reone treats a mesh).
     pub alpha: f32,
     pub is_static: bool,
-    /// Room geometry is not lit at runtime: diffuse × lightmap, or the
-    /// diffuse alone (xoreos). The owner's screenshots show unlightmapped
-    /// room meshes (the ceiling strips) at full brightness, where reone's
-    /// static-object rule darkens them.
+    /// Room geometry: drawn unlit as diffuse × lightmap, with fights' lights
+    /// added to it (`ROOM`), and never lit by the light probes.
     pub is_room: bool,
+    /// A room mesh of an area that has no lightmap. It is lit, not drawn
+    /// at full light.
+    ///
+    /// KOTOR's executable draws the rooms in a pass of their own. For that
+    /// pass it sets the scene's ambient light to black and turns on only
+    /// the lamps of dynamic type 1 (`STATIC`). Each mesh gives its
+    /// self-illumination as the colour it emits. So a room mesh without a
+    /// lightmap shows as bright as its self-illumination, plus what the few
+    /// lamps of type 1 add. (This was read in KOTOR 2's Mac program, which
+    /// keeps its function names. KOTOR 1's program sets the ambient light
+    /// to black around its room pass in the same way.)
+    ///
+    /// The models are made for this rule. KOTOR 1's light panels, its signs
+    /// and Kashyyyk's grass have a self-illumination of 1, and still show at
+    /// full light. Kashyyyk's bark without a lightmap has 0.29, and
+    /// the bench seats of the Manaan hotel have 0.13 (issue 557). Kashyyyk's
+    /// root trunk and its vines have none, and show dark (issues 545 and
+    /// 546).
+    pub room_flat: bool,
     /// The model's header lets the area's fog draw over it.
     pub fogged: bool,
 }
@@ -440,6 +477,10 @@ pub struct AreaLight {
     /// Its bake asks for its rooms' surfaces with no lightmap to be dark
     /// (`DARK_UNLIT`, `unlit.txt` in the bake's folder).
     pub dark_unlit: bool,
+    /// The area's fitted lights shine (`fitted_lights::wanted_in`), so a
+    /// room's lamp that the files do not set to glow may glow
+    /// (`fitted_lights::switched_on`).
+    pub fitted: bool,
 }
 
 impl AreaLight {
@@ -451,6 +492,7 @@ impl AreaLight {
             shadowed: false,
             probed: false,
             dark_unlit: false,
+            fitted: false,
         }
     }
 }
@@ -474,7 +516,8 @@ impl Lighting {
             self.alpha.to_bits(),
             u32::from(self.is_static)
                 | (u32::from(self.is_room) << 1)
-                | (u32::from(self.fogged) << 2),
+                | (u32::from(self.fogged) << 2)
+                | (u32::from(self.room_flat) << 3),
         ]
     }
 }
@@ -535,9 +578,9 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(
-                &crate::fitted_lights::GRID,
+                &crate::fitted_lights::NO_GRID,
                 ShaderBuffer::new(
-                    &crate::fitted_lights::no_grid(),
+                    &crate::fitted_lights::empty_grid(),
                     bevy::asset::RenderAssetUsages::default(),
                 ),
             );
@@ -632,9 +675,10 @@ pub enum Surface {
     /// opaque, with the env map added where alpha is low.
     OpaqueEnvMasked,
     /// A punch-through texture (TXI `blending punchthrough`): opaque, not
-    /// blended, with its alpha-0 texels left out. KOTOR's executable draws
-    /// every frame with the alpha test `GL_GREATER 0` and blends nothing
-    /// for a punch-through texture, so its texels are either solid or gone.
+    /// blended, with its texels of alpha 0.35 or less left out
+    /// (`PUNCH_THROUGH_CUT`). KOTOR's executable blends nothing for a
+    /// punch-through texture and draws it with the alpha test "greater than
+    /// 0.35", so its texels are either solid or gone.
     Cutout,
     /// Transparent pass, alpha-blended, no depth writes.
     Blend,
@@ -713,8 +757,9 @@ impl Surface {
 /// cards, `m02aa_10b`, lightmapped planes whose DXT5 hides a black field and
 /// the author's mark). Decal only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a
-/// decal makes a mesh transparent, but not a skinned one (`skinned`): a
+/// only without). KOTOR meshes always carry a hint. A hint above 1 makes a
+/// mesh transparent when its texture has alpha, and so does a decal. A
+/// skinned mesh (`skinned`) is not made transparent by its hint. A
 /// character's skin is one closed mesh that a draw without depth shows
 /// through itself (TSL's `pfhc06` carries 2 on its whole head, and its mouth
 /// and nose showed through its face), so it blends with the depth kept
@@ -753,16 +798,30 @@ pub fn surface(
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
     if additive {
         Surface::Additive
-    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned) {
+    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned && alpha) {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
     } else if alpha && punch_through {
         Surface::Cutout
-    } else if hint > 1 || (alpha && !bumpmap) {
+    } else if (hint > 1 && skinned) || (alpha && !bumpmap) {
         Surface::OpaqueAlpha
     } else {
         Surface::Opaque
+    }
+}
+
+/// A mesh's self-illumination as the games light it. A mesh whose diffuse
+/// texture's TXI says `decal 1` glows at full light, whatever the model
+/// gives it. KOTOR 2's executable sets the emitted colour of such a mesh
+/// to white when it sets up the mesh's material. So a decal is drawn at its
+/// texture's own colours, in a dark place too (a mod's glowing blade
+/// texture, `decal 1` with `envmaptexture`).
+pub fn decal_glow(self_illum: [f32; 3], diffuse: Option<&TextureFacts>) -> [f32; 3] {
+    if diffuse.is_some_and(|facts| facts.decal) {
+        [1.0; 3]
+    } else {
+        self_illum
     }
 }
 
@@ -922,6 +981,14 @@ pub struct OdysseyMaterial {
     /// emitters: drawn after every other surface, in that order
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
+    /// Where a blended opaque surface (`OpaqueAlpha`) sorts among the
+    /// others. A room's mesh has a rank from 0 to 1, which is the share of
+    /// its texture that is not opaque. Every other model's mesh has
+    /// `OBJECTS_RANK`.
+    /// KOTOR draws the textures with the least alpha last, so a patch of
+    /// sand cut out by its alpha lies over the ground it sits on, and not
+    /// the other way round (`depth_bias`).
+    pub rank: f32,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
     pub listed_quads: bool,
@@ -1000,7 +1067,7 @@ pub struct OdysseyBound {
     probes: Handle<ShaderBuffer>,
     #[storage(19, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
-    /// The fitted lights' grid (`fitted_lights::GRID`). Only the fragment
+    /// The fitted lights' grid (`fitted_lights::grid_handle`). Only the fragment
     /// stage reads it. Metal gives a vertex stage 31 buffer slots, and one
     /// more buffer seen by the vertex stage left the prepass's vertex
     /// buffers no slot, so no pipeline built on a Mac.
@@ -1032,7 +1099,7 @@ impl OdysseyMaterial {
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
             sway: crate::dangly::SWAY,
-            fitted: crate::fitted_lights::GRID,
+            fitted: crate::fitted_lights::grid_handle(),
         }
     }
 }
@@ -1147,7 +1214,7 @@ impl OdysseyMaterial {
     /// not coverage here.
     pub fn faded_additive(mut self) -> OdysseyMaterial {
         self.surface = Surface::AddOne;
-        self.params.flags &= !(DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA);
+        self.params.flags &= !(DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA);
         self.params.flags |= UNLIT | ADD_FADE;
         self
     }
@@ -1197,6 +1264,18 @@ impl OdysseyMaterial {
         self
     }
 
+    /// A placeable's mesh whose vertex colours hold its baked light
+    /// (`VERTEX_LIGHT`).
+    pub fn vertex_light(mut self, baked: bool) -> OdysseyMaterial {
+        if baked {
+            self.params.flags |= VERTEX_LIGHT;
+            if crate::placeable_light::alone() {
+                self.params.flags |= VERTEX_LIGHT_ALONE;
+            }
+        }
+        self
+    }
+
     /// The diffuse texture has no alpha (a DXT1, an RGB image): it is taken
     /// as 1, so a DXT1 kept in blocks samples its transparent texel as the
     /// games drew it, opaque black.
@@ -1234,7 +1313,12 @@ impl OdysseyMaterial {
         // sphere keeps its self-illumination's red or blue. A blade's blue
         // glow with a green self-illumination keeps its blue, where scaling
         // by the green alone left a flickering green line. Other added
-        // surfaces are drawn unlit, as reone draws every added surface.
+        // surfaces are drawn unlit, as reone draws every added surface. A
+        // room is unlit, but for its meshes without a lightmap.
+        // A room surface with no lightmap in an area whose bake asks for it
+        // to be dark (Nar Shaddaa's tunnels under Enhanced Lightmaps) keeps
+        // the bake's own rule (`DARK_UNLIT`), not `room_flat`'s.
+        let dark_unlit = area.dark_unlit && lighting.is_room && lightmap.is_none();
         let lit_glow = matches!(surface, Surface::Additive | Surface::AddOne)
             && !lighting.is_room
             && lighting.self_illum != [0.0; 3];
@@ -1247,7 +1331,8 @@ impl OdysseyMaterial {
                 | Surface::BlendVertex
                 | Surface::Lighten
                 | Surface::Modulate
-        ) || lighting.is_room
+        ) || (lighting.is_room && !lighting.room_flat)
+            || dark_unlit
         {
             flags |= UNLIT;
         }
@@ -1267,7 +1352,7 @@ impl OdysseyMaterial {
         if area.probed && !lighting.is_room {
             flags |= PROBED;
         }
-        if area.dark_unlit && lighting.is_room && lightmap.is_none() {
+        if dark_unlit {
             flags |= DARK_UNLIT;
         }
         if lighting.is_room && lightmap.is_some() {
@@ -1302,6 +1387,7 @@ impl OdysseyMaterial {
             surface,
             culled: false,
             emitted: None,
+            rank: 0.0,
             motion_only: false,
             listed_quads: false,
             looks: None,
@@ -1398,7 +1484,7 @@ impl OdysseyMaterial {
     /// The same as another surface, with the flags `new` gives that surface
     /// (the pipeline warm-up's stand-ins: `warmup`).
     pub fn as_surface(mut self, surface: Surface) -> OdysseyMaterial {
-        let all = DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA;
+        let all = DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA;
         self.params.flags = (self.params.flags & !all) | surface_flags(surface);
         self.surface = surface;
         self
@@ -1496,6 +1582,12 @@ impl OdysseyMaterial {
         self.culled = true;
     }
 
+    /// Its sort rank (`rank`).
+    pub fn ranked(mut self, rank: f32) -> OdysseyMaterial {
+        self.rank = rank;
+        self
+    }
+
     /// Its back faces culled (`culled`), or not.
     pub fn culled(mut self, culled: bool) -> OdysseyMaterial {
         self.culled = culled;
@@ -1525,7 +1617,8 @@ pub struct MotionFacts {
 /// The flags a surface draws with (`OdysseyMaterial::new`).
 fn surface_flags(surface: Surface) -> u32 {
     match surface {
-        Surface::OpaqueAlpha | Surface::Cutout => DISCARD_ZERO_ALPHA,
+        Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
+        Surface::Cutout => DISCARD_ZERO_ALPHA | PUNCH_THROUGH,
         Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
         Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
         _ => 0,
@@ -1545,6 +1638,147 @@ pub fn cutout_probes() -> sim::probe::Checks {
         "the prepass reads a cut-out texture as the main pass does",
         prepass_reads_as_main(),
     )]
+}
+
+/// Checks `TextureIr::sort_key` (the rule is in `asset_odyssey::texture`)
+/// on built textures (`kjk sim probes --only "texture sort key"`; proposed
+/// 2026-11-23).
+#[cfg(feature = "probes")]
+pub fn sort_key_probes() -> sim::probe::Checks {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+    use fmt_odyssey::txi::Txi;
+
+    let key = |format: PixelFormat, data: Vec<u8>, txi: &str, header: Option<f32>| {
+        let texture = Texture {
+            format,
+            layers: vec![vec![Mip {
+                width: 4,
+                height: 4,
+                data,
+            }]],
+            cube: false,
+            txi: Txi::parse(txi.as_bytes()),
+            bottom_up: true,
+            missing_mips: 0,
+            declared_size: None,
+            mips_stored: true,
+            header_key: header,
+        };
+        TextureIr::from_texture(&texture, None).map(|ir| ir.sort_key())
+    };
+    let half: Vec<u8> = (0..16)
+        .flat_map(|texel| [10, 20, 30, if texel < 8 { 255 } else { 0 }])
+        .collect();
+    let is = |name, got: Option<f32>, want: f32| {
+        (
+            name,
+            sim::probe::check(got == Some(want), format!("{got:?}, expected {want}")),
+        )
+    };
+    vec![
+        is(
+            "the header's float beats the TXI's alphamean and the pixels",
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(0.75),
+            ),
+            0.75,
+        ),
+        is(
+            "the TXI's alphamean is used when there is no header float",
+            key(PixelFormat::Rgba8, half.clone(), "alphamean 0.25", None),
+            0.25,
+        ),
+        is(
+            "an uncompressed texture with neither averages its alpha",
+            key(PixelFormat::Rgba8, half.clone(), "", None),
+            0.5,
+        ),
+        is(
+            "an uncompressed texture without alpha is 1",
+            key(PixelFormat::Rgb8, vec![9; 48], "", None),
+            1.0,
+        ),
+        is(
+            "a compressed texture with neither is 1, not its alpha mean",
+            key(PixelFormat::Dxt5, vec![0; 16], "", None),
+            1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so a compressed texture is 1",
+            key(PixelFormat::Dxt5, vec![0; 16], "", Some(-1.0)),
+            1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so an uncompressed texture averages its alpha",
+            key(PixelFormat::Rgba8, half.clone(), "", Some(-1.0)),
+            0.5,
+        ),
+        is(
+            "a header float of -1 does not fall back to the TXI's alphamean",
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(-1.0),
+            ),
+            0.5,
+        ),
+        is(
+            "a negative number other than -1 is used as it is",
+            key(PixelFormat::Rgba8, half, "", Some(-0.5)),
+            -0.5,
+        ),
+    ]
+}
+
+/// `kjk sim probes`' transparency hint group. KOTOR's executable never
+/// reads the hint to blend. It blends every mesh by its texture's alpha and
+/// writes depth, so a mesh whose texture has no alpha is solid. TSL's
+/// Dantooine slab (`brok04` of `605dank`, hint 4, a texture with no alpha)
+/// was drawn blended and without depth, and it hid the ivy (`brok05`) that
+/// grows on it.
+#[cfg(feature = "probes")]
+pub fn hint_probes() -> sim::probe::Checks {
+    vec![(
+        "a hint blends only a mesh whose texture has alpha",
+        hint_blends(),
+    )]
+}
+
+#[cfg(feature = "probes")]
+fn hint_blends() -> Result<String, String> {
+    let with_alpha = TextureFacts {
+        alpha: true,
+        ..TextureFacts::default()
+    };
+    let without = TextureFacts::default();
+    let cases = [
+        (4, false, &without, Surface::Opaque),
+        (4, false, &with_alpha, Surface::Blend),
+        (4, true, &without, Surface::OpaqueAlpha),
+        (4, true, &with_alpha, Surface::OpaqueAlpha),
+        (0, false, &without, Surface::Opaque),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|&(hint, skinned, facts, wanted)| {
+            let got = surface((hint, skinned), 1.0, (Some(facts), &[facts]));
+            (got != wanted).then(|| {
+                format!(
+                    "hint {hint}, skinned {skinned}, alpha {}: {got:?}, wanted {wanted:?}",
+                    facts.alpha
+                )
+            })
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        format!("{} cases, wrong: {wrong:?}", cases.len()),
+    )
 }
 
 #[cfg(feature = "probes")]
@@ -1573,8 +1807,22 @@ fn prepass_reads_as_main() -> Result<String, String> {
 
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
-/// keeping their order among themselves.
+/// keeping their order among themselves: by their texture's alpha
+/// (`OdysseyMaterial::rank`), then by distance.
 pub const OPAQUE_FIRST: f32 = -1.0e5;
+/// How far apart the ranks 0 and 1 of blended opaque surfaces sort
+/// (`OdysseyMaterial::rank`): more than any distance in view.
+pub const RANK_STEP: f32 = 1.0e4;
+/// The `OdysseyMaterial::rank` of a blended opaque surface of any model that
+/// is not a room, such as a creature, a placeable or a door. KOTOR draws every
+/// mesh of a room, and its grass, before any of them. They therefore rank
+/// after the room's ranks (0 to 1) and the grass. A creature's half
+/// see-through texels write depth, so one drawn before the room hid the wall
+/// behind it.
+pub const OBJECTS_RANK: f32 = 2.0;
+/// `depth_bias` of the grass. It sorts after every blended opaque surface of
+/// a room, whose ranks run from 0 to 1.
+pub const GRASS_AFTER_MESHES: f32 = OPAQUE_FIRST + RANK_STEP;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
 /// so they are drawn after the meshes, as KOTOR draws its emitters after
@@ -1728,8 +1976,8 @@ impl Material for OdysseyMaterial {
             Surface::Additive | Surface::AddOne | Surface::Lighten => AlphaMode::Add,
             // Cut out in the prepass too: an opaque surface's prepass draws
             // no fragments, so its depth would hide what shows through it.
-            // The shader cuts at alpha 0 (`DISCARD_ZERO_ALPHA`), whatever
-            // the mask's number.
+            // The shader cuts at `PUNCH_THROUGH_CUT` (`PUNCH_THROUGH`),
+            // whatever the mask's number.
             Surface::Cutout => AlphaMode::Mask(0.5),
             _ => AlphaMode::Opaque,
         }
@@ -1742,7 +1990,7 @@ impl Material for OdysseyMaterial {
     /// has alpha, not Kreia's robe, which has none).
     fn depth_bias(&self) -> f32 {
         match self.surface {
-            Surface::OpaqueAlpha => OPAQUE_FIRST,
+            Surface::OpaqueAlpha => OPAQUE_FIRST + self.rank * RANK_STEP,
             _ => self
                 .emitted
                 .map_or(0.0, |rank| EMITTERS_LAST + rank as f32 * EMITTER_STEP),
@@ -1836,6 +2084,16 @@ impl Material for OdysseyMaterial {
             }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
+            }
+            // The fitted lights and their trials, only in a run that may
+            // show them (`fitted_lights::in_shaders`). An emitter's
+            // particles never take them. Every particle is unlit (`new`,
+            // `punch_through`), and the trials change nothing on an unlit
+            // surface that is not a room's. Their code still made the
+            // particles cost more: under Enhanced Lightmaps the crowd
+            // brawl's 930 particles took 0.75 ms of GPU time against 0.15 ms.
+            if crate::fitted_lights::in_shaders() && !key.particles {
+                fragment.shader_defs.push("FITTED_LIGHTS".into());
             }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly

@@ -21,6 +21,7 @@ mod cli_play;
 mod cli_project;
 mod installs_report;
 mod levels;
+mod lighting_verbs;
 #[cfg(feature = "probes")]
 pub mod probes;
 mod report_verbs;
@@ -129,6 +130,7 @@ probes!(
     real_mods_probes,
     remote_census,
     light_kinds,
+    lighting_pack,
     routines_verbs,
     rows_by_label_probes,
     saber_verbs,
@@ -146,6 +148,7 @@ probes!(
     specials_verbs,
     stealth_verbs,
     sweep_verbs,
+    talk_walk_probes,
     tour,
     trace_verbs,
     traps_verbs,
@@ -228,6 +231,9 @@ struct Cli {
     /// `KJK_MUTE=1` does the same
     #[arg(long, global = true)]
     mute: bool,
+    /// Skip the startup splash screen; `KJK_NO_SPLASH=1` does the same
+    #[arg(long, global = true)]
+    no_splash: bool,
     /// Open in a window of the default size: the settings' screen
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
@@ -466,10 +472,18 @@ enum Command {
         #[arg(long, default_value = "end_m01aa")]
         module: String,
     },
-    /// The games' movies: Binks made ours by ffmpeg into the store
+    /// The games' movies: kjk's Bink decoder checked against ffmpeg, and
+    /// movies made by ffmpeg into the store
     Movie {
         #[command(subcommand)]
         verb: MovieVerb,
+    },
+    /// The new lighting as a download (`kjk_game::lighting_bakes`): a
+    /// game's baked lightmaps checked against its files, installed into the
+    /// store, listed and removed. The launcher downloads the files.
+    Lighting {
+        #[command(subcommand)]
+        verb: LightingVerb,
     },
     /// The store every worktree shares (docs/IMPORT.md): imported game data
     /// and other derived files
@@ -580,6 +594,17 @@ enum AnimVerb {
 enum MovieVerb {
     /// The movie container's checks, on frames made here
     Check,
+    /// kjk's Bink decoder compared with ffmpeg on the install's movies
+    /// (every one by default): each picture must match exactly
+    Compare {
+        /// k1 or tsl
+        game: String,
+        /// The movies, e.g. 01a legal; all of them when left out
+        names: Vec<String>,
+        /// Compare only each movie's first frames
+        #[arg(long)]
+        frames: Option<usize>,
+    },
     /// Make movies ours now (every one by default), kept in the store
     Import {
         /// k1 or tsl
@@ -648,6 +673,65 @@ enum SavesVerb {
     Check {
         /// The corpus's folder; `kjk-artifacts/save-corpus` without it
         corpus: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LightingVerb {
+    /// Compare a lighting download's manifest with this game's files, and
+    /// say whether it may be installed
+    Check {
+        /// The manifest, `kjk-lighting-<game>-<label>.txt`
+        manifest: std::path::PathBuf,
+        /// k1 or tsl: refuse a manifest for the other game
+        #[arg(long)]
+        game: Option<String>,
+        /// Print JSON objects, one a line, the answer last
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check, then install a lighting download into the store, in place of
+    /// an earlier one of its game
+    Install {
+        /// The manifest, `kjk-lighting-<game>-<label>.txt`
+        manifest: std::path::PathBuf,
+        /// The zip the manifest names
+        zip: std::path::PathBuf,
+        /// Print JSON objects, one a line, the answer last
+        #[arg(long)]
+        json: bool,
+    },
+    /// What lighting download is installed for each game
+    Status {
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a game's lighting download
+    Remove {
+        /// k1 or tsl
+        game: String,
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack a game's finished bakes into a lighting download: a zip and its
+    /// manifest (`lighting_pack`)
+    #[cfg(feature = "probes")]
+    Pack {
+        /// k1 or tsl
+        game: String,
+        /// The folder of the game's bakes, one folder for each module
+        folder: std::path::PathBuf,
+        /// The folder to write the zip and the manifest into
+        #[arg(long)]
+        out: std::path::PathBuf,
+        /// The download's label, in its file names
+        #[arg(long, default_value = "1")]
+        label: String,
+        /// Only the sets under a folder of this name, e.g. the round c1
+        #[arg(long)]
+        round: Option<String>,
     },
 }
 
@@ -746,6 +830,10 @@ pub fn run() -> ExitCode {
         // restart into the menu, a sweep's children) are silent too.
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::sound::MUTE, "1") };
+    }
+    if cli.no_splash {
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(kjk_game::splash::NO_SPLASH, "1") };
     }
     #[cfg(target_os = "linux")]
     linux_environment();
@@ -977,6 +1065,11 @@ pub fn run() -> ExitCode {
         }) => import_verbs::import(&discover(), &game, force, &module),
         Some(Command::Movie { verb }) => match verb {
             MovieVerb::Check => movie_verbs::check(),
+            MovieVerb::Compare {
+                game,
+                names,
+                frames,
+            } => movie_verbs::compare(&discover(), &game, &names, frames),
             MovieVerb::Import { game, names } => movie_verbs::import(&discover(), &game, &names),
         },
         Some(Command::Report { verb }) => match verb {
@@ -998,6 +1091,28 @@ pub fn run() -> ExitCode {
                 saves_verbs::capture(&discover(), &tag, &game, &from)
             }
             SavesVerb::Check { corpus } => saves_verbs::check(&discover(), corpus.as_deref()),
+        },
+        Some(Command::Lighting { verb }) => match verb {
+            LightingVerb::Check {
+                manifest,
+                game,
+                json,
+            } => lighting_verbs::check(&manifest, game.as_deref(), json),
+            LightingVerb::Install {
+                manifest,
+                zip,
+                json,
+            } => lighting_verbs::install(&manifest, &zip, json),
+            LightingVerb::Status { json } => lighting_verbs::status(json),
+            LightingVerb::Remove { game, json } => lighting_verbs::remove(&game, json),
+            #[cfg(feature = "probes")]
+            LightingVerb::Pack {
+                game,
+                folder,
+                out,
+                label,
+                round,
+            } => lighting_pack::run(&game, &folder, &out, &label, round.as_deref()),
         },
         Some(Command::Store { verb }) => match verb {
             StoreVerb::Path => store_verbs::path(),

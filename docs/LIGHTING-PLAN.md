@@ -124,7 +124,11 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
 4. **HDR belongs to the renderer, not to the anti-aliasing choice.** One
    "Classic" switch turns the new lighting off; MSAA, TAA and DLSS show the
    same lighting. The switch is the options' Lighting (`display.lighting`),
-   with the values Classic and Enhanced.
+   with the values Classic and Enhanced. A third value, Enhanced Lightmaps
+   (`baked`), is Enhanced with the baked lightmaps of step 10 from the
+   lighting download. The options offer it only when the download is
+   installed for the game (`crates/game/src/lighting_bakes.rs`), and it
+   takes effect the next time kjk starts.
 5. **The upscaler is a slot.** It takes depth, motion vectors, jitter and HDR
    colour. DLSS is the first thing in it.
 6. **The HDR frame stays gamma-encoded.** Decided with the owner on
@@ -640,7 +644,8 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
 - Each of the other five sides looks the way it faces, up to 20 m. Its rays
   take the colour of the room surfaces whose fronts they meet, as the
   screen shows them: the texture times its lightmap and its own glow. A
-  room mesh without a lightmap is drawn at full light, and is seen so. So
+  room mesh without a lightmap is drawn in the light of its own glow, and
+  is seen so (issues 545, 546 and 557). So
   a side facing a dark corridor stays dark, and a side facing a lit
   doorway takes the doorway's light.
 - Textures and lightmaps are read at a mip level no larger than 128 texels.
@@ -3416,7 +3421,10 @@ the dumps are in the `taa-upscaler-base` worktree, under
 ### 10. A detail bake
 
 Tried on 2026-11-16, on `feat/detail-bake`. This step is a trial, as 6b
-and 9 were. It is uncommitted and not merged.
+and 9 were. It is uncommitted and not merged. The detail bake without
+lights and `kjk room-light-fit --bake` were later removed from the
+fitted lights' branch, on 24 November 2026. `kjk detail-bake` now bakes
+only from the fitted lights, on the graphics card.
 
 **The question.** Step 7 found that a room's stored light is close to
 light stored at the vertices. A stored texel covers 50 to 70 cm, and 82%
@@ -3638,9 +3646,11 @@ experiment and is not to be merged.
 
 Built from 2026-11-17 on `feat/fitted-lights`, draft pull request
 [#576](https://github.com/kjk-engine/kjk/pull/576). It is not merged and
-nothing in it is on by default. `tools/light-kinds/handover.md` on that
-branch holds every round, every script and the owner's words. This part
-is the summary.
+nothing in it is on by default. This part is the summary.
+`docs/LIGHTING-LOG.md` records each decision and experiment of this work,
+with its numbers and reasons. The branch `chore/light-review-harness` keeps
+the tools that took the review pictures and the hand-over notes of each
+session.
 
 **Why.** The first trial ended with no bake worth shipping, because the
 lights the files list explain little of BioWare's bake. The owner then
@@ -3685,10 +3695,12 @@ Dantooine enclave and Anchorhead.
 **Every other module.** A batch baked every module that has lightmaps, on
 19 and 20 November 2026, with settings chosen by rule.
 
-- 164 modules baked. 3 did not: `201tel` and `505ond` do not finish, and
-  `stunt_57` has no fitted light.
-- About 110 came out within 0.7 to 1.4 times today's brightness, over four
-  views from the entry point. Nobody has looked at their pictures.
+- The first round tried 167 modules. 164 baked. 3 did not, because
+  `201tel` and `505ond` do not finish and `stunt_57` has no fitted light.
+- In the first round 129 came out within 0.7 to 1.4 times today's
+  brightness, over four views from the entry point. 27 were brighter and 8
+  darker. In the second round, without the even light, 113 were within that
+  range, 12 brighter and 38 darker.
 - The owner gave notes on the outliers on 20 November 2026, and 39 modules
   have a setting of their own from those notes. He has seen four views of
   each and walked none.
@@ -3728,8 +3740,43 @@ that were never shipped.
 - A swoop bike on a race track is as bright as today, and no brighter.
   The light probes of step 5 stand over walkable floor, and a track has
   none.
-- The baked lightmaps are loose files that an environment variable names.
-  Nothing packs them for a release, and no option turns them on.
+- `kjk lighting pack <k1|tsl> <folder> --out <dir>` packs each game's
+  finished sets `b` into a zip and a manifest
+  (`crates/launcher/src/lighting_pack.rs`). `kjk lighting check` and
+  `kjk lighting install` check the zip against the player's files and
+  install it (`crates/launcher/src/lighting_verbs.rs`,
+  `crates/game/src/lighting_bakes.rs`). The options' Enhanced Lightmaps
+  turns an installed download on.
+
+**Rebuilding the shipped bakes.** The download is made from these steps.
+
+1. Build the game with `cargo build --release`. Set `KJK_KOTOR1` to a
+   KOTOR 1 install with the K1 Community Patch and `KJK_KOTOR2` to a
+   KOTOR 2 install with TSLRCM.
+2. Run `sh tools/light-kinds/canon/canon.sh k1` and
+   `sh tools/light-kinds/canon/canon.sh tsl`. Each bakes every module of
+   its game into `target/canon-bakes/<game>/<module>/bake/c1`, with the
+   placeables blocking rays and lit at their vertices. A full run takes
+   many hours on one graphics card. A stopped run goes on where it stopped.
+   The script's header lists the variables that change its folders.
+3. Run `python -I tools/light-kinds/canon/check.py target/canon-bakes`. It
+   writes `check.txt` with the modules that failed, the sizes, and the sets
+   that lack `placeables.txt` or have an old format.
+4. Run `kjk lighting pack k1 target/canon-bakes/k1 --out <dir> --round c1`
+   and the same for `tsl`. Each writes the game's zip and manifest. The
+   download holds one set for each area. Some modules share their area
+   with another module and are baked with that module's settings, as the
+   second column of `tools/light-kinds/canon/modules-<game>.txt` says.
+   These are 11 modules of KOTOR 1 and 14 of KOTOR 2. For such an area the
+   pack ships the set of the module that gives the settings, and it lists
+   the other sets as left out. The game shows the shipped set in every
+   module of that area.
+
+A module takes its settings from `data/lights/bake.toml`. A module with no
+entry there takes the levels and flags the owner walked in rounds r1 and
+r2, from `tools/light-kinds/canon/walked`. `tools/light-kinds/bake.sh
+<module> <game>` bakes one module with the same flags, for trying a
+change.
 
 ## Settings
 

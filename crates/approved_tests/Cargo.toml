@@ -11,6 +11,7 @@ description = "The owner-approved test scenarios, and nothing else (docs/TESTS.m
 [dependencies]
 asset_odyssey.workspace = true
 audio = { workspace = true, features = ["probes"] }
+bink = { workspace = true, features = ["probes"] }
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
 # The `--cmds` script parser (`console::parse`), which builds Bevy: only

@@ -260,7 +260,7 @@ impl<'a> Here<'a> {
             now,
             &|index| self.to_try(index),
             &|face| round && self.walls(face),
-            false,
+            (false, false),
         )
     }
 
@@ -393,9 +393,12 @@ pub(super) fn tagged(here: &Here, tag: &str) -> Vec<u32> {
     here.objects()
         .iter()
         // By tag, or by template (one of many alike: the Vulkars'
-        // lieutenant among his guards).
+        // lieutenant among his guards), or by the tag a trigger's GIT
+        // entry writes (`To_601`, whose template's tag is `AreaTransition`).
         .filter(|(_, data)| {
-            data.tag.eq_ignore_ascii_case(tag) || data.template.eq_ignore_ascii_case(tag)
+            data.tag.eq_ignore_ascii_case(tag)
+                || data.template.eq_ignore_ascii_case(tag)
+                || data.placed_tag.eq_ignore_ascii_case(tag)
         })
         .map(|(index, _)| index)
         .collect()

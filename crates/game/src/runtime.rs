@@ -86,7 +86,6 @@ pub fn run(options: RunOptions) -> AppExit {
     eprintln!("run folder: {}", folder.display());
     crate::crash::install_hook(folder.clone(), crate::crash::facts());
     let player = crate::crash::PlayerRun::of(options.headless, &options.script);
-    crate::crash::dialog_on_lost_device(player);
     let mut backup = None;
     if player.0 {
         crate::crash::mark(&folder, crate::crash::PLAYER);
@@ -258,13 +257,18 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::grenade_view::GrenadeViewPlugin,
                 crate::aim_fx::AimFxPlugin,
                 crate::remote_view::RemoteViewPlugin,
-                // The game's logos open the menu (not a run's own session,
-                // nor one opening on a save or back from a game); a headless
-                // one is a check that wants the menu at once, and skips them
-                // unless asked (`KJK_MOVIES=1`, `played`).
+                // KOTOR's own opening logo movies (`leclogo`, `biologo`,
+                // `legal`) are skipped at startup; `SplashPlugin` plays kjk's
+                // own Möbius splash screen instead.
                 crate::movie_view::MovieViewPlugin {
-                    opening: menu && !crate::session_flow::skips_logos(),
+                    opening: false,
                     play: crate::movie_view::played(options.headless),
+                },
+                crate::splash::SplashPlugin {
+                    enabled: menu
+                        && !options.headless
+                        && !crate::session_flow::skips_logos()
+                        && !crate::splash::skipped(),
                 },
             ),
         ))
@@ -310,6 +314,7 @@ pub fn run(options: RunOptions) -> AppExit {
             (
                 crate::save_view::SaveViewPlugin,
                 crate::report::ReportPlugin,
+                crate::photo_mode::PhotoModePlugin,
             ),
         ));
         if black {
@@ -417,6 +422,7 @@ pub fn set_campaign(ui: &mut crate::ui_view::Ui, campaign: vfs::Game) {
         Ok((index, base)) => {
             info!(target: "ui", campaign = campaign.key(), "the screens read its data");
             assets.set_campaign(campaign, index, base);
+            ui.stack.palette = ui::paint::Palette::of(campaign);
             ui.vm.chargen = None;
             ui.vm.session.campaign = Some(campaign);
         }

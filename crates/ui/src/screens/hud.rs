@@ -1739,6 +1739,37 @@ pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList
     }
 }
 
+/// Where each companion portrait played by another player names that
+/// player, and the name: the portrait's bottom left, "P2" for the second
+/// seat's player, as co-op games name their players.
+pub fn player_marks(gui: &Gui, vm: &ViewModel) -> Vec<([f32; 4], Vec<u8>)> {
+    (1..=2usize)
+        .filter_map(|place| {
+            let seat = vm.party.get(place)?.played_by?;
+            let portrait = gui.find(&format!("LBL_CHAR{}", place + 1))?;
+            let [left, top, width, height] = rect_of(portrait);
+            let tall = BADGE_TALL.min(height);
+            let rect = [left + 2.0, top + height - tall, width - 2.0, tall];
+            Some((rect, format!("P{}", u16::from(seat) + 1).into_bytes()))
+        })
+        .collect()
+}
+
+/// The players' names over their portraits drawn (`player_marks`).
+pub fn players(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
+    let color = painter.palette.hilight;
+    for (rect, name) in player_marks(gui, vm) {
+        ringed(
+            painter,
+            &name,
+            rect,
+            align::LEFT | align::MIDDLE,
+            color,
+            out,
+        );
+    }
+}
+
 /// A pad's buttons' height over an action slot (layout pixels).
 pub(crate) const BADGE_TALL: f32 = 14.0;
 
@@ -2007,6 +2038,24 @@ pub(crate) fn slot_marks<'a>(
                 palette.base,
                 out,
             );
+        }
+        // The key that fires what the slot holds, at the slot's bottom.
+        match &slot.fire {
+            Some(KeyLabel {
+                badge: Some(badge), ..
+            }) => badges.push((
+                badge,
+                [x + 2.0, y + h - 2.0 - BADGE_TALL, w - 4.0, BADGE_TALL],
+            )),
+            Some(key) => ringed(
+                painter,
+                &key.words,
+                [x + 2.0, y + h - 20.0, w - 4.0, 18.0],
+                align::CENTRE | align::BOTTOM,
+                palette.hilight,
+                out,
+            ),
+            None => {}
         }
     }
     for (badge, area) in badges {

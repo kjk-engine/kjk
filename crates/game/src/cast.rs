@@ -726,6 +726,30 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
     party
 }
 
+/// The party as `seat`'s HUD and leader key list it. For the first seat
+/// this is `party_of`. A guest that plays a body sees the whole party, as
+/// the first seat lists it, with its own body first. A guest that flies a
+/// droid (`Snapshot::remote`) sees the whole party as the first seat lists
+/// it. Its portrait clicks and leader key can then take a companion no
+/// player controls (`Action::Play`). Any other guest without a body sees
+/// `party_of` too.
+pub fn bar_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
+    if seat == Seat(0) {
+        return party_of(snapshot, seat);
+    }
+    let Some(body) = snapshot.body(seat) else {
+        return if snapshot.remote(seat).is_some() {
+            party_of(snapshot, Seat(0))
+        } else {
+            party_of(snapshot, seat)
+        };
+    };
+    let mut party = party_of(snapshot, Seat(0));
+    party.retain(|member| member.id != body.id);
+    party.insert(0, body);
+    party
+}
+
 /// The characters the in-game pages show for `seat` (`party_of`). In one
 /// of the party's bases (`sim::script::party::BASES`), the first seat's
 /// pages also show the companions standing there out of the party
@@ -4392,8 +4416,14 @@ fn held_clip(fighter: &Fighter, ms: f64, ja_body: bool) -> Option<Acting> {
 /// script's animation. One played out is over for a body on the move
 /// (`moving`, faster than `STILL_SPEED`): a round's would hold its ready
 /// stance over a run (`Shows::shown`) until the next line clears it. A body
-/// with JA's clips is `ja_body` (`held_clip`).
+/// with JA's clips is `ja_body` (`held_clip`). A body in a grapple finisher,
+/// holding or held, plays nothing else: the finisher's clip shows until it
+/// lets go (`sim::world::grapples`), whatever attack round or animation the
+/// body began.
 pub fn drawn_acting(fighter: &Fighter, moving: bool, ms: f64, ja_body: bool) -> Option<Acting> {
+    if fighter.grapple.is_some() {
+        return None;
+    }
     held_clip(fighter, ms, ja_body).or(fighter
         .acting
         .filter(|acting| !moving || acting.playing(ms as u64)))
@@ -6100,13 +6130,16 @@ fn place<T: Transforms>(
             let acting = acting::or_talk(acting, talk, (acted, figure.breath.wield), ms);
             shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
-            throw.follow(at.fighter.as_ref(), figure.launcher);
+            // A grapple finisher's pair plays the finisher's clips alone: no
+            // throw, swing or flinch is laid over them (`drawn_acting`).
+            let free = at.fighter.as_ref().filter(|f| f.grapple.is_none());
+            throw.follow(free, figure.launcher);
             // A stun baton (wield 1) swings KOTOR's own swings.
-            baton.follow(at.fighter.as_ref(), figure.breath.wield == 1, ms);
+            baton.follow(free, figure.breath.wield == 1, ms);
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
-            flinch.follow(at.fighter.as_ref(), pained, false);
+            flinch.follow(free, pained, false);
             let mut shown: Vec<_> = shows
                 .shown(
                     acted,

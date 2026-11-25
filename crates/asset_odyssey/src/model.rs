@@ -132,6 +132,10 @@ pub struct MeshIr {
     /// A danglymesh's spring (hair, flaps, capes, leaves); `None` for any
     /// other mesh, or one whose arrays do not match its vertices.
     pub dangly: Option<DanglyIr>,
+    /// The mesh belongs to a model hung under one of this model's reference
+    /// nodes (a room's palm trees, shrubs and vines). The games make each
+    /// such model an object of its own when the room loads.
+    pub referenced: bool,
 }
 
 /// A danglymesh as its header has it: per vertex a constraint (0 to 255)
@@ -510,6 +514,7 @@ impl ModelIr {
         if let Some(mesh) = &node.mesh {
             match Self::mesh(index, node, mesh) {
                 Ok(mut drawable) => {
+                    drawable.referenced = owner != 0;
                     if scale == 0.0 && parent_scale != 0.0 && mesh.skin.is_none() {
                         let mut grown = drawable.clone();
                         if parent_scale != 1.0 {
@@ -615,6 +620,7 @@ impl ModelIr {
                     constraints: dangly.constraints.clone(),
                     rest: dangly.positions.clone(),
                 }),
+            referenced: false,
         })
     }
 }

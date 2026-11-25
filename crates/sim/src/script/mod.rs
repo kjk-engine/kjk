@@ -89,8 +89,8 @@ use script_ncs::catalog::Catalog;
 use script_ncs::vm::{self, Deferred, ObjectId, Program, Routines};
 
 pub use state::{
-    Delayed, DoorMine, Left, Pending, Perceived, SkillUse, State, StealthXp, TrapState, UseKind,
-    Watch, Watched, global, set_global,
+    Delayed, DoorMine, Hints, Left, Pending, Perceived, SkillUse, State, StealthXp, TrapState,
+    UseKind, Watch, Watched, global, set_global,
 };
 
 /// `GetNearestCreature`'s criteria (`CREATURE_TYPE_*`).
@@ -2266,6 +2266,10 @@ pub struct View<'a> {
     /// body at a table), in seat order: the asking seat's body, and the
     /// body whose match it is (`u32::MAX`: stop watching).
     pub watches: &'a [(ObjectId, u32)],
+    /// The seats holding a container open (`world::containers`), one bit a
+    /// seat (`world::party::bit`): such a seat is busy, and joins no
+    /// conversation by standing near it.
+    pub looting: u64,
     /// The area's sound as scripts set it so far.
     pub area_sound: crate::snapshot::AreaSound,
     /// The screen's fade as scripts set it so far.
@@ -2345,7 +2349,8 @@ impl View<'_> {
     /// one's, and not that seat's own character.
     pub fn guest_companion(&self, table: &party::Party, id: ObjectId) -> bool {
         let driver = self.thing(id).and_then(|thing| thing.character?.driver);
-        driver.is_some_and(|seat| seat != crate::world::LEADER_SEAT) && !self.is_player(table, id)
+        driver.is_some_and(|seat| seat != crate::world::LEADER_SEAT)
+            && !self.is_main_character(table, id)
     }
 
     /// The bodies the seats act through (`seats`), for whether a
@@ -2523,6 +2528,15 @@ impl Out {
         self.fade = self.fade(view).map(|fade| fade.lifted(view.now_ms));
         if self.world_fade_in(view) == WorldFadeIn::AtDialog {
             self.world_fade_in = Some(WorldFadeIn::Done);
+        }
+    }
+
+    /// A conversation is started, whatever it then shows: the module's
+    /// fade in held for it (`HoldWorldFadeInForDialog`) goes on, and the
+    /// covering fade lifts. Without a hold nothing changes.
+    pub(super) fn release_held_fade(&mut self, view: &View) {
+        if self.world_fade_in(view) == crate::snapshot::WorldFadeIn::AtDialog {
+            self.lift_fade(view);
         }
     }
 }
@@ -3395,6 +3409,14 @@ impl Step<'_> {
             // A player's legs are its seat's, but in a conversation (a
             // cinematic's) a script walks it.
             let legs_free = player && !self.state.talk.conversations.iter().any(|c| c.pc == who);
+            // A character in a grapple finisher, holding or held, starts its
+            // queued actions only when the finisher lets it go
+            // (`world::grapples`): an animation or a conversation a script
+            // queued for it waits, as Marl's surrender in the Taris dueling
+            // ring waits for the finisher that beat him.
+            if thing.character.as_ref().is_some_and(|c| c.grappled) {
+                continue;
+            }
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
                     return;
@@ -3529,14 +3551,23 @@ impl Step<'_> {
                             self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
-                        // No way leads there: the move fails, and what was
-                        // queued after it goes on; `MOVE_GRACE_MS` on, so a
-                        // door a script opens in the same step (a gate the
-                        // scene opens for the party) is open by then.
+                        // No way leads to a place: the move fails, and what
+                        // was queued after it goes on; `MOVE_GRACE_MS` on, so
+                        // a door a script opens in the same step (a gate the
+                        // scene opens for the party) is open by then. A move
+                        // to an object never fails so, as TSL's
+                        // `ActionMoveToObject` queues a check behind its move
+                        // that queues the move again until the mover is in
+                        // range: its walker waits at a door that will not open
+                        // for it (`walk::ThroughShut`), or looks again after
+                        // each pathfinding wait. Atris walks into her
+                        // meditation chamber once its locked door opens
+                        // (TSLRCM's `a_262walkatris3`).
                         Some((at, _))
                             if now >= started + MOVE_GRACE_MS
                                 && now < started + MOVE_GRACE_MS + MOVE_CHECK_MS
                                 && force_ms.is_none()
+                                && matches!(to, Target::Point(..))
                                 && !(self.view.leads)(thing.position, at) =>
                         {
                             self.moved(thing, started, Ended::NoWay, at);
@@ -3674,13 +3705,16 @@ impl Step<'_> {
                     // door stayed shut; then struck only within a door's
                     // reach of the console's invisible twin, so a player who
                     // had talked from farther stood there and nothing broke.)
-                    &Action::Attack { target, .. }
+                    &Action::Attack { target, passive }
                         if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
                     {
                         let breakable = self.view.thing(target).is_some_and(Thing::breakable);
                         if breakable {
                             if starting {
                                 self.attacking(id, None);
+                                if !passive {
+                                    self.own_round(id);
+                                }
                             }
                             let near = match self.view.place(Target::Object(target)) {
                                 Some((at, _)) if player => {
@@ -3721,6 +3755,7 @@ impl Step<'_> {
                         };
                         if starting && !*passive {
                             self.attacking(id, None);
+                            self.own_round(id);
                         }
                         if alive && !over {
                             let intent = Intent {
@@ -3760,6 +3795,7 @@ impl Step<'_> {
                         // change.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            self.own_round(id);
                             if *target == who {
                                 self.out.changes.push(Change::InCombat { who });
                             }
@@ -3850,6 +3886,13 @@ impl Step<'_> {
                     } => self.cast(thing, (row, target), (fake, cheat), (starting, started)),
                     &Action::Bark { strref } => {
                         dialogue::bark(self.library, self.state, self.report, now, (who, strref));
+                        true
+                    }
+                    Action::Sound { resref } => {
+                        let sound = crate::notice::Sound::new(id, resref);
+                        self.out
+                            .notices
+                            .push((None, crate::notice::Notice::Sound(sound)));
                         true
                     }
                 };
@@ -4089,6 +4132,12 @@ impl Step<'_> {
         if let Some(script) = self.library.impact(cast.row) {
             self.run_as(script, cast.caster, Event::default(), None, Some(cast));
         }
+    }
+
+    /// `id`'s own attack or talent begins: its rounds are no scene's any
+    /// more (`last::SCENE_ROUND`), and their ends run its AI again.
+    fn own_round(&mut self, id: u32) {
+        self.state.last.remove(&(id, last::SCENE_ROUND));
     }
 
     /// Notes `id`'s attack as it begins, for `GetLastAttackAction` and its
@@ -4684,13 +4733,13 @@ pub fn run_due(
 /// then the module's `Mod_OnClientLeav`, the PC their exiting object
 /// (`GetExitingObject`).
 pub(crate) fn leaving(view: &View, party: &party::Party) -> Vec<Pending> {
-    let pcs = view.pcs(party);
+    let mains = view.main_characters(party);
     [AREA, MODULE]
         .into_iter()
         .filter_map(|holder| Some((holder, view.hook(holder, Hook::Exit)?)))
         .flat_map(|(holder, script)| {
-            pcs.iter().map(move |pc| Pending {
-                entering: Some(*pc),
+            mains.iter().map(move |main| Pending {
+                entering: Some(*main),
                 ..Pending::new(&script, holder)
             })
         })

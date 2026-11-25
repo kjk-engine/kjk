@@ -37,23 +37,8 @@ fn entry_in_void(level: Level) -> Level {
 /// the void: no room round the face for more than one.
 fn ledge() -> Level {
     let ground = entry_in_void(proving_ground());
-    let corner = |x: f32, y: f32| ground_point(x * LEDGE_HALF_M, y * LEDGE_HALF_M, 0.0);
-    let [a, b, c, d] =
-        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| corner(x, y));
-    let triangles = [[a, b, c], [a, c, d]];
-    let mut builder = LevelBuilder::new();
-    for triangle in triangles {
-        builder.triangle(triangle, Tag::level(Contents::SOLID, 1));
-    }
-    let nav = collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * UNIT);
     let data = (**ground.module().expect("the proving ground is a module")).clone();
-    Level::new(
-        "ledge",
-        Arc::new(builder.build()),
-        Arc::new(AnimTable::stand_in()),
-    )
-    .with_module(data)
-    .with_nav(nav)
+    floors("ledge", &square(LEDGE_HALF_M, 0.0), &[]).with_module(data)
 }
 
 /// The half width (metres) of `under_a_seat`'s walkable floor, and of the
@@ -62,31 +47,89 @@ const SEAT_FLOOR_HALF_M: f32 = 2.0;
 const SEAT_HALF_M: f32 = 0.3;
 const SEAT_HEIGHT_M: f32 = 0.7;
 
-/// A walkable floor with a seat drawn over its middle, as TSL's Ebon Hawk
-/// cockpits draw the pilot's chair over the walkmesh's floor. The seat is
-/// in the level's collision but not in its walkmesh.
-fn under_a_seat() -> Level {
-    let square = |half: f32, z: f32| {
-        let corner = |x: f32, y: f32| ground_point(x * half, y * half, z);
-        let [a, b, c, d] =
-            [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| corner(x, y));
-        [[a, b, c], [a, c, d]]
-    };
-    let floor = square(SEAT_FLOOR_HALF_M, 0.0);
+/// A square of two triangles `half` metres either way of the proving
+/// ground's middle, `z` metres over its floor.
+fn square(half: f32, z: f32) -> [[Vec3; 3]; 2] {
+    let corner = |x: f32, y: f32| ground_point(x * half, y * half, z);
+    let [a, b, c, d] =
+        [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| corner(x, y));
+    [[a, b, c], [a, c, d]]
+}
+
+/// A level named `name` whose collision is the squares `walkable` (in its
+/// walkmesh too) and `drawn` (in its collision alone).
+fn floors(name: &str, walkable: &[[Vec3; 3]], drawn: &[[Vec3; 3]]) -> Level {
     let mut builder = LevelBuilder::new();
-    for triangle in floor {
+    for &triangle in walkable {
         builder.triangle(triangle, Tag::level(Contents::SOLID, 1));
     }
-    for triangle in square(SEAT_HALF_M, SEAT_HEIGHT_M) {
+    for &triangle in drawn {
         builder.triangle(triangle, Tag::level(Contents::SOLID, 0));
     }
-    let nav = collision::nav::NavMesh::build(&floor, crate::walk::CLEARANCE * UNIT);
+    let nav = collision::nav::NavMesh::build(walkable, crate::walk::CLEARANCE * UNIT);
     Level::new(
-        "under_a_seat",
+        name,
         Arc::new(builder.build()),
         Arc::new(AnimTable::stand_in()),
     )
     .with_nav(nav)
+}
+
+/// A walkable floor with a seat drawn over its middle, as TSL's Ebon Hawk
+/// cockpits draw the pilot's chair over the walkmesh's floor. The seat is
+/// in the level's collision but not in its walkmesh.
+fn under_a_seat() -> Level {
+    floors(
+        "under_a_seat",
+        &square(SEAT_FLOOR_HALF_M, 0.0),
+        &square(SEAT_HALF_M, SEAT_HEIGHT_M),
+    )
+}
+
+/// The half widths (metres) of `under_a_pad`'s ground and pad, and the
+/// pad's height over the ground.
+const PAD_GROUND_HALF_M: f32 = 10.0;
+const PAD_HALF_M: f32 = 4.0;
+const PAD_HEIGHT_M: f32 = 2.5;
+
+/// A walkable landing pad over a ground drawn under it, the module's entry
+/// on the ground under the pad's middle. Mission to Sleheyron gives its
+/// landing pad this arrival. The ground is in the level's collision but not
+/// in its walkmesh.
+fn under_a_pad() -> Level {
+    let level = floors(
+        "under_a_pad",
+        &square(PAD_HALF_M, PAD_HEIGHT_M),
+        &square(PAD_GROUND_HALF_M, 0.0),
+    );
+    let mut data = (**proving_ground()
+        .module()
+        .expect("the proving ground is a module"))
+    .clone();
+    data.name = "probe_pad".into();
+    data.entry.position = ground_point(0.0, 0.0, 0.0);
+    level.with_module(data)
+}
+
+/// An entry under the walkable pad stands the player on the pad, not on
+/// the ground drawn under it: KOTOR stands an arrival on its walkmesh.
+fn arrival_under_a_pad() -> Result<String, String> {
+    let level = under_a_pad();
+    let mut world = SimWorld::new(WorldConfig::one_seat(), Level::arena())
+        .map_err(|error| error.to_string())?;
+    let after = world
+        .install(level, None)
+        .map_err(|error| error.to_string())?;
+    let seat = *seats(&after).first().ok_or("no seat")?;
+    let soles = (seat[2] + crate::motion::SOLE_Z) * UNIT;
+    let pad = ground_point(0.0, 0.0, PAD_HEIGHT_M)[2];
+    told(
+        (soles - pad).abs() <= 0.05,
+        format!(
+            "soles {:.2} m over the ground, the pad {PAD_HEIGHT_M:.2} m",
+            soles - ground_point(0.0, 0.0, 0.0)[2]
+        ),
+    )
 }
 
 /// A jump to the floor under a drawn seat stands the jumper there, on the
@@ -238,6 +281,10 @@ pub fn probes() -> Checks {
         (
             "a jump to the floor under a drawn seat stands there",
             jump_under_a_seat(),
+        ),
+        (
+            "an entry under a walkable pad stands on the pad",
+            arrival_under_a_pad(),
         ),
     ]
 }

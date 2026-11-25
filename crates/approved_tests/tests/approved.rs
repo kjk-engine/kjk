@@ -138,6 +138,16 @@ fn sound_device_layouts() {
     probed("sound device", &audio::probes::device_layouts(), 45);
 }
 
+/// `bink::probes`: the movie decoder's parts, without a movie. The Huffman
+/// trees are whole, bits are read least significant first, both inverse
+/// DCTs give what their definitions give, a header's audio track reads, and
+/// headers other than Bink 1 revision "i" with DCT audio are refused.
+/// Approved 2026-11-23.
+#[test]
+fn bink_decoder_parts() {
+    probed("bink decoder", &bink::probes::probes(), 11);
+}
+
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
     assert!(
         (measured - expected).abs() <= tolerance,
@@ -327,6 +337,25 @@ fn disruptor_beams() {
     println!("disruptor_beams skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
     probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
+}
+
+/// The photo camera (`kjk_game::photo_mode::camera_probes`): it moves at
+/// 3, 12 and 0.75 metres a second, reaches its speed in 0.2 seconds and
+/// stops in 0.2 seconds from any speed, zooms between 15 and 100 degrees, tilts up to 45 degrees, stops
+/// short of straight up and down as the follow camera does, and looks
+/// slower the more it is zoomed. It takes a shot whose pitch is a whole
+/// turn off as the shot looks. It stays within 40 metres of the player's
+/// character and within the box round the area's rooms grown by 2 metres,
+/// sliding along either limit. A shot past a limit, such as a cutscene's
+/// far from the character, does not jump, and the camera goes no farther
+/// out from it. Needs `--features rig`; no installs
+/// (proposed 2026-11-24, awaiting approval).
+#[test]
+fn photo_camera() {
+    #[cfg(not(feature = "rig"))]
+    println!("photo_camera skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("photo camera", &kjk_game::photo_mode::camera_probes(), 18);
 }
 
 /// Both blades of a double-bladed lightsaber whose blade nodes share one
@@ -536,7 +565,7 @@ fn coop_look() {
     #[cfg(not(feature = "rig"))]
     println!("coop_look skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("look", &kjk_game::sim_host::look_probes(), 2);
+    probed("look", &kjk_game::sim_host::look_probes(), 3);
 }
 
 /// The world held after an install until its area can be drawn
@@ -557,6 +586,20 @@ fn loading_hold() {
         &kjk_game::sim_host::loading_hold_probes(),
         2,
     );
+}
+
+/// A save loaded in place while a menu or the lost box holds the world
+/// (`kjk_game::solo_reload_probes`, also `kjk sim probes --only "solo
+/// reload"`). The install's message reaches the host's own client after
+/// the host committed it. The client still gets the level, loads, and the
+/// world goes on. Needs `--features rig`; no installs (proposed
+/// 2026-11-22, issue 643, not yet approved).
+#[test]
+fn reload_while_held() {
+    #[cfg(not(feature = "rig"))]
+    println!("reload_while_held skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("solo reload", &kjk_game::solo_reload_probes(), 1);
 }
 
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
@@ -715,18 +758,20 @@ fn undrawn_creature_named() {
 
 /// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
 /// made in the test. A VIS link one way counts both ways, and a room that
-/// is only seen is linked with every room. A light's mask keeps it out of
+/// is only seen is linked with every room. In an area with no VIS file
+/// every room is linked with every room. A light's mask keeps it out of
 /// the rooms not linked with its own, and rooms past the 128th are always
 /// reached. Over stacked floors a light is in the room whose floor is under
 /// it. Over a pit it is in the smallest room whose bounds hold it, not in a
 /// room far below. Outside every room it is in none. Needs `--features
-/// rig`; no installs. (proposed 2026-11-11)
+/// rig`; no installs. (proposed 2026-11-11; the check without a VIS file
+/// approved 2026-11-24)
 #[test]
 fn fight_light_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 7);
 }
 
 /// The rooms the camera is in for the room culling
@@ -735,13 +780,14 @@ fn fight_light_rooms() {
 /// is in every room with a floor whose bounds hold it, so a camera in the
 /// wall between two rooms shows what both rooms see. A sky's bounds do not
 /// count. Outside every room it is in none, and every room shows. Needs
-/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+/// `--features rig`; no installs. (proposed 2026-11-15, #464; a fifth check
+/// proposed 2026-11-23, #638)
 #[test]
 fn camera_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+    probed("camera rooms", &kjk::probes::camera_rooms(), 5);
 }
 
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
@@ -768,6 +814,121 @@ fn capsule_shadows() {
     println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
     probed("capsule shadows", &kjk::probes::capsule_shadows(), 9);
+}
+
+/// A lighting bake's fingerprint (`kjk_game::bake_fingerprint::probes`),
+/// on fingerprints made here. A fingerprint written as the text of its
+/// file reads back the same. The same fingerprint lets the game take the
+/// whole bake. Other placeables let it take the lightmaps alone. Other
+/// rooms, or another format, refuse the bake. Needs `--features rig`; no
+/// installs (approved 2026-11-23).
+#[test]
+fn lighting_fingerprints() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_fingerprints skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting fingerprints",
+        &kjk_game::bake_fingerprint::probes::probes(),
+        2,
+    );
+}
+
+/// The stored fill's files and numbers (`kjk_game::stored_fill::probes`).
+/// A word `@<map>:<texel>` and a lightmap's line read back, and the texel
+/// 513 of a map 512 texels wide is the middle of the second texel of the
+/// second row. The lightmaps `stored.txt` names read back in lower case.
+/// The backdrop made from a stored lightmap is each colour at half, with
+/// an alpha of 255. A room with no fill and no floor keeps its level.
+/// Needs `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn stored_light_fill() {
+    #[cfg(not(feature = "rig"))]
+    println!("stored_light_fill skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "stored light fill",
+        &kjk_game::stored_fill::probes::probes(),
+        3,
+    );
+}
+
+/// The placeables' baked light (`kjk_game::placeable_light::probes`), on
+/// meshes and files made here. A triangle 2 m on its short sides is split
+/// until no edge is longer than 0.5 m, and it still covers 2 square
+/// metres. A small triangle is kept as it is. The game reads a vertex's
+/// light with the fill of the stored texel its word names, and `@`
+/// repeats the last texel. A line whose model is not the placeable's, and
+/// a line with fewer vertices than it says, are not kept. A file of the
+/// old format, or of another area, is not read. Needs `--features rig`; no
+/// installs (approved 2026-11-23).
+#[test]
+fn placeable_light_sets() {
+    #[cfg(not(feature = "rig"))]
+    println!("placeable_light_sets skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "placeable light sets",
+        &kjk_game::placeable_light::probes::probes(),
+        4,
+    );
+}
+
+/// The lighting download (`kjk_game::lighting_bakes::probes`), on
+/// manifests, game folders and zips made here. A KOTOR 1 and a KOTOR 2
+/// manifest read back, and malformed ones do not. A download installs when
+/// at least 9 areas in 10 match the player's files. The check's key
+/// changes with a mod's texture and not with a voice line. An install
+/// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
+/// replaces the last install whole, is left alone by the store's gc, and
+/// refuses a zip with a file outside the areas' folders. Needs `--features
+/// rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_downloads() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_downloads skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting downloads",
+        &kjk_game::lighting_bakes::probes::probes(),
+        4,
+    );
+}
+
+/// How the viewer takes a lighting bake (`kjk_game::viewer::bake_probes`).
+/// Of an area's sets, one the game may take whole wins over one whose
+/// placeables differ, and of two alike the later wins. The stored fill
+/// adds to the lamps' light in linear light. A texel darker than its floor
+/// is raised to the floor, and a brighter one keeps its own light. Needs
+/// `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_bake_in_the_viewer() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_bake_in_the_viewer skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting bake in the viewer",
+        &kjk_game::viewer::bake_probes::probes(),
+        3,
+    );
+}
+
+/// The sets `kjk lighting pack` takes into the lighting download
+/// (`kjk::probes::lighting_pack`), on folders of bakes made here. The pack
+/// takes the files the game loads from each finished set `b`. It leaves
+/// out set `a`, a set with no fingerprint, and a set baked with the stored
+/// backdrop before `stored.txt`. For an area that several modules share,
+/// it ships the set of the module that gives their settings. Two modules
+/// the list does not tie together, or a set of an old format, stop the
+/// pack. Needs `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_pack_sets() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_pack_sets skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("lighting pack sets", &kjk::probes::lighting_pack(), 3);
 }
 
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
@@ -2051,7 +2212,11 @@ fn blank_cells_name_nothing() {
 /// executables do. A mod's GIT entry that also writes an empty `Tag`,
 /// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
 /// Undercity lost Mission's trigger tag, so she never came). A trigger's own
-/// `Tag` that is not empty still names it. No installs (approved 2026-11-16).
+/// `Tag` that is not empty does not name it either, as KOTOR 2's executable
+/// reads no `Tag` from a GIT entry made from a template (Echoes of the
+/// Republic's Sleheyron cutscene). It is kept beside, for the playthrough
+/// routes. No installs (approved 2026-11-16; changed 2026-11-25, awaiting
+/// approval).
 #[test]
 fn git_entry_keeps_template_fields() {
     use asset_odyssey::made::{blank_module, gff, node, resref};
@@ -2103,9 +2268,14 @@ fn git_entry_keeps_template_fields() {
         .iter()
         .map(|instance| {
             format!(
-                "{:?} {} {} {:?}",
+                "{:?} {}{} {} {:?}",
                 instance.kind,
                 String::from_utf8_lossy(&instance.tag),
+                if instance.placed_tag.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", String::from_utf8_lossy(&instance.placed_tag))
+                },
                 instance.conversation,
                 instance.scripts
             )
@@ -2117,7 +2287,7 @@ fn git_entry_keeps_template_fields() {
         [
             format!("Placeable plc_tag talk {enter}"),
             format!("Trigger trg_tag talk {enter}"),
-            format!("Trigger own_tag talk {enter}"),
+            format!("Trigger trg_tag (own_tag) talk {enter}"),
         ],
         "kind, tag, conversation and scripts of each placed object"
     );
@@ -2195,6 +2365,53 @@ fn trigger_leads_out_whatever_its_link_flags() {
         ],
         "where each door and trigger leads"
     );
+}
+
+/// A model's collision tree (AABB) whose root is an inner node with both
+/// child pointers -1 reads as an empty tree, and the model reads. Echoes of
+/// the Republic's room models 772qgm_01a, 748kora and 750kora have such a
+/// tree. kjk followed the pointers past the file's end and refused each
+/// model, and with it the whole area. The model is made in the test: one
+/// mesh node with the empty tree. No installs. (approved 2026-11-24)
+#[test]
+fn mod_empty_aabb_tree() {
+    use fmt_odyssey::mdl::{FLAG_AABB, FLAG_HEADER, FLAG_MESH, Model};
+
+    // Offsets in the model data, which starts after the 12-byte file header.
+    const ROOT: usize = 256;
+    const MESH: usize = ROOT + 80;
+    // A KOTOR 2 mesh header is 340 bytes before its AABB tree's offset.
+    const TREE_POINTER: usize = MESH + 340;
+    const TREE: usize = 800;
+    let mut data = vec![0u8; 1024];
+    let mut put = |at: usize, bytes: &[u8]| data[at..at + bytes.len()].copy_from_slice(bytes);
+    // The geometry header's first word as KOTOR 2's writer leaves it.
+    put(0, &4_285_200u32.to_le_bytes());
+    put(8, b"empty");
+    put(40, &(ROOT as u32).to_le_bytes());
+    // The name table: one offset, to "root".
+    put(184, &200u32.to_le_bytes());
+    put(188, &1u32.to_le_bytes());
+    put(200, &210u32.to_le_bytes());
+    put(210, b"root\0");
+    put(ROOT, &(FLAG_HEADER | FLAG_MESH | FLAG_AABB).to_le_bytes());
+    put(TREE_POINTER, &(TREE as u32).to_le_bytes());
+    // The tree's root: no bounds, both children -1, face -1 (an inner node).
+    put(TREE + 24, &u32::MAX.to_le_bytes());
+    put(TREE + 28, &u32::MAX.to_le_bytes());
+    put(TREE + 32, &(-1i32).to_le_bytes());
+    let mut mdl = vec![0u8; 12];
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("a model with an empty AABB tree reads");
+    let tree = model
+        .root
+        .mesh
+        .as_ref()
+        .and_then(|mesh| mesh.aabb.as_ref())
+        .expect("the mesh keeps its tree");
+    assert_eq!(tree.face, -1);
+    assert!(tree.children.is_none(), "the empty tree has no children");
 }
 
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
@@ -3044,6 +3261,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         missing_mips: 0,
         declared_size: None,
         mips_stored: true,
+        header_key: None,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);
@@ -3129,7 +3347,9 @@ fn lightmapped_cut_out_by_diffuse() {
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
-/// installs needed (approved 2026-11-05).
+/// installs needed (approved 2026-11-05). A texture held as both a TPC and
+/// a TGA loads the copy the games load (`texture_formats`, proposed
+/// 2026-11-24, not yet approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);
@@ -3281,6 +3501,44 @@ fn store_cap() {
     assert_eq!(removed.files, 1);
     assert_eq!(kept(), [true, false, false], "the most recent stays");
     assert!(other.exists(), "another kind untouched");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The store's gc (`store::Store::gc`) leaves the installed lighting
+/// download alone. The download's folder holds folders named like kinds
+/// and like formats, and files of every age, and gc keeps them all. It
+/// still removes an old format of a kind that a newer one replaced. No
+/// installs (approved 2026-11-23).
+#[test]
+fn store_keeps_lighting() {
+    let root = std::env::temp_dir().join(format!("kjk-store-gc-lighting-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let store = store::Store::at(&root);
+    let key = store::Key::of("test", &[b"bytes"]);
+    // An old format of a kind, superseded by a newer one.
+    store.put("bake-v1", &key, b"old").unwrap();
+    store.put("bake-v2", &key, b"new").unwrap();
+    // The lighting download, with folders that look like kinds and
+    // like formats, and a file of every age.
+    let lighting = root.join(store::LIGHTING);
+    let installed = lighting.join("tsl").join("411dxn");
+    std::fs::create_dir_all(&installed).unwrap();
+    std::fs::write(installed.join("fingerprint.txt"), "area 411dxn").unwrap();
+    let keyed = lighting.join("ab-v1").join("cd");
+    std::fs::create_dir_all(&keyed).unwrap();
+    std::fs::write(keyed.join("x"), "kept").unwrap();
+    std::fs::create_dir_all(lighting.join("ab-v2").join("ef")).unwrap();
+    let collected = store.gc(std::time::Duration::ZERO, false).unwrap();
+    assert!(installed.join("fingerprint.txt").is_file());
+    assert!(keyed.join("x").is_file());
+    assert!(!store.path("bake-v1", &key).exists());
+    assert!(
+        collected
+            .folders
+            .iter()
+            .all(|folder| !folder.starts_with(&lighting))
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -3771,7 +4029,9 @@ fn corpse_remains() {
 /// script state alone. A module's own template replaces the shared one of
 /// its resref, so a machine with the import step's templates and one
 /// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
-/// approved 2026-11-15).
+/// approved 2026-11-15). Nine medpacs of ten and three more, made there or
+/// moved there, are a stack of ten and a stack of two (`nearly_full`,
+/// issue 705, proposed 2026-11-24, awaiting approval).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);
@@ -4202,7 +4462,7 @@ fn feat_picks() {
 /// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 22);
+    probed("action bar", &sim::combat::bar_probes::probes(), 24);
 }
 
 /// The Force powers and feat attacks that the action bar and the power
@@ -4388,7 +4648,7 @@ fn real_mods() {
 /// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
 #[test]
 fn workbench() {
-    probed("workbench", &sim::workshop_probes::probes(), 16);
+    probed("workbench", &sim::workshop_probes::probes(), 18);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
@@ -4571,7 +4831,7 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 41);
+    probed("drivers", &sim::drivers::probes(), 52);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's
@@ -4579,9 +4839,13 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// The nineteen checks of shared conversations (`shared_*`: free players
+/// near the main character's player joining its conversations, and the
+/// reply a player takes shown to the others before it runs; issues 636 and
+/// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 146);
+    probed("coop talk", &sim::coop_talk::probes(), 166);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4605,13 +4869,23 @@ fn dialogue_coop() {
 /// awaits approval. The check that a forced move to a point of a shut
 /// door's doorway, short of the panel, arrives there and leaves the door
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
+/// The check that a walk to an object past a locked door waits for the
+/// door and goes through once it opens, while a walk to a place there ends
+/// (`object_walk_waits_for_locked_door`, Atris at the Telos academy)
+/// awaits approval.
 /// The check that a door a script closes waits for a body walking through
 /// its doorway but shuts on one standing still there
 /// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
+/// awaits approval. The checks that a conversation with no entry to start
+/// from lets go of the module's fade in held for one
+/// (`empty_talk_lifts_held_fade`), and that a loaded game's area fades in
+/// (`load_fades_in`), both issue 645, await approval. The check that a
+/// looping animation played until stopped outlives a `ClearAllActions` on
+/// its body (`loop_outlives_a_clear`, the broken droid 3CFD on Peragus)
 /// awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 78);
+    probed("scene", &sim::scene_probes::all(), 82);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -4904,10 +5178,12 @@ fn item_properties() {
 /// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
-/// awaiting approval); the sim alone.
+/// awaiting approval); the experience gained while switched left behind
+/// when switching back (TSL's prologue, added 2026-11-24, awaiting
+/// approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 27);
+    probed("switch", &sim::switch::probes(), 29);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -4936,10 +5212,12 @@ fn kill_xp_tables() {
 /// 20 s at most), the turret's gunner per seat with its own aim and bolts,
 /// fighters scaled per gunner, a gunner's own compass through its lens, a
 /// course with runs and gunners encoded and stepped twice alike; no
-/// install.
+/// install. The check that the turret's gun fires once a press of the key,
+/// not a stream while it is held (`turret_fires_once_a_press`), awaits
+/// approval.
 #[test]
 fn minigame_coop() {
-    probed("minigame", &sim::minigame::probes::probes(), 13);
+    probed("minigame", &sim::minigame::probes::probes(), 16);
 }
 
 /// A swoop's sideways motion and hits as both executables have them
@@ -5043,7 +5321,7 @@ fn save_edits() {
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
 /// and an older meta, a damaged save listed and refused, one without a hash
-/// trusted, autosaves rotating, the backup before a new release, a failed
+/// trusted, autosaves rotating (each game's in its own slots), the backup before a new release, a failed
 /// write leaving nothing, a refusal naming the build that made the save;
 /// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
 /// back whole and a damaged one refused, the corpus's slots found by release,
@@ -5051,7 +5329,7 @@ fn save_edits() {
 /// (and failing without the entry or when its story restore lost something), the table printed, a slot written only under a plain name, a panicking save a FAIL row among the others; no install.
 #[test]
 fn save_safety() {
-    probed("save safety", &saves::safety_probes(), 11);
+    probed("save safety", &saves::safety_probes(), 13);
     probed("save corpus", &saves::corpus_probes(), 7);
 }
 

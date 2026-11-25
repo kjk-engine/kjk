@@ -75,12 +75,14 @@ pub fn module_level(
 /// (`off`, or their height in metres) to compare them in the verbs;
 /// `KJK_FURNITURE_TOPS=off` keeps every wall at its full height in front
 /// of furniture too; `KJK_PLACEABLE_SHAPES=off` builds placeables as their
-/// walkmeshes and footprint walls alone, without their drawn shapes.
+/// walkmeshes and footprint walls alone, without their drawn shapes;
+/// `KJK_ROOF_WALLS=off` builds no walls round high tops over the floor.
 fn build_options() -> Result<BuildOptions, String> {
     let mut options = BuildOptions::default();
     let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "off");
     options.furniture_tops = !off("KJK_FURNITURE_TOPS");
     options.placeable_shapes = !off("KJK_PLACEABLE_SHAPES");
+    options.roof_walls = !off("KJK_ROOF_WALLS");
     if let Ok(value) = std::env::var("KJK_EDGE_WALLS") {
         options.edge_walls = match value.as_str() {
             "off" => None,
@@ -421,12 +423,13 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
         stats.placeable_walkmeshes
     );
     outln!(
-        "  clip brushes {} from {}, walkmesh faces left out {}; {} walls along open walkmesh edges, {} round placeables' footprints",
+        "  clip brushes {} from {}, walkmesh faces left out {}; {} walls along open walkmesh edges, {} round placeables' footprints, {} round high tops over the floor",
         stats.clip_brushes,
         loaded.clip_source,
         stats.walkmesh_left,
         stats.edge_walls,
-        stats.footprint_walls
+        stats.footprint_walls,
+        stats.roof_walls
     );
     outln!(
         "  placeables' drawn shapes: {} triangles ({} steep), {} of low bases kept as floor, {} of small low parts left out",

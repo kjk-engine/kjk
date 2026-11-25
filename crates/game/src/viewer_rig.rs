@@ -963,6 +963,7 @@ fn floor() -> (ModelIr, asset_odyssey::texture::TextureIr) {
             diffuse: [1.0; 3],
             uv_scroll: None,
             dangly: None,
+            referenced: false,
             skin: None,
         }],
         lights: Vec::new(),

@@ -1,14 +1,18 @@
 //! The editing session: changes replayed onto the opened save, so undo is
 //! exact and a refused change leaves nothing (Task 4, Review Focus 5).
 
-use crate::model::catalog::Catalog;
+use crate::model::catalog::{Catalog, Global, Kind};
 use crate::model::session::{Change, Ground, Session};
 
 const SABER: &str = "g_w_lghtsbr01";
 
 /// The kitchen sink as opened, in a session.
 fn sink() -> Session {
-    let save = sim::fixtures::kitchen_sink().1;
+    sink_of(sim::fixtures::kitchen_sink().1)
+}
+
+/// `save` as opened, in a session.
+fn sink_of(save: sim::Save) -> Session {
     Session::new(edit::Opened {
         id: "0001".into(),
         meta: saves::Meta::default(),
@@ -204,4 +208,56 @@ pub fn give_equipped() -> Result<String, String> {
     Ok(format!(
         "{words:?}; undone; the companion away held by {away:?}"
     ))
+}
+
+/// A flag the save keeps with capitals (`000_Hand_Finale`) is read at its
+/// value under the lowercase name `globalcat.2da` gives it, and setting it
+/// changes that same key, with no second key made.
+pub fn flags_read_without_case() -> Result<String, String> {
+    let items = armory();
+    let ground = Ground::items(&items);
+    let mut save = sim::fixtures::kitchen_sink().1;
+    save.script.numbers.insert("000_Hand_Finale".into(), 1);
+    save.script.booleans.insert("K_Fixture_Mixed".into(), true);
+    save.script
+        .strings
+        .insert("K_Fixture_Words".into(), "hello".into());
+    let mut session = sink_of(save);
+    let number = Global {
+        name: "000_hand_finale".into(),
+        kind: Kind::Number,
+    };
+    let boolean = Global {
+        name: "k_fixture_mixed".into(),
+        kind: Kind::Boolean,
+    };
+    let text = Global {
+        name: "k_fixture_words".into(),
+        kind: Kind::Text,
+    };
+    let read = (
+        number.number(&session.edited),
+        boolean.boolean(&session.edited),
+        text.text(&session.edited),
+    );
+    if read != (1, true, Some("hello")) {
+        return Err(format!(
+            "read {read:?}; expected (1, true, Some(\"hello\"))"
+        ));
+    }
+    session.apply(Change::Number(number.name.clone(), 0), &ground)?;
+    let keys: Vec<&String> = session
+        .edited
+        .script
+        .numbers
+        .keys()
+        .filter(|key| key.eq_ignore_ascii_case("000_hand_finale"))
+        .collect();
+    if keys != ["000_Hand_Finale"]
+        || session.edited.script.numbers["000_Hand_Finale"] != 0
+        || number.number(&session.edited) != 0
+    {
+        return Err(format!("after setting it to 0, its keys are {keys:?}"));
+    }
+    Ok("000_Hand_Finale read as 1 by its lowercase name and set to 0 under its own key".into())
 }

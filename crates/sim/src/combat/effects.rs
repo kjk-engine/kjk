@@ -463,8 +463,8 @@ pub const FORCE_BODY_SHARE: [i32; 3] = rules::force_effects::force_body::SHARE;
 /// The hit points a cast under Force Body must leave more than.
 pub const FORCE_BODY_LEAST_HP: i32 = rules::force_effects::force_body::LEAST_HP_LEFT;
 
-/// What a power's cost (whole Force points) takes under Force Body at
-/// `level`: that share of it, rounded down, from Force points and as much
+/// What a power's cost takes under Force Body at `level`, in the cost's own
+/// unit: that share of it, rounded down, from Force points and as much
 /// again from hit points.
 pub fn force_body_share(cost: i32, level: u8) -> i32 {
     cost * FORCE_BODY_SHARE[usize::from(level.min(2))] / 100
@@ -473,7 +473,10 @@ pub fn force_body_share(cost: i32, level: u8) -> i32 {
 /// What a power costing `cost` (hundredths) takes from one with `lasting`
 /// effects at `now` (hundredths): from its Force points, and from its hit
 /// points (Force Body's share of each, the first running one's level, or
-/// all of it from Force points).
+/// all of it from Force points). A cast's cost in whole points has its
+/// share rounded down to whole points, as TSL's executable does. A held
+/// power's cost for one step is a fraction of a point, and its share is
+/// kept in hundredths, so the caster keeps paying while it holds the power.
 pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32) {
     let level = lasting
         .iter()
@@ -481,8 +484,12 @@ pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32
         .find(|l| l.modifies == Modifies::ForceBody && l.until > now)
         .map(|l| l.of);
     match level {
-        Some(level) => {
+        Some(level) if cost % 100 == 0 => {
             let share = force_body_share(cost / 100, level) * 100;
+            (share, share)
+        }
+        Some(level) => {
+            let share = force_body_share(cost, level).max(1);
             (share, share)
         }
         None => (cost, 0),
@@ -567,6 +574,10 @@ pub struct Effects {
     /// Fury's kills (`Modifies::Fury`): counted from 0 when one takes hold,
     /// none once the last ends.
     pub fury: Option<u8>,
+    /// The hit points and bar points that its effects and worn items added
+    /// to its most at the last step (`follow_maxima`). A character is made
+    /// with none, from its own sheet's most.
+    pub added: (i16, i16),
 }
 
 /// What `Effects::settle` found changed: the state that ended (when the one
@@ -859,6 +870,8 @@ impl Effects {
         out.u8(self.worn_traits);
         out.u64(self.regenerated_at);
         out.u8(self.fury.unwrap_or(u8::MAX));
+        out.u16(self.added.0 as u16);
+        out.u16(self.added.1 as u16);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Effects, DecodeError> {
@@ -879,6 +892,11 @@ impl Effects {
             worn_traits: input.u8()?,
             regenerated_at: input.u64()?,
             fury: Some(input.u8()?).filter(|kills| *kills != u8::MAX),
+            added: if input.since(crate::since::snapshot::FIX_BUFF_BARS) {
+                (input.u16()? as i16, input.u16()? as i16)
+            } else {
+                (0, 0)
+            },
         })
     }
 }
@@ -909,6 +927,28 @@ pub fn settle(fighter: &mut Fighter, now: u64) -> Settled {
         force.state = state;
     }
     settled
+}
+
+/// Moves `fighter`'s hit points and bar points by as much as its most moved
+/// since the last step, through what runs on it and what it wears
+/// (`added`: the points they add to its own sheet's most, as
+/// `sheet_now` finds them). Both games do this whenever an effect raises or
+/// lowers an ability. A character at full health who takes Master Valor's
+/// Constitution stays at full health, and loses those points again when it
+/// ends. A loss never takes it below 1 point here, where the games kill a
+/// character the loss takes to 0. A character made at its own sheet's most
+/// (`Fighter::of`) is raised to its most at its first step.
+pub fn follow_maxima(fighter: &mut Fighter, added: (i16, i16)) {
+    let (hp, fp) = fighter.effects.added;
+    if fighter.alive() {
+        let moved = |by: i16, was: i16| (i32::from(by) - i32::from(was)) * 100;
+        let hp_moved = moved(added.0, hp);
+        if hp_moved != 0 {
+            fighter.hp = (fighter.hp + hp_moved).max(fighter.hp.min(100));
+        }
+        fighter.fp = (fighter.fp + moved(added.1, fp)).max(0);
+    }
+    fighter.effects.added = added;
 }
 
 /// What `sheet`'s worn items do to `fighter` at `now` (step `tick`,

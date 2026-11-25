@@ -54,6 +54,7 @@ fn sample(own_slot: usize) -> ViewModel {
             }),
             saber_rules: "ja".into(),
             collision: "limited".into(),
+            show_replies: true,
             hero: Some(LobbyHeroView {
                 name: b"Dax".to_vec(),
                 portrait: Some("po_pmhc01".into()),
@@ -205,7 +206,8 @@ fn words_shown() -> Vec<Check> {
         .collect()
 }
 
-/// What each press asks for, in each view: a guest's settings rows are
+/// What each press asks for, in each view: the host's chosen replies row
+/// turns them off, a guest's settings rows are
 /// greyed and ask nothing, a companion the story took asks nothing, a
 /// guest's choice of another guest's companion is a choice, Start Game is
 /// the host's only, and a guest's Ready marks Ready.
@@ -213,7 +215,7 @@ fn presses() -> Check {
     let host = sample(0);
     let guest = sample(2);
     let greyed = |vm: &ViewModel, tag| state(&mut Lobby::default(), vm, None, tag).greyed;
-    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 13] = [
+    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 15] = [
         (
             "host saber",
             &host,
@@ -226,8 +228,15 @@ fn presses() -> Check {
             "BTN_COLLISION",
             lobby(LobbyIntent::Collision("restricted".into())),
         ),
+        (
+            "host replies",
+            &host,
+            "BTN_REPLIES",
+            lobby(LobbyIntent::ShowReplies(false)),
+        ),
         ("guest saber", &guest, "BTN_SABER", Vec::new()),
         ("guest collision", &guest, "BTN_COLLISION", Vec::new()),
+        ("guest replies", &guest, "BTN_REPLIES", Vec::new()),
         ("host taken away", &host, "BTN_NPC4", Vec::new()),
         ("guest taken away", &guest, "BTN_NPC4", Vec::new()),
         (
@@ -267,6 +276,7 @@ fn presses() -> Check {
     let greys = [
         greyed(&guest, "BTN_SABER"),
         greyed(&guest, "BTN_COLLISION"),
+        greyed(&guest, "BTN_REPLIES"),
         greyed(&host, "BTN_SABER"),
     ];
     // A companion the story took away shows the layout's "no companion"
@@ -277,7 +287,7 @@ fn presses() -> Check {
         !state(&mut Lobby::default(), &guest, None, "LBL_CHAR3").hidden,
         state(&mut Lobby::default(), &guest, None, "LBL_NA3").hidden,
     ];
-    let ok = wrong.is_empty() && greys == [true, true, false] && away == [true; 4];
+    let ok = wrong.is_empty() && greys == [true, true, true, false] && away == [true; 4];
     check(
         "lobby_presses",
         if ok {
@@ -345,7 +355,7 @@ fn descriptions() -> Check {
             "guest setting",
             &guest,
             "BTN_SABER",
-            "The host chooses the saber rules and the collision.",
+            "The host chooses the saber rules, the collision and whether chosen replies are shown.",
         ),
         (
             "host setting",
@@ -500,10 +510,8 @@ fn combat_rules() -> Check {
     )
 }
 
-/// The screen built on a layout holding the party selection's tags: its
-/// own pieces are made, the companion row is laid out in one line, and the
-/// pieces the lobby does not use are hidden.
-fn built() -> Check {
+/// Fake assets with a layout holding the party selection's tags.
+fn party_layout() -> Fake {
     let mut assets = Fake::new();
     let tags: Vec<String> = ["BTN_NPC", "LBL_CHAR", "LBL_NA"]
         .iter()
@@ -527,12 +535,32 @@ fn built() -> Check {
     assets
         .layouts
         .insert("partyselection", root(800, 600, controls));
+    assets
+}
+
+/// The left edges of the row's first `places` places, and where the last
+/// one ends, in `stack`.
+fn row_edges(stack: &crate::screen::Stack, places: usize) -> (Vec<i32>, Option<i32>) {
+    let extents: Vec<_> = (0..places)
+        .filter_map(|at| stack.extent_of(&format!("BTN_NPC{at}")))
+        .collect();
+    let lefts = extents.iter().map(|extent| extent.left).collect();
+    let end = extents.last().map(|extent| extent.left + extent.width);
+    (lefts, end)
+}
+
+/// The screen built on a layout holding the party selection's tags: its
+/// own pieces are made, the companion row is laid out in one line, and the
+/// pieces the lobby does not use are hidden.
+fn built() -> Check {
+    let mut assets = party_layout();
     let vm = sample(0);
     let stack = opened("lobby", &mut assets, &vm);
     let made = [
         "LBL_GAMEINFO",
         "BTN_SABER",
         "BTN_COLLISION",
+        "BTN_REPLIES",
         "LBL_DESC",
         "LBL_SLOT2",
         "LBL_CNAME11",
@@ -554,15 +582,54 @@ fn built() -> Check {
     let unused = stack.hidden("LBL_3D", &vm);
     // The eleventh place (the main character and ten companions) ends
     // inside the description strip's panel, which ends at 722 units.
-    let last = (stack.extent_of("BTN_NPC10")).map(|extent| extent.left + extent.width);
-    let fits = last.is_some_and(|right| right <= 722);
+    // A row of fewer than twelve places keeps its places 58 units apart.
+    let (lefts, last) = row_edges(&stack, 11);
+    let fits = last.is_some_and(|right| right <= 722)
+        && lefts.windows(2).all(|pair| pair[1] - pair[0] == 58);
     check(
         "lobby_built",
         if missing.is_empty() && one_row && unused && fits {
             Ok("the lobby's pieces are made from the party selection's".into())
         } else {
             Err(format!(
-                "missing {missing:?}, row tops {tops:?}, 3D view hidden {unused}, the eleventh place ends at {last:?}"
+                "missing {missing:?}, row tops {tops:?}, 3D view hidden {unused}, places at {lefts:?}, the eleventh ends at {last:?}"
+            ))
+        },
+    )
+}
+
+/// A lobby of a save whose mod recruited all twelve of KOTOR 2's
+/// companions. The row shows the main character and the twelve companions
+/// in thirteen places. Its spacing narrows so that the last place still
+/// ends inside the description strip's panel, at 722 units, and no two
+/// portraits overlap.
+fn twelve_companions() -> Check {
+    let mut assets = party_layout();
+    let mut vm = sample(0);
+    if let Some(lobby) = vm.lobby.as_mut() {
+        lobby.companions = (0..12)
+            .map(|npc| LobbyCompanionView {
+                npc,
+                name: format!("Companion {npc}").into_bytes(),
+                portrait: Some(format!("po_p{npc}")),
+                state: LobbyCompanionState::Free,
+            })
+            .collect();
+    }
+    let stack = opened("lobby", &mut assets, &vm);
+    let (lefts, last) = row_edges(&stack, 13);
+    let shown = (0..13)
+        .filter(|at| !stack.hidden(&format!("LBL_CHAR{at}"), &vm))
+        .count();
+    let apart = lefts.windows(2).all(|pair| pair[1] - pair[0] >= 38);
+    let ok = lefts.len() == 13 && shown == 13 && apart && last.is_some_and(|right| right <= 722);
+    check(
+        "lobby_twelve_companions",
+        if ok {
+            Ok(format!("thirteen places at {lefts:?}"))
+        } else {
+            Err(format!(
+                "{shown} portraits shown, places at {lefts:?}, the last ends at {last:?}"
             ))
         },
     )
@@ -577,6 +644,7 @@ pub(super) fn all() -> Vec<Check> {
         droids(),
         combat_rules(),
         built(),
+        twelve_companions(),
         labels_in_columns(),
     ]);
     checks

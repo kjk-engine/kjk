@@ -24,6 +24,8 @@
 //! the pictures the owner approved and the game agree.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use asset_odyssey::texture::{Encoding, TextureIr};
 use bevy::math::{Mat4, Vec2, Vec3};
@@ -32,11 +34,9 @@ use fmt_odyssey::dxt;
 use crate::scene::{placement, to_mat4};
 use crate::viewer::LoadedScene;
 
-/// How the rooms are lit. A run starts with the mode `KJK_FITTED_LIGHTS`
-/// names: unset or `off` is `Off`, `baked` is `Baked`, `lamps` is
-/// `LampsOnly`, and anything else is `Live`. A program may change it while
-/// it runs (`set_mode`, the level editor's lighting view); the next scene
-/// drawn takes it.
+/// How the rooms are lit, where a program, `KJK_FITTED_LIGHTS` or a level
+/// editor project chose it (`chosen`). Without a choice, each area is lit
+/// as the options' Lighting setting says (`baked_area`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     /// The game's stored lightmaps alone.
@@ -44,119 +44,244 @@ pub enum Mode {
     /// The trial: the rooms keep half of their stored light, and the
     /// fitted lights give the rest.
     Live,
-    /// The rooms keep none of their stored light: only the fitted lights
-    /// show, to see what each one does.
+    /// The rooms keep none of their stored light. Only the fitted lights
+    /// show, so the player can see what each one does.
     LampsOnly,
     /// The rooms show a bake of the fitted lights in place of their live
-    /// light. The baked lightmaps are the ones `KJK_DETAIL_BAKE` names (or
-    /// `viewer::set_bake_folder`), made by `kjk detail-bake --lights`. The
-    /// rooms' lightmapped surfaces then show the baked lightmap whole and
-    /// take no fitted light. Doors, placeables and characters are lit as
-    /// under `Live`.
+    /// light. The rooms' lightmapped surfaces then show the baked lightmap
+    /// whole and take no fitted light. Doors, placeables and characters are
+    /// lit as under `Live`.
     Baked,
 }
 
-static MODE: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
+impl Mode {
+    /// The shaders' trial for the mode (`shadows::ShadowDebug`): 0 for
+    /// `Off`, 7 for `Live`, 8 for `Baked` and 9 for `LampsOnly`.
+    fn trial(self) -> u32 {
+        match self {
+            Mode::Off => 0,
+            Mode::Live => 7,
+            Mode::Baked => 8,
+            Mode::LampsOnly => 9,
+        }
+    }
+}
 
-/// Whether the mode was chosen: `KJK_FITTED_LIGHTS` is set, or a program
-/// set it (`set_mode`). A chosen mode stays; without one, a level takes the
-/// mode its project's bake asks for (`for_module`).
-static CHOSEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// `KJK_FITTED_LIGHTS`, when it is set.
+fn variable() -> Option<&'static str> {
+    static VALUE: OnceLock<Option<String>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").ok())
+        .as_deref()
+}
 
-/// The mode the rooms are lit in now.
-pub fn mode() -> Mode {
-    if let Some(mode) = *MODE
+/// The mode `KJK_FITTED_LIGHTS` names for every area: `off` is `Off`,
+/// `baked` is `Baked`, `lamps` is `LampsOnly`, and any other value is
+/// `Live`. `None` when the variable is not set.
+fn variable_mode() -> Option<Mode> {
+    variable().map(|value| match value {
+        "off" => Mode::Off,
+        "baked" => Mode::Baked,
+        "lamps" => Mode::LampsOnly,
+        _ => Mode::Live,
+    })
+}
+
+/// The mode a program set (`set_mode`), such as the level editor's
+/// lighting view. It wins over everything else.
+static SET: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
+
+/// The mode the level being drawn takes from its level editor project
+/// (`for_module`). `None` for a level whose project does not light it.
+static PROJECT: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
+
+fn read_mode(lock: &std::sync::RwLock<Option<Mode>>) -> Option<Mode> {
+    *lock
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        return mode;
-    }
-    let named = std::env::var("KJK_FITTED_LIGHTS");
-    if named.is_ok() {
-        CHOSEN.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-    let mode = match named.as_deref() {
-        Err(_) | Ok("off") => Mode::Off,
-        Ok("baked") => Mode::Baked,
-        Ok("lamps") => Mode::LampsOnly,
-        Ok(_) => Mode::Live,
-    };
-    *MODE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
-    mode
 }
 
-/// Lights the rooms in `mode` from the next scene drawn on. The mode is
-/// then chosen, and no level changes it by itself (`for_module`).
+fn write_mode(lock: &std::sync::RwLock<Option<Mode>>, mode: Option<Mode>) {
+    *lock
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = mode;
+}
+
+/// The mode chosen for every area, in this order: the one a program set
+/// (`set_mode`), else the one `KJK_FITTED_LIGHTS` names, else the one the
+/// level's project asks for (`for_module`). `None` when none of them
+/// chose. Each area is then lit as the options say (`baked_area`).
+pub fn chosen() -> Option<Mode> {
+    read_mode(&SET)
+        .or_else(variable_mode)
+        .or_else(|| read_mode(&PROJECT))
+}
+
+/// The mode the rooms are lit in now, where one was chosen (`chosen`).
+/// Without a choice it is `Off`, although an area under the options'
+/// Enhanced Lightmaps is drawn `Baked` (`baked_area`).
+pub fn mode() -> Mode {
+    chosen().unwrap_or(Mode::Off)
+}
+
+/// Lights the rooms in `mode` from the next scene drawn on. No variable or
+/// level changes it after that.
 pub fn set_mode(mode: Mode) {
-    CHOSEN.store(true, std::sync::atomic::Ordering::Relaxed);
-    *MODE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
+    write_mode(&SET, Some(mode));
 }
 
-/// Before the scene of `module` is drawn: where no mode was chosen, a level
-/// whose level editor project keeps a bake of it (`level_edit::lighting`)
-/// is lit `Baked`, with that bake (`viewer`). A level without a bake whose
-/// lights or lamps placed by hand are its project's own is lit `Live`, by
-/// those lights. Every other level is `Off`.
+/// Before the scene of `module` is drawn, takes the mode its level editor
+/// project asks for. A level whose project keeps a bake of it
+/// (`level_edit::lighting`) is lit `Baked`, with that bake (`viewer`). A
+/// level without a bake, whose lights or lamps placed by hand are its
+/// project's own, is lit `Live` by those lights. Any other level is lit as
+/// the options say. A mode a program set or the variable named wins over
+/// the project's (`chosen`).
 pub fn for_module(module: &str) {
-    let _ = mode();
-    if CHOSEN.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
-    }
     let mode = match level_edit::active::bake_of(module) {
         Some(bake) => {
             bevy::log::info!(
                 "{module} is lit with its project's bake, {}",
                 bake.display()
             );
-            Mode::Baked
+            Some(Mode::Baked)
         }
         // No bake, but lights or lamps of the project's own (a new map's,
-        // or an installed level's once the project changed them): they
-        // shine live, so a level an author lit is not dark in play before
-        // it is baked.
+        // or an installed level's once the project changed them). They
+        // shine live, so a level that an author lit is not dark in play
+        // before it is baked.
         None => {
             let own = level_edit::active::map_lights(module)
                 .is_some_and(|lights| !lights.is_empty())
                 || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty());
-            if own {
+            own.then(|| {
                 bevy::log::info!(
                     "{module} is lit by its project's own lights, live: its project keeps no bake of it"
                 );
                 Mode::Live
-            } else {
-                Mode::Off
-            }
+            })
         }
     };
-    *MODE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
+    write_mode(&PROJECT, mode);
 }
 
-/// Whether the fitted lights shine (any mode but `Off`).
-pub fn wanted() -> bool {
-    mode() != Mode::Off
+/// The mode an area is drawn in, where `baked` says whether it is drawn
+/// under the bake (`LoadedScene::baked`): the chosen mode (`chosen`), else
+/// `Baked` for an area under the bake of Enhanced Lightmaps and `Off` for
+/// any other.
+pub fn mode_of_area(baked: bool) -> Mode {
+    chosen().unwrap_or(if baked { Mode::Baked } else { Mode::Off })
 }
 
-/// Whether the rooms show a bake of the fitted lights (`Mode::Baked`).
+/// Whether the rooms show a bake of the fitted lights, where a mode was
+/// chosen (`chosen`). Under the options alone, the area decides
+/// (`baked_area`).
 pub fn baked() -> bool {
-    mode() == Mode::Baked
+    chosen() == Some(Mode::Baked)
 }
 
-/// The value of `shadows.debug` the mode asks of the shader
-/// (`odyssey.wgsl`): 7 for `Live`, 8 for `Baked`, 9 for `LampsOnly`, 0 for
-/// `Off`.
-pub fn shader_trial() -> u32 {
-    match mode() {
-        Mode::Off => 0,
-        Mode::Live => 7,
-        Mode::Baked => 8,
-        Mode::LampsOnly => 9,
+/// Whether an area is drawn under the baked trial, where `has_bake` says
+/// whether it has a bake the game shows (`viewer::takes_bake`). The rooms
+/// then show a bake of the fitted lights in place of their live light. The
+/// rooms' lightmapped surfaces show the baked lightmap whole and take no
+/// fitted light. Doors, placeables and characters are lit as under `on`.
+///
+/// A chosen mode (`chosen`) decides for every area. `Baked` puts each one
+/// under it, with the baked lightmaps that `KJK_DETAIL_BAKE` names
+/// (`kjk detail-bake --lights`), or that the level editor or the level's
+/// project gives. Without a chosen mode, an area is under it when the
+/// player chose Enhanced Lightmaps in the options, a download of them is
+/// installed (`lighting_bakes::chosen`), and the area has a bake the game
+/// shows. Any other area, one the download lacks, one of the other game, or
+/// one whose files differ from the bake's, is drawn as under Enhanced.
+pub fn baked_area(has_bake: bool) -> bool {
+    match chosen() {
+        Some(mode) => mode == Mode::Baked,
+        None => crate::lighting_bakes::chosen() && has_bake,
     }
+}
+
+/// Whether the fitted lights shine in an area, where `baked` says whether
+/// the area is drawn under the baked trial (`LoadedScene::baked`). A
+/// chosen mode other than `Off` turns them on in every area. Without a
+/// chosen mode they shine only in an area under the bake.
+pub fn wanted_in(baked: bool) -> bool {
+    match chosen() {
+        Some(mode) => mode != Mode::Off,
+        None => baked,
+    }
+}
+
+/// Whether any area of this run may show a bake from the lighting
+/// download: `KJK_FITTED_LIGHTS=baked`, or the options' Enhanced Lightmaps
+/// without the variable. The bakes' folders are read then
+/// (`viewer::baked_folders`).
+pub fn baked_anywhere() -> bool {
+    match variable() {
+        Some(value) => value == "baked",
+        None => crate::lighting_bakes::chosen(),
+    }
+}
+
+/// Whether a program asked for the fitted lights in the shaders
+/// (`keep_in_shaders`).
+static KEPT_IN_SHADERS: AtomicBool = AtomicBool::new(false);
+
+/// Builds this run's shaders with the fitted lights, whatever the options
+/// say (`in_shaders`). The level editor asks for this as it starts, since
+/// its lighting view changes the mode while it runs. It must be called
+/// before the first scene is drawn.
+pub fn keep_in_shaders() {
+    KEPT_IN_SHADERS.store(true, Ordering::Relaxed);
+}
+
+/// Whether this run's shaders hold the fitted lights and the trials that
+/// use them (`odyssey.wgsl`'s `FITTED_LIGHTS`). They do when
+/// `KJK_FITTED_LIGHTS` is set to anything but `off`, when the player chose
+/// Enhanced Lightmaps and a download of them is installed
+/// (`baked_anywhere`), under `KJK_SHADOW_DEBUG=7` (the light kinds' trial),
+/// under `KJK_FOUND_LIGHTS` (whose lights may shine in a cone), and under
+/// `KJK_MODEL_LIGHT`. They also do when a program asked for them
+/// (`keep_in_shaders`, the level editor), and when an active level editor
+/// project lights a level itself (`level_edit::active::lights_any`).
+/// Otherwise the shaders leave that code out.
+///
+/// Left in, that code cost GPU time under Classic and Enhanced lighting,
+/// although none of it ran there. Under Classic on an RTX 4070 Ti SUPER, the
+/// Harbinger's medbay took 1.80 ms of GPU time against 1.41 ms without it.
+/// The crowd brawl's particles took 0.71 ms against 0.14 ms. The calls to
+/// `fitted_lights` and the trials' code each cost about as much alone.
+/// The choice is made once, as kjk starts. A change of the Lighting option
+/// takes effect at the next start in any case.
+pub fn in_shaders() -> bool {
+    static IN: OnceLock<bool> = OnceLock::new();
+    *IN.get_or_init(|| {
+        variable().is_some_and(|value| value != "off")
+            || baked_anywhere()
+            || KEPT_IN_SHADERS.load(Ordering::Relaxed)
+            || level_edit::active::lights_any()
+            || std::env::var("KJK_SHADOW_DEBUG").is_ok_and(|value| value == "7")
+            || std::env::var_os("KJK_FOUND_LIGHTS").is_some()
+            || crate::light_probes::term_mode() != 0
+    })
+}
+
+/// The shaders' trial for an area, where `baked` says whether it is drawn
+/// under the bake (`LoadedScene::baked`). A chosen mode decides for every
+/// area (`Mode::trial`). Without one it is 8 for an area under the bake of
+/// Enhanced Lightmaps, and 0 for any other (`shadows::ShadowDebug`).
+pub fn trial_of_area(baked: bool) -> u32 {
+    mode_of_area(baked).trial()
+}
+
+/// Whether the fitted lights' grid holds lights (`note_grid`).
+static GRID_FILLED: AtomicBool = AtomicBool::new(false);
+
+/// Notes whether the grid now holds lights, and says whether it held them
+/// before. An area with no fitted lights after one with them empties the
+/// grid again (`scene`).
+pub fn note_grid(filled: bool) -> bool {
+    GRID_FILLED.swap(filled, Ordering::Relaxed)
 }
 
 /// The text of a rule file of `data/lights/` (`name`, such as
@@ -463,13 +588,15 @@ fn unnamed() -> Kind {
 
 /// How much of its kind's strength a room's lamp that the files do not set
 /// to glow shines at, from 0 to 1 (`ON_FROM`). `stored` is the lightmap the
-/// game's data stores for the mesh. A mesh that glows, a mesh of no lamp
-/// and a faint kind's mesh give 0.
+/// game's data stores for the mesh. `wanted` says whether the area's
+/// fitted lights shine (`wanted_in`). Without them, and for a mesh that
+/// glows, a mesh of no lamp or a faint kind's mesh, it gives 0.
 pub fn switched_on(
     mesh: &asset_odyssey::model::MeshIr,
+    wanted: bool,
     stored: impl FnOnce() -> Option<TextureIr>,
 ) -> f32 {
-    if !wanted() || mesh.skin.is_some() || mesh.self_illum.iter().any(|&v| v > 0.0) {
+    if !wanted || mesh.skin.is_some() || mesh.self_illum.iter().any(|&v| v > 0.0) {
         return 0.0;
     }
     let Some(texture) = mesh.texture.as_deref() else {
@@ -726,8 +853,8 @@ fn strongest(texel: &[f32; 3]) -> f32 {
     texel[0].max(texel[1]).max(texel[2])
 }
 
-/// The lights of one kind's fittings (`tools/light-kinds/shine.py`,
-/// `lights_of`). A fitting is as `parts` gives a lamp.
+/// The lights of one kind's fittings. A fitting is as `parts` gives a
+/// lamp.
 fn lights_of(kind: &Kind, fittings: &[[f32; 14]], cut: &[bool], out: &mut Vec<Light>) {
     let colour = kind.colour * kind.strength;
     if let Some(lift) = kind.lift {
@@ -894,9 +1021,8 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
             continue;
         }
         for (index, mesh) in placed.ir.meshes.iter().enumerate() {
-            let share = switched_on(mesh, || {
-                let name = mesh.lightmap.as_ref()?;
-                crate::viewer::stored_lightmap(name).or_else(|| loaded.textures.get(name).cloned())
+            let share = switched_on(mesh, wanted_in(loaded.baked), || {
+                loaded.stored_lightmap(mesh.lightmap.as_ref()?).cloned()
             });
             if share > 0.0 {
                 switched.insert((model, index), share);
@@ -1182,9 +1308,7 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>], hi
                 // A baked lightmap drawn in the stored one's place is not
                 // the light the rooms have today.
                 let name = mesh.lightmap.as_ref()?;
-                let stored = crate::viewer::stored_lightmap(name);
-                let (width, height, map) =
-                    texels(stored.as_ref().or(loaded.textures.get(name))?, 128)?;
+                let (width, height, map) = texels(loaded.stored_lightmap(name)?, 128)?;
                 Some(LampTexture::new(width, height, map))
             });
             let Some(map) = map
@@ -1369,6 +1493,28 @@ fn dump(
     }
     for placed in &loaded.models {
         let frame = placement(placed);
+        // The game's own lamps, from the models' light nodes, to compare
+        // with the fitted lights (`light_probes::lamps_off`): the model, where
+        // the lamp stands, its colour, its radius, its multiplier, and
+        // whether it only brightens the ambient.
+        for light in &placed.ir.lights {
+            let at =
+                (frame * to_mat4(&placed.ir.nodes[light.node].world)).transform_point3(Vec3::ZERO);
+            let _ = writeln!(
+                text,
+                "lamp {} {} {} {} {} {} {} {} {} {}",
+                placed.ir.name,
+                at.x,
+                at.y,
+                at.z,
+                light.color[0],
+                light.color[1],
+                light.color[2],
+                light.radius,
+                light.multiplier,
+                u8::from(light.ambient_only)
+            );
+        }
         for mesh in &placed.ir.meshes {
             let Some(texture) = mesh.texture.as_deref() else {
                 continue;
@@ -1432,9 +1578,9 @@ fn room_over(loaded: &LoadedScene, at: Vec3) -> Option<usize> {
     })
 }
 
-/// The rooms' hidden lamps as lights that reach the rooms
-/// (`tools/light-kinds/fill.py`). Each room has its own strength, which
-/// puts back the half of that room's baked light. One strength for the
+/// The rooms' hidden lamps as lights that reach the rooms. Each room has
+/// its own strength, which puts back the half of that room's baked light.
+/// One strength for the
 /// whole area made a room with many far-reaching lamps, the Harbinger's
 /// medical bay, twice as bright as it is today (the owner, 17 November
 /// 2026: "this area is too bright").
@@ -2146,8 +2292,19 @@ fn find(parent: &mut [usize], mut at: usize) -> usize {
 /// cell lists the lights that reach it, so a surface reads only the lights
 /// near it, every light of the area is always lit, and nothing depends on
 /// where the camera is.
+///
+/// The grid's buffer is made when the first area with fitted lights
+/// spawns (`fill_grid`), and kept at its size for the rest of the run.
+/// Until then the materials bind `NO_GRID` (`grid_handle`).
 pub const GRID: bevy::asset::Handle<bevy::render::storage::ShaderBuffer> =
     bevy::asset::uuid_handle!("7b1e4c92-3a6d-4f58-9c07-d2e5a8f1b634");
+/// The grid with no light, one `vec4<u32>` of zeros, which the materials
+/// bind until an area has fitted lights. A player who never sees fitted
+/// lights holds 16 bytes for them in place of the 8 MB of `GRID`.
+pub const NO_GRID: bevy::asset::Handle<bevy::render::storage::ShaderBuffer> =
+    bevy::asset::uuid_handle!("4ead95fc-2172-45fe-850e-c18e0992c9fb");
+/// Whether `GRID` is made (`fill_grid`).
+static GRID_MADE: AtomicBool = AtomicBool::new(false);
 /// How many 32-bit words the grid's buffer holds. `odyssey.wgsl`'s
 /// `fitted` is a quarter as many `vec4<u32>`.
 pub const GRID_WORDS: usize = 1 << 21;
@@ -2185,6 +2342,49 @@ pub struct GridLight {
 /// The grid with no light in it.
 pub fn no_grid() -> Vec<u8> {
     vec![0; GRID_WORDS * 4]
+}
+
+/// `NO_GRID`'s buffer: the grid's heads read as no light.
+pub fn empty_grid() -> Vec<u8> {
+    vec![0; 16]
+}
+
+/// The grid a material binds when it is prepared: `GRID` once it is made,
+/// else `NO_GRID`.
+///
+/// A material keeps the buffer it was prepared with. Bevy prepares a
+/// material's bind group once, and does not prepare it again when a buffer
+/// it binds is made anew at another size. So `GRID` is never resized, and
+/// a material made before `GRID` binds `NO_GRID` and shows no fitted light
+/// until it is made again. Every area's scene makes its materials anew as
+/// it spawns, after `fill_grid`. A material prepared in the frame that
+/// makes `GRID`, before its buffer is on the card, is prepared again in the
+/// next frame.
+pub fn grid_handle() -> bevy::asset::Handle<bevy::render::storage::ShaderBuffer> {
+    if GRID_MADE.load(Ordering::Relaxed) {
+        GRID
+    } else {
+        NO_GRID
+    }
+}
+
+/// Puts `grid` (`grid`) in `GRID`, and makes `GRID` the first time.
+pub fn fill_grid(
+    buffers: &mut bevy::asset::Assets<bevy::render::storage::ShaderBuffer>,
+    grid: Vec<u8>,
+) {
+    if let Some(mut buffer) = buffers.get_mut(&GRID) {
+        buffer.data = Some(grid);
+    } else {
+        let _ = buffers.insert(
+            &GRID,
+            bevy::render::storage::ShaderBuffer::new(
+                &grid,
+                bevy::asset::RenderAssetUsages::default(),
+            ),
+        );
+        GRID_MADE.store(true, Ordering::Relaxed);
+    }
 }
 
 /// How far from a light it still gives a surface `FAINT` or more.

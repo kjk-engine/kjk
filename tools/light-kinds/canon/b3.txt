@@ -1,0 +1,40 @@
+ebo_m12aa 0.4 --no-even --least 0.15
+stunt_07 0.4 --no-even --least 0.15
+sta_m45ab 0.7 --no-even --least 0.3
+tar_m05aa 0.7 --no-even
+tat_m17ac 0.75 --no-even
+852nih 1.0 --fill-stored
+371nar 1.0 --fill-stored
+korr_m38ab 0.9 --fill-stored
+korr_m37aa 0.85 --fill-stored
+211tel 1.0 --fill-stored
+korr_m39aa 0.85 --fill-stored
+korr_m38aa 0.85 --fill-stored
+kas_m22aa 0.75 --fill-stored
+711kor 0.85 --fill-stored
+710kor 0.85 --fill-stored
+702kor 0.85 --fill-stored
+107per 1.0 --fill-stored
+902mal 1.0 --fill-stored
+903mal 1.0 --fill-stored
+904mal 1.0 --fill-stored
+905mal 1.0 --fill-stored
+906mal 1.0 --fill-stored
+unk_m42aa 1.0 --fill-stored
+danm14ae 1.0 --fill-stored
+danm15 1.0 --fill-stored
+002ebo 1.0 --fill-stored
+stunt_16 1.0 --fill-stored
+korr_m35aa 1.0 --fill-stored
+351nar 1.0 --fill-stored
+301nar 1.0 --fill-stored
+305nar 1.0 --fill-stored
+kas_m23ad 1.0 --fill-stored
+232tel 1.0 --fill-stored
+202tel 1.0 --fill-stored
+tar_m04aa 1.0 --fill-stored
+tar_m02ac 1.0 --fill-stored
+650dan 1.0 --fill-stored
+604dan 1.0 --fill-stored
+manm26mg 1.0 --fill-stored
+manm26ad 1.0 --fill-stored

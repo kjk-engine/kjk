@@ -274,6 +274,9 @@ pub struct State {
     /// (`ChangeToStandardFaction`), by id: what `GetFactionEqual` reads and
     /// whether the party attacks one (`world::objects::attackable`).
     pub factions: BTreeMap<u32, u8>,
+    /// Where the loading screens' hints stand: what the games keep in their
+    /// saves (`GAMEPLAYHINT`, `STORYHINT`).
+    pub hints: Hints,
     /// When each body next perceives (sim ms; its AI's cadence), and the
     /// rolls it holds (`stealth::Rolls`), by id (`world::scripts`).
     pub perception: BTreeMap<u32, (u64, crate::stealth::Rolls)>,
@@ -348,6 +351,62 @@ pub struct State {
     /// The in-game screen a seat shows now (`SUBSCREEN_ID_*`, 0 none), as
     /// `GetSubScreenID` reads it: KOTOR's client keeps it (not saved).
     pub subscreen: u8,
+}
+
+/// Where the loading screen's hints stand, as the games save them. Each
+/// counter is the next row to show in a column of hints. There is one
+/// counter for the gameplay hints. KOTOR 1 has one counter for the story
+/// hints, which is `story[0]`. KOTOR 2 has one for each planet, picked by
+/// the digit its module's name starts with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hints {
+    pub gameplay: u8,
+    pub story: [u8; 10],
+}
+
+impl Hints {
+    /// The strref in the column `cell` reads (a row's cell, `None` where it
+    /// has no value) at the row `next` names, and `next` one row on. Where
+    /// that row has no value the column starts over at its first row, and a
+    /// column whose first row has none gives nothing.
+    pub fn take_row(next: &mut u8, cell: impl Fn(usize) -> Option<i64>) -> Option<i64> {
+        let strref = cell(usize::from(*next)).or_else(|| {
+            *next = 0;
+            cell(0)
+        })?;
+        *next = next.wrapping_add(1);
+        Some(strref)
+    }
+
+    /// KOTOR 2's story hint for the module of `planet` (the digit its name
+    /// starts with) in a table of `rows` rows: `hint` of the next row whose
+    /// `area` is `planet`, and `next` just past it. The search skips the
+    /// rows of other planets, starts over at the first row when it runs
+    /// out of rows, and gives up after as many tries as the table has rows.
+    pub fn take_planet_row(
+        next: &mut u8,
+        planet: u8,
+        rows: usize,
+        area: impl Fn(usize) -> Option<i64>,
+        hint: impl Fn(usize) -> Option<i64>,
+    ) -> Option<i64> {
+        let mut tries = 0;
+        loop {
+            match area(usize::from(*next)) {
+                None => *next = 0,
+                Some(found) if found == i64::from(planet) => {
+                    let strref = hint(usize::from(*next));
+                    *next = next.wrapping_add(1);
+                    return strref;
+                }
+                Some(_) => *next = next.wrapping_add(1),
+            }
+            if tries > rows {
+                return None;
+            }
+            tries += 1;
+        }
+    }
 }
 
 /// What a skill's use is: on a trap (`world::traps`), or Security on a
@@ -1036,6 +1095,8 @@ impl State {
             out.u32(*id);
             out.u8(*faction);
         }
+        out.u8(self.hints.gameplay);
+        self.hints.story.iter().for_each(|row| out.u8(*row));
     }
 
     /// An item template's facts in play (`inventory::facts_in_play`).
@@ -1370,6 +1431,12 @@ impl State {
             for _ in 0..input.u32()? {
                 let id = input.u32()?;
                 state.factions.insert(id, input.u8()?);
+            }
+        }
+        if input.since(crate::since::save::FIX_648) {
+            state.hints.gameplay = input.u8()?;
+            for row in &mut state.hints.story {
+                *row = input.u8()?;
             }
         }
         Ok(state)
@@ -1711,6 +1778,10 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(BARK);
             out.u32(*strref);
         }
+        Action::Sound { resref } => {
+            out.u8(SOUND);
+            out.string(resref);
+        }
         Action::FollowOwner { range } => {
             out.u8(FOLLOW_OWNER);
             out.f32(*range);
@@ -1743,6 +1814,8 @@ const PAUSE: u8 = 58;
 const FOLLOW: u8 = 59;
 const PICK_UP: u8 = 60;
 const PUT_DOWN: u8 = 61;
+/// A queued `PlaySound`'s code in a save.
+const SOUND: u8 = 62;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1833,6 +1906,9 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         46 => Action::Surrender,
         BARK => Action::Bark {
             strref: input.u32()?,
+        },
+        SOUND => Action::Sound {
+            resref: input.string()?,
         },
         FOLLOW_OWNER => Action::FollowOwner {
             range: input.f32()?,

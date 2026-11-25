@@ -10,7 +10,7 @@ use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::creature;
 use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, ModelIr};
-use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, ModuleIr, Source};
+use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, Missing, ModuleIr, Source};
 use asset_odyssey::texture::TextureIr;
 use asset_odyssey::weather::Fall;
 use bevy::log::warn;
@@ -106,6 +106,10 @@ pub struct RoomView {
     /// Index into `LoadedScene::models`; `None` when the model is missing.
     pub model: Option<usize>,
     pub visible: Vec<String>,
+    /// The room's area has no VIS file. KOTOR 2 then turns its room culling
+    /// off and draws every room from every room, so every room sees this one
+    /// and this one sees every room (`fight_rooms::linked`).
+    pub sees_all: bool,
     /// Empty for a room that is only seen (sky, backdrops, cutscene
     /// sets): the game ships it no walkmesh, or one without a walkable
     /// face, so nothing stands in it (reone takes an object's room from the walkable face under it).
@@ -141,23 +145,7 @@ pub(crate) fn placeable_fx(
     (object, placed): (u32, u8),
 ) -> Option<OwnFx> {
     let fx = fx_through_chain(resolver, parsed);
-    let mut clips: BTreeMap<String, Arc<AnimationIr>> = ir
-        .animations
-        .iter()
-        .map(|clip| (clip.name.to_ascii_lowercase(), Arc::new(clip.clone())))
-        .collect();
-    for name in crate::own_fx::look_clips() {
-        if clips.contains_key(&name) {
-            continue;
-        }
-        match clip(cache, resolver, game, ir, &name) {
-            Ok(Some(found)) => {
-                clips.insert(name, found);
-            }
-            Ok(None) => {}
-            Err(why) => warn!("{}: its {name} clip is not read: {why}", ir.name),
-        }
-    }
+    let clips = crate::placeable_light::clips(cache, resolver, game, ir);
     (!clips.is_empty() || !fx.emitters.is_empty()).then(|| OwnFx {
         model: 0,
         plays: Plays::Look {
@@ -324,6 +312,19 @@ pub struct LoadedScene {
     /// The area's light probes (`light_probes`), made as it loads. Empty
     /// outside a module, and for an area with no lightmapped room mesh.
     pub probes: Arc<crate::light_probes::AreaProbes>,
+    /// Whether the area is drawn under the baked trial
+    /// (`fitted_lights::baked_area` as it loaded). Under the options' Enhanced
+    /// Lightmaps this is only an area with a bake the game accepted.
+    pub baked: bool,
+    /// Whether a used bake of the area asks for its rooms' surfaces with no
+    /// lightmap to be dark (`dark_unlit`).
+    pub dark_unlit: bool,
+    /// The lightmaps the game's data stores where the area shows a baked
+    /// one in their place (`baked_lightmaps`), by name in lower case. The
+    /// fitted lights are levelled against the stored light
+    /// (`fitted_lights::level`), whichever lightmap the rooms show. Empty
+    /// for an area that shows no bake.
+    pub stored_lightmaps: BTreeMap<String, TextureIr>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -466,7 +467,8 @@ impl LoadedScene {
             fog: self.fog,
             shadowed: self.lit,
             probed: self.lit,
-            dark_unlit: crate::fitted_lights::baked() && dark_unlit(&self.name),
+            dark_unlit: self.baked && self.dark_unlit,
+            fitted: crate::fitted_lights::wanted_in(self.baked),
         }
     }
 }
@@ -851,166 +853,681 @@ pub fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
             warn!("texture {name} does not read, drawn as missing: {why}");
         }
     }
-    let decoded = decoded.map(|texture| detail_baked(name, texture));
     let fitted =
         (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
     fitted.or(decoded)
 }
 
-/// `texture`, or the larger lightmap `kjk detail-bake` made of it
-/// (`docs/LIGHTING-PLAN.md`, step 10). `KJK_DETAIL_BAKE` names the folder
-/// of one area's baked lightmaps. A texture the folder has no PNG for is
-/// drawn as stored. The baked lightmap keeps the stored one's facts and has
-/// one level, because a smaller level would mix the light of faces that
-/// lie side by side on the lightmap.
-/// The stored lightmaps a baked one is drawn in the place of
-/// (`detail_baked`), by name in lower case.
-static STORED_LIGHTMAPS: std::sync::Mutex<BTreeMap<String, TextureIr>> =
+impl LoadedScene {
+    /// The lightmap the game's data stores under `name`: the one a baked
+    /// lightmap is drawn in the place of (`stored_lightmaps`), or the one
+    /// the area draws.
+    pub(crate) fn stored_lightmap(&self, name: &str) -> Option<&TextureIr> {
+        stored_or_drawn(&self.stored_lightmaps, &self.textures, name)
+    }
+}
+
+/// The lightmap the game's data stores under `name`: from `stored`, the
+/// stored lightmaps a baked one is drawn in the place of, by name in lower
+/// case, else from `drawn`, the area's textures.
+pub(crate) fn stored_or_drawn<'a>(
+    stored: &'a BTreeMap<String, TextureIr>,
+    drawn: &'a BTreeMap<String, TextureIr>,
+    name: &str,
+) -> Option<&'a TextureIr> {
+    stored
+        .get(&name.to_ascii_lowercase())
+        .or_else(|| drawn.get(name))
+}
+
+/// The lines `<lightmap> <number>` of file `file` in the bake's set
+/// `folder`, by the lightmap's name in lower case.
+fn baked_numbers(folder: &std::path::Path, file: &str) -> BTreeMap<String, f32> {
+    let Ok(text) = std::fs::read_to_string(folder.join(file)) else {
+        return BTreeMap::new();
+    };
+    (text.lines())
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let (name, fill) = line.split_once(' ')?;
+            Some((name.to_ascii_lowercase(), fill.trim().parse().ok()?))
+        })
+        .collect()
+}
+
+/// One folder of `baked_folders`, read once.
+struct BakeFolder {
+    path: std::path::PathBuf,
+    /// Its baked lightmaps, by name in lower case. A lightmap's name holds
+    /// its area's, so two areas never share one.
+    lightmaps: BTreeMap<String, std::path::PathBuf>,
+    /// How much of its stored light each baked lightmap takes: `fill.txt`,
+    /// which `kjk detail-bake --fill-stored` writes.
+    fills: BTreeMap<String, f32>,
+    /// The least share of its stored linear light each texel of a baked
+    /// lightmap shows: `floor.txt`. The bake writes it for a module with the
+    /// stored fill, so a wall that no lamp reaches is not black (`FILL_FLOOR`
+    /// in `crates/launcher/src/detail_bake/gpu.rs`).
+    floors: BTreeMap<String, f32>,
+    /// Whether the bake asks for its rooms' surfaces with no lightmap to be
+    /// dark (`unlit.txt`, `dark_unlit`).
+    unlit: bool,
+    /// The lightmaps the set shows from the player's own stored lightmaps
+    /// at their stored light, by name in lower case
+    /// (`stored_fill::STORED_FILE`). It holds no PNG of them.
+    stored: BTreeSet<String>,
+    /// Its fingerprint (`bake_fingerprint::FILE`). `None` for a set baked
+    /// before the baker wrote one, which the game shows as it is. The reason
+    /// for a file that does not read, and the game then shows none of it.
+    stamp: Option<Result<crate::bake_fingerprint::Fingerprint, String>>,
+}
+
+/// The folder of baked lightmaps at `path`, read now. `None` where no
+/// folder is there.
+fn read_bake_folder(path: std::path::PathBuf) -> Option<BakeFolder> {
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        warn!("no folder of baked lightmaps at {}", path.display());
+        return None;
+    };
+    let mut lightmaps = BTreeMap::new();
+    for file in entries.flatten().map(|entry| entry.path()) {
+        if file.extension().is_some_and(|extension| extension == "png")
+            && let Some(name) = file.file_stem().and_then(|name| name.to_str())
+        {
+            lightmaps.insert(name.to_ascii_lowercase(), file);
+        }
+    }
+    Some(BakeFolder {
+        lightmaps,
+        fills: baked_numbers(&path, "fill.txt"),
+        floors: baked_numbers(&path, "floor.txt"),
+        unlit: path.join("unlit.txt").is_file(),
+        stored: crate::stored_fill::stored_names(&path),
+        stamp: crate::bake_fingerprint::read(&path),
+        path,
+    })
+}
+
+/// Every folder of `baked_folders`, in the list's order.
+static BAKE_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> = std::sync::LazyLock::new(|| {
+    let mut folders = Vec::new();
+    for path in baked_folders() {
+        let Some(folder) = read_bake_folder(path) else {
+            continue;
+        };
+        let path = &folder.path;
+        match &folder.stamp {
+            None => warn!(
+                "the bake in {} has no {}, so the game cannot check that it was made from the game's files, and shows it as it is",
+                path.display(),
+                crate::bake_fingerprint::FILE
+            ),
+            Some(Err(why)) => warn!(
+                "{why}, so the game shows none of the bake in {}",
+                path.display()
+            ),
+            Some(Ok(_)) => {}
+        }
+        folders.push(Arc::new(folder));
+    }
+    folders
+});
+
+/// The folders of baked lightmaps a program set (`set_bake_folder`), each
+/// read when it was set. `None` while no program set any.
+static SET_FOLDERS: std::sync::RwLock<Option<Vec<Arc<BakeFolder>>>> = std::sync::RwLock::new(None);
+
+/// Draws the rooms' lightmaps from the bake in `folder` (`detail_baked`) in
+/// the scenes loaded from now on, or (`None`) as stored. The folder is read
+/// now, so a bake made into it later is read when it is set again. The
+/// level editor's lighting view sets it. While it is set, the game takes no
+/// other bake: not the lighting download's, not the ones the variables
+/// name, and not the ones a project keeps.
+pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
+    let folders = (folder.into_iter())
+        .filter_map(read_bake_folder)
+        .map(Arc::new)
+        .collect();
+    *SET_FOLDERS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folders);
+}
+
+/// The bakes the active level editor projects keep, read once
+/// (`level_edit::lighting`). The game takes them while the rooms are lit
+/// `Baked` (`fitted_lights::baked`).
+static PROJECT_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> =
+    std::sync::LazyLock::new(|| {
+        (level_edit::active::bake_folders().into_iter())
+            .filter_map(|path| read_bake_folder(path.to_path_buf()))
+            .map(Arc::new)
+            .collect()
+    });
+
+/// The folders of the bakes the game takes now (`used_folders`): the
+/// lightmaps, the props' baked lightmaps (`project_props`) and the rest.
+pub(crate) fn bake_folders() -> Vec<std::path::PathBuf> {
+    (used_folders().into_iter())
+        .map(|(folder, _)| folder.path.clone())
+        .collect()
+}
+
+/// How much of a folder of `BAKE_FOLDERS` the game takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderUse {
+    /// The lightmaps, their fills, the probes and the placeables' light.
+    Whole,
+    /// Everything but the placeables' light.
+    Lightmaps,
+    /// Nothing. The area is drawn as if no bake existed for it.
+    Nothing,
+}
+
+/// The use of each folder with a fingerprint, by its number in
+/// `BAKE_FOLDERS`, decided when its area first loads (`choose_bakes`).
+static FOLDER_USES: std::sync::Mutex<BTreeMap<usize, FolderUse>> =
     std::sync::Mutex::new(BTreeMap::new());
 
-/// The lightmap the game's data stores under `name`, where a baked one is
-/// drawn in its place. The fitted lights are levelled against the stored
-/// light (`fitted_lights::level`), whichever lightmap the rooms show.
-pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
-    STORED_LIGHTMAPS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&name.to_ascii_lowercase())
-        .cloned()
-}
-
-/// The folder of baked lightmaps a program set (`set_bake_folder`); unset,
-/// the one `KJK_DETAIL_BAKE` names.
-static BAKE_FOLDER: std::sync::RwLock<Option<Option<std::path::PathBuf>>> =
-    std::sync::RwLock::new(None);
-
-/// Draws the rooms' lightmaps from `folder`'s bake (`detail_baked`) in the
-/// scenes drawn from now on, or (`None`) as stored. The level editor's
-/// lighting view sets it.
-pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
-    *BAKE_FOLDER
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folder);
-}
-
-/// The folders a baked lightmap is looked for in: the one a program set,
-/// else the ones the environment names (`named_bake_folders`), else, while
-/// the rooms are lit
-/// `Baked`, the bakes the active level editor project keeps
-/// (`level_edit::lighting`).
-pub(crate) fn bake_folders() -> Vec<std::path::PathBuf> {
-    if let Some(set) = BAKE_FOLDER
+/// The folders of `BAKE_FOLDERS` the game takes something of, in the list's
+/// order, each with its use. A folder without a fingerprint is taken whole.
+/// One with a fingerprint is taken as `choose_bakes` decided, and not at all
+/// before its area has loaded.
+///
+/// The folders a program set (`set_bake_folder`) are the only ones taken
+/// while they are set. The bakes a level editor project keeps come after
+/// the list while the rooms are lit `Baked`, so they win for their own
+/// areas. Both are taken whole, unless their fingerprint does not read:
+/// they are the author's own bakes of the project's levels.
+fn used_folders() -> Vec<(Arc<BakeFolder>, FolderUse)> {
+    let own = |folders: &[Arc<BakeFolder>]| -> Vec<(Arc<BakeFolder>, FolderUse)> {
+        (folders.iter())
+            .filter(|folder| !matches!(folder.stamp, Some(Err(_))))
+            .map(|folder| (folder.clone(), FolderUse::Whole))
+            .collect()
+    };
+    if let Some(set) = SET_FOLDERS
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_ref()
     {
-        return set.iter().cloned().collect();
+        return own(set);
     }
-    let named = named_bake_folders();
-    if !named.is_empty() {
-        return named;
-    }
-    if !crate::fitted_lights::baked() {
-        return Vec::new();
-    }
-    (level_edit::active::bake_folders().into_iter())
-        .map(std::path::Path::to_path_buf)
-        .collect()
-}
-
-/// The numbers a bake's folder gives its lightmaps, by the folder, the
-/// file and the lightmap's name in lower case. `fill.txt` is how much of
-/// its stored light each baked lightmap takes, which
-/// `kjk detail-bake --fill-stored` writes. `floor.txt` is the least share
-/// of its stored linear light each texel of a baked lightmap shows: the
-/// bake writes it for a module with the stored fill, so a wall that no
-/// lamp reaches is not black (`FILL_FLOOR` in
-/// `crates/launcher/src/detail_bake/gpu.rs`). Each file is read once. A
-/// folder without the file gives none.
-type BakedNumbers =
-    BTreeMap<(std::path::PathBuf, &'static str), std::sync::Arc<BTreeMap<String, f32>>>;
-static BAKED_NUMBERS: std::sync::Mutex<BakedNumbers> = std::sync::Mutex::new(BTreeMap::new());
-
-/// The lines `<lightmap> <number>` of the file `file` of the bake in
-/// `folder` (`BAKED_NUMBERS`).
-fn baked_numbers(
-    folder: &std::path::Path,
-    file: &'static str,
-) -> std::sync::Arc<BTreeMap<String, f32>> {
-    let mut read = BAKED_NUMBERS
+    let uses = FOLDER_USES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let key = (folder.to_path_buf(), file);
-    if let Some(numbers) = read.get(&key) {
-        return numbers.clone();
-    }
-    let numbers: BTreeMap<String, f32> = std::fs::read_to_string(folder.join(file)).map_or_else(
-        |_| BTreeMap::new(),
-        |text| {
-            (text.lines())
-                .filter(|line| !line.starts_with('#'))
-                .filter_map(|line| {
-                    let (name, number) = line.split_once(' ')?;
-                    Some((name.to_ascii_lowercase(), number.trim().parse().ok()?))
-                })
-                .collect()
-        },
-    );
-    let numbers = std::sync::Arc::new(numbers);
-    read.insert(key, numbers.clone());
-    numbers
-}
-
-/// Whether scene `name` is of an area whose bake asks for its rooms'
-/// surfaces with no lightmap to be dark: a bake's folder (`bake_folders`)
-/// that holds `unlit.txt`. A bake made by `bake.sh` lies under a folder
-/// of the area's name. A bake a project keeps lies in a folder of the
-/// module's name (`kjk-bake/<module>`). `bake.sh` and the level editor
-/// write the file for a module whose entry in `data/lights/bake.toml` has
-/// `dark_unlit = true`. Nar Shaddaa's tunnels (305nar) have no lightmap,
-/// and the game showed them at half of full light, which the owner called
-/// too bright (21 November 2026). A module's scene is named "<label> in
-/// <module>". A KOTOR 1 module's folder has the area's name without its
-/// planet, `m01aa` for `end_m01aa`.
-fn dark_unlit(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    let module = name.rsplit(' ').next().unwrap_or(&name);
-    (bake_folders().into_iter())
-        .filter(|folder| folder.join("unlit.txt").is_file())
-        .flat_map(|folder| {
-            let name =
-                |path: &std::path::Path| Some(path.file_name()?.to_str()?.to_ascii_lowercase());
-            [folder.parent().and_then(name), name(&folder)]
+    let mut used: Vec<(Arc<BakeFolder>, FolderUse)> = (BAKE_FOLDERS.iter().enumerate())
+        .map(|(index, folder)| {
+            let using = match &folder.stamp {
+                None => FolderUse::Whole,
+                Some(Err(_)) => FolderUse::Nothing,
+                Some(Ok(_)) => uses.get(&index).copied().unwrap_or(FolderUse::Nothing),
+            };
+            (folder.clone(), using)
         })
-        .flatten()
-        .any(|area| module == area || module.ends_with(&format!("_{area}")))
+        .filter(|(_, using)| *using != FolderUse::Nothing)
+        .collect();
+    if crate::fitted_lights::baked() {
+        used.extend(own(&PROJECT_FOLDERS));
+    }
+    used
 }
 
-/// The folders of baked lightmaps the environment names, read once.
-/// `KJK_DETAIL_BAKE` names one area's folder. `KJK_DETAIL_BAKES` names a
-/// file with one folder a line, for a run that goes through many areas
-/// (`walk::step`). A line that starts with `#` is a comment.
-fn named_bake_folders() -> Vec<std::path::PathBuf> {
-    static NAMED: std::sync::LazyLock<Vec<std::path::PathBuf>> = std::sync::LazyLock::new(|| {
-        let mut folders: Vec<std::path::PathBuf> = std::env::var_os("KJK_DETAIL_BAKE")
-            .filter(|folder| !folder.is_empty())
-            .map(std::path::PathBuf::from)
+/// Decides, when area `area` loads under the bake, which of the folders
+/// stamped for it the game takes, by comparing each one's fingerprint with
+/// the fingerprint of the files `resolver` reads (`bake_fingerprint`).
+///
+/// - A folder whose rooms or format differ gives nothing. The area is drawn
+///   with the game's own lightmaps, as if no bake existed for it.
+/// - A folder whose rooms match but whose placeables differ gives its
+///   lightmaps, and the placeables keep the light probes.
+/// - Of two folders for the area, the game takes the one that matches the
+///   most, and of two that match as much, the later in the list. An
+///   unpatched and a patched bake of one area can then ship side by side.
+///
+/// The fingerprint is computed once for each area in a run.
+fn choose_bakes(resolver: &Resolver, area: &asset_odyssey::module::AreaIr) {
+    use crate::bake_fingerprint::Verdict;
+    let stamped: Vec<(usize, &crate::bake_fingerprint::Fingerprint)> = (BAKE_FOLDERS.iter())
+        .enumerate()
+        .filter_map(|(index, folder)| match &folder.stamp {
+            Some(Ok(stamp)) if stamp.area.eq_ignore_ascii_case(&area.resref) => {
+                Some((index, stamp))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut uses = FOLDER_USES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if stamped.iter().all(|(index, _)| uses.contains_key(index)) {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let current = crate::bake_fingerprint::of_area(resolver, area);
+    bevy::log::info!(
+        "{}: the game's files have the fingerprint rooms {} placeables {} (computed in {:.0} ms)",
+        current.area,
+        current.rooms,
+        current.placeables,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    let verdicts: Vec<(usize, Verdict)> = (stamped.iter())
+        .map(|(index, stamp)| (*index, crate::bake_fingerprint::verdict(stamp, &current)))
+        .collect();
+    let chosen = chosen_bake(&verdicts);
+    for (index, verdict) in verdicts {
+        let path = BAKE_FOLDERS[index].path.display();
+        let using = match (&verdict, Some(index) == chosen) {
+            (Verdict::Whole, true) => {
+                bevy::log::info!(
+                    "{}: the bake in {path} was made from the game's files, and the game shows all of it",
+                    current.area
+                );
+                FolderUse::Whole
+            }
+            (Verdict::LightmapsOnly, true) => {
+                warn!(
+                    "{}: the bake in {path} was made with other placeables than the game's files have, so the game shows its lightmaps, and the placeables take their light from the light probes",
+                    current.area
+                );
+                FolderUse::Lightmaps
+            }
+            (Verdict::Refused(why), _) => {
+                warn!(
+                    "{}: the game shows its own lightmaps and nothing of the bake in {path}, because {why}",
+                    current.area
+                );
+                FolderUse::Nothing
+            }
+            (_, false) => {
+                bevy::log::info!(
+                    "{}: the bake in {path} is not used, because a folder later in the list or one that matches better holds a bake of this area",
+                    current.area
+                );
+                FolderUse::Nothing
+            }
+        };
+        uses.insert(index, using);
+    }
+}
+
+/// Of the folders stamped for one area, with each one's verdict in the
+/// list's order, the one the game takes: the last that matches whole, else
+/// the last whose lightmaps alone match. `None` when every one is refused.
+fn chosen_bake(verdicts: &[(usize, crate::bake_fingerprint::Verdict)]) -> Option<usize> {
+    use crate::bake_fingerprint::Verdict;
+    let last = |wanted: Verdict| {
+        (verdicts.iter().rev())
+            .find(|(_, verdict)| *verdict == wanted)
+            .map(|(index, _)| *index)
+    };
+    last(Verdict::Whole).or_else(|| last(Verdict::LightmapsOnly))
+}
+
+/// Whether the used folder `folder` holds a bake of area `area` (its
+/// resref) of module `module`. A folder with a fingerprint names its area
+/// there. A folder without one, which only a developer's variable lists, is
+/// known by its own name or the name of the folder over it, which the bake
+/// names after the area (`bake/<round>/<area>/b`). An installed download's
+/// set is the area's folder itself. The module's name counts too, for a
+/// folder named after it.
+fn holds_area(folder: &BakeFolder, area: &str, module: &str) -> bool {
+    match &folder.stamp {
+        Some(Ok(stamp)) => stamp.area.eq_ignore_ascii_case(area),
+        Some(Err(_)) => false,
+        None => [folder.path.parent(), Some(folder.path.as_path())]
             .into_iter()
-            .collect();
-        if let Some(list) = std::env::var_os("KJK_DETAIL_BAKES").filter(|list| !list.is_empty()) {
-            match std::fs::read_to_string(&list) {
-                Ok(text) => folders.extend(
-                    (text.lines())
-                        .map(str::trim)
-                        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                        .map(std::path::PathBuf::from),
-                ),
-                Err(error) => warn!("KJK_DETAIL_BAKES: {}: {error}", list.to_string_lossy()),
+            .flatten()
+            .filter_map(|path| path.file_name()?.to_str())
+            .any(|name| name.eq_ignore_ascii_case(area) || name.eq_ignore_ascii_case(module)),
+    }
+}
+
+/// Whether area `area` (its resref) has a bake the game shows: a used folder
+/// holds one (`choose_bakes`). A folder without a fingerprint counts for
+/// every area, as it is shown whole wherever its lightmaps' names match,
+/// and only a developer's variable lists one.
+fn takes_bake(area: &str) -> bool {
+    (used_folders().into_iter()).any(|(folder, _)| match &folder.stamp {
+        None => true,
+        Some(Ok(stamp)) => stamp.area.eq_ignore_ascii_case(area),
+        Some(Err(_)) => false,
+    })
+}
+
+/// Whether area `area` of module `module` has a used bake that asks for its
+/// rooms' surfaces with no lightmap to be dark: the bake's set holds
+/// `unlit.txt`. `bake.sh` writes the file for a module whose entry in
+/// `data/lights/bake.toml` has `dark_unlit = true`. Nar Shaddaa's tunnels
+/// (305nar) have no lightmap, and the game showed them at half of full
+/// light, which the owner called too bright (21 November 2026). The area is
+/// matched by its resref (`holds_area`), so a KOTOR 1 area such as `m13aa`
+/// of module `danm13` is found too.
+fn dark_unlit(area: &str, module: &str) -> bool {
+    (used_folders().into_iter())
+        .any(|(folder, _)| folder.unlit && holds_area(&folder, area, module))
+}
+
+/// Under the baked trial, the probes the bake wrote for the rooms of
+/// `rooms` (`probes.txt` in a set of `baked_folders`): each one's room, its
+/// place (game space) and the light on its six sides. `None` when no set
+/// holds a probe of these rooms. A set baked before the bake wrote probes
+/// has no file, and the game makes its probes from the lightmaps.
+///
+/// Under `KJK_PROBE_SUN=on` the probes come from `probes-sun.txt` instead,
+/// with their light without the sun and their share of it, and the second
+/// part is the sun (`light_probes::ProbeSun`).
+///
+/// A probe whose room takes its fill from the stored light holds its light
+/// without it, and the game adds the fill from the player's own stored
+/// lightmap (`stored_fill`). A file of an older bake holds that fill from
+/// the games' own lightmaps and has no `format` line. The game takes none
+/// of it and makes its probes from the lightmaps.
+fn baked_probes(
+    stored: Stored,
+    rooms: &[RoomView],
+    area_baked: bool,
+) -> (
+    Option<Vec<crate::light_probes::BakedProbe>>,
+    Option<crate::light_probes::ProbeSun>,
+) {
+    // The owner preferred the probes made from the lightmaps, so the bake's
+    // probes are read only under `KJK_BAKED_PROBES=on`.
+    if !area_baked || std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on") {
+        return (None, None);
+    }
+    let live_sun = std::env::var("KJK_PROBE_SUN").is_ok_and(|value| value == "on");
+    let names: std::collections::HashSet<String> = rooms
+        .iter()
+        .map(|room| room.name.to_ascii_lowercase())
+        .collect();
+    let mut probes = Vec::new();
+    let mut sun = None;
+    for (folder, _) in used_folders() {
+        let file = if live_sun {
+            "probes-sun.txt"
+        } else {
+            "probes.txt"
+        };
+        let Ok(text) = std::fs::read_to_string(folder.path.join(file)) else {
+            continue;
+        };
+        let mut lines = text
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .peekable();
+        let mut format = None;
+        let mut maps = Vec::new();
+        while let Some(line) = lines.peek() {
+            if let Some(number) = line.strip_prefix("format ") {
+                format = number.trim().parse::<u32>().ok();
+            } else if let Some(map) = crate::stored_fill::StoredMap::parse(line) {
+                maps.push(map);
+            } else {
+                break;
+            }
+            lines.next();
+        }
+        if format != Some(crate::bake_fingerprint::FORMAT) {
+            warn!(
+                "{} is of an older bake (format {}, where the game reads format {}), so the game makes its probes from the lightmaps",
+                folder.path.join(file).display(),
+                format.map_or("none".to_string(), |format| format.to_string()),
+                crate::bake_fingerprint::FORMAT
+            );
+            continue;
+        }
+        let mut fills = StoredFills::new(stored, &folder);
+        for line in lines {
+            let mut words = line.split_whitespace();
+            let Some(first) = words.next() else {
+                continue;
+            };
+            if live_sun && first == "sun" {
+                let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+                if numbers.len() == 9 {
+                    sun = Some(crate::light_probes::ProbeSun {
+                        way: bevy::math::Vec3::from_slice(&numbers[..3]).normalize_or_zero(),
+                        colour: bevy::math::Vec3::from_slice(&numbers[3..6]),
+                        curve: bevy::math::Vec3::from_slice(&numbers[6..9]),
+                    });
+                }
+                continue;
+            }
+            let room = first.to_ascii_lowercase();
+            if !names.contains(&room) {
+                continue;
+            }
+            let words: Vec<&str> = words.collect();
+            // The stored texel of the probe's fill, the last word where it
+            // has one.
+            let (words, stored) = match words.split_last() {
+                Some((last, rest)) if last.starts_with('@') => {
+                    let Some((map, texel)) = crate::stored_fill::parse_word(last) else {
+                        continue;
+                    };
+                    let Some(map) = maps.get(map) else {
+                        continue;
+                    };
+                    (rest, Some((map, texel)))
+                }
+                _ => (&words[..], None),
+            };
+            let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
+            let (share, light) = match (live_sun, numbers.len()) {
+                (true, 22) => (numbers[3], &numbers[4..]),
+                (false, 21) => (0.0, &numbers[3..]),
+                _ => continue,
+            };
+            let at = bevy::math::Vec3::from_slice(&numbers[..3]);
+            let parts = stored.and_then(|(map, texel)| fills.parts(map, texel));
+            let light = std::array::from_fn(|side| {
+                let light = bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3]);
+                match parts {
+                    // The live sun's probes hold linear light before the
+                    // curve, and the others a level as the lightmaps store
+                    // it.
+                    Some((stored, fill, floor)) if live_sun => {
+                        crate::stored_fill::with_fill_linear(light, stored, fill, floor)
+                    }
+                    Some((stored, fill, floor)) => {
+                        crate::stored_fill::with_fill(light, stored, fill, floor)
+                    }
+                    None => light,
+                }
+            });
+            probes.push(crate::light_probes::BakedProbe {
+                room,
+                at,
+                light,
+                sun: share,
+            });
+        }
+        fills.report("probes");
+    }
+    if probes.is_empty() {
+        return (None, None);
+    }
+    (Some(probes), sun)
+}
+
+/// Where an area's load finds its stored lightmaps: the resolver, and the
+/// stored lightmaps that baked ones replaced (`baked_lightmaps`).
+#[derive(Clone, Copy)]
+struct Stored<'a> {
+    resolver: &'a Resolver,
+    lightmaps: &'a BTreeMap<String, TextureIr>,
+}
+
+/// The stored lightmaps that the probes and placeables of a bake's set read
+/// their fill from (`stored_fill`), each decoded once, with the set's fills
+/// and floors.
+struct StoredFills<'a> {
+    stored: Stored<'a>,
+    folder: &'a BakeFolder,
+    texels: BTreeMap<String, Option<crate::stored_fill::StoredTexels>>,
+    /// How many places named a lightmap that the game could not read.
+    missed: usize,
+}
+
+impl<'a> StoredFills<'a> {
+    fn new(stored: Stored<'a>, folder: &'a BakeFolder) -> StoredFills<'a> {
+        StoredFills {
+            stored,
+            folder,
+            texels: BTreeMap::new(),
+            missed: 0,
+        }
+    }
+
+    /// The stored level at texel `texel` of `map`, and the fill and the
+    /// floor the set gives that lightmap. `None` where the set gives it
+    /// neither, or where the stored lightmap does not read.
+    fn parts(
+        &mut self,
+        map: &crate::stored_fill::StoredMap,
+        texel: usize,
+    ) -> Option<(Vec3, Option<f32>, Option<f32>)> {
+        let fill = self.folder.fills.get(&map.name).copied();
+        let floor = self.folder.floors.get(&map.name).copied();
+        if fill.is_none() && floor.is_none() {
+            return None;
+        }
+        let (u, v) = map.uv(texel)?;
+        let Stored {
+            resolver,
+            lightmaps,
+        } = self.stored;
+        let texels = self.texels.entry(map.name.clone()).or_insert_with(|| {
+            // The rooms' lightmaps have loaded by now (`baked_lightmaps`).
+            (lightmaps.get(&map.name.to_ascii_lowercase()).cloned())
+                .or_else(|| {
+                    let parsed = resolver.read_texture(&map.name)?.ok()?;
+                    let txi =
+                        texture_txi(Some(&parsed), |restype| resolver.read(&map.name, restype));
+                    TextureIr::from_texture(&parsed, txi.as_ref())
+                })
+                .and_then(|texture| crate::stored_fill::StoredTexels::of(&texture))
+        });
+        let Some(texels) = texels else {
+            self.missed += 1;
+            return None;
+        };
+        Some((texels.at(u, v), fill, floor))
+    }
+
+    /// One warning for the places whose stored lightmap did not read.
+    fn report(&self, what: &str) {
+        if self.missed > 0 {
+            warn!(
+                "{} {what} of the bake in {} take no fill, because their stored lightmap does not read",
+                self.missed,
+                self.folder.path.display()
+            );
+        }
+    }
+}
+
+/// Under the baked trial, the baked light of the placeables in `lit` that
+/// the sets of `baked_folders` hold for area `area`, by each one's model in
+/// the scene. `lit` gives each placeable with a mesh the bake may light its
+/// model's number and name and which of its meshes those are, by its object
+/// (`placeable_light::bends`). A skinned or dangling mesh keeps the probes,
+/// whatever the set holds. Empty under `KJK_PLACEABLE_LIGHT=probes`.
+fn baked_placeables(
+    stored: Stored,
+    area: &str,
+    lit: &BTreeMap<u32, (usize, String, Arc<Vec<bool>>)>,
+    area_baked: bool,
+) -> BTreeMap<usize, Arc<crate::placeable_light::BakedPlaceable>> {
+    let mut found = BTreeMap::new();
+    if !area_baked || !crate::placeable_light::baked_light() || lit.is_empty() {
+        return found;
+    }
+    let names: BTreeMap<u32, &str> = lit
+        .iter()
+        .map(|(object, (_, name, _))| (*object, name.as_str()))
+        .collect();
+    // A set whose placeables are not the game's gives none of their light
+    // (`choose_bakes`). Only the set chosen for this area is read. The sets
+    // of the areas loaded before stay in use for their own lightmaps, whose
+    // names hold their area's. A set without a fingerprint, which only a
+    // developer's variable lists, is read for every area.
+    let used = (used_folders().into_iter()).filter(|(folder, using)| {
+        *using == FolderUse::Whole
+            && match &folder.stamp {
+                Some(Ok(stamp)) => stamp.area.eq_ignore_ascii_case(area),
+                _ => true,
+            }
+    });
+    for (folder, _) in used {
+        let mut fills = StoredFills::new(stored, &folder);
+        let mut fill = |map: &crate::stored_fill::StoredMap, texel: usize, light: [f32; 3]| {
+            let light = Vec3::from_array(light);
+            (fills.parts(map, texel))
+                .map_or(light, |(stored, fill, floor)| {
+                    crate::stored_fill::with_fill(light, stored, fill, floor)
+                })
+                .to_array()
+        };
+        let read = crate::placeable_light::read(&folder.path, area, &names, &mut fill);
+        fills.report("placeables");
+        for (object, mut light) in read {
+            if let Some((model, _, meshes)) = lit.get(&object) {
+                for (mesh, kept) in light.meshes.iter_mut().zip(meshes.iter()) {
+                    if !kept {
+                        *mesh = None;
+                    }
+                }
+                found.insert(*model, Arc::new(light));
             }
         }
-        folders
-    });
-    NAMED.clone()
+    }
+    bevy::log::info!(
+        "{area}: {} placeables have a mesh the bake may light, and {} of them take the bake's light",
+        lit.len(),
+        found.len()
+    );
+    found
+}
+
+/// The folders of baked lightmaps. When the player chose the baked
+/// lightmaps in the options and `KJK_FITTED_LIGHTS` does not say otherwise,
+/// the list starts with the installed download's area folders
+/// (`lighting_bakes::folders`). `KJK_DETAIL_BAKE` names one area's
+/// folder. `KJK_DETAIL_BAKES` names a file with one folder a line, for a
+/// run that goes through many areas (`walk::step`). A line that starts
+/// with `#` is a comment. The variables' folders come later in the list,
+/// so they win over the download's for an area both hold (`choose_bakes`).
+fn baked_folders() -> Vec<std::path::PathBuf> {
+    let mut folders = if crate::lighting_bakes::chosen() && crate::fitted_lights::baked_anywhere() {
+        crate::lighting_bakes::folders()
+    } else {
+        Vec::new()
+    };
+    if !folders.is_empty() {
+        bevy::log::info!(
+            "the baked lightmaps of the lighting download: {} areas",
+            folders.len()
+        );
+    }
+    folders.extend(
+        std::env::var_os("KJK_DETAIL_BAKE")
+            .filter(|folder| !folder.is_empty())
+            .map(std::path::PathBuf::from),
+    );
+    if let Some(list) = std::env::var_os("KJK_DETAIL_BAKES").filter(|list| !list.is_empty()) {
+        match std::fs::read_to_string(&list) {
+            Ok(text) => folders.extend(
+                (text.lines())
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                    .map(std::path::PathBuf::from),
+            ),
+            Err(error) => warn!("KJK_DETAIL_BAKES: {}: {error}", list.to_string_lossy()),
+        }
+    }
+    folders
 }
 
 /// Adds `fill` times the stored lightmap's linear light to a baked
@@ -1020,83 +1537,36 @@ fn named_bake_folders() -> Vec<std::path::PathBuf> {
 /// nothing of the game's own lightmaps, and the stored light comes from the
 /// player's files here.
 ///
-/// The numbers are the bake's (`crates/launcher/src/detail_bake.rs` and
-/// `detail_bake/gpu.rs`): a baked level is stored at 1 / `GAIN`, a level is
-/// linear light to the power 1 / `GAMMA`, and a level above `KNEE` is eased
-/// so that it never passes `KNEE + OVER` (`eased_level`).
+/// The numbers are the bake's (`stored_fill`).
 /// With `floor` the stored light times `fill` is the least the texel shows,
 /// and not added (`floor.txt`, `baked_numbers`).
 fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32, floor: bool) {
-    use asset_odyssey::texture::Encoding;
-    const GAIN: f32 = 2.0;
-    const GAMMA: f32 = 2.2;
-    const KNEE: f32 = 0.8;
-    const OVER: f32 = 0.45;
-    let (width, height) = (stored.width as usize, stored.height as usize);
-    let Some(data) = stored.mips.first() else {
+    use crate::stored_fill::{GAIN, GAMMA, level_of, linear_of};
+    let Some(texels) = crate::stored_fill::StoredTexels::of(stored) else {
         return;
     };
-    let rgba = match stored.encoding {
-        Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone()),
-        Encoding::Bc1 | Encoding::Bc1Holes => fmt_odyssey::dxt::decode(data, width, height, false),
-        Encoding::Bc3 => fmt_odyssey::dxt::decode(data, width, height, true),
-    };
-    let Some(rgba) = rgba.filter(|rgba| width > 0 && rgba.len() >= width * height * 4) else {
-        return;
-    };
-    let clamp = stored.facts.clamp;
-    let texel = |tx: i64, ty: i64| {
-        let (w, h) = (width as i64, height as i64);
-        let (tx, ty) = if clamp {
-            (tx.clamp(0, w - 1), ty.clamp(0, h - 1))
-        } else {
-            (tx.rem_euclid(w), ty.rem_euclid(h))
-        };
-        let at = (ty * w + tx) as usize * 4;
-        Vec3::new(
-            f32::from(rgba[at]),
-            f32::from(rgba[at + 1]),
-            f32::from(rgba[at + 2]),
-        ) / 255.0
-    };
-    let luma = |c: Vec3| 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
     let (w, h) = (picture.width() as usize, picture.height() as usize);
     for y in 0..h {
         for x in 0..w {
             // The stored light here, read between the four nearest texels.
-            let sx = (x as f32 + 0.5) / w as f32 * width as f32 - 0.5;
-            let sy = (y as f32 + 0.5) / h as f32 * height as f32 - 0.5;
-            let (x0, y0) = (sx.floor(), sy.floor());
-            let (fx, fy) = (sx - x0, sy - y0);
-            let (x0, y0) = (x0 as i64, y0 as i64);
-            let top = texel(x0, y0).lerp(texel(x0 + 1, y0), fx);
-            let bottom = texel(x0, y0 + 1).lerp(texel(x0 + 1, y0 + 1), fx);
-            let added = top.lerp(bottom, fy).powf(GAMMA) * fill;
+            let u = (x as f32 + 0.5) / w as f32;
+            let v = (y as f32 + 0.5) / h as f32;
+            let added = texels.at(u, v).powf(GAMMA) * fill;
             // The baked level back to linear light, with its easing undone.
             let pixel = picture.get_pixel_mut(x as u32, y as u32);
-            let mut level = Vec3::new(
+            let level = Vec3::new(
                 f32::from(pixel[0]),
                 f32::from(pixel[1]),
                 f32::from(pixel[2]),
             ) / 255.0
                 * GAIN;
-            let brightness = luma(level);
-            if brightness > KNEE {
-                let eased = (brightness - KNEE).min(OVER * 0.999);
-                level *= (KNEE + eased * OVER / (OVER - eased)) / brightness;
-            }
             let light = if floor {
-                level.powf(GAMMA).max(added)
+                linear_of(level).max(added)
             } else {
-                level.powf(GAMMA) + added
+                linear_of(level) + added
             };
             // And the sum eased again, as the bake eases it.
-            let mut level = light.max(Vec3::ZERO).powf(1.0 / GAMMA);
-            let brightness = luma(level);
-            if brightness > KNEE {
-                let over = brightness - KNEE;
-                level *= (KNEE + over * OVER / (OVER + over)) / brightness;
-            }
+            let level = level_of(light);
             let bytes = (level / GAIN).clamp(Vec3::ZERO, Vec3::ONE) * 255.0;
             pixel[0] = bytes.x.round() as u8;
             pixel[1] = bytes.y.round() as u8;
@@ -1105,43 +1575,78 @@ fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32
     }
 }
 
-fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
-    if texture.cube || texture.frames > 1 {
-        return texture;
+/// Puts each baked lightmap of the used folders in the place of the stored
+/// lightmap of its name in `textures` (`detail_baked`), and gives back the
+/// stored lightmaps it replaced, by name in lower case.
+fn baked_lightmaps(textures: &mut BTreeMap<String, TextureIr>) -> BTreeMap<String, TextureIr> {
+    let mut stored = BTreeMap::new();
+    if used_folders().is_empty() {
+        return stored;
     }
-    let file = format!("{}.png", name.to_ascii_lowercase());
-    let Some(folder) = (bake_folders().into_iter()).find(|folder| folder.join(&file).is_file())
-    else {
-        return texture;
+    for (name, texture) in textures.iter_mut() {
+        let Some(baked) = detail_baked(name, texture) else {
+            continue;
+        };
+        let baked = crate::scene::fit_to_gpu(&baked, Some(name)).unwrap_or(baked);
+        stored.insert(name.to_ascii_lowercase(), std::mem::replace(texture, baked));
+    }
+    stored
+}
+
+/// The larger lightmap `kjk detail-bake` made of the stored lightmap
+/// `texture` (`docs/LIGHTING-PLAN.md`, step 10), from the last used folder
+/// of `BAKE_FOLDERS` that holds one, with that folder's fill and floor.
+/// `None` where no used folder holds one. A lightmap the folder names in
+/// `stored.txt` is made from `texture` itself, at its stored light
+/// (`stored_fill::backdrop`). The baked lightmap keeps the stored one's
+/// facts and has one level, because a smaller level would mix the light of
+/// faces that lie side by side on the lightmap.
+fn detail_baked(name: &str, texture: &TextureIr) -> Option<TextureIr> {
+    let key = name.to_ascii_lowercase();
+    // The folder, and the PNG it holds. `None` for a lightmap it names in
+    // `stored.txt`.
+    let (folder, path) = (used_folders().into_iter().rev()).find_map(|(folder, _)| match folder
+        .lightmaps
+        .get(&key)
+    {
+        Some(path) => Some((folder.clone(), Some(path.clone()))),
+        None => folder.stored.contains(&key).then_some((folder, None)),
+    })?;
+    if texture.cube || texture.frames > 1 {
+        return None;
+    }
+    let picture = match path {
+        Some(path) => image::open(&path)
+            .map(image::DynamicImage::into_rgba8)
+            .map_err(|error| format!("baked lightmap {} does not read: {error}", path.display())),
+        None => crate::stored_fill::backdrop(texture)
+            .and_then(|bytes| image::RgbaImage::from_raw(texture.width, texture.height, bytes))
+            .ok_or_else(|| {
+                format!(
+                    "stored lightmap {name} does not decode for the bake in {}",
+                    folder.path.display()
+                )
+            }),
     };
-    let path = folder.join(&file);
-    match image::open(&path) {
-        Ok(picture) => {
-            let mut picture = picture.into_rgba8();
-            // The stored light the bake of this folder leaves to the game.
-            let key = name.to_ascii_lowercase();
-            if let Some(fill) = baked_numbers(&folder, "fill.txt").get(&key) {
-                add_stored_fill(&mut picture, &texture, *fill, false);
+    match picture {
+        Ok(mut picture) => {
+            if let Some(fill) = folder.fills.get(&key) {
+                add_stored_fill(&mut picture, texture, *fill, false);
             }
-            // The least of its stored light the bake of this folder shows.
-            if let Some(share) = baked_numbers(&folder, "floor.txt").get(&key) {
-                add_stored_fill(&mut picture, &texture, *share, true);
+            if let Some(share) = folder.floors.get(&key) {
+                add_stored_fill(&mut picture, texture, *share, true);
             }
-            STORED_LIGHTMAPS
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(name.to_ascii_lowercase(), texture.clone());
-            TextureIr {
+            Some(TextureIr {
                 width: picture.width(),
                 height: picture.height(),
                 encoding: asset_odyssey::texture::Encoding::Rgba8,
                 mips: vec![picture.into_raw()],
-                ..texture
-            }
+                ..texture.clone()
+            })
         }
-        Err(error) => {
-            warn!("baked lightmap {} does not read: {error}", path.display());
-            texture
+        Err(why) => {
+            warn!("{why}");
+            None
         }
     }
 }
@@ -1183,6 +1688,16 @@ pub fn fx_through_chain(resolver: &Resolver, model: &Model) -> ModelFx {
 /// under is left empty, with a warning.
 pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
     parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
+}
+
+/// `parsed` for a model an area places: a room, a door or a placeable. A
+/// model that does not read is logged and left out, as a missing one is,
+/// so that one broken model does not stop its whole area loading.
+fn parsed_or_left_out(resolver: &Resolver, name: &str) -> Option<Model> {
+    parsed(resolver, name).unwrap_or_else(|why| {
+        warn!("{why}; it is left out of the area");
+        None
+    })
 }
 
 /// `parsed`, inside the chain of models (`chain`, lower case) whose
@@ -1486,6 +2001,49 @@ impl Source for ResolverSource<'_> {
 }
 
 /// Every room of the module's entry area at its layout position.
+/// The archives of the modules that hold a creature's armour and its
+/// headgear, when each is a module's own (`fmt_odyssey::module_of`).
+pub type Owners<'a> = (Option<&'a Resolver>, Option<&'a Resolver>);
+
+/// The scene's source, with one module's own item templates behind it. A
+/// party member may wear a module's own armour far from that module (Echoes
+/// of the Republic's robe from Sleheyron's palace). Its template is then
+/// read from that module, as the original keeps the whole item with the
+/// character. Without it the body was drawn bare.
+pub(crate) struct OwnItems<'a> {
+    pub(crate) scene: &'a ResolverSource<'a>,
+    pub(crate) owner: Option<ResolverSource<'a>>,
+}
+
+impl OwnItems<'_> {
+    fn owner_for(&self, restype: ResType) -> Option<&ResolverSource<'_>> {
+        self.owner.as_ref().filter(|_| restype == ResType::UTI)
+    }
+}
+
+impl Source for OwnItems<'_> {
+    fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+        self.scene
+            .read(resref, restype)
+            .or_else(|| self.owner_for(restype)?.read(resref, restype))
+    }
+
+    fn exists(&self, resref: &str, restype: ResType) -> bool {
+        self.scene.exists(resref, restype)
+            || self
+                .owner_for(restype)
+                .is_some_and(|owner| owner.exists(resref, restype))
+    }
+
+    fn lent_script(&self, resref: &str) -> bool {
+        self.scene.lent_script(resref)
+    }
+
+    fn talk(&self) -> Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>> {
+        self.scene.talk()
+    }
+}
+
 pub fn load_module(discovery: &Discovery, game: &str, module: &str) -> Result<LoadedScene, String> {
     let game = game_of(game)?;
     let resolver = resolver(discovery, game, Some(module))?;
@@ -1531,6 +2089,14 @@ pub fn module_scene(
     crate::fitted_lights::for_module(module);
     let area = &ir.areas[area];
     let mut laps = crate::launch_times::Laps::new("kotor stage/scene");
+    // Which bake of this area, if any, was made from the files the game
+    // reads, before its lightmaps load (`detail_baked`).
+    crate::lighting_bakes::note_played(game);
+    choose_bakes(resolver, area);
+    // Under Enhanced Lightmaps an area with no accepted bake is drawn as
+    // under Enhanced (`fitted_lights::baked_area`).
+    let area_baked = crate::fitted_lights::baked_area(takes_bake(&area.resref));
+    let dark = dark_unlit(&area.resref, module);
     let walkable = walkable_surfaces(resolver);
     let mut models = Vec::new();
     let mut missing_models = Vec::new();
@@ -1546,8 +2112,9 @@ pub fn module_scene(
             .map_or_else(Vec::new, |surfaces| surfaces.grass()),
         _ => Vec::new(),
     };
+    let without_vis = area.missing.contains(&Missing::Visibility);
     for room in &area.rooms {
-        let index = match parsed(resolver, &room.model)? {
+        let index = match parsed_or_left_out(resolver, &room.model) {
             Some(parsed) => {
                 if let (Some(placing), Some(drawn)) = (&area.grass, grass.as_mut())
                     && !grassy.is_empty()
@@ -1604,6 +2171,7 @@ pub fn module_scene(
             name: room.model.clone(),
             model: index,
             visible: room.visible.clone(),
+            sees_all: without_vis,
             floor,
             floor_error,
         });
@@ -1641,12 +2209,18 @@ pub fn module_scene(
     let mut fx_of: BTreeMap<String, Option<OwnFx>> = BTreeMap::new();
     // Each door model's clips' alpha (a force field fades as it opens).
     let mut door_fx: BTreeMap<String, Arc<ModelFx>> = BTreeMap::new();
+    // Which meshes of each placeable model the bake may light, so that they
+    // take its light in place of the probes' (`placeable_light::bends`).
+    let mut lit_of: BTreeMap<String, Arc<Vec<bool>>> = BTreeMap::new();
+    // The model of each placeable with a mesh the bake may light, by its
+    // object: its number in the scene, its name and which meshes those are.
+    let mut lit: BTreeMap<u32, (usize, String, Arc<Vec<bool>>)> = BTreeMap::new();
     for (object, instance) in area.instances.iter().enumerate() {
         let Some(name) = &instance.model else {
             continue;
         };
         if !loaded.contains_key(name) {
-            let parsed = parsed(resolver, name)?;
+            let parsed = parsed_or_left_out(resolver, name);
             let ir = parsed.as_ref().map(ModelIr::from_model);
             if instance.kind == Kind::Placeable
                 && let (Some(parsed), Some(ir)) = (&parsed, &ir)
@@ -1658,6 +2232,12 @@ pub fn module_scene(
                     (0, sim::look::DEFAULT),
                 );
                 fx_of.insert(name.clone(), own);
+                if area_baked && crate::placeable_light::baked_light() {
+                    lit_of.insert(
+                        name.clone(),
+                        Arc::new(crate::placeable_light::lit_meshes(ir)),
+                    );
+                }
             }
             if instance.kind == Kind::Door
                 && let Some(parsed) = &parsed
@@ -1696,6 +2276,13 @@ pub fn module_scene(
         }
         match &loaded[name] {
             Some(ir) => {
+                if instance.kind == Kind::Placeable
+                    && let Some(meshes) = lit_of
+                        .get(name)
+                        .filter(|meshes| meshes.iter().any(|lit| *lit))
+                {
+                    lit.insert(object as u32, (models.len(), name.clone(), meshes.clone()));
+                }
                 instance_models.insert(object as u32, models.len());
                 models.push(Placed {
                     ir: ir.clone(),
@@ -1755,13 +2342,24 @@ pub fn module_scene(
             textures.insert(name.clone(), texture);
         }
     }
+    let stored_lightmaps = baked_lightmaps(&mut textures);
     laps.lap("textures");
-    let probes = crate::light_probes::bake(&models, &rooms, &textures);
+    let stored = Stored {
+        resolver,
+        lightmaps: &stored_lightmaps,
+    };
+    let (baked, sun) = baked_probes(stored, &rooms, area_baked);
+    let mut probes = crate::light_probes::bake(&models, &rooms, &textures, baked);
+    probes.sun = sun;
+    probes.placeables = baked_placeables(stored, &area.resref, &lit, area_baked);
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
         sun: crate::sun::of_area(game, module),
         probes: Arc::new(probes),
+        baked: area_baked,
+        dark_unlit: dark,
+        stored_lightmaps,
         default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,
@@ -1861,6 +2459,8 @@ pub(crate) fn retexture_head(head: &mut ModelIr, texture: Option<&str>) {
     }
 }
 
+#[cfg(feature = "probes")]
+pub mod bake_probes;
 #[cfg(feature = "probes")]
 pub mod kept_probes;
 #[cfg(feature = "probes")]
@@ -2020,20 +2620,26 @@ impl CreatureLoad {
     /// UTI) or nothing on its body, put on or taken off as `dressing` says,
     /// and `headgear` (a UTI) or nothing on its head, with the head of
     /// `heads.2da` row `head` where one is given (else the row's own),
-    /// dressed for `aligned`, as `place` places one of a template.
+    /// dressed for `aligned`, as `place` places one of a template. `owners`
+    /// are the archives of the modules that hold the armour and the
+    /// headgear when they are a module's own (`worn_model`).
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
         (appearance, (armour, dressing), head, headgear): Outfit<'_>,
-        owner: Option<&Resolver>,
+        (armour_owner, owner): Owners<'_>,
         aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
         let name = format!("appearance {appearance}");
         let source = ResolverSource(resolver);
+        let dressed = OwnItems {
+            scene: &source,
+            owner: armour_owner.map(ResolverSource),
+        };
         let mut look = creature::resolve_dressed(
-            &source,
+            &dressed,
             appearance,
             armour.map(str::to_string),
             dressing,
@@ -2508,18 +3114,41 @@ pub fn clip(
     if let Some(found) = find(model) {
         return Ok(Some(found));
     }
+    let talking = name.starts_with("tlk");
     let mut seen = vec![model.name.to_ascii_lowercase()];
     let mut next = next_supermodel(model, &mut seen);
     while let Some(super_name) = next {
         let Some(parent) = read_into(cache, resolver, &super_name)? else {
             break;
         };
-        if let Some(found) = find(parent) {
-            return Ok(Some(found));
+        let found = find(parent).filter(|found| !talking || shares_rest_pose(model, parent, found));
+        if found.is_some() {
+            return Ok(found);
         }
         next = next_supermodel(parent, &mut seen);
     }
     Ok(None)
+}
+
+const REST_TURN_TOLERANCE_DEGREES: f32 = 20.0;
+
+/// A clip keys absolute turns, so it only suits a body that rests as its
+/// supermodel does. A Rakata does not: its eye nodes rest at about 90 degrees,
+/// and the human `tlknorm` of `s_male02` turns them 86 to 178 degrees away.
+fn shares_rest_pose(body: &ModelIr, parent: &ModelIr, clip: &AnimationIr) -> bool {
+    clip.tracks
+        .iter()
+        .filter(|track| !track.orientations.is_empty())
+        .all(|track| {
+            let (Some(own), Some(shared)) = (body.node(&track.node), parent.node(&track.node))
+            else {
+                return true;
+            };
+            let turn = bevy::math::Quat::from_array(own.rotation)
+                .normalize()
+                .angle_between(bevy::math::Quat::from_array(shared.rotation).normalize());
+            turn.to_degrees() <= REST_TURN_TOLERANCE_DEGREES
+        })
 }
 
 /// The clips `clip` found, by the model whose animation each is and its

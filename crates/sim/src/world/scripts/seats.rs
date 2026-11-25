@@ -81,6 +81,8 @@ pub(super) fn seat_actions(
             | Action::Pazaak(_)
             | Action::Request { .. }
             | Action::Watch { .. } => continue,
+            // A seat taking a companion is `world::drivers`'.
+            Action::Play(_) => continue,
             // The party's calls are `world::party`'s.
             Action::Break | Action::Resume | Action::Ready | Action::Force => continue,
             // A revive is `world::falls`'.
@@ -219,6 +221,22 @@ pub(super) fn seat_actions(
                 }
                 continue;
             }
+            // The seat's own options and screens, for the conversations it
+            // may join by standing near them (`script::dialogue`).
+            Action::JoinTalks(on) => {
+                match on {
+                    true => state.talk.quiet.remove(&seat.0),
+                    false => state.talk.quiet.insert(seat.0),
+                };
+                continue;
+            }
+            Action::Screen(open) => {
+                match open {
+                    true => state.talk.screens.insert(seat.0),
+                    false => state.talk.screens.remove(&seat.0),
+                };
+                continue;
+            }
             // The map page's return to the Ebon Hawk, its question answered
             // yes: the first seat's (the story is the host's), where the
             // scripts let the button show and the area lets the party
@@ -336,7 +354,8 @@ fn changed(
 /// Makes `edit` to the action bar of `who`; whether the bar changed. A
 /// content is put on the bar only when `bar::assignable` lists it, and a
 /// power is hidden or shown only when it lists that power. Mines count as
-/// carried when the party has a trap kit (`world::traps`).
+/// carried when the party has a trap kit (`world::traps`), and devices when
+/// the party carries them (`item_uses::party_devices`).
 fn edit_bar(
     library: &script::Library,
     view: &View,
@@ -350,7 +369,8 @@ fn edit_bar(
     let mines = !crate::world::traps::kits(state, library.items()).is_empty();
     changed(view, out, who, |sheet| {
         let mut bar = sheet.bar;
-        Rules::with(Some(library), mines, |rules| {
+        let devices = crate::world::item_uses::party_devices(state, library, sheet.race);
+        Rules::with(Some(library), (mines, &devices), |rules| {
             let listed = |content| assignable(sheet, rules).contains(&content);
             match edit {
                 BarEdit::Put { slot, content } if listed(content) => {

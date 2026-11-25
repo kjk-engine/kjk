@@ -1050,7 +1050,7 @@ impl Client {
             stats.other_epoch += 1;
             return None;
         }
-        if session.ring.get(header.tick).is_some() {
+        if session.ring.holds(&header) {
             return Some(header.tick);
         }
         let empty = TickInput::default();
@@ -1527,6 +1527,14 @@ impl Client {
         {
             let _ = session.link.send_reliable(&loaded);
         }
+    }
+
+    /// Whether an install the host announced waits for its level here
+    /// (`provide_level`): the client heard of it, and was given no level
+    /// for it yet.
+    pub fn awaits_level(&self) -> bool {
+        matches!(&self.state, State::Connected(session)
+            if session.install.as_ref().is_some_and(|install| install.level.is_none()))
     }
 
     /// Sends an action of this player's to the host (reliably, in order);

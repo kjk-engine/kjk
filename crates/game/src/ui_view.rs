@@ -39,7 +39,7 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::MouseWheel;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::window::{CursorOptions, PrimaryWindow};
 use ui::assets::GuiAssets;
 use ui::draw::{DrawList, Quad, TextureId, fit, turn};
@@ -123,6 +123,16 @@ pub struct Ui {
     /// The player hid the HUD with the Hide interface key (`play_keys`).
     /// Any open screen shows it again.
     pub(crate) hud_hidden: bool,
+    /// Photo mode's corner lines while photo mode is on (`photo_mode`).
+    /// The rest of the interface is hidden meanwhile, and the player's own
+    /// Hide interface choice is kept for after.
+    pub(crate) photo: Option<crate::photo_mode::Line>,
+    /// Every save on disk with the game it belongs to, as last read
+    /// (`save_view::refresh`). `vm.saves` lists only the saves of the
+    /// campaign the menu or the game is on now.
+    pub(crate) all_saves: Vec<(vfs::Game, ui::vm::SaveView)>,
+    /// The campaign `vm.saves` was last filtered for.
+    pub(crate) saves_for: Option<vfs::Game>,
 }
 
 /// The floating target block and the words floating over creatures. Both
@@ -261,6 +271,9 @@ impl Ui {
             summary_closed: false,
             headless,
             hud_hidden: false,
+            photo: None,
+            all_saves: Vec::new(),
+            saves_for: None,
         }
     }
 
@@ -379,6 +392,7 @@ type InGame<'w> = (
 /// pazaak icon or the solo mode button goes.
 type HudPointer<'w, 's> = (
     Option<Res<'w, crate::movie_view::Showing>>,
+    Option<Res<'w, crate::splash::SplashShowing>>,
     Query<'w, 's, &'static CursorOptions, With<PrimaryWindow>>,
     (
         ResMut<'w, crate::leader_view::Picked>,
@@ -426,13 +440,55 @@ fn run_mesh((positions, uvs, colors): &Geometry) -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
+/// Duration of the seamless KOTOR 1 <-> KOTOR 2 main menu wipe (seconds).
+const SWITCH_DURATION: f32 = 0.48;
+
+/// Active visual wipe between the previous campaign's menu snapshot and the
+/// newly selected campaign's menu.
+struct Transition {
+    elapsed: f32,
+    duration: f32,
+    direction: f32,
+    tint: [f32; 3],
+}
+
+impl Transition {
+    fn for_campaign(target: vfs::Game) -> Transition {
+        match target {
+            vfs::Game::Kotor2 => Transition {
+                elapsed: 0.0,
+                duration: SWITCH_DURATION,
+                direction: 1.0,
+                // KOTOR 2 eerie emerald-teal accent.
+                tint: [0.15, 0.88, 0.68],
+            },
+            _ => Transition {
+                elapsed: 0.0,
+                duration: SWITCH_DURATION,
+                direction: -1.0,
+                // KOTOR 1 Republic blue-steel accent.
+                tint: [0.22, 0.65, 1.0],
+            },
+        }
+    }
+}
+
+/// Coordinates a zero-stutter, single-frame-capture campaign switch on the
+/// main menu (`waiting` -> GPU snapshot -> `captured` -> swap + `active` wipe).
+#[derive(Resource, Default)]
+struct CampaignSwitch {
+    waiting: Option<vfs::Game>,
+    captured: Option<vfs::Game>,
+    active: Option<Transition>,
+}
+
 /// The GPU side: the camera, each run's entity and mesh, and the images
 /// and materials made so far.
 #[derive(Resource, Default)]
 pub(crate) struct Drawn {
     camera: Option<Entity>,
-    /// The screens' camera and image.
-    screens: Option<(Entity, Handle<Image>)>,
+    /// The screens' camera, its target image, and the transition snapshot image.
+    screens: Option<(Entity, Handle<Image>, Handle<Image>)>,
     runs: Vec<Shown>,
     images: BTreeMap<TextureId, Handle<Image>>,
     materials: BTreeMap<(TextureId, bool, bool), Handle<UiMaterial>>,
@@ -481,6 +537,9 @@ impl Plugin for UiViewPlugin {
             warn!("the game's screens cannot be drawn (see above)");
         }
         let mut stack = Stack::new(ui::screens::open);
+        if let Some(assets) = &assets {
+            stack.palette = ui::paint::Palette::of(assets.game);
+        }
         let mut vm = ViewModel::default();
         vm.session.version = format!(
             "kjk {} ({})",
@@ -515,9 +574,10 @@ impl Plugin for UiViewPlugin {
         .init_resource::<KotorHud>()
         .init_resource::<UiOpen>()
         .init_resource::<Drawn>()
+        .init_resource::<CampaignSwitch>()
         .add_systems(
             Update,
-            (requests, step, draw)
+            (requests, step, draw, sync_switch, rest_screens)
                 .chain()
                 .in_set(Stepped)
                 .after(console::ConsoleQueue),
@@ -610,7 +670,7 @@ fn host_composite(
                 camera.is_active = active;
             }
         } else if Some(entity) == host {
-            if !hosting || held.is_none_or(|held| held.gamma != composite.gamma) {
+            if !hosting || held.is_none_or(|held| held != &composite) {
                 commands
                     .entity(entity)
                     .insert((composite.clone(), CompositeHost));
@@ -649,7 +709,9 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// as a script's would be, `progress`); and as the screens and keys do,
 /// `save [name]`, `quicksave`, `load <id>` (`save_view`). The power wheel
 /// takes `powerwheel hold`, `powerwheel point X Y`, `powerwheel step N` and
-/// `powerwheel up` (`wheel_view`).
+/// `powerwheel up` (`wheel_view`). Photo mode takes `photo on`, `photo off`,
+/// `photo speed …`, `photo hide`, `photo step` and `photo fly …`
+/// (`photo_mode`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
@@ -673,9 +735,10 @@ fn requests(
         Option<ResMut<crate::camera_tune::Orbit>>,
         Option<ResMut<crate::progress::Told>>,
     ),
-    (mut world_pad, mut power_wheel): (
+    (mut world_pad, mut power_wheel, mut photo): (
         ResMut<crate::pad::ScriptedPad>,
         ResMut<crate::wheel_view::Wheel>,
+        Option<ResMut<crate::photo_mode::PhotoMode>>,
     ),
 ) {
     use sim::script::dialogue::Pick;
@@ -715,6 +778,11 @@ fn requests(
             ["camera", what @ ..] => {
                 if !orbit.as_deref_mut().is_some_and(|orbit| orbit.script(what)) {
                     warn!(target: "console", "ui camera: {what:?} is no orbit or zoom request");
+                }
+            }
+            ["photo", what @ ..] => {
+                if !photo.as_deref_mut().is_some_and(|photo| photo.script(what)) {
+                    warn!(target: "console", "ui photo: {what:?} is no photo mode request");
                 }
             }
             ["script", what @ ..] => match crate::script_screens::parse(what) {
@@ -790,7 +858,7 @@ fn requests(
             }),
             ["reload"] => intents.0.push(Intent::ReloadLatest),
             ["quicksave"] => intents.0.push(Intent::Save {
-                slot: Some(saves::QUICK.into()),
+                slot: Some(crate::save_view::quick_id(ui).into()),
                 name: crate::save_view::QUICK_NAME.into(),
             }),
             ["load", id] => intents
@@ -901,11 +969,12 @@ fn step(
     cameras: Query<&Camera, With<UiCamera>>,
     time: Res<Time>,
     (mut held, mut last, mut sized): (Local<Held>, Local<Option<Vec2>>, Local<Option<(Vec2, f32)>>),
-    (mut intents, mut open, mut states, mut kotor_hud): (
+    (mut intents, mut open, mut states, mut kotor_hud, mut switch): (
         ResMut<UiIntents>,
         ResMut<UiOpen>,
         ResMut<console::States>,
         ResMut<KotorHud>,
+        ResMut<CampaignSwitch>,
     ),
     (mut exit, mut facts, replies, mut hold, headless, scenes): (
         MessageWriter<AppExit>,
@@ -917,7 +986,7 @@ fn step(
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
     (presented, actions): InGame,
-    (showing, cursors, (mut picked, mut watch, mut solo)): HudPointer,
+    (showing, splash, cursors, (mut picked, mut watch, mut solo)): HudPointer,
 ) {
     let top = ui.stack.top().map(|screen| screen.0);
     crate::crash::note(|crumbs| {
@@ -925,9 +994,10 @@ fn step(
             crumbs.screen = top.map(str::to_owned);
         }
     });
-    // A movie over the screens takes the keys and the pointer, and so does
-    // the main menu held back until its 3D view is drawn (`gui_scene`).
-    let movie = showing.is_some_and(|showing| showing.0);
+    // A movie or the startup splash over the screens takes the keys and the
+    // pointer, and so does the main menu held back until its 3D view is
+    // drawn (`gui_scene`).
+    let movie = showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0);
     let blind = movie || scenes.is_some_and(|scenes| scenes.holding());
     let (keys, mouse) = if blind { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
@@ -992,6 +1062,17 @@ fn step(
     }
     input.scale_factor = scale_factor;
     let ui = &mut *ui;
+    if let Some(target) = switch.captured.take() {
+        crate::runtime::set_campaign(ui, target);
+        switch.active = Some(Transition::for_campaign(target));
+    } else if let Some(active) = &mut switch.active {
+        // Clamp dt so first-switch texture/mipmap upload cannot eat the whole
+        // transition in a single frame.
+        active.elapsed += time.delta_secs().min(0.05);
+        if active.elapsed >= active.duration {
+            switch.active = None;
+        }
+    }
     ui.scale_factor = scale_factor;
     console_input(
         &std::mem::take(&mut ui.scripted),
@@ -1004,7 +1085,12 @@ fn step(
     }
     // The summary's OK held in a window holds the world too (`sim_host`).
     hold.0 = waiting && !headless.is_some_and(|headless| headless.0);
-    if presented.is_some() {
+    // Photo mode takes play's keys, and Escape and a pad's Menu leave it
+    // or take a screenshot instead of opening the menu.
+    let photo = ui.photo.is_some();
+    if photo {
+        input.keys.retain(|key| *key != ui::input::Key::Back);
+    } else if presented.is_some() {
         play_keys(
             ui,
             &mut input,
@@ -1034,7 +1120,21 @@ fn step(
                 exit.write(AppExit::Success);
             }
             Intent::View(member) => ui.vm.viewed = member,
-            Intent::Campaign(campaign) => crate::runtime::set_campaign(ui, campaign),
+            Intent::Campaign(campaign) => {
+                let on_menu = ui.stack.top().is_some_and(|screen| screen.0 == "main_menu");
+                let changing = ui
+                    .assets
+                    .as_ref()
+                    .is_some_and(|assets| assets.game != campaign);
+                if on_menu && changing {
+                    switch.waiting = Some(campaign);
+                } else {
+                    switch.waiting = None;
+                    switch.captured = None;
+                    switch.active = None;
+                    crate::runtime::set_campaign(ui, campaign);
+                }
+            }
             other => intents.0.push(other),
         }
     }
@@ -1074,7 +1174,7 @@ fn step(
     // creatures, the area transition panel and the arena's panels. The
     // power wheel still shows while its key is held, so the player sees
     // what they choose.
-    let hidden = ui.hud_hidden;
+    let hidden = ui.hud_hidden || photo;
     if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
         if !hidden {
             layers.insert(0, hud);
@@ -1118,7 +1218,7 @@ fn step(
     }
     // A conversation's screen under the screens, the HUD and barks given
     // way to it; the host's request card over both.
-    let in_play = presented.is_some();
+    let in_play = presented.is_some() && !photo;
     let dialog = in_play
         .then(|| dialog_layer(ui, (size.x, size.y)))
         .flatten();
@@ -1127,8 +1227,7 @@ fn step(
         layers.insert(under, layer);
     }
     // The status summary over the HUD, under the screens.
-    if let Some(summaries) = presented
-        .is_some()
+    if let Some(summaries) = in_play
         .then(|| summary_layer(ui, (size.x, size.y)))
         .flatten()
         .filter(|_| !talking && !minigame && !faded)
@@ -1146,7 +1245,7 @@ fn step(
         layers.insert(under, bark);
     }
     // A terminal's camera feed: its look over the view, under the screens.
-    if presented.is_some() && ui.vm.camera_feed {
+    if in_play && ui.vm.camera_feed {
         layers.insert(
             under,
             ui::screens::feed::draw((size.x, size.y), ui.stack.clock()),
@@ -1154,13 +1253,14 @@ fn step(
     }
     // A break's or ready check's banner over everything: the screens, a
     // conversation, a watching player's view.
-    if let Some(banner) = presented
-        .is_some()
+    if let Some(banner) = in_play
         .then(|| hud_layer(ui, (size.x, size.y), true))
         .flatten()
     {
         layers.push(banner);
     }
+    // Photo mode's corner lines over the world, alone.
+    layers.extend(photo_layer(ui, (size.x, size.y)));
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
     // holds the player as a screen does.
@@ -1545,6 +1645,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
         if !banner {
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
+            ui::screens::hud::players(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
             if !floating {
                 ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
@@ -1905,6 +2006,36 @@ fn bark_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(out)
 }
 
+/// Photo mode's corner lines for a window of `window` pixels, in its lower
+/// left corner at the window's own pixels, one over the other, faded as
+/// photo mode asks.
+fn photo_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let line = ui.photo.as_ref().filter(|line| line.alpha > 0.0)?;
+    let (words, alpha) = (line.words.clone(), line.alpha);
+    let Ui { assets, stack, .. } = ui;
+    let mut out = DrawList {
+        size: window,
+        ..DrawList::default()
+    };
+    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+    let mut bottom = window.1 - PHOTO_MARGIN;
+    for words in words.iter().rev() {
+        let first = out.quads.len();
+        painter.tooltip(words, [PHOTO_MARGIN, bottom], &mut out);
+        // The tip's box is its first quad: the next line stands over it.
+        bottom = out.quads.get(first).map_or(bottom, |tip| tip.rect[1]) - PHOTO_GAP;
+    }
+    for quad in &mut out.quads {
+        quad.color[3] *= alpha;
+    }
+    Some(out)
+}
+
+/// How far photo mode's corner lines stand from the window's left and
+/// lower edges, and apart (pixels).
+const PHOTO_MARGIN: f32 = 24.0;
+const PHOTO_GAP: f32 = 4.0;
+
 /// The conversation screen for a window of `window` pixels, while this
 /// player is in a cinematic conversation (`ui::screens::dialog`).
 fn dialog_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
@@ -2204,6 +2335,42 @@ fn mipmaps(width: u32, height: u32, rgba: &[u8]) -> Vec<Vec<u8>> {
     levels
 }
 
+/// Advances a pending main-menu campaign switch once the target 3D scene is
+/// ready, requesting a GPU snapshot of `screens` on this frame so the next
+/// frame can swap cleanly and run the transition wipe.
+fn sync_switch(
+    mut switch: ResMut<CampaignSwitch>,
+    mut ui: ResMut<Ui>,
+    mut drawn: ResMut<Drawn>,
+    scenes: Res<crate::gui_scene::GuiScenes>,
+    mut composites: Query<&mut UiComposite, With<UiCamera>>,
+) {
+    if let Some(target) = switch.waiting {
+        if drawn.camera.is_none() {
+            switch.waiting = None;
+            crate::runtime::set_campaign(&mut ui, target);
+        } else if scenes.main_menu_ready(target) {
+            switch.waiting = None;
+            switch.captured = Some(target);
+            drawn.fresh = REDRAWN;
+        }
+    }
+    let Some(camera) = drawn.camera else {
+        return;
+    };
+    let Ok(mut composite) = composites.get_mut(camera) else {
+        return;
+    };
+    composite.capture = switch.captured.is_some();
+    if let Some(active) = &switch.active {
+        composite.progress = (active.elapsed / active.duration).clamp(0.0, 1.0);
+        composite.direction = active.direction;
+        composite.tint = active.tint;
+    } else {
+        composite.progress = -1.0;
+    }
+}
+
 /// The screens' camera draws their image only while it changes (`fresh`)
 /// or shows a 3D view; the rest of the time the image keeps what it shows,
 /// and the frame pays for no camera to draw it again. It also draws while a
@@ -2215,7 +2382,7 @@ fn rest_screens(
 ) {
     let draws = drawn.fresh > 0 || drawn.live || warmup.is_some();
     drawn.fresh = drawn.fresh.saturating_sub(1);
-    let Some((screens, _)) = drawn.screens else {
+    let Some((screens, ..)) = drawn.screens else {
         return;
     };
     if let Ok(mut camera) = cameras.get_mut(screens)
@@ -2271,12 +2438,12 @@ fn draw(
         let Some(target) = scene.iter().next() else {
             return;
         };
-        let image = images.add(Image::new_target_texture(
-            1,
-            1,
-            TextureFormat::Rgba8Unorm,
-            None,
-        ));
+        let mut target_image = Image::new_target_texture(1, 1, TextureFormat::Rgba8Unorm, None);
+        target_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+        let image = images.add(target_image);
+        let mut prev_image = Image::new_target_texture(1, 1, TextureFormat::Rgba8Unorm, None);
+        prev_image.texture_descriptor.usage |= TextureUsages::COPY_DST;
+        let previous = images.add(prev_image);
         let screens = commands
             .spawn((
                 Camera3d::default(),
@@ -2306,13 +2473,13 @@ fn draw(
             RenderLayers::none(),
             OverlayCamera,
             UiCamera,
-            UiComposite::new(image.clone()),
+            UiComposite::new(image.clone(), previous.clone()),
         ));
         if let Some(target) = target {
             camera.insert(target.clone());
         }
         drawn.camera = Some(camera.id());
-        drawn.screens = Some((screens, image));
+        drawn.screens = Some((screens, image, previous));
         drawn.fresh = REDRAWN;
         return;
     }
@@ -2325,7 +2492,7 @@ fn draw(
         return;
     };
     // The screens' image the window's pixels, laid out in its points.
-    if let Some((screens, image)) = &drawn.screens {
+    if let Some((screens, image, previous)) = &drawn.screens {
         if let Some(mut image) = images.get_mut(image)
             && let Some(pixels) = screens_image(image.size(), pixels)
         {
@@ -2335,6 +2502,15 @@ fn draw(
                 depth_or_array_layers: 1,
             });
             drawn.fresh = REDRAWN;
+        }
+        if let Some(mut prev) = images.get_mut(previous)
+            && let Some(pixels) = screens_image(prev.size(), pixels)
+        {
+            prev.resize(Extent3d {
+                width: pixels.x,
+                height: pixels.y,
+                depth_or_array_layers: 1,
+            });
         }
         if !minimized(pixels)
             && let Ok(mut projection) = projections.get_mut(*screens)

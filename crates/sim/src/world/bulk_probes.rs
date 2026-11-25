@@ -11,7 +11,11 @@
 //!   census has it, 14.5 m across) catches it in its blast, thrown from
 //!   9 m off and from 3 m off, inside its box: it bursts where the rancor
 //!   stands, as KOTOR's grenade goes off at its target's location, and the
-//!   blast reaches down the rancor's height to the ground.
+//!   blast reaches down the rancor's height to the ground;
+//! - a player standing at a wraid's flank, close enough that its eyes are
+//!   inside the wraid's box (4.5 m long, 1.9 m tall), meets the wraid with
+//!   a Force power's line or a shot along its view (`Bodies::shot`), where
+//!   a plain trace from its eyes passes through it.
 
 use collision::{BoxWorld, CollisionWorld, Contents, Extents, UNIT};
 
@@ -42,7 +46,38 @@ pub fn probes() -> Checks {
         ("bulk_turns_with_the_body", turned()),
         ("aimed_at_the_drawn_middle", aimed()),
         ("grenade_catches_the_sewer_rancor", grenaded()),
+        ("line_from_inside_meets_the_wraid", wraid_in_face()),
     ]
+}
+
+/// A wraid's box (`c_wraid`, `kjk combat bodies k1`).
+const WRAID: Bulk = Bulk {
+    min: [-1.36, -2.45, -0.05],
+    max: [1.25, 2.10, 1.89],
+};
+
+/// A player 1 m off a wraid's middle (facing +Y at the origin), looking at
+/// it along +X from its flank, its eyes inside the wraid's box: whether a
+/// plain trace and a shot from its eyes meet the wraid.
+fn wraid_in_face() -> Result<String, String> {
+    let wraid = body(SimId(1), &standing(), Some(&WRAID));
+    let mut player = MotionState::standing([-1.0 / UNIT, 0.0, -crate::motion::SOLE_Z], 0.0);
+    player.view[1] = 0.0;
+    let eye = scale(mind::eye(&player), UNIT);
+    let end = [eye[0] + 20.0, eye[1], eye[2]];
+    let world = BoxWorld::new();
+    let bodies = [wraid];
+    let with_bodies = collision::Bodies::new(&world, &bodies);
+    let plain = with_bodies.trace(eye, end, &Extents::POINT, Contents::BODY);
+    let shot = with_bodies.shot(eye, end, &Extents::POINT, Contents::BODY);
+    let inside = (0..3).all(|k| eye[k] > wraid.min[k] && eye[k] < wraid.max[k]);
+    check(
+        inside && plain.entity.is_none() && shot.entity == Some(wraid.entity),
+        format!(
+            "eyes at {eye:?} inside the box {inside}; a plain trace met {:?}, a shot {:?}",
+            plain.entity, shot.entity
+        ),
+    )
 }
 
 /// `tar05_stampy`'s box (`c_rancor`, `kjk combat bodies k1`).

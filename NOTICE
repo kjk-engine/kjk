@@ -55,5 +55,13 @@ The level editor's marker icons (crates/level_editor/icons) are from line-md
 (https://github.com/cyberalien/line-md), Copyright 2020 Vjacheslav Trushkin,
 under the MIT License. The licence is in that folder's LICENSE.md.
 
+Sounds
+------
+crates/game/sounds/camera-shutter.flac, the shutter sound photo mode plays,
+is "Camera" by themightyglider (https://opengameart.org/node/73696),
+released under CC0 1.0 (public domain). It was made from "Camera Shutter
+Sound" (https://archive.org/details/CameraShutterSound), also CC0. kjk
+converted it from Ogg Vorbis to FLAC and changed nothing else.
+
 Binary releases include THIRD-PARTY-LICENSES.html for the Rust crates they
 are built from.

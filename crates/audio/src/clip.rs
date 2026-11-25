@@ -13,6 +13,21 @@ impl Clip {
     /// The version of `encode`'s bytes: bump when they change.
     pub const VERSION: u32 = 2;
 
+    /// A clip from stereo PCM frames (`[left, right]` in `-1.0..=1.0`) at
+    /// `sample_rate` Hz (procedural sounds such as the startup splash cue).
+    pub fn from_stereo(sample_rate: u32, frames: Vec<[f32; 2]>) -> Clip {
+        let frames: Vec<Frame> = frames
+            .into_iter()
+            .map(|[left, right]| Frame { left, right })
+            .collect();
+        Clip(StaticSoundData {
+            sample_rate,
+            frames: frames.into(),
+            settings: StaticSoundSettings::default(),
+            slice: None,
+        })
+    }
+
     /// A WAV (PCM), MP3 or FLAC file (`Coded::file`).
     pub fn decode(bytes: &[u8]) -> Result<Clip, String> {
         Clip::whole(&Coded::file(bytes))

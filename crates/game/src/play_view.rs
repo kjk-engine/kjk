@@ -64,7 +64,7 @@ use crate::weapons::{Owner, Props};
 /// The longest step the view takes catching up (a 60 Hz frame).
 const STEP_MS: f64 = 1000.0 / 60.0;
 /// JA's `cg_fov` 80 across a 4:3 screen, as a vertical field of view.
-const FOV_DEGREES: f32 = 64.94;
+pub(crate) const FOV_DEGREES: f32 = 64.94;
 const CAMERA_BOX: f32 = 4.0;
 /// The steepest the camera looks down or up at its target (degrees): the
 /// view's own pitch limit (`follow_camera`).
@@ -209,6 +209,17 @@ pub struct OwnRemote(pub Option<sim::remote::Remote>);
 /// views (`gui_scene`).
 #[derive(Resource, Default)]
 pub struct OwnBody(pub Option<usize>);
+
+/// The frame as the view drew it, for photo mode (`photo_mode`): the shot
+/// the camera took (none while no one is looked through or a `camera`
+/// command holds it), the soles of the character it follows (metres, game
+/// space) and the player's own character.
+#[derive(Resource, Default)]
+pub struct ShotTaken {
+    pub shot: Option<TalkShot>,
+    pub soles: Vec3,
+    pub me: Option<SimId>,
+}
 
 fn own_body(
     view: Res<View>,
@@ -602,6 +613,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::severing::Cuts>()
             .init_resource::<crate::severing::Smoulders>()
             .init_resource::<OwnBody>()
+            .init_resource::<ShotTaken>()
             .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
             .init_resource::<CameraTaken>()
@@ -609,6 +621,12 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
             .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
+            .add_systems(
+                PostUpdate,
+                first_person::unseen_layers
+                    .after(Drawn)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+            )
             .add_systems(
                 PostUpdate,
                 cast_shadows
@@ -1456,6 +1474,7 @@ fn draw(
         (mut sim_blades, mut audit),
         (mut aim, mut camera_aim, mut near, mut taken),
         watching,
+        (mut taken_shot, photo),
     ): (
         ResMut<LiveBlades>,
         (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
@@ -1466,6 +1485,7 @@ fn draw(
             ResMut<CameraTaken>,
         ),
         Option<ResMut<crate::dialogue_view::Watching>>,
+        (ResMut<ShotTaken>, Option<Res<crate::photo_mode::PhotoMode>>),
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
     (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps, doors): (
@@ -1486,6 +1506,12 @@ fn draw(
     near.0 = None;
     taken.0 = false;
     view.following = false;
+    taken_shot.shot = None;
+    taken_shot.me = view.me;
+    // The photo camera's shot while photo mode is on (`photo_mode`).
+    let photo = photo
+        .as_deref()
+        .and_then(crate::photo_mode::PhotoMode::shot);
     if request.is_changed() && !request.is_added() {
         view.fixed = true;
     }
@@ -1829,12 +1855,13 @@ fn draw(
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
         eyes.0 = None;
         return;
     };
 
     let soles = cast::soles(at.origin);
+    taken_shot.soles = soles;
     if let (Some((file, traced)), Some(posed), Some(rig)) =
         (&mut view.trace, &posed, view.cast.player_rig())
     {
@@ -1902,12 +1929,12 @@ fn draw(
         })
         .flatten();
     // The own eyes while the player looks through them: its own body, not
-    // watching (down or bodiless), no conversation or `camera` command
-    // holding the view.
+    // watching (down or bodiless), no conversation, `camera` command or
+    // photo mode holding the view.
     let body = view
         .me
         .filter(|_| view.camera_mode == CameraMode::First && talk.is_none())
-        .filter(|_| !watching && !view.fixed)
+        .filter(|_| !watching && !view.fixed && photo.is_none())
         .and_then(|me| view.cast.drawn_body(me)?.kotor);
     let first = body.and_then(|body| {
         let mut eye_height = at.origin;
@@ -1931,7 +1958,7 @@ fn draw(
             }),
             dt: time.delta_secs(),
         };
-        let eye = view.first.eye(&looking, &drawn, &mut visibility)?;
+        let eye = view.first.eye(&looking, &drawn, &mut commands)?;
         let eye = stop_short(
             (&view.level, view.doors.as_deref()),
             eye_height,
@@ -1940,7 +1967,7 @@ fn draw(
         Some((eye.map(|x| x * UNIT), angles))
     });
     if first.is_none() {
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
     // The own gun's kick turns the view with the line its shots leave
@@ -1972,6 +1999,7 @@ fn draw(
         && first.is_none()
         && !view.fixed
         && !watching
+        && photo.is_none()
         && view.camera_mode == CameraMode::Third;
     view.following = following;
     near.0 = view.me.filter(|_| following && view.tuned).map(|me| {
@@ -1984,15 +2012,16 @@ fn draw(
         let apart: [f32; 3] = std::array::from_fn(|i| shown[i] - eye[i]);
         (me, sim::math::dot(apart, apart).sqrt())
     });
-    taken.0 = talk.is_some() || view.fixed || watching;
-    aim.0 = place_camera(
+    taken.0 = talk.is_some() || view.fixed || watching || photo.is_some();
+    let (shot, aimed) = place_camera(
         view,
-        (talk, first),
+        (photo, talk, first),
         (soles, fov, shaken),
         &mut transforms,
         &mut cameras,
-    )
-    .filter(|_| !watching);
+    );
+    taken_shot.shot = shot;
+    aim.0 = aimed.filter(|_| !watching);
     // Walk mode starts where play's own camera first stands, behind the
     // player. From then on the fly camera has it, as a `camera` command
     // would.
@@ -2354,7 +2383,7 @@ fn aim_camera_on_line() -> Result<String, String> {
     for (_, camera) in &frames {
         let (_, aim) = camera_shot(
             (camera, [0.0; 2], CameraMode::Third),
-            (None, None),
+            (None, None, None),
             (Vec3::ZERO, 0.0),
         );
         let Some(look) = aim else {
@@ -2418,7 +2447,7 @@ fn aim_first_person() -> Result<String, String> {
     let shot = |camera: &ThirdPerson| {
         camera_shot(
             (camera, [0.0; 2], CameraMode::First),
-            (None, Some((eye, looking))),
+            (None, None, Some((eye, looking))),
             (Vec3::ZERO, framed_fov(camera, &tune)),
         )
     };
@@ -3801,25 +3830,29 @@ fn placed_shot(camera: &PlacedCamera) -> TalkShot {
     (eye.to_array(), angles::look_angles(forward.to_array()), fov)
 }
 
-/// The camera where the view has it: a conversation's `talk` shot while
-/// the player is in one, else its mode's (`first`, the eye and view
-/// angles, for `First`), unless a `camera` command took it.
+/// The camera where the view has it: the `photo` camera's shot while photo
+/// mode is on, a conversation's `talk` shot while the player is in one,
+/// else its mode's (`first`, the eye and view angles, for `First`), unless
+/// a `camera` command took it. The shot taken, and the line aimed along.
 fn place_camera(
     view: &View,
-    (talk, first): (Option<TalkShot>, Option<EyeShot>),
+    (photo, talk, first): (Option<TalkShot>, Option<TalkShot>, Option<EyeShot>),
     (soles, fov, shaken): (Vec3, f32, [f32; 2]),
     transforms: &mut Query<&mut Transform>,
     cameras: &mut Query<(Entity, &mut Projection), SceneCamera>,
-) -> Option<sim::target::Look> {
-    if view.fixed {
-        return None;
+) -> (Option<TalkShot>, Option<sim::target::Look>) {
+    if view.fixed && photo.is_none() {
+        return (None, None);
     }
-    let ((location, angles, fov), aim) = camera_shot(
+    let (shot, aim) = camera_shot(
         (&view.camera, view.orbit, view.camera_mode),
-        (talk, first),
+        (photo, talk, first),
         (soles, fov),
     );
-    // A screen shake turns the camera, not where it aims.
+    let (location, angles, fov) = shot;
+    // A screen shake turns the camera, not where it aims, and not the
+    // photo camera.
+    let shaken = if photo.is_some() { [0.0; 2] } else { shaken };
     let angles = [angles[0] + shaken[0], angles[1] + shaken[1], angles[2]];
     let rotation = game_to_bevy();
     for (entity, mut projection) in cameras.iter_mut() {
@@ -3835,7 +3868,7 @@ fn place_camera(
             perspective.fov = fov.to_radians();
         }
     }
-    aim
+    (Some(shot), aim)
 }
 
 /// How wide the camera sees (degrees up and down) before the screen's own
@@ -3853,15 +3886,19 @@ fn framed_fov(camera: &ThirdPerson, tune: &crate::camera_tune::CameraTune) -> f3
 
 /// Where the camera stands, how it is turned and how wide it sees (degrees
 /// up and down, `fov` unless a conversation's shot says otherwise), and the
-/// line the player aims along from it. A conversation's `talk` shot comes
-/// first. In first person the camera stands at the eyes (`first`). In
-/// third person it stands where the follow camera (`camera`) put it. The
-/// other modes stand at a fixed place by the body's `soles`.
+/// line the player aims along from it. The `photo` camera's shot comes
+/// first, and aims at nothing. A conversation's `talk` shot comes next. In
+/// first person the camera stands at the eyes (`first`). In third person it
+/// stands where the follow camera (`camera`) put it. The other modes stand
+/// at a fixed place by the body's `soles`.
 fn camera_shot(
     (camera, orbit, mode): (&ThirdPerson, [f32; 2], CameraMode),
-    (talk, first): (Option<TalkShot>, Option<EyeShot>),
+    (photo, talk, first): (Option<TalkShot>, Option<TalkShot>, Option<EyeShot>),
     (soles, fov): (Vec3, f32),
 ) -> (TalkShot, Option<sim::target::Look>) {
+    if let Some(photo) = photo {
+        return (photo, None);
+    }
     let mut aim = None;
     let shot = match (talk, first, mode) {
         (Some(talking), ..) => talking,

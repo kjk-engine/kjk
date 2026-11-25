@@ -60,6 +60,13 @@ pub use level::{
 /// A JA unit (an inch) in metres.
 pub const UNIT: f32 = 0.0254;
 
+/// How high over the walkable walkmesh an unroofed spot is still a perch:
+/// a plain jump's reach (1.68 m) from a floor that falls away beneath
+/// where it lands. A hull or a roof over a deck (the Endar Spire's, 2.7 m
+/// and more) is outside. The containment audit counts by it, and the walls
+/// round high tops over the floor stand above it.
+pub const PERCH: f32 = 2.5;
+
 /// JA's player movement numbers, in units: the one definition the sim's
 /// movement, the nav graph, the edge walls and the containment audit all
 /// read; each the rulebook's (`data/rules/movement.toml`).

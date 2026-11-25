@@ -332,6 +332,7 @@ pub(crate) fn material(
             alpha: 1.0,
             is_static: false,
             is_room: true,
+            room_flat: false,
             fogged: false,
         },
         &AreaLight::ambient(ambient),

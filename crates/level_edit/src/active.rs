@@ -533,6 +533,23 @@ pub fn bake_folders() -> Vec<&'static Path> {
         .collect()
 }
 
+/// Whether an active project lights any of its levels itself: it keeps a
+/// bake of one, or one has lights or lamps that are the project's own
+/// (`map_lights`, `map_lamps`). The game then builds its shaders with the
+/// fitted lights (`game::fitted_lights::in_shaders`).
+pub fn lights_any() -> bool {
+    all().iter().any(|active| {
+        let project = &active.project;
+        !active.bakes.is_empty()
+            || (std::iter::once(project.module.as_str()))
+                .chain(project.parked.keys().map(String::as_str))
+                .any(|module| {
+                    map_lights(module).is_some_and(|lights| !lights.is_empty())
+                        || map_lamps(module).is_some_and(|lamps| !lamps.is_empty())
+                })
+    })
+}
+
 /// The kinds of light fitting the active project changed, as `[[kind]]`
 /// entries, when the project is of `game` (`k1` or `tsl`) and changed any:
 /// the game reads them in place of the light data's

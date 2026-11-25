@@ -1288,7 +1288,7 @@ see = "sim::world::sabers"
 
 [grab]
 title = "Grabs"
-summary = "Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground."
+summary = "Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground. While a finisher plays, no other attack, Force power or script knocks either character down, pushes them or plays another animation on them. Other attacks still deal their damage."
 
 [grab.hurt_below_pct]
 name = "Hurt Enough to Grab"
@@ -1350,8 +1350,19 @@ name = "Grab Height"
 type = "f32"
 value = 8.0
 unit = "units"
-summary = "A grab takes only a victim standing on the ground within {duel.grab.height_units:bare} units of the grabber's height, in front of the grabber and within the reach of a punch."
+summary = "A grab takes only a victim standing on the ground within {duel.grab.height_units:bare} units of the grabber's height, in front of the grabber and within the reach of a punch. On a slope the victim may stand higher or lower by what the slope rises over the distance between them (Grab Slope)."
 source = "G_GrabClient in code/game/g_active.cpp:2286"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.slope_deg]
+name = "Grab Slope"
+type = "f32"
+value = 25.0
+unit = "°"
+range = [0, 60]
+summary = "A grab takes a victim on a hillside. The victim may stand higher or lower than the grabber by {duel.grab.height_units:bare} units, plus what a slope of {duel.grab.slope_deg:bare} degrees rises over the distance between the two characters. Jedi Academy's maps are flat where its characters fight, but KOTOR's outdoor areas, such as the plains of Dantooine, are hilly."
+source = "kjk, for KOTOR's hilly ground (a grab on a Mandalorian on Dantooine's plains failed, reported on 22 November 2026)"
 see = "sim::world::grapples"
 applies = ["kind:unarmed"]
 

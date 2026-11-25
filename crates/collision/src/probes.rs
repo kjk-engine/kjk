@@ -638,7 +638,71 @@ pub fn synthetic() -> Probes {
 
     fits_differential(&mut probes);
     remembered_answers(&mut probes);
+    shot_from_inside(&mut probes);
+    upright_meets_cells_as_boxes(&mut probes);
     probes
+}
+
+/// A body moving round across (`Shape::Upright`) meets a placeable's
+/// collision cell (a body that is not `Contents::BODY`) as its box, and a
+/// living actor's body round across. The mover passes the cell's corner,
+/// its own box reaching 1 cm over the cell's side. Against the cell it stops
+/// its half width and the contact gap short of the cell's near face, so its
+/// box never overlaps the cell. Against an actor's body in the same place it
+/// goes on until the two rounds meet, past where the boxes overlap.
+fn upright_meets_cells_as_boxes(probes: &mut Probes) {
+    let level = LevelBuilder::new().build();
+    let player = player();
+    let half = player.maxs[0];
+    let cell = |contents| crate::Body {
+        entity: 9,
+        min: [0.0, 2.0, 0.0],
+        max: [0.5, 2.5, 2.0],
+        contents,
+    };
+    let (start, end) = ([0.5 + half - 0.01, 0.0, 1.0], [0.5 + half - 0.01, 4.0, 1.0]);
+    let sweep = |contents| {
+        let bodies = [cell(contents)];
+        crate::Bodies::new(&level, &bodies).sweep(
+            start,
+            end,
+            &crate::Shape::Upright(player),
+            Contents::PLAYER_SOLID | Contents::BODY,
+        )
+    };
+    let (met, actor) = (sweep(Contents::SOLID), sweep(Contents::BODY));
+    probes.check(
+        "upright meets a cell as a box",
+        "a round mover passing a placeable's cell 1 cm inside its side stops at the cell's face (y = 2 - 0.381 - 0.003175); at an actor's body there it goes on until the rounds meet",
+        Some(met),
+        met.entity == Some(9)
+            && near(met.end[1], 2.0 - half - CONTACT_GAP, 1e-4)
+            && actor.entity == Some(9)
+            && actor.end[1] > met.end[1] + 0.1,
+    );
+}
+
+/// A shot whose line starts inside a body's box meets that body where it
+/// starts (`Bodies::shot`); a plain trace from there passes through it.
+fn shot_from_inside(probes: &mut Probes) {
+    let level = LevelBuilder::new().build();
+    let body = crate::Body {
+        entity: 7,
+        min: [-1.5, -1.0, 0.0],
+        max: [1.5, 1.0, 2.0],
+        contents: Contents::BODY,
+    };
+    let bodies = [body];
+    let with_bodies = crate::Bodies::new(&level, &bodies);
+    let (start, end) = ([1.0, 0.0, 1.6], [10.0, 0.0, 1.6]);
+    let plain = with_bodies.trace(start, end, &Extents::POINT, Contents::BODY);
+    let shot = with_bodies.shot(start, end, &Extents::POINT, Contents::BODY);
+    probes.check(
+        "shot from inside a body",
+        "a shot starting inside a body's box meets that body at its start; a plain trace passes through",
+        Some(shot),
+        plain.entity.is_none() && shot.entity == Some(7) && shot.end == start,
+    );
 }
 
 fn fits_differential(probes: &mut Probes) {

@@ -33,6 +33,39 @@ const CRITICAL_THREAT: u32 = 38571;
 const KEEN: u32 = 28;
 const MASSIVE_CRITICALS: u32 = 49;
 
+/// The headings of an item's requirements in both games' talk tables:
+/// "Feats Required" in both games, and KOTOR 2's "Attributes Required",
+/// "Gender Required", "Race Required" and "Useable By".
+const FEATS_REQUIRED: u32 = 38536;
+const ATTRIBUTES_REQUIRED: u32 = 117597;
+const GENDER_REQUIRED: u32 = 47995;
+const RACE_REQUIRED: u32 = 48013;
+const USEABLE_BY: u32 = 48026;
+/// KOTOR 2's "Minimum Strength", the first of six lines that go on to
+/// "Minimum Charisma" in the order of the abilities' numbers.
+const MINIMUM_ABILITY: u32 = 117591;
+/// The `itempropdef.2da` rows of the use limitations an item's
+/// requirements list: a feat (both games), and KOTOR 2's gender, race,
+/// companion and attribute. Its stats leave these out.
+const USE_LIMITATION_FEAT: usize = 57;
+const USE_LIMITATION_GENDER: usize = 60;
+const USE_LIMITATION_SUBRACE: usize = 61;
+const USE_LIMITATION_PC: usize = 62;
+const USE_LIMITATION_ATTRIBUTE: usize = 69;
+/// The `iprp_costtable.2da` row of KOTOR 2's attribute minimums
+/// (`iprp_attribcost.2da`), which the games read whatever the property's
+/// own cost table.
+const ATTRIBUTE_COSTS: usize = 26;
+/// The `feat.2da` rows of the armour proficiencies (`rules::rows::feats`).
+/// An armour's base item needs every one up to its own, and its
+/// requirements name only the highest.
+const ARMOUR_HEAVY: usize = 4;
+const ARMOUR_LIGHT: usize = 5;
+const ARMOUR_MEDIUM: usize = 6;
+/// The `baseitems.2da` `itemtype`s whose descriptions list no requirements:
+/// grenades (6), lightsaber crystals (46) and KOTOR 2's rockets (49).
+const NO_REQUIREMENTS: [i64; 3] = [6, 46, 49];
+
 /// A loaded texture.
 pub struct Loaded {
     pub pixels: Pixels,
@@ -49,6 +82,9 @@ pub struct ItemLook {
     /// Its value (`Cost`) and what it is (`DescIdentified`).
     pub cost: u32,
     pub description: Vec<u8>,
+    /// What a character needs to use it, under a heading each
+    /// (`requirements`), which its description lists before its stats.
+    pub requirements: Vec<Requirements>,
     /// What it does, a line each (`stats`): its base damage or defence,
     /// then its properties, each in force or not by its upgrade
     /// (`ItemLook::in_force`).
@@ -82,6 +118,65 @@ pub struct ItemLook {
 pub struct Stat {
     pub upgrade: Option<u8>,
     pub line: Vec<u8>,
+}
+
+/// One heading of an item's requirements, such as "Feats Required", and a
+/// line for each thing it requires. A line that comes from a property with
+/// an `upgrade.2da` row counts only while that upgrade is fitted, as a
+/// stat does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Requirements {
+    pub heading: Vec<u8>,
+    pub lines: Vec<Stat>,
+}
+
+impl Requirements {
+    /// The heading as both games write it with the upgrades `fitted`
+    /// (bits): the heading and a colon on a line of their own, a line for
+    /// each requirement in force, then an empty line. With no requirement
+    /// in force it writes nothing.
+    pub fn written(&self, fitted: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        let lines = self
+            .lines
+            .iter()
+            .filter(|line| line.upgrade.is_none_or(|row| fitted_row(fitted, row)));
+        for line in lines {
+            if out.is_empty() {
+                out.extend_from_slice(&self.heading);
+                out.extend_from_slice(b":\n");
+            }
+            out.extend_from_slice(&line.line);
+            out.push(b'\n');
+        }
+        if !out.is_empty() {
+            out.push(b'\n');
+        }
+        out
+    }
+}
+
+/// The `upgrade.2da` row an item property comes with (its `UpgradeType`),
+/// if any.
+fn upgrade_of(property: &fmt_odyssey::gff::GffStruct) -> Option<u8> {
+    property
+        .int("UpgradeType")
+        .filter(|row| (0..64).contains(row))
+        .map(|row| row as u8)
+}
+
+/// A feat's name as an item's requirements write it. Both games put " - "
+/// in place of the first colon of a name such as "Armor Proficiency:
+/// Heavy". They keep the space after the colon, so two spaces follow the
+/// dash ("Armor Proficiency -  Heavy").
+fn requirement_name(name: Vec<u8>) -> Vec<u8> {
+    let Some(colon) = name.iter().position(|&byte| byte == b':') else {
+        return name;
+    };
+    let mut out = name[..colon].to_vec();
+    out.extend_from_slice(b" - ");
+    out.extend_from_slice(&name[colon + 1..]);
+    out
 }
 
 /// A weapon's critical threat as both games' item descriptions write it:
@@ -204,7 +299,7 @@ pub struct GuiAssets {
     loaded: Vec<Option<Loaded>>,
     /// How many times a module's own art was released (`enter_module`).
     released: u32,
-    names: BTreeMap<(Source, String), Option<TextureId>>,
+    names: BTreeMap<(Source, &'static str, bool, String), Option<TextureId>>,
     fonts: BTreeMap<FontKey, Option<LoadedFont>>,
     /// Fonts at the sizing's text size when it is not 1, by the size's
     /// bits. The unscaled ones are `fonts`.
@@ -215,9 +310,10 @@ pub struct GuiAssets {
 
 type LoadedFont = (TextureId, Arc<Font>);
 
-/// A font as asked for: where it is read, its name as written (lower case,
+/// A font as asked for: where it is read, the game that side's art comes
+/// from, whether it is recoloured, its name as written (lower case,
 /// `font_alias`ed), and the letter put after it (`font_file`).
-type FontKey = (Source, String, Option<char>);
+type FontKey = (Source, &'static str, bool, String, Option<char>);
 
 /// The console's font, whose name KOTOR 2 reads as written whatever the
 /// window (`font_file`).
@@ -331,20 +427,17 @@ impl GuiAssets {
         self.searched.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
-        // The campaign's art and fonts are read anew from it.
-        let loaded = &mut self.loaded;
-        self.names.retain(|(source, _), id| {
-            let campaign = *source == Source::Campaign;
-            if campaign && let Some(slot) = id.and_then(|id| loaded.get_mut(id.0 as usize - 1)) {
-                *slot = None;
-            }
-            !campaign
-        });
-        self.fonts
-            .retain(|(source, ..), _| *source != Source::Campaign);
-        self.scaled_fonts
-            .retain(|((source, ..), _), _| *source != Source::Campaign);
-        self.released += 1;
+        // Art and fonts stay cached by the game they come from and whether
+        // they are recoloured, so switching between KOTOR 1 and KOTOR 2 on
+        // the main menu reads nothing from disk and uploads nothing again.
+    }
+
+    /// The game key that owns textures read from `side`.
+    fn owner_key(&self, side: Source) -> &'static str {
+        match side {
+            Source::Skin => self.skin_game().key(),
+            Source::Campaign => self.game.key(),
+        }
     }
 
     /// The font `name` as asked for from `source` now.
@@ -361,8 +454,11 @@ impl GuiAssets {
     }
 
     fn font_key(&self, source: Source, name: &str) -> FontKey {
+        let side = self.font_side(source);
         (
-            self.font_side(source),
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
             font_alias(&name.to_ascii_lowercase()).to_string(),
             self.sizing.suffix,
         )
@@ -378,8 +474,8 @@ impl GuiAssets {
         // A font the campaign lacks is read from the layout's own install.
         let own = self.side(source);
         let font = self
-            .read_font(key.0, &key.1, key.2)
-            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.1, key.2))?);
+            .read_font(key.0, &key.3, key.4)
+            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.3, key.4))?);
         self.fonts.insert(key, font.clone());
         font
     }
@@ -428,11 +524,21 @@ impl GuiAssets {
     /// campaign names as KOTOR 2 does (`skin::moved`).
     pub fn screen_layout(&self, name: &str) -> Result<(Gui, Source), String> {
         if skin::own(name) {
-            let gui = GuiAssets::layout(self, name)
-                .or_else(|_| GuiAssets::layout(self, &skin::moved(name)))?;
+            let gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
             return Ok((gui, Source::Campaign));
         }
         Ok((self.skin_layout(name)?, Source::Skin))
+    }
+
+    /// The name the campaign's own layout for `name` has: `name` where the
+    /// campaign has a layout of that name, else the name KOTOR 2 gives it
+    /// (`skin::moved`).
+    fn own_layout_name(&self, name: &str) -> String {
+        if self.resolver.find(name, ResType::GUI).is_some() {
+            name.to_string()
+        } else {
+            skin::moved(name)
+        }
     }
 
     fn skin_layout(&self, name: &str) -> Result<Gui, String> {
@@ -449,7 +555,7 @@ impl GuiAssets {
     /// lowest copy instead: the one the game ships.
     pub fn stock_screen_layout(&self, name: &str) -> Result<Gui, String> {
         let (resolver, file) = if skin::own(name) {
-            (&self.resolver, name.to_string())
+            (&self.resolver, self.own_layout_name(name))
         } else {
             let skin = self
                 .skin
@@ -515,7 +621,7 @@ impl GuiAssets {
     /// every module shares (`lbl_mapcircle`).
     fn release_module_art(&mut self) {
         let loaded = &mut self.loaded;
-        self.names.retain(|(_, name), id| {
+        self.names.retain(|(_, _, _, name), id| {
             let art = MODULE_ART.iter().any(|prefix| {
                 name.strip_prefix(prefix)
                     .is_some_and(|of| of.bytes().any(|byte| byte.is_ascii_digit()))
@@ -852,6 +958,11 @@ impl GuiAssets {
         } else {
             ItemKind::Misc
         };
+        let requirements = if item_type.is_some_and(|kind| NO_REQUIREMENTS.contains(&kind)) {
+            Vec::new()
+        } else {
+            self.requirements(base, properties)
+        };
         let stats = self.stats(base, properties);
         let critical = base.and_then(|row| self.critical(row));
         let edges = self.edges(properties);
@@ -861,6 +972,7 @@ impl GuiAssets {
             icon,
             cost: root.uint("Cost").unwrap_or(0),
             description,
+            requirements,
             stats,
             critical,
             edges,
@@ -874,12 +986,148 @@ impl GuiAssets {
         })
     }
 
+    /// The `itempropdef.2da` rows this game's item descriptions list among
+    /// the requirements, not the stats: KOTOR 1's feat limitation, and in
+    /// KOTOR 2 its attribute, gender, race and companion limitations too.
+    fn requirement_properties(&self) -> &'static [usize] {
+        match self.game {
+            Game::Kotor2 => &[
+                USE_LIMITATION_ATTRIBUTE,
+                USE_LIMITATION_FEAT,
+                USE_LIMITATION_GENDER,
+                USE_LIMITATION_SUBRACE,
+                USE_LIMITATION_PC,
+            ],
+            _ => &[USE_LIMITATION_FEAT],
+        }
+    }
+
+    /// What a character needs to use an item of base item `base` with
+    /// `properties`, under a heading each, as both games list it before
+    /// the item's stats.
+    ///
+    /// "Feats Required" names the feats the base item requires
+    /// (`baseitems.2da` `reqfeat0` to `reqfeat4`) and then those of the
+    /// item's feat limitations. An armour names only the highest armour
+    /// proficiency its base item requires. KOTOR 2 lists the attribute
+    /// minimums first ("Minimum Strength: 14"), and the gender, race and
+    /// companion limitations after the feats. A companion limitation of row
+    /// 0 names the player.
+    fn requirements(
+        &mut self,
+        base: Option<usize>,
+        properties: &[fmt_odyssey::gff::GffStruct],
+    ) -> Vec<Requirements> {
+        let of = |row: usize| {
+            properties.iter().filter(move |property| {
+                property.uint("PropertyName").map(|at| at as usize) == Some(row)
+            })
+        };
+        let line = |upgrade, line| Stat { upgrade, line };
+        let mut sections = Vec::new();
+        let tsl = self.game == Game::Kotor2;
+        if tsl {
+            let costs = self.cell("iprp_costtable", ATTRIBUTE_COSTS, "name");
+            let mut lines = Vec::new();
+            for property in of(USE_LIMITATION_ATTRIBUTE) {
+                let ability = property.uint("Subtype").filter(|ability| *ability < 6);
+                let least = costs.as_deref().and_then(|table| {
+                    self.cell(table, property.uint("CostValue")? as usize, "value")
+                });
+                let Some((mut text, least)) = ability
+                    .and_then(|ability| self.text(Source::Campaign, MINIMUM_ABILITY + ability))
+                    .zip(least)
+                else {
+                    continue;
+                };
+                text.extend_from_slice(b": ");
+                text.extend(least.into_bytes());
+                lines.push(line(upgrade_of(property), text));
+            }
+            sections.push((ATTRIBUTES_REQUIRED, lines));
+        }
+        let required: Vec<usize> = match base {
+            Some(row) => (0..5)
+                .filter_map(|at| {
+                    self.cell("baseitems", row, &format!("reqfeat{at}"))?
+                        .parse()
+                        .ok()
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let proficiencies = [ARMOUR_HEAVY, ARMOUR_MEDIUM, ARMOUR_LIGHT];
+        let armour = proficiencies
+            .into_iter()
+            .find(|feat| required.contains(feat))
+            .unwrap_or(ARMOUR_LIGHT);
+        let mut feats: Vec<(Option<u8>, usize)> = required
+            .into_iter()
+            .filter(|feat| *feat != 0 && (!proficiencies.contains(feat) || *feat == armour))
+            .map(|feat| (None, feat))
+            .collect();
+        for property in of(USE_LIMITATION_FEAT) {
+            // The subtype is an install row of `feat.2da`.
+            let feat = property.uint("Subtype").filter(|feat| *feat != 0);
+            if let Some(feat) = feat.and_then(|feat| self.canonical_row("feat", feat as usize)) {
+                feats.push((upgrade_of(property), feat));
+            }
+        }
+        let lines = feats
+            .into_iter()
+            .filter_map(|(upgrade, feat)| {
+                let name = self.cell_text("feat", feat, "name")?;
+                Some(line(upgrade, requirement_name(name)))
+            })
+            .collect();
+        sections.push((FEATS_REQUIRED, lines));
+        if tsl {
+            for (row, table, heading) in [
+                (USE_LIMITATION_GENDER, "gender", GENDER_REQUIRED),
+                (USE_LIMITATION_SUBRACE, "subrace", RACE_REQUIRED),
+                (USE_LIMITATION_PC, "iprp_pc", USEABLE_BY),
+            ] {
+                let mut lines = Vec::new();
+                for property in of(row) {
+                    let subtype = property.uint("Subtype").unwrap_or(0) as usize;
+                    let name = if row == USE_LIMITATION_PC && subtype == 0 {
+                        Some(self.player_name())
+                    } else {
+                        self.cell_text(table, subtype, "name")
+                    };
+                    lines.extend(name.map(|name| line(upgrade_of(property), name)));
+                }
+                sections.push((heading, lines));
+            }
+        }
+        sections
+            .into_iter()
+            .filter(|(_, lines)| !lines.is_empty())
+            .map(|(heading, lines)| Requirements {
+                heading: self.text(Source::Campaign, heading).unwrap_or(Vec::new()),
+                lines,
+            })
+            .collect()
+    }
+
+    /// The player's name, as the items' words fill it in (`fill_items`);
+    /// the game's own token for it until they are set.
+    fn player_name(&self) -> Vec<u8> {
+        const TOKEN: &[u8] = b"<FullName>";
+        match &self.item_words {
+            Some((_, words)) => words(TOKEN),
+            None => TOKEN.to_vec(),
+        }
+    }
+
     /// An item's stats, a line each: a weapon's damage and an armour's
     /// defence (base item `base`'s `numdice`/`dietoroll`, `baseac`), then
     /// each of `properties` as the games' tables name it: its
     /// `itempropdef.2da` name, its subtype's, its cost's and its
     /// parameter's (e.g. "Damage Bonus: Energy 1d6"), each with the
-    /// `upgrade.2da` row it comes with (`Stat::upgrade`).
+    /// `upgrade.2da` row it comes with (`Stat::upgrade`). The use
+    /// limitations its requirements list (`requirement_properties`) are
+    /// not stats.
     fn stats(
         &mut self,
         base: Option<usize>,
@@ -905,10 +1153,14 @@ impl GuiAssets {
                 lines.push(always(format!("Defense: +{ac}").into_bytes()));
             }
         }
+        let requirements = self.requirement_properties();
         for property in properties {
             let Some(row) = property.uint("PropertyName").map(|row| row as usize) else {
                 continue;
             };
+            if requirements.contains(&row) {
+                continue;
+            }
             let Some(mut line) = self.cell_text("itempropdef", row, "name") else {
                 continue;
             };
@@ -946,11 +1198,10 @@ impl GuiAssets {
                 line.extend_from_slice(if at == 0 && !named { b": " } else { b" " });
                 line.extend(part);
             }
-            let upgrade = property
-                .int("UpgradeType")
-                .filter(|row| (0..64).contains(row))
-                .map(|row| row as u8);
-            lines.push(Stat { upgrade, line });
+            lines.push(Stat {
+                upgrade: upgrade_of(property),
+                line,
+            });
         }
         lines
     }
@@ -980,10 +1231,7 @@ impl GuiAssets {
     fn edges(&mut self, properties: &[fmt_odyssey::gff::GffStruct]) -> Vec<Edge> {
         let mut edges = Vec::new();
         for property in properties {
-            let upgrade = property
-                .int("UpgradeType")
-                .filter(|row| (0..64).contains(row))
-                .map(|row| row as u8);
+            let upgrade = upgrade_of(property);
             let massive = match property.uint("PropertyName") {
                 Some(KEEN) => None,
                 Some(MASSIVE_CRITICALS) => {
@@ -1167,11 +1415,17 @@ impl Textures for GuiAssets {
     }
 
     fn texture(&mut self, source: Source, name: &str) -> Option<TextureId> {
-        let key = (self.side(source), name.to_ascii_lowercase());
+        let side = self.side(source);
+        let key = (
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
+            name.to_ascii_lowercase(),
+        );
         if let Some(known) = self.names.get(&key) {
             return *known;
         }
-        let id = self.load(key.0, &key.1, false).map(|(id, _)| id);
+        let id = self.load(key.0, &key.3, false).map(|(id, _)| id);
         self.names.insert(key, id);
         id
     }

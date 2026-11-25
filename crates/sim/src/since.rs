@@ -41,6 +41,9 @@ pub mod save {
     pub const FEAT_STUN_SAVES: crate::Since = crate::Since(crate::Stored::Save, 91);
     pub const FIX_WEAPONS_MINES_2026_11_20: crate::Since = crate::Since(crate::Stored::Save, 92);
     pub const K2_COMPANIONS_FORCE: crate::Since = crate::Since(crate::Stored::Save, 93);
+    pub const FIX_TACH_SCREAMS: crate::Since = crate::Since(crate::Stored::Save, 94);
+    pub const FIX_648: crate::Since = crate::Since(crate::Stored::Save, 95);
+    pub const FEAT_COOP_SHARED_TALK: crate::Since = crate::Since(crate::Stored::Save, 96);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -92,6 +95,9 @@ pub mod snapshot {
     pub const FEAT_UNARMED_PLAYTEST: crate::Since = crate::Since(crate::Stored::Snapshot, 116);
     pub const FEAT_STUN_SAVES: crate::Since = crate::Since(crate::Stored::Snapshot, 117);
     pub const FEAT_BATON_SWINGS: crate::Since = crate::Since(crate::Stored::Snapshot, 118);
+    pub const FIX_SONIC_EMITTER_BAR: crate::Since = crate::Since(crate::Stored::Snapshot, 119);
+    pub const FEAT_COOP_SHARED_TALK: crate::Since = crate::Since(crate::Stored::Snapshot, 120);
+    pub const FIX_BUFF_BARS: crate::Since = crate::Since(crate::Stored::Snapshot, 121);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

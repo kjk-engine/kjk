@@ -14,7 +14,7 @@
 //! for the conversation's owner. The end runs `EndConversation`, an end
 //! cut short `EndConverAbort`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use fmt_odyssey::dlg::{Call, Dlg, Link, Node, NodeFade};
@@ -34,6 +34,25 @@ mod lines;
 mod pass;
 mod start;
 pub(super) use pass::*;
+
+/// The longest a reply taken is shown before it runs (ms, issue 637).
+const SHOWN_REPLY_MOST_MS: u64 = rules::dialogue::coop::SHOWN_REPLY_MOST_MS;
+
+/// How long reply `node`, taken, is shown before it runs (ms): as long as a
+/// line with no voice lasts (`READ_TENTHS_MS_PER_CHAR` a character of the
+/// text it shows, at least `LEAST_LINE_MS`), and at most
+/// `SHOWN_REPLY_MOST_MS`.
+fn chosen_ms(library: &super::Library, node: &Node) -> u64 {
+    (read_chars(library, node) * READ_TENTHS_MS_PER_CHAR / 10)
+        .clamp(LEAST_LINE_MS, SHOWN_REPLY_MOST_MS)
+}
+
+/// Whether `dlg` runs on a computer's screen rather than as a conversation.
+/// One player uses a computer, so nobody is brought into it and a reply
+/// taken on it is never shown first.
+fn is_computer(dlg: &fmt_odyssey::dlg::Dlg) -> bool {
+    dlg.kind == fmt_odyssey::dlg::Kind::Computer
+}
 
 /// How long a line with no usable voice stays up for each character of its
 /// text, in tenths of a millisecond.
@@ -211,6 +230,24 @@ pub struct Conversation {
     /// line carrying the clip on films and waits from there
     /// (`script::camera_cue`).
     pub clip_from_ms: u64,
+    /// The reply a player took, shown to the other players before it runs
+    /// (`Step::choose`), if one is shown now.
+    pub chosen: Option<Chosen>,
+}
+
+/// A reply taken and shown before it runs (`Conversation::chosen`). While
+/// it is shown, nothing of it runs and no other reply is pointed at or
+/// taken. It runs once `until_ms` comes, when a player in the
+/// conversation skips it, or when the conversation is cut short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chosen {
+    /// The reply's place among those offered, from 0.
+    pub nth: u8,
+    /// The body whose player took it: its name is shown before the reply.
+    pub by: ObjectId,
+    /// When it was taken, and when it runs (sim ms).
+    pub from_ms: u64,
+    pub until_ms: u64,
 }
 
 /// A line over someone's head, outside any conversation.
@@ -405,6 +442,17 @@ pub struct Talk {
     /// Each seat's last answer byte (by seat number): a new count is a new
     /// answer or mark (`answer`).
     pub heard: BTreeMap<u32, u8>,
+    /// The seats whose players turned "Join nearby conversations" off
+    /// (`Action::JoinTalks`): they never join the first seat's own
+    /// conversations by standing near them.
+    pub quiet: BTreeSet<u8>,
+    /// The seats whose players have a screen open on their own machine (a
+    /// menu, the level-up screen, the workbench: `Action::Screen`). They
+    /// count as busy and join no conversation by standing near it.
+    pub screens: BTreeSet<u8>,
+    /// The host turned "Show chosen replies" off: a reply taken runs at
+    /// once, as it does for one player alone (`Step::choose`).
+    pub hide_replies: bool,
     /// The player of the conversation whose script runs now
     /// (`GetPCSpeaker`; not saved: within a step).
     pub(super) running: Option<ObjectId>,
@@ -467,6 +515,15 @@ pub enum Line {
         id: u32,
         dialog: String,
         reply: u32,
+    },
+    /// The body `by` took a reply, shown to every player in the
+    /// conversation before it runs (`Conversation::chosen`).
+    Shown {
+        ms: u64,
+        id: u32,
+        dialog: String,
+        reply: u32,
+        by: ObjectId,
     },
     /// A seat pointed at a reply (I30 P6): shown to everyone, never taken.
     Marked {
@@ -555,6 +612,7 @@ impl Default for Conversation {
             lock_turn: Vec::new(),
             lock_head: Vec::new(),
             clip_from_ms: 0,
+            chosen: None,
         }
     }
 }
@@ -842,18 +900,18 @@ impl Talk {
         });
     }
 
-    /// The conversations under way and asked for with PC `from` go on with
-    /// `to` (`SwitchPlayerCharacter`): its seat answers them, and it is
-    /// their `GetPCSpeaker`.
+    /// The conversations under way and asked for with `from` as their
+    /// `GetPCSpeaker` go on with `to` (`SwitchPlayerCharacter`). The seat
+    /// of `to` answers them, and `to` is now their `GetPCSpeaker`.
     pub(super) fn retarget(&mut self, from: ObjectId, to: ObjectId) {
-        let pcs = self
+        let speakers = self
             .conversations
             .iter_mut()
             .map(|c| &mut c.pc)
             .chain(self.asked.iter_mut().map(|start| &mut start.pc))
             .chain(self.running.as_mut());
-        for pc in pcs.filter(|pc| **pc == from) {
-            *pc = to;
+        for speaker in speakers.filter(|speaker| **speaker == from) {
+            *speaker = to;
         }
         let bodies = self
             .conversations
@@ -905,10 +963,21 @@ impl Talk {
             out.u32(*seat);
             out.u8(*answer);
         }
+        // Not `screens`: a screen open is the player's machine's state as it
+        // is now, which each player's game sends again after a load.
+        out.u8(self.quiet.len() as u8);
+        for seat in &self.quiet {
+            out.u8(*seat);
+        }
+        out.u8(u8::from(self.hide_replies));
     }
 
     pub(super) fn decode(input: &mut Reader) -> Result<Talk, DecodeError> {
-        let told = Told::decode_since(input, crate::since::save::REEL_NOTES)?;
+        let told = Told::decode_since(
+            input,
+            crate::since::save::REEL_NOTES,
+            crate::since::save::FEAT_COOP_SHARED_TALK,
+        )?;
         let mut talk = Talk {
             conversations: told.conversations,
             barks: told.barks,
@@ -928,6 +997,18 @@ impl Talk {
         talk.next = input.u32()?;
         for _ in 0..input.u32()? {
             talk.heard.insert(input.u32()?, input.u8()?);
+        }
+        // Older saves: every seat joins and replies are shown. No save keeps
+        // a screen open (`screens`).
+        if input.since(crate::since::save::FEAT_COOP_SHARED_TALK) {
+            for _ in 0..input.u8()? {
+                let at = input.at();
+                let seat = input.u8()?;
+                if seat >= crate::MAX_SEATS || !talk.quiet.insert(seat) {
+                    return Err(input.invalid("seat", at));
+                }
+            }
+            talk.hide_replies = input.u8()? != 0;
         }
         Ok(talk)
     }
@@ -1127,10 +1208,11 @@ pub fn story_abort(library: &super::Library, dlg: &Dlg) -> bool {
     moves(library, &dlg.on_abort)
 }
 
-/// Whether a conversation with PC `id` is the party's: `id` is one of the
-/// scripts' PCs (`View::pcs`), or the companion leading the party (`lent`).
-fn party_pc(pcs: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
-    pcs.contains(&id) || lent == Some(id)
+/// Whether a conversation with the character `id` is the party's. It is when
+/// `id` is one of the main characters (`View::main_characters`), or the
+/// companion leading the party (`lent`).
+fn party_pc(mains: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
+    mains.contains(&id) || lent == Some(id)
 }
 
 /// Who a DLG names by `tag` (a line's `AnimList`, an animated cutscene's
@@ -1163,42 +1245,44 @@ impl View<'_> {
         Some(object.conversation.as_str()).filter(|name| !name.is_empty())
     }
 
-    /// The PC of a conversation that `user` starts by using something
-    /// (I30 P8). It is `user` itself when that is a PC. Otherwise `user`
-    /// is a companion a guest drives, and the PC is the first one: the
-    /// host's character. The scripts see one PC.
+    /// The character the scripts see as `GetPCSpeaker` of a conversation
+    /// that `user` starts by using something (I30 P8). It is `user` itself
+    /// when that is a main character. Otherwise `user` is a companion a
+    /// guest drives, and it is the host's main character. The scripts see
+    /// one such character.
     pub(crate) fn pc_for(&self, table: &Party, user: ObjectId) -> ObjectId {
-        if self.is_player(table, user) {
+        if self.is_main_character(table, user) {
             user
         } else {
-            self.first_pc(table)
+            self.first_main_character(table)
         }
     }
 
-    /// The scripts' PCs, by seat: the seats' own characters (`party`), the
-    /// first seat's the creature it is switched to while it is
-    /// (`Party::switched`, `world::switch`), from the moment a script
-    /// switches it.
-    pub(crate) fn pcs(&self, table: &Party) -> Vec<ObjectId> {
-        let mut pcs = self.party.to_vec();
+    /// The main characters, by seat: the seats' own characters (`party`).
+    /// While the first seat is switched to a creature (`Party::switched`,
+    /// `world::switch`), that creature is the first seat's main character,
+    /// from the moment a script switches it.
+    pub(crate) fn main_characters(&self, table: &Party) -> Vec<ObjectId> {
+        let mut mains = self.party.to_vec();
         if let Some(body) = table.switched_body().map(ObjectId) {
-            match pcs.first_mut() {
+            match mains.first_mut() {
                 Some(first) => *first = body,
-                None => pcs.push(body),
+                None => mains.push(body),
             }
         }
-        pcs
+        mains
     }
 
-    pub(crate) fn first_pc(&self, table: &Party) -> ObjectId {
-        self.pcs(table)
+    /// The first seat's main character, which is the host's.
+    pub(crate) fn first_main_character(&self, table: &Party) -> ObjectId {
+        self.main_characters(table)
             .first()
             .copied()
             .unwrap_or(ObjectId::INVALID)
     }
 
-    pub(crate) fn is_player(&self, table: &Party, id: ObjectId) -> bool {
-        self.pcs(table).contains(&id)
+    pub(crate) fn is_main_character(&self, table: &Party, id: ObjectId) -> bool {
+        self.main_characters(table).contains(&id)
     }
 
     /// A conversation's PC and asker when a script names `named` as its
@@ -1213,11 +1297,8 @@ impl View<'_> {
         named: ObjectId,
         asker: Option<ObjectId>,
     ) -> (ObjectId, ObjectId) {
-        let guest = self
-            .seat_of(named)
-            .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0);
-        let pc = if guest && !self.is_player(table, named) {
-            self.first_pc(table)
+        let pc = if self.guest_body(named) && !self.is_main_character(table, named) {
+            self.first_main_character(table)
         } else {
             named
         };
@@ -1227,18 +1308,19 @@ impl View<'_> {
         (pc, asker)
     }
 
-    /// The host's character (the scripts' first PC), and the body its seat
-    /// acts through: the companion leading, while one does (`world::lent`).
-    /// Both are read off the party table as it stands, as `pcs` reads a
-    /// switch, not off the step's `seats`: a script's `SetPartyLeader`
-    /// earlier in the step leaves those behind. A companion's own talk
-    /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
-    /// then has the companion start its conversation with `GetFirstPC()`:
-    /// the companion, still the seat's body, was taken for the player's
-    /// side and the PC made the owner, who then said the companion's lines
-    /// (#147, Bastila's on Taris).
+    /// The host's main character (the first of the main characters), and
+    /// the body its seat acts through: the companion leading, while one
+    /// does (`world::lent`). Both are read off the party table as it
+    /// stands, as `main_characters` reads a switch, not off the step's
+    /// `seats`: a script's `SetPartyLeader` earlier in the step leaves
+    /// those behind. A companion's own talk trigger (K1's
+    /// `k_trg_partyinit`) hands the lead back to the main character, then
+    /// has the companion start its conversation with `GetFirstPC()`: the
+    /// companion, still the seat's body, was taken for the main
+    /// character's side and the main character made the owner, who then
+    /// said the companion's lines (#147, Bastila's on Taris).
     pub(crate) fn host(&self, table: &Party) -> [ObjectId; 2] {
-        let pc = self.first_pc(table);
+        let pc = self.first_main_character(table);
         let seated = (self.seats.iter()).any(|(seat, _)| *seat == crate::world::LEADER_SEAT.0);
         let acting = crate::world::lent(table)
             .filter(|_| seated)
@@ -1259,6 +1341,28 @@ impl View<'_> {
             .iter()
             .find(|(_, of)| *of == body)
             .map(|(seat, _)| *seat)
+    }
+
+    /// Whether `body` is a guest's: the body of a seat other than the
+    /// first.
+    pub(crate) fn guest_body(&self, body: ObjectId) -> bool {
+        self.seat_of(body)
+            .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0)
+    }
+
+    /// Whether a conversation asked for under `cue` is a trigger's call
+    /// that a guest's body set off by coming into the trigger. Such a call
+    /// waits while the host's character cannot talk (`Step::open`), and a
+    /// scene holding the world does not refuse it (`ActionStartConversation`).
+    /// With one player, only the host's character can set a call off, and
+    /// it is never talking as it walks in. In co-op the guest's companion
+    /// can walk in while the host talks with someone else. Refused then,
+    /// the call was lost for good, as the trigger had already marked itself
+    /// done: K1's Upper City cantina never played the arena's opening
+    /// scene (`k_ptar_strdue_en`), and Bendak Starkiller, whom one of its
+    /// lines makes (`k_ptar_spbendak`), never came.
+    pub(crate) fn guest_call(&self, cue: Option<crate::script::Cue>) -> bool {
+        cue.is_some_and(|cue| self.guest_body(cue.entering))
     }
 }
 
@@ -1374,9 +1478,15 @@ impl Step<'_> {
     }
 
     /// Ends conversation `id`: `EndConversation`, or `EndConverAbort` when
-    /// cut short. Ended normally, those in it may watch the match it dealt
-    /// (R37; R40: not cut short, by its listener's Leave among others).
+    /// cut short, the reply it shows run first (`run_chosen`). Ended
+    /// normally, those in it may watch the match it dealt (R37; R40: not
+    /// cut short, by its listener's Leave among others).
     pub(super) fn end(&mut self, id: u32, aborted: bool) {
+        // A reply shown before it runs was chosen already: cut short, it
+        // runs at once, and the cut goes on with what it left (issue 637).
+        if aborted {
+            self.run_chosen(id);
+        }
         let Some(at) = self.state.talk.index(id) else {
             return;
         };

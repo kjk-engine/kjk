@@ -439,7 +439,7 @@ pub fn plan(
     request: &Request,
     anims: Arc<AnimTable>,
 ) -> Result<Plan, PlanError> {
-    plan_with(source, request, anims, Overrides::PLAY, None)
+    plan_with(source, request, anims, Overrides::PLAY, None, &|_| {})
 }
 
 /// Which of our own data files a plan applies over the module's.
@@ -464,13 +464,15 @@ impl Overrides {
 }
 
 /// `plan`, with `overrides`, its area taken from `cache` when built before
-/// (and kept there when not).
+/// (and kept there when not). `progress` is told how far the plan has got
+/// (0 to 1, never less than before) as it goes.
 pub fn plan_with(
     source: &dyn Source,
     request: &Request,
     anims: Arc<AnimTable>,
     overrides: Overrides,
     cache: Option<&AreaCache>,
+    progress: &dyn Fn(f32),
 ) -> Result<Plan, PlanError> {
     let started = Instant::now();
     let module = request.module.as_str();
@@ -536,6 +538,7 @@ pub fn plan_with(
     let encounter = encounters::apply(&mut data, &changes, request.players);
     let read_ms = started.elapsed().as_secs_f64() * 1000.0 - templates_ms;
 
+    progress(PLAN_READ);
     let started = Instant::now();
     // This process's build, else the store's bake, else built (and kept).
     let (built, cached) = match cache.and_then(|cache| cache.get(request)) {
@@ -545,7 +548,7 @@ pub fn plan_with(
             let from_store = baked.is_some();
             let built = match baked {
                 Some(baked) => baked,
-                None => build_area(source, request, &ir.areas[area])?,
+                None => build_area(source, request, &ir.areas[area], progress)?,
             };
             if let Some(cache) = cache {
                 if !from_store {
@@ -557,6 +560,7 @@ pub fn plan_with(
         }
     };
     let collision_ms = started.elapsed().as_secs_f64() * 1000.0;
+    progress(PLAN_BUILT);
     let brushes = built.collision.brush_count();
 
     let exits = data
@@ -783,9 +787,25 @@ pub fn plan_with(
     })
 }
 
+/// How far a plan has got (0 to 1) when it has read the module's objects
+/// and tables, built the area's collision, and built the navigation mesh.
+/// An area that needs no building skips the last two. The shares follow
+/// what each step costs on a first visit, so the loading screen's bar
+/// does not wait long between two of them.
+const PLAN_READ: f32 = 0.05;
+const PLAN_COLLISION: f32 = 0.5;
+const PLAN_NAV: f32 = 0.7;
+/// How far it has got once the area is built and kept.
+const PLAN_BUILT: f32 = 0.9;
+
 /// An area's collision (with the module's built-in clip) and its
 /// navigation mesh.
-fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<Area, PlanError> {
+fn build_area(
+    source: &dyn Source,
+    request: &Request,
+    area: &AreaIr,
+    progress: &dyn Fn(f32),
+) -> Result<Area, PlanError> {
     let clip = collision_odyssey::built_in_clip(&request.game, &request.module)
         .map_err(PlanError::Data)?;
     // A level editor project's boxes and solid props (`level_edit`).
@@ -799,6 +819,7 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         clip.as_ref(),
         &request.collision.options(),
     );
+    progress(PLAN_COLLISION);
     // A level editor project's changes to the navigation mesh.
     let walkable = level_edit::active::nav_faces(&request.game, &request.module, built.nav_faces());
     let radius = sim::walk::CLEARANCE * collision::UNIT;
@@ -810,6 +831,7 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
     } else {
         collision::nav::NavMesh::build(&walkable, radius)
     };
+    progress(PLAN_NAV);
     nav.mark(&built.level);
     // Its links between floors. One over no floor, or between floors
     // joined already, is left out; the level editor says why.

@@ -122,6 +122,7 @@ pub(crate) fn mesh(texture: &str) -> MeshIr {
         diffuse: [1.0; 3],
         uv_scroll: None,
         dangly: None,
+        referenced: false,
         skin: None,
     }
 }

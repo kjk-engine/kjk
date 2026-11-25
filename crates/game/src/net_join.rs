@@ -537,12 +537,14 @@ pub fn install(
 /// drawn meanwhile from the stage's start, which never stepped, for as long
 /// as the keyframe took. Headless that showed a black screen, and the
 /// Discord report of 2026-11-11 (over Radmin VPN) saw characters in their
-/// bind pose (a T-pose).
+/// bind pose (a T-pose). The screen shows no hint. The hints' counters are
+/// part of the host's world, which the guest has not got yet, and the host's
+/// own screen advances them.
 fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
     let screen = level
         .module()
         .zip(lifecycle)
-        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name));
+        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name, None));
     let (image, image_name, bar) = screen.map_or((None, None, None), |screen| {
         (screen.image, screen.name, screen.bar)
     });
@@ -598,10 +600,11 @@ pub(crate) fn advance(
         ),
         Option<ResMut<crate::save_view::Received>>,
     ),
-    (time, waited, frozen): (
+    (time, waited, frozen, mut talk_again): (
         Res<Time<Real>>,
         Option<ResMut<crate::sim_host::Waited>>,
         Option<ResMut<crate::sim_host::Frozen>>,
+        Option<ResMut<crate::dialogue_view::SendTalkOptions>>,
     ),
 ) {
     let joined = &mut *joined;
@@ -642,6 +645,7 @@ pub(crate) fn advance(
                     joined.job = Some(Job::spawn(
                         lifecycle.installer.clone(),
                         planned(&request),
+                        None,
                         lifecycle.body.is_some(),
                         joined.joining.plan_delay,
                         &mut loading,
@@ -695,6 +699,9 @@ pub(crate) fn advance(
                 // in the same scene.
                 info!(target: "net", tick, "playing");
                 joined.generation = 1;
+                if let Some(again) = talk_again.as_deref_mut() {
+                    again.0 = true;
+                }
                 if joined.job.is_none() {
                     loading.committed = Some(Instant::now());
                 }
@@ -734,6 +741,9 @@ pub(crate) fn advance(
             }
             ClientEvent::Welcome(welcome) => {
                 info!(target: "net", seat = welcome.seat.0, "joined again");
+                if let Some(again) = talk_again.as_deref_mut() {
+                    again.0 = true;
+                }
                 if let Some(told) = told.as_deref_mut() {
                     told.0.push("Joined the host again.".into());
                 }
@@ -752,6 +762,7 @@ pub(crate) fn advance(
                         joined.job = Some(Job::spawn(
                             lifecycle.installer.clone(),
                             planned(&InstallRequest::of(announcement)),
+                            None,
                             lifecycle.body.is_some(),
                             joined.joining.plan_delay,
                             &mut loading,

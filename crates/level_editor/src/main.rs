@@ -89,6 +89,10 @@ fn parse_size(text: &str) -> Result<(u32, u32), String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // The lighting view switches between the stored lightmaps, the live
+    // fitted lights and a bake while the editor runs, so its shaders hold
+    // the fitted lights from the start (`fitted_lights::in_shaders`).
+    kjk_game::fitted_lights::keep_in_shaders();
     let commands = match console::parse(cli.cmds.as_deref().unwrap_or("")) {
         Ok(commands) => commands,
         Err(error) => {

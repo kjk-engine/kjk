@@ -225,12 +225,17 @@ fn galaxy(
                     .cell_text_or_written(PLANETARY, row, "description")
                     .unwrap_or(Vec::new()),
                 model: assets.cell(PLANETARY, row, "model"),
+                icon: assets.cell(PLANETARY, row, "icon"),
                 selectable: Screen::has_planet(selectable, row),
             })
         })
         .collect();
+    let buttons = (0..assets.rows(PLANETARY))
+        .filter_map(|row| assets.cell_as_written(PLANETARY, row, "guitag"))
+        .collect();
     GalaxyView {
         planets,
+        buttons,
         current,
         host,
     }

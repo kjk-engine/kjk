@@ -1,6 +1,7 @@
 //! The first-person camera (`CameraMode::First`): the eye in the player's
-//! own head as drawn, looking along the player's view, and the head hidden
-//! so the body, arms and weapons show below it. JA had the like (`cg_fpls`,
+//! own head as drawn, looking along the player's view, and the head kept
+//! from the eye (`UNSEEN`) so the body, arms and weapons show below it. The
+//! head still casts its shadow. JA had the like (`cg_fpls`,
 //! left disabled): a headless body with the view at its head's bolt. JA's
 //! first-person eye otherwise stands at the eye height over the origin;
 //! here the head's eyes are measured from that point and the offset eased
@@ -8,11 +9,12 @@
 //! body's sway without its animations' jolts. A step up or down eases out
 //! as JA's client eases it, if quicker (`step_lag`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use asset_odyssey::hooks;
 use asset_odyssey::model::{MeshIr, ModelIr};
+use bevy::camera::visibility::RenderLayers;
 use bevy::math::Affine3A;
 use bevy::prelude::*;
 
@@ -49,6 +51,54 @@ const BLADE_BACK_M: f32 = 0.12;
 /// A head of the body's own (`head_g`, no head model): the eyes this far
 /// over its node (metres).
 const EYES_OVER_NODE: f32 = 0.1;
+
+/// The render layer that no camera draws. The meshes of the own head go on
+/// it in first person, so the eye does not see the inside of the head. The
+/// shadow passes draw every shown mesh whatever its layer, so the whole
+/// body, head included, still casts its shadow (a hidden `Visibility` took
+/// the head out of the shadow too).
+const UNSEEN: usize = 13;
+
+/// On a part of the own head that the eye does not see (`FirstPerson::hide`):
+/// its meshes, and those of everything under it, go on `UNSEEN`.
+#[derive(Component)]
+pub(crate) struct Unseen;
+
+/// On a mesh that `unseen_layers` put on `UNSEEN`.
+#[derive(Component)]
+pub(crate) struct UnseenMesh;
+
+/// Puts the meshes under each `Unseen` part on `UNSEEN`, a mesh spawned
+/// there later too, and takes back the ones no `Unseen` part is over now.
+pub(crate) fn unseen_layers(
+    mut commands: Commands,
+    parts: Query<Entity, With<Unseen>>,
+    children: Query<&Children>,
+    meshes: Query<Has<UnseenMesh>, With<Mesh3d>>,
+    marked: Query<Entity, With<UnseenMesh>>,
+) {
+    let mut under = HashSet::new();
+    for part in &parts {
+        for entity in std::iter::once(part).chain(children.iter_descendants(part)) {
+            let Ok(already) = meshes.get(entity) else {
+                continue;
+            };
+            under.insert(entity);
+            if !already {
+                commands
+                    .entity(entity)
+                    .try_insert((UnseenMesh, RenderLayers::layer(UNSEEN)));
+            }
+        }
+    }
+    for entity in &marked {
+        if !under.contains(&entity) {
+            commands
+                .entity(entity)
+                .try_remove::<(UnseenMesh, RenderLayers)>();
+        }
+    }
+}
 
 /// How much smaller the own muzzle flashes play before the eyes than JA
 /// plays them (its flashes are sized to be seen from its camera).
@@ -276,12 +326,13 @@ impl FirstPerson {
     /// head, the biggest model hung on its `headhook`, else its own (stood
     /// back with a blade in hand), eased as an offset from the eye height,
     /// its steps eased out, and leant out along the view as it looks down.
-    /// The head, hung and its own, is hidden. None for a body with no head.
+    /// The head, hung and its own, is kept from the eye. None for a body
+    /// with no head.
     pub fn eye(
         &mut self,
         looking: &Looking,
         drawn: &Drawn,
-        visibility: &mut Query<&mut Visibility>,
+        commands: &mut Commands,
     ) -> Option<Vec3> {
         let &Looking {
             body: (model, nodes),
@@ -323,7 +374,7 @@ impl FirstPerson {
             own.into_iter()
                 .flat_map(|own| own.parts.iter().filter_map(|&n| node(n))),
         );
-        self.hide(parts, visibility);
+        self.hide(parts, commands);
         let (pitch, yaw) = (angles[0].to_radians(), angles[1].to_radians());
         let ahead = Vec3::new(yaw.cos(), yaw.sin(), 0.0);
         let back = if blade { BLADE_BACK_M } else { 0.0 };
@@ -354,16 +405,15 @@ impl FirstPerson {
         self.shown
     }
 
-    /// Hides `parts`, showing again what was hidden and is not among them.
-    fn hide(&mut self, parts: Vec<Entity>, visibility: &mut Query<&mut Visibility>) {
+    /// Keeps `parts` from the eye (`Unseen`), showing again what was kept
+    /// from it and is not among them.
+    fn hide(&mut self, parts: Vec<Entity>, commands: &mut Commands) {
         if parts == self.hidden {
             return;
         }
-        self.show(visibility);
+        self.show(commands);
         for &part in &parts {
-            if let Ok(mut shown) = visibility.get_mut(part) {
-                *shown = Visibility::Hidden;
-            }
+            commands.entity(part).try_insert(Unseen);
         }
         self.hidden = parts;
     }
@@ -379,11 +429,9 @@ impl FirstPerson {
 
     /// The head shown again and the eye let go: another camera has the
     /// view.
-    pub fn show(&mut self, visibility: &mut Query<&mut Visibility>) {
+    pub fn show(&mut self, commands: &mut Commands) {
         for part in self.hidden.drain(..) {
-            if let Ok(mut shown) = visibility.get_mut(part) {
-                *shown = Visibility::Inherited;
-            }
+            commands.entity(part).try_remove::<Unseen>();
         }
         self.offset = None;
         self.shown = None;

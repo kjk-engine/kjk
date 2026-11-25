@@ -182,11 +182,24 @@ fn tally_mesh(
         .is_some_and(|(_, resolved)| resolved.is_some());
     let path = match (room, lit) {
         (true, true) => "lighting: room, diffuse x lightmap",
-        (true, false) => "lighting: room, unlit",
+        (true, false) => "lighting: room without lightmap",
         (false, true) => "lighting: object with lightmap",
         (false, false) => "lighting: object, ambient + lights",
     };
     tally.add(path, place);
+    // A room mesh without a lightmap is drawn about as bright as its
+    // self-illumination (`material::Lighting::room_flat`).
+    if room && !lit && diffuse_facts.is_some() {
+        let glow = mesh.self_illum.iter().copied().fold(0.0f32, f32::max);
+        let key = if glow <= 0.0 {
+            "room without lightmap: no self-illumination (dark)"
+        } else if glow < 1.0 {
+            "room without lightmap: self-illumination below 1 (dimmed)"
+        } else {
+            "room without lightmap: self-illumination 1 (full light)"
+        };
+        tally.add(key, place);
+    }
     let mut odd: BTreeSet<String> = BTreeSet::new();
     for facts in &facts {
         if let Some(value) = &facts.odd_blending {

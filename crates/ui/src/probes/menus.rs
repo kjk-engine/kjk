@@ -112,43 +112,103 @@ pub(super) fn all() -> Vec<Check> {
         .intents
         .is_empty()
         && stack.is_open();
-    vec![check("main_menu_buttons", {
-        expect("opens", opened)
+    let mut both_vm = ViewModel {
+        campaigns: vec![vfs::Game::Kotor1, vfs::Game::Kotor2],
+        ..ViewModel::default()
+    };
+    both_vm.session.campaign = Some(vfs::Game::Kotor1);
+    let mut switched = Stack::new(crate::screens::open);
+    switched.open("main_menu", &both_vm);
+    switched.step(&mut assets, &both_vm, &keys(&[]));
+    let mut both_labels = Vec::new();
+    for _ in 0..6 {
+        let tag = switched.focused().unwrap_or("none").to_string();
+        both_labels.push(
+            String::from_utf8_lossy(&switched.text_of(&tag, &both_vm).unwrap_or(Vec::new()))
+                .into_owned(),
+        );
+        switched.step(&mut assets, &both_vm, &keys(&[Key::Down]));
+    }
+    let to_k2 = press(&mut switched, &mut assets, &both_vm, "BTN_OPTIONS");
+    both_vm.session.campaign = Some(vfs::Game::Kotor2);
+    let k2_label = String::from_utf8_lossy(
+        &switched
+            .text_of("BTN_OPTIONS", &both_vm)
+            .unwrap_or(Vec::new()),
+    )
+    .into_owned();
+    let to_k1 = press(&mut switched, &mut assets, &both_vm, "BTN_OPTIONS");
+    let exit_sixth = press(&mut switched, &mut assets, &both_vm, "BTN_EXIT");
+    vec![
+        check("main_menu_buttons", {
+            expect("opens", opened)
+                .and_then(|()| {
+                    expect(
+                        &format!("Solo, Host, Join, Options, Exit in order: {path:?}"),
+                        path == [
+                            "BTN_NEWGAME",
+                            "BTN_LOADGAME",
+                            "BTN_MOVIES",
+                            "BTN_MUSIC",
+                            "BTN_OPTIONS",
+                        ],
+                    )
+                })
+                .and_then(|()| {
+                    expect(
+                        &format!("our labels: {labels:?}"),
+                        labels == ["Solo", "Host", "Join", "Options", "Exit"],
+                    )
+                })
+                .and_then(|()| expect("warp, the module list and KOTOR 2's exit hidden", hidden))
+                .and_then(|()| expect(&format!("Exit quits: {quit:?}"), quit == vec![Intent::Quit]))
+                .and_then(|()| {
+                    expect(
+                        &format!("Solo opens its new-or-load step: {solo:?}"),
+                        solo == Some("solo"),
+                    )
+                })
+                .and_then(|()| expect("Back keeps the main menu", stays))
+                .and_then(|()| {
+                    expect(
+                        &format!("the menu's model behind it: {backdrop:?}"),
+                        backdrop == Some(crate::vm::SceneView::MainMenu),
+                    )
+                })
+                .map(|()| "five buttons, ours, the model behind".into())
+        }),
+        check("main_menu_campaign_switch", {
+            expect(
+                &format!("six buttons with both games installed: {both_labels:?}"),
+                both_labels == ["Solo", "Host", "Join", "Options", "KOTOR 2", "Exit"],
+            )
             .and_then(|()| {
                 expect(
-                    &format!("Solo, Host, Join, Options, Exit in order: {path:?}"),
-                    path == [
-                        "BTN_NEWGAME",
-                        "BTN_LOADGAME",
-                        "BTN_MOVIES",
-                        "BTN_MUSIC",
-                        "BTN_OPTIONS",
-                    ],
+                    &format!("fifth button switches to KOTOR 2: {to_k2:?}"),
+                    to_k2 == vec![Intent::Campaign(vfs::Game::Kotor2)],
                 )
             })
             .and_then(|()| {
                 expect(
-                    &format!("our labels: {labels:?}"),
-                    labels == ["Solo", "Host", "Join", "Options", "Exit"],
+                    &format!("on KOTOR 2, fifth button offers KOTOR 1: {k2_label:?}"),
+                    k2_label == "KOTOR 1",
                 )
             })
-            .and_then(|()| expect("warp, the module list and KOTOR 2's exit hidden", hidden))
-            .and_then(|()| expect(&format!("Exit quits: {quit:?}"), quit == vec![Intent::Quit]))
             .and_then(|()| {
                 expect(
-                    &format!("Solo opens its new-or-load step: {solo:?}"),
-                    solo == Some("solo"),
+                    &format!("fifth button switches back to KOTOR 1: {to_k1:?}"),
+                    to_k1 == vec![Intent::Campaign(vfs::Game::Kotor1)],
                 )
             })
-            .and_then(|()| expect("Back keeps the main menu", stays))
             .and_then(|()| {
                 expect(
-                    &format!("the menu's model behind it: {backdrop:?}"),
-                    backdrop == Some(crate::vm::SceneView::MainMenu),
+                    &format!("sixth button quits: {exit_sixth:?}"),
+                    exit_sixth == vec![Intent::Quit],
                 )
             })
-            .map(|()| "five buttons, ours, the model behind".into())
-    })]
+            .map(|()| "six buttons, toggles K1 <-> TSL, Exit on sixth".into())
+        }),
+    ]
 }
 
 fn savename() -> Gui {
@@ -469,8 +529,8 @@ pub(super) fn campaign() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("its creation backed out of: K1's data again: {backed:?}"),
-                backed == vec![Intent::Campaign(vfs::Game::Kotor1)],
+                &format!("its creation backed out of: stays on campaign: {backed:?}"),
+                backed.is_empty(),
             )
         })
         .and_then(|()| {
@@ -893,6 +953,61 @@ pub(super) fn in_game() -> Vec<Check> {
             .map(|()| {
                 "the bar, the options, quit (asked, to the menu or the desktop), the party".into()
             })
+    })]
+}
+
+/// The pad on the in-game pages: the page's own links between its buttons
+/// lead to its buttons, even where the menu bar's layout gives one of its
+/// tabs the same number (KOTOR 2's Map tab and Load Game are both 14), and
+/// Y shows the next party member.
+pub(super) fn pad_on_pages() -> Vec<Check> {
+    let mut assets = Fake::new();
+    let mut bar = bar();
+    for control in &mut bar.controls {
+        // Every tab numbered as Gameplay is.
+        control.id = 2;
+    }
+    assets.layouts.insert("top", bar);
+    assets.layouts.insert("optionsingame", options_in_game());
+    let party = ViewModel {
+        party: vec![crate::vm::MemberView::default(); 3],
+        viewed: 2,
+        here: Some(crate::vm::SaveView::default()),
+        ..ViewModel::default()
+    };
+    let mut menu = opened("options_in_game", &mut assets, &party);
+    let mut walked = Vec::new();
+    for key in [Key::Up, Key::Down, Key::Down] {
+        menu.step(&mut assets, &party, &keys(&[key]));
+        walked.push(menu.focused().map(str::to_string));
+    }
+    let next = menu
+        .step(&mut assets, &party, &keys(&[Key::Second]))
+        .intents;
+    let alone = ViewModel::default();
+    let mut lone = opened("options_in_game", &mut assets, &alone);
+    let none = lone
+        .step(&mut assets, &alone, &keys(&[Key::Second]))
+        .intents;
+    let tags = |tags: [&str; 3]| tags.map(|tag| Some(tag.to_string())).to_vec();
+    vec![check("pad_on_pages", {
+        expect(
+            &format!("Up and Down follow the page's own links: {walked:?}"),
+            walked == tags(["BTN_SAVEGAME", "BTN_GAMEPLAY", "BTN_AUTOPAUSE"]),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Y shows the next member, round to the first: {next:?}"),
+                next.contains(&Intent::View(0)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Y does nothing alone: {none:?}"),
+                !none.iter().any(|intent| matches!(intent, Intent::View(_))),
+            )
+        })
+        .map(|()| "the page's links past the bar's numbers, Y for the next member".into())
     })]
 }
 
@@ -1870,6 +1985,8 @@ pub(super) fn display_options() -> Vec<Check> {
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
                 linked("BTN_ANISOTROPY", 4, 220, -1, -1),
+                linked("BTN_TEXQUAL", 5, 260, -1, -1),
+                linked("BTN_TEXQUALLEFT", 6, 300, -1, -1),
             ],
         ),
     );
@@ -1977,6 +2094,16 @@ pub(super) fn display_options() -> Vec<Check> {
         .text_of("BTN_ANISOTROPY", &vm)
         .map(|text| String::from_utf8_lossy(&text).into_owned());
     let occlusion_on = press(&mut advanced, &mut assets, &vm, "BTN_ANISOTROPY");
+    // Anisotropic Filtering, in the Texture Quality row, shows 16x and its
+    // left arrow steps down to 8x.
+    let sharpest = ViewModel {
+        settings: [setting("display.anisotropy", "16")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let anisotropy_shown = advanced
+        .text_of("BTN_TEXQUAL", &sharpest)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let anisotropy_down = press(&mut advanced, &mut assets, &sharpest, "BTN_TEXQUALLEFT");
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
     // Shadows at High steps on to Ultra only on a card that traces rays.
@@ -2086,6 +2213,16 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
+                &format!(
+                    "Anisotropic Filtering shows 16x and steps down to 8x: {anisotropy_shown:?} {anisotropy_down:?}"
+                ),
+                anisotropy_shown.as_deref() == Some("Anisotropic Filtering: 16x")
+                    && anisotropy_down
+                        == vec![Intent::Setting("display.anisotropy".into(), "8".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("Cancel puts the page back and closes: {cancelled:?}"),
                 cancelled
                     == vec![
@@ -2185,10 +2322,11 @@ fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
 
 /// kjk's Interface page: the graphics page opens it from its framed button
 /// in the unused force speed box's place. It is a list on the Feedback
-/// page's layout under its own title. Its seven rows are the menu width,
+/// page's layout under its own title. Its eight rows are the menu width,
 /// the image aspect ratio, the text size, the text scale, the notifications
-/// in the corner, the target block at the top centre and the frame rate
-/// limit. A stepped row shows its name and its value and has no check box.
+/// in the corner, the target block at the top centre, the frame rate limit
+/// and "Join nearby conversations", which is ticked while unset. A stepped
+/// row shows its name and its value and has no check box.
 /// Activating each row sets its setting. Left and Right step the cursor's
 /// stepped row back and on, and wrap. The frame rate limit's row shows a
 /// rate the list does not have, written in the settings file by hand, as
@@ -2202,7 +2340,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
         kjk_option,
     };
-    use crate::screens::options::FRAME_LIMIT;
+    use crate::screens::options::{FRAME_LIMIT, JOIN_TALKS};
     let mut assets = Fake::new();
     assets.layouts.insert(
         "optgraphics",
@@ -2248,6 +2386,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         ("Notifications in the corner", false, false),
         ("Target block at the top centre", true, false),
         ("Frame rate limit: Off", false, true),
+        ("Join nearby conversations", true, false),
     ]
     .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
     // Each row activated once over the settings above, from the first row
@@ -2260,6 +2399,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         (CORNER_NOTICES, "true"),
         (TARGET_TOP, "false"),
         (FRAME_LIMIT, "30"),
+        (JOIN_TALKS, "false"),
     ]
     .map(|(key, value)| (key.to_string(), value.to_string()));
     let mut activated = Vec::new();
@@ -2343,7 +2483,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("the seven rows, their boxes ticked or left out: {shown:?}"),
+                &format!("the eight rows, their boxes ticked or left out: {shown:?}"),
                 shown == rows,
             )
         })
@@ -2400,7 +2540,7 @@ pub(super) fn interface_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+            "title, eight rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
         })
     })]
 }

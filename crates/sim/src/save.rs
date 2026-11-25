@@ -225,7 +225,19 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 93: Effect::Resurrection carries its nHPPercent (tag 19 when non-zero; tag
 /// 12 stays 0). Old saves: old saves carry tag 12 for Effect::Resurrection(0);
 /// tag 19 adds the health percentage..
-pub const VERSION: u32 = 93 + crate::pending::SAVE;
+/// 94: an object's action queue can hold a sound a script played
+/// (`Action::Sound`). Old saves: an older save has no queued sound, so its
+/// queues read as before.
+/// 95: the script state keeps where the loading screens' hints stand
+/// (`script::State::hints`), as the games' saves do. Old saves: an older save
+/// reads the first row of every hint: the hints start again at the beginning.
+/// 96: a conversation keeps the reply shown before it runs
+/// (`Conversation::chosen`), and the scripts' state keeps the seats that do not
+/// join nearby conversations and whether chosen replies are shown
+/// (`Talk::quiet`, `Talk::hide_replies`). The seats with a screen open are not
+/// saved. Old saves: an older save reads no reply shown, every seat joining
+/// nearby conversations, and chosen replies shown.
+pub const VERSION: u32 = 96 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -383,7 +395,8 @@ impl Save {
     /// fell, I30 P13). The menu's load and the reload both make it here.
     /// No container is held open in it (`containers::let_go`), no video
     /// effect shows, and the area's music plays as placed
-    /// (`AreaSound::play_as_placed`). The save's set numbers are fitted to
+    /// (`AreaSound::play_as_placed`), and its area fades in
+    /// (`Snapshot::fade_in_as_loaded`). The save's set numbers are fitted to
     /// the stance sets `level` has (`fit`), and the world names the sets
     /// that are gone (`SimWorld::stances_gone`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
@@ -428,6 +441,7 @@ impl Save {
         // music and the ambience play again and the battle music is off,
         // even when a script had started it (issue 322).
         snapshot.area_sound.play_as_placed();
+        snapshot.fade_in_as_loaded();
         crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;

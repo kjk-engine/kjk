@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0be8337a678b2658`.
+Edition `6018276e80879a2d`.
 
 ## Contents
 
@@ -1344,7 +1344,7 @@ A blaster bolt can be deflected by a lightsaber.
 
 ### <a id="weapons-pistol"></a>Blaster Pistols
 
-Blaster pistols, heavy blasters and hold-out blasters fire one slow, powerful shot at a time.
+Fires one shot every 0.8 seconds. Dual-wielding pistols alternates hands (firing twice as fast) and grants +3 to hit to offset two-weapon penalties.
 
 <a id="weapons-pistol-refire-ms"></a>**Rate of Fire** = **0.8 seconds** (`800 ms`) · `weapons.pistol.refire_ms`
 
@@ -1398,7 +1398,7 @@ Each shot of a blaster pistol kicks the aim up by 0.8 degrees and to one side by
 
 ### <a id="weapons-rifle"></a>Blaster Rifles
 
-Blaster rifles and carbines fire a steady stream of bolts.
+Fires a steady stream of bolts (one every 0.35 seconds).
 
 <a id="weapons-rifle-refire-ms"></a>**Rate of Fire** = **0.35 seconds** (`350 ms`) · `weapons.rifle.refire_ms`
 
@@ -1436,7 +1436,7 @@ Each shot of a blaster rifle kicks the aim up by 0.35 degrees and to one side by
 
 ### <a id="weapons-repeater"></a>Repeating Blasters
 
-Repeating blasters and heavy repeating blasters fire a spray of small, fast bolts.
+Fires a rapid spray of bolts (one every 0.1 seconds, 80% damage per shot for players).
 
 <a id="weapons-repeater-refire-ms"></a>**Rate of Fire** = **0.1 seconds** (`100 ms`) · `weapons.repeater.refire_ms`
 
@@ -1446,7 +1446,7 @@ A repeating blaster fires once every 0.1 seconds.
 
 <a id="weapons-repeater-damage"></a>**Repeating Blaster Damage** = **80%** (`800 ‰`) · `weapons.repeater.damage`
 
-A repeating blaster fired by a character that a player controls deals 80% of its normal damage, in KOTOR and in KOTOR II.
+Player-controlled repeating blasters deal 80% of normal damage.
 
 The damage of each shot grows with the time between the weapon's shots, so a fast weapon deals small hits. A repeating blaster's spray of bolts hits nearly every time, and in KOTOR II a heavy repeating blaster rolls 2d8 damage where a blaster rifle rolls 1d12. Players found it much stronger than any other gun. A creature's shots follow the creature's own rate of fire, so this rule does not change the damage of a creature's repeating blaster.
 
@@ -1496,7 +1496,7 @@ Each shot of a repeating blaster kicks the aim up by 0.2 degrees and to one side
 
 ### <a id="weapons-bowcaster"></a>Bowcaster
 
-The bowcaster fires one slow, wide bolt with each pull of the trigger.
+Fires a slow, wide bolt every 1 second.
 
 <a id="weapons-bowcaster-refire-ms"></a>**Rate of Fire** = **1 second** (`1000 ms`) · `weapons.bowcaster.refire_ms`
 
@@ -1548,7 +1548,7 @@ Each shot of a bowcaster kicks the aim up by 1.2 degrees and to one side by up t
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
-Disruptor pistols and disruptor rifles fire no bolt. Their shot hits the first thing in its path instantly. A lightsaber cannot deflect it.
+Fires an instant hitscan beam every 0.6 seconds. Cannot be deflected by a lightsaber.
 
 <a id="weapons-disruptor-refire-ms"></a>**Rate of Fire** = **0.6 seconds** (`600 ms`) · `weapons.disruptor.refire_ms`
 
@@ -1600,7 +1600,7 @@ Each shot of a disruptor kicks the aim up by 2 degrees and to one side by up to 
 
 ### <a id="weapons-ion"></a>Ion Weapons
 
-Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blades.
+Fires a wide bolt every 0.5 seconds that cannot be deflected by a lightsaber.
 
 <a id="weapons-ion-refire-ms"></a>**Rate of Fire** = **0.5 seconds** (`500 ms`) · `weapons.ion.refire_ms`
 
@@ -1650,7 +1650,7 @@ Each shot of an ion weapon kicks the aim up by 0.6 degrees and to one side by up
 
 ### <a id="weapons-sonic"></a>Sonic Weapons
 
-Sonic pistols and sonic rifles fire several shards with each shot. The first shard flies straight at the aim, and the others spread out. The shot's damage is split equally between the shards.
+Fires a 5-shard spread every 0.7 seconds (damage split evenly across shards).
 
 <a id="weapons-sonic-refire-ms"></a>**Rate of Fire** = **0.7 seconds** (`700 ms`) · `weapons.sonic.refire_ms`
 
@@ -1716,9 +1716,7 @@ A bolt that hits nothing disappears after 10 seconds.
 
 ### <a id="weapons-unarmed"></a>Unarmed Combat
 
-A character with no weapon fights with its fists. An unarmed attack deals
-bludgeoning damage. The character's Strength modifier is added to the
-damage.
+Fists deal 1d3 bludgeoning damage plus your Strength mod (×2 on a natural 20).
 
 Beasts fight with their own claws, bites and gores instead.
 
@@ -1878,49 +1876,50 @@ Sense and the droid Logic Upgrades add to Defense as class bonuses.
 
 ### <a id="feats-weapon"></a>Weapon Training
 
-A character needs a weapon's proficiency feat to equip it. Weapon Focus
-adds a bonus to hit with that type of weapon. Weapon Specialization adds a
-bonus to its damage.
+You need a weapon's proficiency feat to equip it. Weapon Focus grants
++1 to hit with that weapon type; Weapon
+Specialization grants +2 to damage.
 
 <a id="feats-weapon-focus"></a>**Weapon Focus** = **1 points** · `feats.weapon.focus`
 
-Weapon Focus adds a +1 bonus to hit with weapons of the feat's type.
+Grants +1 to hit with this weapon type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-not-proficient"></a>**Nonproficiency Penalty** = **4 points** · `feats.weapon.not_proficient`
 
-A character using a weapon without the matching proficiency feat suffers a -4 penalty to hit. The Proficiency All feat counts as every proficiency.
+Lets you equip this weapon type (fighting without proficiency inflicts -4 to hit). Proficiency All covers every weapon.
 
-A player character cannot equip such a weapon. A creature that already has one equipped fights with it at this penalty.
+Player characters cannot equip a weapon without its proficiency. Creatures that spawn with one equipped fight with it at this penalty.
 
 <sub>Source: KOTOR's d20 rules (reone). Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-specialization"></a>**Weapon Specialization** = **2 points** · `feats.weapon.specialization`
 
-Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
+Grants +2 damage with this weapon type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::weapon_roll`.</sub>
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double weapon, or with a weapon in each hand,
-suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
-Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
-balanced weapon in the off hand further reduces the main hand's penalty. A
-small weapon, such as a short sword or a short lightsaber, is balanced. A
-double weapon counts as its own balanced off-hand weapon. A character
-fighting with a single one-handed weapon and nothing in the other hand
-gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
-+3 to hit and to Defense.
+Dual-wielding or using a double weapon inflicts a hit penalty
+(-6/-10
+untrained, -6/-6
+with Two-Weapon Fighting, -4/-4
+Improved, -2/-2
+Master). A balanced off-hand weapon (such as a short sword or short
+lightsaber) or a double weapon reduces the main-hand penalty by
+2. Fighting with a single one-handed weapon
+and an empty off hand gains Dueling instead: +1 / +2 / +3 to hit and
+Defense.
 
-The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
+Double weapons: double-bladed sword, double-bladed vibroblade, double-bladed lightsaber, quarterstaff, gaffi stick, Wookiee warblade, and force pike. The equip page shows main-hand numbers for one end and off-hand for the other; in real-time combat, every swing counts as a main-hand attack.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
 untrained **-6 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The main hand suffers a -6 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+Main-hand hit penalty: -6 (untrained), -6 (Two-Weapon Fighting), -4 (Improved), -2 (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1928,13 +1927,13 @@ The main hand suffers a -6 penalty to hit without training, -6 with Two-Weapon F
 
 untrained **-10 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+Off-hand hit penalty: -10 (untrained), -6 (Two-Weapon Fighting), -4 (Improved), -2 (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
+A balanced off-hand weapon or a double weapon reduces the main-hand penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1942,9 +1941,9 @@ A balanced weapon in the off hand, or a double weapon, reduces the main hand's p
 
 I **1 points** · II **2 points** · III **2 points**
 
-In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+Reduces the main-hand dual-wield penalty by 1 (rank I) or 2 (ranks II and III). Rank III also reduces the off-hand penalty by 1.
 
-These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+KOTOR 2 Jedi Weapon Master / Sith Marauder feats. Applies to blasters as well as melee weapons and lightsabers.
 
 <sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1952,81 +1951,86 @@ These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply t
 
 I **0 points** · II **0 points** · III **1 points**
 
-In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+Superior Two-Weapon Fighting III reduces the off-hand penalty by 1.
 
 <sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
-Conditioning, Improved Conditioning and Master Conditioning add +1, +2 and
-+3 to all saving throws. Uncanny Dodge 1 and Uncanny Dodge 2 add a bonus to
-saving throws against grenades.
+Conditioning, Improved Conditioning, and Master Conditioning grant +1 / +2
+/ +3 to all saving throws.
 
 <a id="feats-saves-uncanny-dodge"></a>**Uncanny Dodge Grenade Bonus** = **2 points** · `feats.saves.uncanny_dodge`
 
-Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades.
+Grants +2 to Reflex saves against grenades (for both Uncanny Dodge 1 and 2).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::grenade_save_bonus`.</sub>
 
 ### <a id="feats-skills"></a>Skill Feats
 
-Caution adds to Demolitions and Stealth. Empathy adds to Persuade,
-Awareness and Treat Injury. Gear Head adds to Repair, Security and Computer
-Use. Each tier of these feats adds its bonus again. Perceptive adds to
-Stealth and Awareness, and each Skill Focus feat adds to its own skill. A
-skill feat adds to a skill even when the character has no ranks in it.
-Demolitions, Stealth and Security are the exception. Only a character who
-has ranks in these skills can use them, so without ranks their total is 0.
-Both games' executables work this way.
+Caution boosts Demolitions and Stealth; Empathy boosts Persuade, Awareness,
+and Treat Injury; Gear Head boosts Repair, Security, and Computer Use;
+Perceptive boosts Stealth and Awareness; Skill Focus boosts its named
+skill. Skill bonuses apply even with 0 ranks, except for trained-only
+skills (Demolitions, Stealth, and Security).
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 
 Caution **1 points** · Empathy **1 points** · Gear Head **1 points** · Perceptive **2 points**
 
-Each tier of Caution adds +1 to each of its skills. Each tier of Empathy adds +1, and each tier of Gear Head adds +1. Perceptive adds +2.
+Grants +1 per tier (Caution), +1 per tier (Empathy), +1 per tier (Gear Head), or +2 (Perceptive) to each of its skills.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 <a id="feats-skills-skill-focus"></a>**Skill Focus** = **2 points** · `feats.skills.skill_focus`
 
-Skill Focus adds a +2 bonus to its skill.
+Grants +2 to this skill.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 ### <a id="feats-toughness"></a>Toughness
 
-Toughness and Master Toughness each add +1 vitality point per level. This
-includes the levels the character gained before learning the feat. Wookiee
-Toughness adds more vitality points per level. Improved Toughness and
-Wookiee Toughness also reduce the damage of every hit.
+Toughness and Master Toughness each add +1 Vitality per level
+(retroactively). Improved Toughness reduces incoming damage by
+2 (physical hits in KOTOR 1) or by 1 per
+10 damage above
+20 (KOTOR 2). Wookiee Toughness I /
+II / III adds +2 /
++3 /
++4 Vitality per level and reduces every
+hit by 2 /
+5 /
+8 (plus 1 per
+20 /
+10 remaining damage at ranks II /
+III).
 
-In KOTOR, Improved Toughness reduces only physical damage, which is
-bludgeoning, piercing and slashing damage. Damage reduction never removes
-more damage than the hit deals.
+In KOTOR 1, Improved Toughness reduces only physical damage (bludgeoning,
+piercing, and slashing). Damage reduction never lowers a hit below 0.
 
 <a id="feats-toughness-wookiee-hp"></a>**Wookiee Toughness Vitality** = **0 HP / 2 HP / 3 HP / 4 HP** (`0 / 2 / 3 / 4 HP`) · `feats.toughness.wookiee_hp`
 
 none **0 HP** · Wookiee Toughness **2 HP** · II **3 HP** · III **4 HP**
 
-Wookiee Toughness adds +2 vitality points per level. Wookiee Toughness II adds +3 and Wookiee Toughness III adds +4.
+Adds +2 (rank I), +3 (rank II), or +4 (rank III) Vitality per level.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hp_per_level`.</sub>
 
 <a id="feats-toughness-improved-k1"></a>**Improved Toughness (KOTOR)** = **2 points** · `feats.toughness.improved_k1`
 
-In KOTOR, Improved Toughness reduces the physical damage of every hit by 2 points.
+In KOTOR 1, reduces physical damage from every hit by 2.
 
 <sub>Source: K1's description. Code: `sim::combat::passive::toughness`.</sub>
 
 <a id="feats-toughness-improved-tsl-over"></a>**Improved Toughness Threshold (KOTOR 2)** = **20 points** · `feats.toughness.improved_tsl_over`
 
-In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
+In KOTOR 2, reduces every hit by 1 per 10 damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
 <a id="feats-toughness-improved-tsl-share"></a>**Improved Toughness Reduction (KOTOR 2)** = **10** · `feats.toughness.improved_tsl_share`
 
-In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
+In KOTOR 2, reduces every hit by 1 per 10 damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
@@ -2034,7 +2038,7 @@ In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points 
 
 Wookiee Toughness **2 points** · II **5 points** · III **8 points**
 
-Wookiee Toughness reduces the damage of every hit by 2 points. Wookiee Toughness II reduces it by 5 points and Wookiee Toughness III by 8 points.
+Reduces every hit by 2 (rank I), 5 (rank II), or 8 (rank III).
 
 <sub>Source: the feats' descriptions (K1's; TSL's II and III). Code: `sim::combat::passive::toughness`.</sub>
 
@@ -2042,61 +2046,61 @@ Wookiee Toughness reduces the damage of every hit by 2 points. Wookiee Toughness
 
 II **20** · III **10**
 
-Wookiee Toughness II also reduces the damage that remains by 1 point for every 20 points. Wookiee Toughness III reduces it by 1 point for every 10 points.
+Reduces remaining damage by 1 per 20 (rank II) or 1 per 10 (rank III).
 
 <sub>Source: TSL's descriptions. Code: `sim::combat::passive::toughness`.</sub>
 
 ### <a id="feats-force-sensitive"></a>Force Sensitive
 
-Force Sensitive grants Force points once, when the character learns the feat.
+Grants +40 Force points once when learned.
 
 <a id="feats-force-sensitive-points"></a>**Force Sensitive Points** = **40 FP** · `feats.force_sensitive.points`
 
-Force Sensitive grants 40 Force points.
+Grants +40 Force points.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::learn`.</sub>
 
 ### <a id="feats-force-focus"></a>Force Focus
 
-Force Focus, Advanced Force Focus and Force Focus Mastery make a character's Force powers harder to resist. Only the highest of these feats counts.
+Adds +1 (Force Focus), +2 (Advanced), or +4 (Mastery) to your Force power save DCs. Only your highest rank applies.
 
 <a id="feats-force-focus-dc"></a>**Force Focus DC Bonus** = **1 points / 2 points / 4 points** (`1 / 2 / 4 points`) · `feats.force_focus.dc`
 
 Force Focus **1 points** · Advanced **2 points** · Mastery **4 points**
 
-Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Focus adds +2 and Force Focus Mastery adds +4. Only the highest of these bonuses counts.
+Adds +1 (Force Focus), +2 (Advanced), or +4 (Mastery) to Force power save DCs.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::force`.</sub>
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
-attack that the character knows. The feat attacks are Power Blast, Rapid
-Shot and Sniper Shot. The type of gun does not decide which one is used.
-[Next feat attack] switches between the feat attacks the character knows,
-and each type of gun remembers its own choice. Until the character makes a
-choice, the first feat attack the character knows is used, in the order
-Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
-is held, [Attack] does nothing. A character without any of these feats, or
-without enough stamina, fires normally with [Saber throw/kata/ranged feat].
-The penalties of a feat attack last for one round
-(3 seconds).
+Press [Saber throw/kata/ranged feat] with a ranged weapon to use your
+selected feat attack (Power Blast, Rapid Shot, or Sniper Shot), regardless
+of gun type. Press [Next feat attack] to switch (remembered per gun type;
+defaults to the first you know in that order). Feat attack penalties last
+one round (3 seconds). If you lack stamina or any ranged
+feat, it fires normally.
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-A feat attack uses up 15% of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there.
+Costs 15% of your max Stamina (never Force points). Under Jedi Academy rules, Force users pay nothing.
 
 <sub>Source: ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points). Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
-release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
-the charge, the stronger the shot.
+Hold [Saber throw/kata/ranged feat] to charge (up to
+5 steps of
+0.2 seconds; auto-fires at
+5 seconds), then release to fire a single
+charged shot. Grants +5 (Power
+Blast), +8 (Improved), or
++10 (Master) damage at a
+-3 penalty to hit.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
-A Power Blast charges in steps of 0.2 seconds.
+Charges in steps of 0.2 seconds.
 
 The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it.
 
@@ -2104,13 +2108,13 @@ The shot's damage counts the charge's whole steps as part of the attack's time, 
 
 <a id="feats-specials-power-blast-steps"></a>**Charge Steps** = **5** · `feats.specials.power_blast.steps`
 
-A Power Blast charges for up to 5 steps.
+Charges for up to 5 steps.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
 <a id="feats-specials-power-blast-limit-ms"></a>**Maximum Charge** = **5 seconds** (`5000 ms`) · `feats.specials.power_blast.limit_ms`
 
-A Power Blast that is charged for 5 seconds fires by itself.
+Auto-fires after 5 seconds of charging.
 
 <sub>Source: JA: weapon charge. Code: `sim::combat::specials::pull`.</sub>
 
@@ -2118,34 +2122,36 @@ A Power Blast that is charged for 5 seconds fires by itself.
 
 Power Blast **5 points** · Improved **8 points** · Master **10 points**
 
-Power Blast adds +5 damage. Improved Power Blast adds +8 and Master Power Blast adds +10.
++5 (Power Blast), +8 (Improved), or +10 (Master) damage.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-power-blast-attack-penalty"></a>**Power Blast Penalty** = **3 points** · `feats.specials.power_blast.attack_penalty`
 
-A Power Blast suffers a -3 penalty to hit.
+Inflicts -3 to hit.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
-weapon is ready.
-The weapon is ready to fire again one normal shot's time after the first
-shot of the burst, or when the burst ends if that is later. Every shot
-after the first is therefore an extra attack. For the round after the
-burst, the character suffers a penalty to attacks and Defense.
+Press [Saber throw/kata/ranged feat] to fire a burst of
+3 shots (Rapid Shot / Improved) or
+4 shots (Master), spaced
+0.15 seconds apart. For one round afterward, you
+take -4 (Rapid Shot),
+-2 (Improved), or
+-1 (Master) to attack and Defense
+(reduced by 1 per equipped item with a Rapid Shot bonus).
 
 <a id="feats-specials-rapid-shot-gap-ms"></a>**Burst Interval** = **0.15 seconds** (`150 ms`) · `feats.specials.rapid_shot.gap_ms`
 
-The shots of a burst are 0.15 seconds apart. They are closer together if the weapon's own rate of fire is faster.
+Shots in a burst fire 0.15 seconds apart (or faster if the weapon's own fire rate is faster).
 
 <sub>Source: JA (the E-11's alternate refire). Code: `sim::combat::specials::pull`.</sub>
 
 <a id="feats-specials-rapid-shot-shots"></a>**Rapid Shot Burst** = **3** · `feats.specials.rapid_shot.shots`
 
-Rapid Shot and Improved Rapid Shot fire a burst of 3 shots.
+Rapid Shot and Improved Rapid Shot fire 3 shots.
 
 In KOTOR, these feats allow one extra attack. The owner asked for more shots on 2 November 2026, because a single extra shot was worth little after its penalty to hit (`kjk combat duel --only gun_worth`).
 
@@ -2153,7 +2159,7 @@ In KOTOR, these feats allow one extra attack. The owner asked for more shots on 
 
 <a id="feats-specials-rapid-shot-multi-shots"></a>**Master Rapid Shot Burst** = **4** · `feats.specials.rapid_shot.multi_shots`
 
-Master Rapid Shot fires a burst of 4 shots.
+Master Rapid Shot fires 4 shots.
 
 In KOTOR, this feat allows two extra attacks. kjk adds one more shot, as it does for Rapid Shot (2 November 2026).
 
@@ -2163,30 +2169,31 @@ In KOTOR, this feat allows two extra attacks. kjk adds one more shot, as it does
 
 Rapid Shot **-4 points** · Improved **-2 points** · Master **-1 points**
 
-For the round after a burst, the character suffers a -4 penalty to attacks and Defense with Rapid Shot, -2 with Improved Rapid Shot and -1 with Master Rapid Shot. Each equipped item with a Rapid Shot bonus reduces these penalties by 1.
+For one round after a burst, inflicts -4 (Rapid Shot), -2 (Improved), or -1 (Master) to attack and Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
-one shot. A
-character with a pistol in each hand fires both pistols at once. The shot
-has no spread. It gets a bonus to hit, and its critical threat range is
-multiplied. The critical threat range is the set of d20 rolls that can
-score a critical hit. The character can start to steady the gun while it
-is still cooling down after the last shot. If the character lets go once
-the gun is steady but before it is ready to fire again, the shot leaves as
-soon as the gun is ready. Until the shot leaves, the character moves at
-walking speed and cannot jump. Letting go before the gun is steady fires
-nothing and uses nothing. For the round after the shot, the character suffers a
-penalty to Defense. In kjk, Sniper Shot does not stun.
+Hold [Saber throw/kata/ranged feat] for
+0.5 seconds
+(0.25 seconds while aiming) to steady your
+shot, then release to fire with no spread (fires both pistols if
+dual-wielding). Grants +4 /
++6 /
++8 to hit and
+2× /
+3× /
+4× critical threat range
+(Sniper / Improved / Master). While steadying, you walk and cannot jump;
+for one round after firing, you take
+-5 Defense. Does not stun.
 
 <a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
 from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
-A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+Steadies in 0.5 seconds from the hip, or 0.25 seconds while aiming.
 
 <sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::pull, sim::combat::ai::choose_special`.</sub>
 
@@ -2194,7 +2201,7 @@ A character steadies a Sniper Shot for 0.5 seconds before it can fire. A charact
 
 Sniper Shot **×2** · Improved **×3** · Master **×4**
 
-Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot multiplies it by 3 and Master Sniper Shot by 4.
+Multiplies critical threat range by 2× (Sniper), 3× (Improved), or 4× (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
@@ -2202,7 +2209,7 @@ Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot mult
 
 Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
-A Sniper Shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+Grants +4 (Sniper), +6 (Improved), or +8 (Master) to hit.
 
 The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
@@ -2210,76 +2217,74 @@ The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. Wit
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after a Sniper Shot, the character suffers a -5 penalty to Defense.
+Inflicts -5 Defense for one round after firing.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 ### <a id="feats-sneak-attack"></a>Sneak Attack
 
-Each Sneak Attack feat adds 1-6 points of extra
-damage when the target cannot defend itself against the attacker. This
-applies to attacks from behind, unless the target has Uncanny Dodge. It
-also applies to attacks against targets that are stunned, knocked down or
-choked, and to attacks against targets that are not yet in combat or have
-not yet noticed the attacker. Sneak Attack works only if the target is
-within 10 meters. A critical hit does not
-multiply the extra damage. A target that is immune to critical hits or to
-sneak attacks takes no extra damage.
+Each rank adds 1–6 extra damage within
+10 m when the target cannot defend itself:
+from behind (unless they have Uncanny Dodge), while stunned, knocked down,
+or choked, or before they notice you. Not multiplied on critical hits, and
+blocked by immunity to critical hits or sneak attacks.
 
-An attack counts as coming from behind if the attacker stands within the rear 90 degrees of the target. The first attack a character makes out of Stealth Mode also receives the bonus.
+Counts as behind when within the target's rear 90° arc. Your first attack out of Stealth Mode also triggers Sneak Attack.
 
 <a id="feats-sneak-attack-die"></a>**Sneak Attack Die** = **6** · `feats.sneak_attack.die`
 
-Each Sneak Attack feat adds 1-6 points of extra damage.
+Each Sneak Attack rank adds 1–6 extra damage.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::weapon_damage`.</sub>
 
 <a id="feats-sneak-attack-reach-m"></a>**Sneak Attack Range** = **10 m** · `feats.sneak_attack.reach_m`
 
-Sneak Attack works only if the target is within 10 meters.
+Only triggers within 10 m.
 
 <sub>Source: the feats' descriptions (KOTOR's 10 m). Code: `sim::combat::specials::sneak_dice`.</sub>
 
 ### <a id="feats-targeting"></a>Targeting
 
-Targeting adds a bonus to hit with ranged weapons. Targeting I adds
-+1, and each tier after it adds 1 more, up
-to +8 with Targeting VIII. Each tier
-replaces the one before it.
+Grants +1 (Targeting I) up to
++8 (Targeting VIII) to hit with ranged
+weapons (+1 per rank; highest rank applies).
 
-A Scout is granted the tiers of Targeting at its class levels, as the feats' table says.
+Granted automatically to Scouts at class levels.
 
 <a id="feats-targeting-attack"></a>**Targeting Bonus** = **1 points / 2 points / 3 points / 4 points / 5 points / 6 points / 7 points / 8 points** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 points`) · `feats.targeting.attack`
 
 Targeting I **1 points** · Targeting II **2 points** · Targeting III **3 points** · Targeting IV **4 points** · Targeting V **5 points** · Targeting VI **6 points** · Targeting VII **7 points** · Targeting VIII **8 points**
 
-Targeting I to VIII add +1 to +8 to hit with ranged weapons, one more for each tier.
+Grants +1 to +8 to hit with ranged weapons (Targeting I–VIII).
 
 <sub>Source: KOTOR 2's feat descriptions ("Level 1 scouts have a +1 attack bonus with ranged weapons", up to +8 at level 29). Code: `sim::combat::damage::attack_bonus`.</sub>
 
 ### <a id="feats-finesse"></a>Finesse
 
-Finesse: Lightsabers and Finesse: Melee Weapons let a character use the
-Dexterity modifier instead of the Strength modifier to hit, whichever is
-higher. Finesse: Lightsabers applies to lightsabers. Finesse: Melee Weapons
-applies to every other melee weapon, but not to unarmed attacks. The
-Strength modifier still adds to the damage.
+Uses your Dexterity modifier instead of Strength to hit if it is higher
+(Strength still sets damage). Finesse: Lightsabers applies to lightsabers;
+Finesse: Melee Weapons applies to all other melee weapons (not unarmed).
 
 ### <a id="feats-precise-shot"></a>Precise Shot
 
-Precise Shot adds to the damage of every ranged weapon attack. It also
-makes the attack's blaster bolts harder to deflect: the deflection bonus
-of the lightsaber or Force power that tries to turn a bolt suffers a
-penalty. Each tier replaces the one before it. Grenades and thrown
-lightsabers get neither bonus.
+Adds +1 /
++2 / +4
+/ +6 /
++8 ranged weapon damage (ranks I–V) and
+inflicts -2 /
+-4 /
+-6 /
+-8 /
+-10 to enemy blaster deflection.
+Does not apply to grenades or thrown lightsabers.
 
-A bolt that a character turned counts as that character's own from then on. The penalty against turning it again is that character's Precise Shot's.
+A deflected bolt becomes the deflector's own, using their Precise Shot penalty if deflected again.
 
 <a id="feats-precise-shot-damage"></a>**Precise Shot Damage** = **1 points / 2 points / 4 points / 6 points / 8 points** (`1 / 2 / 4 / 6 / 8 points`) · `feats.precise_shot.damage`
 
 Precise Shot I **1 points** · Precise Shot II **2 points** · Precise Shot III **4 points** · Precise Shot IV **6 points** · Precise Shot V **8 points**
 
-Precise Shot I to V add +1, +2, +4, +6 and +8 to the damage of ranged weapons.
+Adds +1 / +2 / +4 / +6 / +8 ranged damage (ranks I–V).
 
 <sub>Source: KOTOR 2's feat descriptions ("increases the damage done with ranged weapons by +1", +2, +4, +6 and +8). Code: `sim::combat::damage::weapon_roll`.</sub>
 
@@ -2287,95 +2292,92 @@ Precise Shot I to V add +1, +2, +4, +6 and +8 to the damage of ranged weapons.
 
 Precise Shot I **2 points** · Precise Shot II **4 points** · Precise Shot III **6 points** · Precise Shot IV **8 points** · Precise Shot V **10 points**
 
-Precise Shot I to V take 2, 4, 6, 8 and 10 points off the deflection bonus of anyone who tries to turn the character's blaster bolts.
+Inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection (ranks I–V).
 
 <sub>Source: KOTOR 2's feat descriptions ("applies a -2 penalty to any attempt to deflect the blaster bolt", up to -10). Code: `sim::combat::passive::deflect_penalty`.</sub>
 
 ### <a id="feats-close-combat"></a>Close Combat
 
-Close Combat and Improved Close Combat train a character to fight with a
-ranged weapon at close quarters. The character gains a bonus to hit with a
-ranged weapon when the target is at short range. Improved Close Combat
-replaces Close Combat.
+Grants +1 (Close Combat) or
++2 (Improved) to hit with ranged weapons
+against targets within 10 m.
 
-In KOTOR 2 the feats also lower a bonus that melee attackers have against
-a character who fights with a ranged weapon. This game gives melee
-attackers no such bonus, so that part of the feats does nothing here.
+In KOTOR 2 these feats also lower a melee-vs-ranged attacker bonus; kjk has
+no such bonus, so only the short-range attack bonus applies.
 
 <a id="feats-close-combat-attack"></a>**Close Combat Bonus** = **1 points / 2 points** (`1 / 2 points`) · `feats.close_combat.attack`
 
 Close Combat **1 points** · Improved Close Combat **2 points**
 
-Close Combat adds +1 and Improved Close Combat +2 to hit with a ranged weapon at a target at short range.
+Grants +1 (Close Combat) or +2 (Improved) to hit at short range.
 
 <sub>Source: KOTOR 2's feat descriptions ("When the character's target is at short range, they receive a +1 attack bonus", +2 with Improved Close Combat). Code: `sim::combat::passive::close_combat`.</sub>
 
 <a id="feats-close-combat-short-range-m"></a>**Short Range** = **10 m** · `feats.close_combat.short_range_m`
 
-A target counts as at short range for Close Combat when it is within 10 meters.
+Short range for Close Combat is within 10 m.
 
 <sub>Source: both games' ranges.2da (row WeaponRngShrt). Code: `sim::combat::passive::close_combat`.</sub>
 
 ### <a id="feats-dual-strike"></a>Dual Strike
 
-Dual Strike, Improved Dual Strike and Master Dual Strike add a bonus to
-hit an enemy that another member of the character's side is also
-attacking. Each tier replaces the one before it.
+Grants +2 (Dual Strike),
++4 (Improved), or
++6 (Master) to hit an enemy that an ally
+is already attacking.
 
-Another member of the side attacks an enemy when that enemy is its target. For the player's party, the side is the party.
+Counts when another member of your party (or side) is targeting the same enemy.
 
 <a id="feats-dual-strike-attack"></a>**Dual Strike Bonus** = **2 points / 4 points / 6 points** (`2 / 4 / 6 points`) · `feats.dual_strike.attack`
 
 Dual Strike **2 points** · Improved Dual Strike **4 points** · Master Dual Strike **6 points**
 
-Dual Strike adds +2, Improved Dual Strike +4 and Master Dual Strike +6 to hit an enemy that another member of the character's side is attacking.
+Grants +2 / +4 / +6 to hit an enemy an ally is attacking.
 
 <sub>Source: KOTOR 2's feat descriptions ("the character gets a +2 bonus to hit", +4 and +6). Code: `sim::combat::passive::dual_strike`.</sub>
 
 ### <a id="feats-unarmed-specialist"></a>Unarmed Specialist
 
-Unarmed Specialist adds extra damage to every unarmed attack. Unarmed
-Specialist I adds 1 die of
-1-4, and each tier after it adds one die
-more, up to 8 dice with Unarmed
-Specialist VIII. Each tier replaces the one before it.
+Adds 1d4
+(rank I) up to
+8d4
+(rank VIII) extra damage to unarmed attacks (+1 die per rank; highest rank
+applies).
 
-The Jedi classes are granted the tiers of Unarmed Specialist at their class levels, as the feats' table says.
+Granted automatically to Jedi classes at class levels.
 
 <a id="feats-unarmed-specialist-dice"></a>**Unarmed Specialist Dice** = **1 dice / 2 dice / 3 dice / 4 dice / 5 dice / 6 dice / 7 dice / 8 dice** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 dice`) · `feats.unarmed_specialist.dice`
 
 Unarmed Specialist I **1 dice** · Unarmed Specialist II **2 dice** · Unarmed Specialist III **3 dice** · Unarmed Specialist IV **4 dice** · Unarmed Specialist V **5 dice** · Unarmed Specialist VI **6 dice** · Unarmed Specialist VII **7 dice** · Unarmed Specialist VIII **8 dice**
 
-Unarmed Specialist I to VIII add 1 to 8 dice of extra damage to unarmed attacks.
+Adds 1 to 8 extra damage dice to unarmed attacks (ranks I–VIII).
 
 <sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage to all unarmed attacks", then 2-8, 3-12 and so on up to 8-32). Code: `sim::combat::damage::weapon_roll`.</sub>
 
 <a id="feats-unarmed-specialist-die"></a>**Unarmed Specialist Die** = **4** · `feats.unarmed_specialist.die`
 
-Each die of Unarmed Specialist adds 1-4 points of damage.
+Each die adds 1–4 damage.
 
 <sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage"). Code: `sim::combat::damage::weapon_roll`.</sub>
 
 ### <a id="feats-evasion"></a>Evasion
 
-A character with Evasion takes no damage from a grenade's blast when the
-Reflex save succeeds, where a character without it takes half.
+You take no damage from grenades on a successful Reflex save (instead of
+half).
 
-The games' own scripts decide the damage of mines and Force powers, and
-they check for Evasion themselves where they do. The engine applies
-Evasion only to the blasts it sizes itself.
+Mines and Force powers are handled by the games' own scripts, which check
+Evasion themselves. The engine applies Evasion to grenade blasts it
+resolves directly.
 
 ### <a id="feats-class-skill"></a>Class Skill Feats
 
-A Class Skill feat makes its skill a class skill for the character. A rank
-in the skill then takes 1 skill
-point instead of 2, and the skill may
-have as many ranks as any class skill.
+Turns this skill into a class skill: ranks cost
+1 skill point instead of
+2, with the full class-skill rank
+cap.
 
-In KOTOR 1 a class may pick a Class Skill feat only when the skill is not
-one of its own class skills. KOTOR 1 and KOTOR 2 give their classes
-different class skills, so KOTOR 1's own skills table decides which
-classes may pick which feats.
+In KOTOR 1, a class can only pick a Class Skill feat for a skill that is
+not already a class skill.
 
 ## <a id="items"></a>Items
 
@@ -2385,66 +2387,54 @@ the items that slain creatures leave behind.
 
 ### <a id="items-using"></a>Using Items in Combat
 
-Medpacs, stims and energy shields are used from a slot of the action bar or
-from the power wheel. When the character uses medpacs while poisoned or with
-a lowered attribute, the character uses an antidote kit. Otherwise the
-character uses a medpac, or a repair kit for a droid. If the character has
-neither, the character uses a squad recovery stim. The character injects a
-medpac, antidote kit or stim, and switches on an energy shield at the wrist.
-The item is used up when the character begins, and it takes effect when the
-character is done. If the character is stunned, choked, knocked down or downed before
-then, the use stops. Being hit or moving does not stop it. A weapon change or
-a Force power waits until the use is done.
+Use from the action bar or power wheel. The item is consumed when you start
+and takes effect when finished; moving or taking a hit does not interrupt
+it, but being stunned, choked, knocked down, or downed does.
 
-A character can have only one energy shield and one stim active at a time.
-Enemies also use medpacs, energy shields and stims in combat.
-
-An item used on another character, such as a droid's shock arm, stun ray or
-flame thrower, takes the user's combat round. The user can use such an item
-again only once 3 seconds have passed.
+Using the medpac slot while poisoned or attribute-drained uses an antidote
+kit; otherwise it uses a medpac (repair kit for droids), falling back to a
+squad recovery stim. Only one energy shield and one stim can be active at a
+time. Offensive droid items (shock arm, stun ray, flame thrower) have a
+one-round (3 seconds) cooldown.
 
 <a id="items-using-heal-ms"></a>**Healing Time** = **1.5 seconds** (`1500 ms`) · `items.using.heal_ms`
 
-Using a medpac or repair kit takes 1.5 seconds for a character with no ranks in Treat Injury or Repair.
+Takes 1.5 seconds to use, minus 0.1 seconds per rank in Treat Injury (or Repair for droids), down to 0.5 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-per-rank-ms"></a>**Healing Time per Rank** = **0.1 seconds** (`100 ms`) · `items.using.per_rank_ms`
 
-Each rank of Treat Injury makes using a medpac 0.1 seconds faster. For a droid, each rank of Repair makes using a repair kit 0.1 seconds faster.
+Each rank in Treat Injury (or Repair for droids) speeds up medpac / repair kit use by 0.1 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-least-ms"></a>**Fastest Healing** = **0.5 seconds** (`500 ms`) · `items.using.least_ms`
 
-Using a medpac or repair kit always takes at least 0.5 seconds.
+Medpac and repair kit use always takes at least 0.5 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
-Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds. The item takes effect at the end of that time.
+Takes 1.5 seconds to activate.
 
 <sub>Source: spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end. Code: `sim::combat::items::USE_MS`.</sub>
 
 ### <a id="items-medpacs"></a>Medpacs
 
-A medpac heals 10 vitality points, plus the
-user's Wisdom modifier, plus 1 for each rank
-the user has in Treat Injury. An advanced medpac heals
-20 vitality points, plus the user's Wisdom
-modifier, plus 2 for each rank in Treat
-Injury. A life support pack heals 30 vitality
-points, plus the user's Wisdom modifier, plus
-3 for each rank in Treat Injury. Droids cannot
-use medpacs. An antidote kit cures poison and restores attributes that were
-lowered.
+Heals 10 (Medpac), 20
+(Advanced), or 30 (Life Support Pack) Vitality,
+plus your Wisdom mod and +1 /
++2 / +3 per
+rank in Treat Injury. Cannot be used by droids. Antidote kits cure poison
+and restore drained attributes.
 
 <a id="items-medpacs-points"></a>**Medpac Healing** = **10 HP / 20 HP / 30 HP** (`10 / 20 / 30 HP`) · `items.medpacs.points`
 
 Medpac **10 HP** · Advanced Medpac **20 HP** · Life Support Pack **30 HP**
 
-A medpac heals 10 vitality points. An advanced medpac heals 20, and a life support pack heals 30. The user's Wisdom modifier and Treat Injury skill are added on top.
+Base healing: 10 (Medpac), 20 (Advanced), 30 (Life Support Pack).
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -2452,27 +2442,24 @@ A medpac heals 10 vitality points. An advanced medpac heals 20, and a life suppo
 
 Medpac **1 HP** · Advanced Medpac **2 HP** · Life Support Pack **3 HP**
 
-Each rank of Treat Injury adds 1 vitality points to a medpac's healing. It adds 2 to an advanced medpac's and 3 to a life support pack's.
+Each rank in Treat Injury adds +1 / +2 / +3 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-repair-kits"></a>Repair Kits
 
-A repair kit restores 15 vitality points,
-plus the user's Intelligence modifier, plus
-1 for each rank the user has in Repair. An
-advanced repair kit restores 25 vitality
-points, plus the user's Intelligence modifier, plus
-2 for each rank in Repair. A construction
-kit restores 35 vitality points, plus the
-user's Intelligence modifier, plus 3 for
-each rank in Repair. Only droids can use repair kits.
+Droids only. Restores 15 (Repair Kit),
+25 (Advanced), or
+35 (Construction Kit) Vitality, plus your
+Intelligence mod and +1 /
++2 /
++3 per rank in Repair.
 
 <a id="items-repair-kits-points"></a>**Repair Kit Repair** = **15 HP / 25 HP / 35 HP** (`15 / 25 / 35 HP`) · `items.repair_kits.points`
 
 Repair Kit **15 HP** · Advanced Repair Kit **25 HP** · Construction Kit **35 HP**
 
-A repair kit restores 15 vitality points. An advanced repair kit restores 25, and a construction kit restores 35. The user's Intelligence modifier and Repair skill are added on top.
+Base repair: 15 (Repair Kit), 25 (Advanced), 35 (Construction Kit).
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -2480,35 +2467,36 @@ A repair kit restores 15 vitality points. An advanced repair kit restores 25, an
 
 Repair Kit **1 HP** · Advanced Repair Kit **2 HP** · Construction Kit **3 HP**
 
-Each rank of Repair adds 1 vitality points to what a repair kit restores. It adds 2 to an advanced repair kit and 3 to a construction kit.
+Each rank in Repair adds +1 / +2 / +3 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-squad-stim"></a>Squad Recovery Stim
 
-A squad recovery stim heals the user and every ally nearby. It heals droids
-too.
+Heals you and every ally within 20 m (including droids) for 30 Vitality.
 
 <a id="items-squad-stim-points"></a>**Squad Stim Healing** = **30 HP** · `items.squad_stim.points`
 
-A squad recovery stim heals each ally in range by 30 vitality points.
+Heals each ally in range for 30 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-squad-stim-reach-m"></a>**Squad Stim Range** = **20 m** · `items.squad_stim.reach_m`
 
-A squad recovery stim heals allies within 20 meters of its user.
+Reaches allies within 20 m.
 
 <sub>Source: ours (a stand-in's). Code: `sim::combat::items::SQUAD_REACH`.</sub>
 
 ### <a id="items-stims"></a>Stims
 
-An adrenal strength stim raises Strength. An adrenal alacrity stim raises
-Dexterity. An adrenal stamina stim raises Constitution. A battle stimulant
-grants a bonus to attack and damage. It also grants bonus vitality points.
-Damage removes these bonus points before the character's own vitality
-points, and any that are left disappear when the stimulant wears off. A
-character can have only one stim active at a time.
+Lasts 120 seconds (only one stim active at a time). Adrenal stims
+grant +4 (Hyper: +6)
+to Strength, Dexterity, or Constitution. Battle stimulants grant
++1 / +2 /
++3 to hit and damage plus
+8 /
+16 /
+25 temporary Vitality.
 
 <a id="items-stims-ms"></a>**Stim Duration** = **120 seconds** (`120000 ms`) · `items.stims.ms`
 
@@ -2546,16 +2534,15 @@ A battle stimulant grants 8 bonus vitality points. A hyper-battle stimulant gran
 
 ### <a id="items-shields"></a>Energy Shields
 
-An energy shield absorbs damage of the types it protects against. It lasts
-until its points are used up or its time runs out. A character can have only
-one energy shield active at a time. An energy shield, an Echani dueling
-shield, Yusanis' dueling shield and a droid energy shield protect against
-energy and electrical damage. A Sith energy shield and an Echani shield also
-protect against sonic damage. An Arkanian energy shield, a Verpine prototype
-shield and a droid environment shield protect against energy, electrical,
-sonic, cold and fire damage. A Mandalorian melee shield protects against
-physical damage. A Mandalorian power shield protects against physical,
-energy and electrical damage.
+Lasts 200 seconds or until depleted (only one shield active at a
+time). Weak to ion damage (drains 2×
+as fast).
+
+Energy, Echani dueling, Yusanis' dueling, and droid energy shields block
+energy and electrical. Sith and Echani shields also block sonic. Arkanian,
+Verpine prototype, and droid environment shields block energy, electrical,
+sonic, cold, and fire. Mandalorian melee shields block physical;
+Mandalorian power shields block physical, energy, and electrical.
 
 <a id="items-shields-ms"></a>**Shield Duration** = **200 seconds** (`200000 ms`) · `items.shields.ms`
 
@@ -2989,37 +2976,37 @@ A character who makes a successful Reflex save takes the blast's damage divided 
 
 ### <a id="grenades-fragmentation"></a>Fragmentation Grenade
 
-This grenade deals piercing damage. A successful save halves the damage.
+Deals 20 piercing damage (Reflex save DC 15 for half).
 
 <a id="grenades-fragmentation-points"></a>**Damage** = **20 points** · `grenades.fragmentation.points`
 
-A fragmentation grenade deals 20 points of piercing damage.
+Deals 20 piercing damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-stun"></a>Concussion Grenade
 
-This grenade deals no damage. A character who fails the save is stunned.
+Deals no damage. Stuns targets on a failed Reflex save (DC 15) for up to 3 seconds.
 
 <a id="grenades-stun-hold-ms"></a>**Stun Duration** = **9 seconds** (`9000 ms`) · `grenades.stun.hold_ms`
 
-A concussion grenade stuns for 9 seconds. A stun never lasts longer than 3 seconds, so the shorter of the two applies.
+Stuns for 9 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-thermal-detonator"></a>Thermal Detonator
 
-This grenade deals energy damage and knocks characters down. A successful save halves the damage and prevents the knockdown.
+Deals 60 energy damage and knocks targets down (Reflex save DC 15 for half damage and no knockdown).
 
 <a id="grenades-thermal-detonator-points"></a>**Damage** = **60 points** · `grenades.thermal_detonator.points`
 
-A thermal detonator deals 60 points of energy damage.
+Deals 60 energy damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-poison"></a>Poison Grenade
 
-This grenade deals no damage when it explodes. A character who fails the save is poisoned, and this grenade's save is harder than the others. A character with Knight Valor, Master Valor or Improved Energy Resistance is immune to the poison.
+Poisons targets on a failed Reflex save (DC 25), dealing 4 damage every 3 seconds for 30 seconds. Blocked by poison immunity (Knight/Master Valor, Improved Energy Resistance).
 
 <a id="grenades-poison-dc"></a>**Reflex DC** = **25** · `grenades.poison.dc`
 
@@ -3047,65 +3034,65 @@ A poisoned character loses 4 vitality points every 3 seconds for 30 seconds.
 
 ### <a id="grenades-sonic"></a>Sonic Grenade
 
-This grenade deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss.
+Deals 20 sonic damage and -6 Dexterity for 30 seconds (Reflex save DC 15 for half damage and no Dexterity loss).
 
 <a id="grenades-sonic-points"></a>**Damage** = **20 points** · `grenades.sonic.points`
 
-A sonic grenade deals 20 points of sonic damage.
+Deals 20 sonic damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-dex"></a>**Dexterity Loss** = **6 points** · `grenades.sonic.dex`
 
-A character who fails the save suffers -6 to Dexterity for 30 seconds.
+Inflicts -6 Dexterity for 30 seconds on a failed save.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-for-ms"></a>**Dexterity Loss Duration** = **30 seconds** (`30000 ms`) · `grenades.sonic.for_ms`
 
-A character who fails the save suffers -6 to Dexterity for 30 seconds.
+Dexterity loss lasts 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-adhesive"></a>Adhesive Grenade
 
-This grenade deals no damage. Every character caught in the blast is entangled, and there is no save.
+Deals no damage. Entangles everyone in the blast for up to 3 seconds (no save).
 
 <a id="grenades-adhesive-hold-ms"></a>**Entangle Duration** = **15 seconds** (`15000 ms`) · `grenades.adhesive.hold_ms`
 
-An adhesive grenade entangles for 15 seconds. An entanglement never lasts longer than 3 seconds, so the shorter of the two applies.
+Entangles for 15 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-cryoban"></a>CryoBan Grenade
 
-This grenade deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis.
+Deals 20 cold damage and paralyzes for up to 3 seconds (Reflex save DC 15 for half damage and no paralysis).
 
 <a id="grenades-cryoban-points"></a>**Damage** = **20 points** · `grenades.cryoban.points`
 
-A CryoBan grenade deals 20 points of cold damage.
+Deals 20 cold damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-cryoban-hold-ms"></a>**Paralysis Duration** = **6 seconds** (`6000 ms`) · `grenades.cryoban.hold_ms`
 
-A CryoBan grenade paralyzes for 6 seconds. A paralysis never lasts longer than 3 seconds, so the shorter of the two applies.
+Paralyzes for 6 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-fire"></a>Plasma Grenade
 
-This grenade deals fire damage. A successful save halves the damage.
+Deals 36 fire damage (Reflex save DC 15 for half).
 
 <a id="grenades-fire-points"></a>**Damage** = **36 points** · `grenades.fire.points`
 
-A plasma grenade deals 36 points of fire damage.
+Deals 36 fire damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-ion"></a>Ion Grenade
 
-This grenade deals ion damage, and much more of it against droids. A successful save halves the damage.
+Deals 15 ion damage (45 to droids; Reflex save DC 15 for half).
 
 <a id="grenades-ion-points"></a>**Damage** = **15 points** · `grenades.ion.points`
 
@@ -4884,16 +4871,13 @@ back.
 
 ### <a id="saber-throw-out"></a>Throw Lightsaber
 
-A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
-(level 2) can throw a lightsaber. The character must have the blade ready and
-enough Force points to use the power. In any style except the staff style,
-the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with the key of an action bar slot that holds Throw Lightsaber. The
-lightsaber flies out in the direction the character looks. It returns when
-the player lets go of the button, when it hits someone or is blocked, when it
-has been out too long or has flown too far, or when the character can no
-longer use the Force. The character's Force points do not regenerate while
-the lightsaber flies. At level 2, the lightsaber follows the crosshair.
+Press [Alt attack] (except in staff style) or its action bar key to throw
+your lightsaber toward your crosshair (range:
+17.8 meters per rank; up to
+6 seconds). Advanced Throw Lightsaber tracks your
+crosshair in flight. Returns when you release the key, hit or get blocked,
+or reach max range. Force points do not regenerate while your saber is in
+flight.
 
 <a id="saber-throw-out-cost"></a>**Default Force Point Cost** = **20 Force points** (`2000 hundredths FP`) · `saber_throw.out.cost`
 
@@ -5183,19 +5167,17 @@ The power strikes at once, and then once every
 
 <a id="force-channel-tick-ms"></a>**Strike Interval** = **0.05 seconds** (`50 ms`) · `force.channel.tick_ms`
 
-Lightning and drain powers strike once every 0.05 seconds while they are active.
+Hits every 0.05 seconds while active.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::run`.</sub>
 
 <a id="force-channel-run-ms"></a>**Lightning and Drain Duration** = **0.5 seconds** (`500 ms`) · `force.channel.run_ms`
 
-One use of a lightning or drain power lasts 0.5 seconds. A
-power that the Jedi keeps going by keeping its key pressed, Choke
-included, costs its Force points once for the first
-0.5 seconds. After that, it costs the same amount again for
-every second it continues.
+A tap lasts 0.5 seconds. Hold the key to keep channeling — you
+pay the Force cost up front for the first 0.5 seconds, then
+again for each second you hold it.
 
-If the target resists a Choke, the Choke ends after this time.
+Applies to lightning, drain, and grip powers. If a target resists Choke, it ends after this time.
 
 <sub>Source: JA. Code: `sim::combat::force::channel_cost`.</sub>
 
@@ -5203,60 +5185,56 @@ If the target resists a Choke, the Choke ends after this time.
 
 rank 1 **3 seconds** · ranks 2 and 3 **1.5 seconds**
 
-After a lightning or drain power ends, the Jedi cannot use it again for
-3 seconds at rank 1, or for
-1.5 seconds at ranks 2 and 3.
+Cooldown after ending: 3 seconds (rank 1) or
+1.5 seconds (ranks 2 and 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-channel-line-range"></a>**Lightning and Drain Range** = **52 meters** (`2048 units`) · `force.channel.line_range`
 
-At ranks 1 and 2, lightning and drain powers reach a target up to 52 meters away in the Jedi's line of sight.
+Reaches up to 52 meters in line of sight (ranks 1 and 2).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-cone-dot"></a>**Rank 3 Cone Width** = **0.5** · `force.channel.cone_dot`
 
-At rank 3, lightning and drain powers strike everyone in a cone in front
-of the Jedi. The number 0.5 sets the cone's width. A
-value of 1 is a straight line, and a value of 0 covers everything in front
-of the Jedi.
+Rank 3 lightning and drain hit enemies in a front cone (dot-product threshold 0.5; 1 is a line, 0 is the full front hemisphere).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-impact-every-ms"></a>**Scripted Strike Interval** = **1 second** (`1000 ms`) · `force.channel.impact_every_ms`
 
-When the power's script runs, a lightning or drain power strikes at once, and then once every 1 second while the key stays pressed.
+Deals its scripted hit immediately, then once every 1 second while held.
 
 <sub>Source: ours. Code: `sim::world::powers::Cast::run`.</sub>
 
 ### <a id="force-push"></a>Force Push, Force Whirlwind and Force Wave
 
-Force Push (rank 1) throws one target up to 13 meters
-away. Force Whirlwind (rank 2) and Force Wave (rank 3) throw every enemy in front of the Jedi up to 26 meters
-away. Each rank of the power throws the target at 6.5 meters per second.
-The throw is 0.7 meters per second slower for every
-meter between the Jedi and the target, but never slower than
-0.41 meters per second. A thrown target leaves the ground. Force Pull
-throws the target toward the Jedi in the same way. A character knows Force
-Pull at the same rank as Force Push, and it costs the same Force points.
+Throws enemies backward and off their feet; closer targets are thrown
+harder. Force Push hits one target up to 13 meters away.
+Force Whirlwind and Force Wave hit every enemy in front of you up to
+26 meters away. Force Pull works the same way in reverse,
+sharing your Force Push rank and Force cost.
 
-A target that knows Force Push and stands on the ground with a free hand
-pushes back. It resists a throw of its own rank or lower completely. A
-target that is moving counts as one rank lower. A target that is already
-knocked down is not thrown. A Jedi seized by an enemy's grip breaks free
-by pushing that enemy with a Force Push of the grip's rank or higher.
+Each rank pushes at 6.5 meters per second, losing 0.7
+m/s per meter of distance (minimum 0.41 meters per second). A target
+that knows Force Push and stands on the ground with a free hand pushes back
+and resists any throw of its own rank or lower (moving targets count as one
+rank lower). Already knocked-down targets are not thrown. You can break free
+from an enemy's grip by pushing them with a Force Push of the grip's rank or
+higher.
 
 <a id="force-push-aimed-reach"></a>**Force Push Range** = **13 meters** (`512 units`) · `force.push.aimed_reach`
 
-Force Push and Force Pull reach a target up to 13 meters away in the Jedi's line of sight.
+Force Push and Force Pull reach a single target up to 13 meters away in line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-area-reach"></a>**Area Throw Range** = **26 meters** (`1024 units`) · `force.push.area_reach`
 
-Force Whirlwind and Force Wave reach 26 meters around the Jedi. When their scripts run, Force
-Push and Force Whirlwind pick their target within the same range.
+Force Whirlwind and Force Wave hit enemies up to 26 meters away.
+
+When their impact scripts run, Force Push and Force Whirlwind also pick targets within this range.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -5264,42 +5242,38 @@ Push and Force Whirlwind pick their target within the same range.
 
 rank 2 **30°** · rank 3 **90°**
 
-An area throw reaches targets up to 30° (rank 2) or
-90° (rank 3) to either side of the Jedi's aim. It reaches
-the same angle above and below the aim.
+Hits enemies within 30° (Force Whirlwind) or
+90° (Force Wave) of where you aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-front-dot"></a>**Front Arc** = **0.6** · `force.push.front_dot`
 
-Area throws, and stun and fear powers that affect an area, affect only
-targets in front of the Jedi. The number 0.6 sets how
-wide that area is. A value of 1 is a straight line, and a value of 0
-covers everything in front of the Jedi.
+Area throws, stuns, and fear powers hit enemies in a front arc (dot-product threshold 0.6; 1 is a line, 0 is the full front hemisphere).
 
 <sub>Source: JA. Code: `sim::world::powers::Scene::around`.</sub>
 
 <a id="force-push-strength"></a>**Throw Speed** = **6.5 meters per second** (`256 units/s`) · `force.push.strength`
 
-Each rank of a throw pushes the target at 6.5 meters per second, before the reduction for distance.
+Base throw speed is 6.5 meters per second per rank before distance falloff.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-falloff"></a>**Throw Loss with Distance** = **0.7** · `force.push.falloff`
 
-A throw is 0.7 meters per second slower for every meter between the Jedi and the target.
+Throw speed drops by 0.7 m/s for every meter between you and the target.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-shove"></a>**Minimum Throw Speed** = **0.41 meters per second** (`16 units/s`) · `force.push.least_shove`
 
-A throw that reaches a target always pushes it at 0.41 meters per second or faster, however far away the target stands.
+A throw always pushes at least 0.41 meters per second, regardless of distance.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-lift"></a>**Throw Lift** = **3.3 meters per second** (`128 units/s`) · `force.push.least_lift`
 
-A thrown target leaves the ground and rises at 3.3 meters per second or faster.
+Thrown targets are lifted upward at 3.3 meters per second or faster.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -5377,54 +5351,53 @@ Force Whirlwind always deals at least 1 point of damage.
 
 ### <a id="force-lightning"></a>Shock, Force Lightning and Force Storm
 
-Each of these powers strikes over and over while it is active. Each strike
-deals 1% of the target's maximum vitality
-points, plus up to 1% more, and pushes the
-target back. Force Storm strikes everyone within
-7.6 meters in a cone in front of the Jedi. The damage is
-electrical, so energy shields absorb it.
+Repeatedly zaps enemies while active, dealing 1%
+(plus up to 1% extra) of the target's max
+Vitality as electrical damage per tick and pushing them back. Energy shields
+absorb this damage. Force Storm hits every enemy in a
+7.6 meters cone in front of you.
 
-Force Resistance of a lower rank than the power reduces each strike to
+Force Resistance of a lower rank than the power reduces each tick to
 1%, with no extra damage. Force Resistance of
 the same rank or higher stops the damage completely. In both cases the
-target regains Force points from each strike. When the power's script
-runs, the script sets the damage.
+target regains Force points from each tick. When the power's script runs,
+the script sets the damage.
 
 <a id="force-lightning-radius"></a>**Force Storm Range** = **7.6 meters** (`300 units`) · `force.lightning.radius`
 
-Force Storm reaches 7.6 meters around the Jedi, within its cone.
+Force Storm reaches 7.6 meters in a cone in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-points"></a>**Lightning Damage** = **1 points** · `force.lightning.points`
 
-Each lightning strike deals 1% of the target's maximum vitality points.
+Base damage per tick is 1% of the target's max Vitality.
 
 <sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-extra"></a>**Lightning Bonus Damage** = **1 points** · `force.lightning.extra`
 
-Each lightning strike can deal up to 1% more of the target's maximum vitality points.
+Each tick can deal up to 1% extra of the target's max Vitality.
 
 <sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-drain"></a>Drain Life, Death Field and Drain Force
 
-Each of these powers strikes over and over while it is active. Each strike
-takes a percentage of the maximum Force points of every target that has
-Force points. The Jedi regains the same percentage of his or her own
-maximum vitality points. These powers take only Force points from the
-target, never vitality points. Death Field and Master Drain Force strike
-everyone within 13 meters in a cone in front of the Jedi.
+Repeatedly drains 2% (rank 1),
+3% (rank 2), or 4%
+(rank 3) of the target's max Force per tick and heals you for that same
+percentage of your max Vitality. Only drains Force points (never Vitality).
+Death Field and Master Drain Force hit every enemy in a
+13 meters cone in front of you.
 
-Against Force Resistance, each strike takes 1% for each rank by which the
-drain power is higher than the Force Resistance. The target also regains
-Force points from each strike. When the power's script runs, the script
-sets the damage and healing.
+Against Force Resistance, each tick drains 1% per rank by which the drain
+power exceeds the target's Force Resistance, and the target also regains
+Force points from each tick. When the power's script runs, the script sets
+the damage and healing.
 
 <a id="force-drain-radius"></a>**Rank 3 Drain Range** = **13 meters** (`512 units`) · `force.drain.radius`
 
-Death Field and Master Drain Force reach 13 meters around the Jedi, within their cone.
+Death Field and Master Drain Force reach 13 meters in a cone in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
@@ -5432,62 +5405,56 @@ Death Field and Master Drain Force reach 13 meters around the Jedi, within their
 
 rank 1 **2 points** · rank 2 **3 points** · rank 3 **4 points**
 
-Each strike takes 2% of the target's maximum
-Force points at rank 1, 3% at rank 2 and
-4% at rank 3. The Jedi regains the same
-percentage of his or her own maximum vitality points.
+Drains 2% (rank 1), 3%
+(rank 2), or 4% (rank 3) of the target's max
+Force per tick and heals you for the same share of your max Vitality.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-caster-wait-ms"></a>**Drain Regeneration Pause** = **0.5 seconds** (`500 ms`) · `force.drain.caster_wait_ms`
 
-Each drain strike stops the Jedi's own Force point regeneration for 0.5 seconds.
+Pauses your Force regeneration for 0.5 seconds on each tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-victim-wait-ms"></a>**Drained Regeneration Pause** = **0.8 seconds** (`800 ms`) · `force.drain.victim_wait_ms`
 
-Each strike that takes Force points stops the target's Force point regeneration for 0.8 seconds.
+Pauses the target's Force regeneration for 0.8 seconds on each tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 ### <a id="force-grip"></a>Wound, Choke, Kill and Force Crush
 
-The Jedi keeps these powers going by keeping the key pressed. The Jedi
-seizes one target up to 6.5 meters away, unless the target is
-under Force Resistance or is already seized. The target suffers
-2% of its maximum vitality points as damage every
-1 second. At rank 1 the target stays on the ground.
-At rank 2 the target is also lifted into the air. At rank 3 the Jedi moves
-the target to a point in front of him or her. At ranks 2 and 3 the grip
-also crushes the target once, 3 seconds after it begins.
-While gripping, the Jedi moves at 0.4 times
-normal speed. The seized target moves at
-0.2 times normal speed, or
-0.8 times if it is under a speed power.
+Hold the key to grip one target up to 6.5 meters away (does not
+work on targets under Force Resistance or already gripped), dealing
+2% of their max Vitality every
+1 second. Rank 1 holds them on the ground; rank 2
+lifts them into the air; rank 3 lets you move them around in front of you.
+While gripping, you move at 0.4× speed and the
+target moves at 0.2× speed
+(0.8× under a speed power).
 
-The grip ends when the target dies, moves out of range, or moves out of
-the Jedi's line of sight. At ranks 1 and 2, it also ends when the target
-leaves the area in front of the Jedi. It also ends when the target's Force
-Resistance cancels it completely. When the power's script runs, the grip
-lasts until the script deals its last damage. If the Jedi lets go early,
-the target does not suffer the rest of that damage.
+The grip ends when the target dies, moves out of range, or leaves your line
+of sight (and at ranks 1–2, if they leave your front arc). It also ends if
+the target's Force Resistance cancels it. When the power's script runs, the
+grip lasts until the script deals its last damage; letting go early cancels
+the remaining damage.
 
 <a id="force-grip-range"></a>**Grip Range** = **6.5 meters** (`256 units`) · `force.grip.range`
 
-The grip seizes a target up to 6.5 meters away in line of sight. It lets go when the target moves farther away than that.
+Reaches up to 6.5 meters in line of sight and breaks if the target moves farther away.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-points"></a>**Grip Damage** = **2 points** · `force.grip.points`
 
-Each squeeze deals 2% of the target's maximum vitality points.
+Deals 2% of the target's max Vitality per squeeze.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-squeeze-every-ms"></a>**Squeeze Interval** = **1 second** (`1000 ms`) · `force.grip.squeeze_every_ms`
 
-The grip squeezes the target as soon as it begins, and then once every 1 second.
+Squeezes immediately, then every 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5495,9 +5462,8 @@ The grip squeezes the target as soon as it begins, and then once every 1 second.
 
 rank 1 **5 seconds** · rank 2 **4 seconds** · rank 3 **4 seconds**
 
-The grip lasts at most 5 seconds at rank 1,
-4 seconds at rank 2 and 4 seconds at rank
-3.
+Lasts up to 5 seconds (rank 1) or 4 seconds
+(ranks 2 and 3).
 
 When the power's script runs, the grip lasts until the script deals its last damage.
 
@@ -5505,7 +5471,7 @@ When the power's script runs, the grip lasts until the script deals its last dam
 
 <a id="force-grip-crush-ms"></a>**Crush Time** = **3 seconds** (`3000 ms`) · `force.grip.crush_ms`
 
-At ranks 2 and 3, the grip crushes the target once, 3 seconds after the grip begins.
+At ranks 2 and 3, crushes the target 3 seconds after the grip begins.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5513,11 +5479,11 @@ At ranks 2 and 3, the grip crushes the target once, 3 seconds after the grip beg
 
 rank 1 **0 points** · rank 2 **20 points** · rank 3 **40 points**
 
-The crush deals 20% of the target's maximum
-vitality points at rank 2 and 40% at rank 3. The
-value for rank 1 is 0%, because a rank 1 grip does
-not crush. The crushed target chokes, and any grip the target itself was
-using ends.
+After 3 seconds, crushes the target for
+20% (rank 2) or 40% (rank 3)
+of their max Vitality, leaving them choking for
+2 seconds (unable to use their hands) and breaking any
+grip they were using.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5529,34 +5495,31 @@ After the crush, the target clutches its throat for 2 seconds and cannot use its
 
 <a id="force-grip-front-dot"></a>**Grip Arc** = **0.9** · `force.grip.front_dot`
 
-At ranks 1 and 2, the grip ends when the target leaves the area in front
-of the Jedi. The number 0.9 sets how wide that area is.
-A value of 1 is a straight line, and a value of 0 covers everything in
-front of the Jedi. A rank 3 grip has no such limit.
+At ranks 1 and 2, the grip breaks if the target leaves your front arc (dot-product threshold 0.9; no limit at rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift-every-ms"></a>**Lift Interval** = **0.3 seconds** (`300 ms`) · `force.grip.lift_every_ms`
 
-A rank 2 grip lifts the target, and a rank 3 grip moves the target, once every 0.3 seconds.
+Updates the target's lift (rank 2) or carry position (rank 3) every 0.3 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift"></a>**Lift Speed** = **0.76 meters per second** (`30 units/s`) · `force.grip.lift`
 
-Each lift raises the target of a rank 2 grip at 0.76 meters per second. The target floats and does not fall while it is lifted.
+A rank 2 grip lifts the target at 0.76 meters per second and holds them afloat.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-ahead"></a>**Rank 3 Grip Distance** = **3.3 meters** (`128 units`) · `force.grip.carry_ahead`
 
-A rank 3 grip moves its target to a point 3.3 meters in front of the Jedi.
+A rank 3 grip holds the target 3.3 meters in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-up"></a>**Rank 3 Grip Height** = **0.41 meters** (`16 units`) · `force.grip.carry_up`
 
-The point that a rank 3 grip moves its target to is 0.41 meters above the middle of the Jedi's body.
+The rank 3 hold point is 0.41 meters above the middle of your body.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5564,10 +5527,7 @@ The point that a rank 3 grip moves its target to is 0.41 meters above the middle
 
 slowest **0.41 meters** · slow **1.6 meters** · fast **3.3 meters** · faster **5.1 meters**
 
-A rank 3 grip moves its target faster the farther the target is from the
-point. A target closer to the point than each of these distances,
-0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters, moves at the slowest, slow, fast and faster
-speed in turn.
+Distance bands (0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters) that step up how fast a rank 3 grip pulls its target toward the hold point.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5575,31 +5535,31 @@ speed in turn.
 
 slowest **0.2 meters per second** · slow **3.3 meters per second** · fast **6.5 meters per second** · faster **13 meters per second**
 
-A rank 3 grip moves its target toward the point at 0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second, from the slowest speed to the fastest, depending on the target's distance from the point.
+Pull speeds (0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second) for each rank 3 grip distance band.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-beyond"></a>**Rank 3 Grip Speed, Far** = **17.8 meters per second** (`700 units/s`) · `force.grip.carry_beyond`
 
-A target farther from the point than every one of those distances moves toward it at 17.8 meters per second.
+Beyond all distance bands, a rank 3 grip pulls the target at 17.8 meters per second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-cooldown-ms"></a>**Grip Delay** = **3 seconds** (`3000 ms`) · `force.grip.cooldown_ms`
 
-After a grip ends, the Jedi cannot use a grip again for 3 seconds.
+Cooldown after ending: 3 seconds (1 second if the target breaks free with Force Push).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-grip-broken-ms"></a>**Broken Grip Delay** = **1 second** (`1000 ms`) · `force.grip.broken_ms`
 
-When the target breaks free of a grip with Force Push, the Jedi cannot use a grip again for 1 second.
+If the target breaks free with Force Push, the grip cooldown is 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-grip-gripping-scale"></a>**Gripping Speed** = **×0.4** · `force.grip.gripping_scale`
 
-The Jedi moves at 0.4 times normal speed while gripping a target.
+You move at 0.4× normal speed while gripping.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -5607,33 +5567,28 @@ The Jedi moves at 0.4 times normal speed while gripping a target.
 
 seized **×0.2** · seized under a speed power **×0.8**
 
-A seized target moves at 0.2 times normal
-speed, or 0.8 times if it is under a speed
-power.
+A gripped target moves at 0.2× speed (0.8× under a speed power).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-These are toggled powers. In combat, the Jedi moves
-1.15 times as fast. Out of combat, the Jedi moves
-1.5 times as fast. Burst of Speed lasts
-10 seconds, Knight Speed lasts
-15 seconds and Master Speed lasts
-20 seconds. Force points do not regenerate while a speed
-power is active. The power's description lists its Defense bonus and its
-extra attacks.
+Lasts 10 seconds (Burst of Speed),
+15 seconds (Knight Speed), or
+20 seconds (Master Speed). Increases your movement speed
+to 1.15× in combat and
+1.5× out of combat. Force points do not
+regenerate while active.
 
-In combat, this speed replaces the movement bonus in the power's
-description. Out of combat, the Jedi moves by that bonus instead, as in
-KOTOR. That bonus is the fastest movement in the game,
-1.5 times the character's normal walk and
-run. Force Suppression ends Burst of Speed and Knight Speed. Force Breach
-ends all three speed powers.
+In combat, this speed replaces the movement bonus in the original game's
+description. Out of combat, you move at the full KOTOR bonus
+(1.5× normal walk and run). Force
+Suppression ends Burst of Speed and Knight Speed; Force Breach ends all
+three.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-In combat, every rank of the speed powers makes the Jedi move 1.15 times as fast.
+All three ranks increase combat movement speed to 1.15×.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -5641,30 +5596,28 @@ In combat, every rank of the speed powers makes the Jedi move 1.15 times as fast
 
 Burst of Speed **10 seconds** · Knight Speed **15 seconds** · Master Speed **20 seconds**
 
-Burst of Speed lasts 10 seconds, Knight Speed lasts
-15 seconds and Master Speed lasts
-20 seconds.
+Lasts 10 seconds (Burst of Speed),
+15 seconds (Knight Speed), or
+20 seconds (Master Speed).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-protect"></a>Force Aura, Force Shield and Force Armor
 
-These are toggled powers that last 20 seconds. Each time
-the Jedi takes damage to vitality points, the power prevents part of it.
-In exchange, the Jedi loses Force points. The power counts only damage up
-to a limit for each hit. Force Aura, Force Shield, Force Armor, Force
-Resistance and Fury cannot be active at the same time. The power's
-description lists its bonus to Defense and saving throws.
+Lasts 20 seconds. Absorbs part of incoming damage at the
+cost of Force points. Cannot be active at the same time as Force Resistance
+or Fury.
 
-Damage above the limit for one hit is not reduced. If the Jedi runs short
-of Force points, the damage that the missing Force points would have
-prevented is not reduced either.
+Damage above the per-hit cap is not reduced. If you run out of Force points,
+you take the remaining damage as normal.
 
 <a id="force-protect-length-ms"></a>**Protection Duration** = **20 seconds** (`20000 ms`) · `force.protect.length_ms`
 
-Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
-last 20 seconds. Any other toggled power without a
-duration of its own lasts as long.
+Lasts 20 seconds.
+
+Applies to Force Aura, Force Shield, Force Armor, Force Resistance, and
+Force Immunity. Toggled powers with no duration of their own use this same
+default.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -5672,9 +5625,9 @@ duration of its own lasts as long.
 
 Force Aura **40%** · Force Shield **60%** · Force Armor **80%**
 
-Force Aura prevents 40% of the damage it counts.
-Force Shield prevents 60%, and Force Armor
-prevents 80%.
+Reduces incoming damage by 40% (Force Aura),
+60% (Force Shield), or 80%
+(Force Armor).
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -5682,11 +5635,10 @@ prevents 80%.
 
 Force Aura **100%** · Force Shield **50%** · Force Armor **25%**
 
-For each 1% of maximum vitality points that the power counts, the Jedi
-loses part of 1% of maximum Force points. Force Aura uses up
-100% of that 1%, Force Shield uses up
-50%, and Force Armor uses up
-25%.
+Blocking a hit drains your Force bar in proportion to the hit's share of
+your max Vitality: 100% of that share with Force
+Aura, 50% with Force Shield, and
+25% with Force Armor.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -5694,75 +5646,68 @@ loses part of 1% of maximum Force points. Force Aura uses up
 
 Force Aura **100 points** · Force Shield **200 points** · Force Armor **400 points**
 
-From a single hit, Force Aura counts at most 100%
-of the Jedi's maximum vitality points. Force Shield counts at most
-200%, and Force Armor at most
-400%.
+On a single hit, protection only applies to damage up to
+100% of your max Vitality (Force Aura),
+200% (Force Shield), or 400%
+(Force Armor). Any damage beyond that goes straight through.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 ### <a id="force-absorb"></a>Force Resistance and Force Immunity
 
-These are toggled powers that last 20 seconds. Force
-Resistance counts as rank 1 and Force Immunity as rank 2. They weaken
-Force Push, Force Pull, grips, lightning and drain powers used against the
-Jedi. Such a power works as if its rank were lower by the rank of the
-Jedi's Force Resistance or Force Immunity. The Jedi regains Force points
-from each of these attacks. No grip can seize the Jedi. The Jedi also has
-Force resistance against other powers, as described under Saving Throws
-and Force Resistance.
+Lasts 20 seconds. Weakens incoming Force Push, Pull, grip,
+lightning, and drain powers by 1 rank (Force Resistance) or 2 ranks (Force
+Immunity), and restores Force points when they hit you. You cannot be
+gripped while active. Also grants Force resistance against other powers.
 
 <a id="force-absorb-throw-gain"></a>**Force Regained from Throws** = **6 points** · `force.absorb.throw_gain`
 
-The Jedi regains 6% of his or her maximum Force points from each push or pull, for each rank of the power.
+Restores 6% of your max Force when hit by a push or pull (doubled with Force Immunity).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-absorb-tick-gain"></a>**Force Regained from Strikes** = **1 points** · `force.absorb.tick_gain`
 
-The Jedi regains 1% of his or her maximum Force points from each lightning or drain strike.
+Restores 1% of your max Force on each lightning or drain tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-deflection"></a>Force Deflection and Force Redirection
 
-These two powers of KOTOR 2 are always in effect, and a character never
-uses them. A character who knows one of them blocks blaster bolts without a
-lightsaber. The character can have empty hands or hold any other weapon.
-The character blocks only bolts that come from in front. A character with
-Force Deflection sends a blocked bolt off in the direction he or she is
-looking. A character with Force Redirection sends it back at the shooter.
+Passive. Lets you deflect incoming blaster bolts from the front without a
+lightsaber (empty-handed or holding any other weapon). Force Deflection
+sends blocked bolts where you are aiming; Force Redirection sends them back
+at the shooter.
 
-The character blocks a bolt the way a lightsaber does, at a bolt level, as
-described under Deflecting Blaster Bolts. The character cannot block while
-knocked down, while holding the attack key, while holding out a hand for
-another power, or during the delay after the last bolt he or she blocked.
-A character holding a lit lightsaber blocks with the lightsaber instead.
+Blocks bolts the same way a lightsaber does (at the bolt level below). You
+cannot deflect while knocked down, holding attack, holding out a hand for
+another power, or during the post-block delay. If you hold a lit
+lightsaber, you deflect with the lightsaber instead.
 
 <a id="force-deflection-level"></a>**Bolt Level Without a Lightsaber** = **2 / 3** · `force.deflection.level`
 
 Force Deflection **2** · Force Redirection **3**
 
-A character with Force Deflection blocks bolts at bolt level
-2, and never higher. A character with Force
-Redirection blocks bolts at bolt level 3. A
-deflection bonus raises or lowers the level as it does for a lightsaber.
+Deflects bolts at level 2 (Force Deflection,
+capped there) or level 3 (Force Redirection),
+modified by your deflection bonus.
 
 <sub>Source: TSL's executable, in JA's bolt levels. Code: `sim::combat::force::deflection::bolt_level`.</sub>
 
 <a id="force-deflection-redirection-bonus"></a>**Force Redirection Deflection Bonus** = **3 points** · `force.deflection.redirection_bonus`
 
-Force Redirection adds 3 to the character's deflection bonus with every weapon, a lightsaber too.
+Grants +3 to deflection with any weapon, including a lightsaber.
 
 <sub>Source: TSL's executable. Code: `sim::combat::force::deflection::bonus`.</sub>
 
 ### <a id="force-heal"></a>Cure, Heal and Master Heal
 
-Every wounded party member near the Jedi regains a percentage of his or her
-maximum vitality points. The Jedi is healed too if wounded. The range is
-6.5 meters / 9.8 meters / 13 meters, by rank. The percentage depends on how many
-characters are healed. The power costs no Force points if no one in range
-is wounded.
+Heals you and every wounded party member within 6.5 meters
+(Cure), 9.8 meters (Heal), or 13 meters (Master
+Heal). Restores 50% of max Vitality if 1 character
+is healed, 33% if 2 are healed, or
+25% if 3 or more are healed. Costs no Force points
+if no one in range is wounded.
 
 When the power's script runs, the script sets the amount healed.
 
@@ -5770,8 +5715,7 @@ When the power's script runs, the script sets the amount healed.
 
 Cure **6.5 meters** · Heal **9.8 meters** · Master Heal **13 meters**
 
-Cure reaches 6.5 meters around the Jedi, Heal reaches
-9.8 meters and Master Heal reaches 13 meters.
+Reaches 6.5 meters (Cure), 9.8 meters (Heal), or 13 meters (Master Heal).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
@@ -5779,41 +5723,41 @@ Cure reaches 6.5 meters around the Jedi, Heal reaches
 
 one **50 points** · two **33 points** · three or more **25 points**
 
-Each character healed regains 50% of maximum
-vitality points when one character is healed,
-33% when two are healed and
-25% when three or more are healed.
+Restores 50% of max Vitality (1 target), 33% (2 targets), or 25% (3+ targets).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
 ### <a id="force-mind-trick"></a>Affect Mind and Dominate Mind
 
-Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
-target up to 6.5 meters away. Rank 2 affects every
-enemy up to 13 meters away and within
-90° of the Jedi's aim. Affected players cannot
-see the Jedi while the power lasts. An affected creature that is not a
-Force user loses track of the character it was fighting.
+Lasts 20 seconds (rank 1),
+25 seconds (rank 2), or
+30 seconds (rank 3). Hides you from affected players
+and confuses non-Force-using enemies for 5 seconds
+/ 10 seconds / 15 seconds
+so they lose track of their target. Affect Mind hits one target up to
+6.5 meters away; Dominate Mind hits every enemy
+within 13 meters and 90° of
+your aim.
 
-The effect ends when the Jedi attacks, or when a player uses Force Sight.
-Mind Trick and Force Confusion work as their own descriptions say. They
-affect one target up to 26 meters away.
+Ends early if you attack or if a player uses Force Sight. Mind Trick and
+Force Confusion work as their own descriptions say, reaching one target up
+to 26 meters away.
 
 <a id="force-mind-trick-aimed-reach"></a>**Affect Mind Range** = **6.5 meters** (`256 units`) · `force.mind_trick.aimed_reach`
 
-Rank 1 reaches one target up to 6.5 meters away in the Jedi's line of sight.
+Reaches one target up to 6.5 meters away in line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-reach"></a>**Dominate Mind Range** = **13 meters** (`512 units`) · `force.mind_trick.area_reach`
 
-Rank 2 reaches 13 meters around the Jedi.
+Reaches 13 meters around you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-field"></a>**Dominate Mind Arc** = **90°** · `force.mind_trick.area_field`
 
-Rank 2 affects targets up to 90° to either side of the Jedi's aim. It reaches the same angle above and below the aim.
+Affects enemies within 90° of where you aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
@@ -5821,10 +5765,7 @@ Rank 2 affects targets up to 90° to either side of the Jedi's aim. It reaches t
 
 rank 1 **20 seconds** · rank 2 **25 seconds** · rank 3 **30 seconds**
 
-The power lasts 20 seconds at rank 1,
-25 seconds at rank 2 and
-30 seconds at rank 3. Affected players cannot see
-the Jedi for that time.
+Lasts 20 seconds (rank 1), 25 seconds (rank 2), or 30 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -5832,189 +5773,150 @@ the Jedi for that time.
 
 rank 1 **5 seconds** · rank 2 **10 seconds** · rank 3 **15 seconds**
 
-An affected creature that is not a Force user loses track of the character
-it was fighting for 5 seconds at rank 1,
-10 seconds at rank 2 and
-15 seconds at rank 3.
+Confuses non-Force-using enemies for 5 seconds (rank 1), 10 seconds (rank 2), or 15 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 ### <a id="force-crowd"></a>Stun, Stasis, Fear and the Droid Powers
 
-A single-target power affects one target up to 26 meters away.
-An area power affects every enemy within that range, within
-90° of the Jedi's aim and in front of the Jedi. A
-target is affected only if it is not immune, does not resist the Force and
-fails its saving throw. A stun, paralysis, fear, sleep or Force Whirlwind
-effect lasts as long as the power's description says, but never longer than
-30 seconds. Every 3 seconds, a held target
-rolls its saving throw again, and it breaks free if the save succeeds.
-Each new roll of the same hold gets 5 more
-than the roll before it. A target that was held several times in a short
-while is held for a shorter time, and after
-3 such holds it cannot be held for a while.
-After a hold ends, the target cannot be affected again for
-1 second. Fear ends when the frightened target takes
-damage.
+Reaches up to 26 meters (area powers hit enemies within
+90° in front of you). Holds last up to
+30 seconds, and targets roll a new saving throw every
+3 seconds to break free (+5
+per previous roll). Repeated holds within 10 seconds have
+reduced duration (50%, then
+25%), and after 3
+recent holds the target is immune until 10 seconds pass.
+Targets also gain 1 second of immunity after any hold
+ends. Fear ends when the target takes damage.
 
-Fear powers and Force Scream allow a Will save. The other powers allow a
+Fear powers and Force Scream allow a Will save; the others allow a
 Fortitude save. A target that fails its save against Force Scream covers
-its ears instead of being stunned. Disable Droid also affects all droids within
-5 meters of the target droid. Destroy
-Droid also affects all droids within 6
-meters of the target droid. The saving throw each round uses the same save
-and the same difficulty as the save that the hold first allowed. A hold
-that allowed no save, such as the adhesive grenade's, lasts its whole time.
-A hold that a story script applies, and a hold that never ends, work as in
-KOTOR and roll no saves.
+its ears instead of being stunned. Disable Droid splashes to droids within
+5 m; Destroy Droid splashes within
+6 m. Each round's escape save uses the
+original save type and DC. Holds that allow no save (such as adhesive
+grenades) or come from story scripts roll no escape saves.
 
 <a id="force-crowd-reach"></a>**Force Power Range** = **26 meters** (`1024 units`) · `force.crowd.reach`
 
-Stun, fear and droid powers reach 26 meters. So do Slow,
-Affliction, Plague, Force Suppression, Force Breach, Mind Trick and Force
-Confusion.
+Reaches up to 26 meters.
 
 <sub>Source: ours (push's area reach). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
 <a id="force-crowd-hold-ms"></a>**Hold Without a Duration** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
 
-A stun, fear or droid power that kjk's own combat casts, where no script
-of the game runs, keeps its target held for 3 seconds. A hold that
-a story script applies, or that a friendly character applies, also lasts at
-most 3 seconds.
+Default hold duration when no script sets one: 3 seconds.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-round-ms"></a>**Saving Throw Each Round** = **3 seconds** (`3000 ms`) · `force.crowd.round_ms`
 
-A held target rolls a new saving throw every 3 seconds,
-which is one round of KOTOR's combat. If the save succeeds, the hold ends
-at once. The first roll comes 3 seconds after the hold
-starts.
+Held targets roll a new saving throw every 3 seconds to break free.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-struggle-bonus"></a>**Struggle Bonus** = **5 points** · `force.crowd.struggle_bonus`
 
-Each saving throw to break free of a hold gets a bonus of
-5 for every earlier roll against the same
-hold. The second roll gets 5, and the third
-gets twice that.
+Each repeat save against the same hold gains +5.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-longest-ms"></a>**Longest Hold** = **30 seconds** (`30000 ms`) · `force.crowd.longest_ms`
 
-No stun, paralysis, fear, sleep or Force Whirlwind effect keeps its target
-held for longer than 30 seconds, whatever duration the script or
-the item asks for.
+No stun, paralysis, fear, sleep, or Force Whirlwind hold can last longer than 30 seconds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-recent-ms"></a>**Recent Hold** = **10 seconds** (`10000 ms`) · `force.crowd.recent_ms`
 
-A hold counts as recent until 10 seconds after it ends.
-The more recent holds a character had, the shorter its next hold is.
+A hold counts as recent for 10 seconds after it ends, shortening follow-up holds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-second-percent"></a>**Second Recent Hold** = **50%** · `force.crowd.second_percent`
 
-A character's second recent hold lasts 50% of its
-duration. A shortened hold lasts at least 3 seconds, unless
-its full duration is shorter than that.
+A second recent hold lasts 50% of its normal duration (minimum 3 seconds).
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-third-percent"></a>**Third Recent Hold** = **25%** · `force.crowd.third_percent`
 
-A character's third recent hold lasts 25% of its
-duration. A shortened hold lasts at least 3 seconds, unless
-its full duration is shorter than that.
+A third recent hold lasts 25% of its normal duration (minimum 3 seconds).
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-most-recent"></a>**Recent Holds Before Immunity** = **3 count** · `force.crowd.most_recent`
 
-A character that already had 3 recent holds
-cannot be held again. It becomes immune until 10 seconds have
-passed since its last hold ended.
+After 3 recent holds, the target is immune to holds for 10 seconds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-immune-ms"></a>**Stun Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
-After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, the target cannot be affected by another one for 1 second.
+After a hold ends, the target is immune to another hold for 1 second.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-ears-ms"></a>**Ear Covering Time** = **2 seconds** (`2000 ms`) · `force.crowd.ears_ms`
 
-A target that fails its saving throw against Force Scream covers its ears
-for 2 seconds. During that time it cannot move, attack, block
-or use a Force power. A target that makes the saving throw does not cover
-its ears. Droids never cover their ears.
+Targets that fail their save cover their ears for 2 seconds
+(unable to move, attack, block, or use Force powers), then cannot be
+affected again for 4 seconds. Droids are immune.
 
-The same applies to Improved Force Scream and Master Force Scream, whoever
-casts them. A character with a Jedi Academy body plays Jedi Academy's own
-clip of a character covering its ears. A creature with its own animations
-looks stunned instead.
+Applies to Force Scream, Improved Force Scream, and Master Force Scream.
+Characters with a Jedi Academy body play the ear-covering animation;
+other creatures play their stunned animation instead.
 
 <sub>Source: the owner's decision, 2026-11-17 (Jedi Academy's howler). Code: `sim::combat::force::ForceState::cover_ears`.</sub>
 
 <a id="force-crowd-ears-immune-ms"></a>**Ear Covering Immunity** = **4 seconds** (`4000 ms`) · `force.crowd.ears_immune_ms`
 
-After a target uncovers its ears, another Force Scream cannot make it cover
-them again for 4 seconds. The scream still damages the
-target in that time.
+After covering its ears, a target cannot be forced to cover them again for 4 seconds (damage still applies).
 
 <sub>Source: the owner's decision, 2026-11-17. Code: `sim::combat::force::ForceState::cover_ears`.</sub>
 
 <a id="force-crowd-area-field"></a>**Area Power Arc** = **90°** · `force.crowd.area_field`
 
-Area stun and fear powers affect targets up to 90° to either side of the Jedi's aim. They reach the same angle above and below the aim.
+Area stun and fear powers hit enemies within 90° of where you aim.
 
 <sub>Source: ours (push's level 3). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
 <a id="force-crowd-disable-splash-m"></a>**Disable Droid Radius** = **5 m** · `force.crowd.disable_splash_m`
 
-Disable Droid also affects all droids within 5 meters of the target droid.
+Also hits all droids within 5 m of the target.
 
 <sub>Source: K1's `k_sp1_generic`. Code: `sim::combat::force::crowd::splash`.</sub>
 
 <a id="force-crowd-destroy-splash-m"></a>**Destroy Droid Radius** = **6 m** · `force.crowd.destroy_splash_m`
 
-Destroy Droid also affects all droids within 6 meters of the target droid.
+Also hits all droids within 6 m of the target.
 
 <sub>Source: K1's `k_sp1_generic`. Code: `sim::combat::force::crowd::splash`.</sub>
 
 ### <a id="force-rage"></a>Fury
 
-Fury is a toggled power. While Fury is active, the character moves
-1.3 times as fast. The character's attacks and shots
-take 0.75 times the normal time. Damage dealt to the
-character by another character is divided by the power's rank plus 1. Fury
-takes 2% of the character's maximum vitality points at
-regular intervals. Fury ends when the character's vitality points fall to
-1. The character cannot activate Fury with less
-than 10% of maximum vitality points. After Fury ends,
-the character recovers for 10 seconds. During that time the
-character moves at 0.75 times normal speed,
-attacks and fires in 1.5 times the normal
-time, and cannot use Fury.
+Lasts 8 seconds (Fury), 14 seconds
+(Improved Fury), or 20 seconds (Master Fury). Increases
+your movement speed to 1.3×, speeds up attacks to
+0.75× normal time, and cuts incoming damage (divided by
+rank + 1). Drains 2% of your max Vitality every
+0.15 seconds / 0.3 seconds /
+0.45 seconds down to 1 HP
+(requires at least 10% Vitality to activate). When
+Fury ends, you recover for 10 seconds at
+0.75× move speed and
+1.5× attack time, and cannot reactivate Fury.
 
-A hit can still kill the character while Fury is active. When the power's
-script runs, Fury works as its description says. Each kill the character
-makes under Fury then adds to the character's damage, up to
+Enemy hits can still kill you while Fury is active. When the power's script
+runs, each kill under Fury adds +1 weapon damage up to
 +6.
 
 <a id="force-rage-length-ms"></a>**Fury Duration** = **8 seconds / 14 seconds / 20 seconds** (`8000 / 14000 / 20000 ms`) · `force.rage.length_ms`
 
 Fury **8 seconds** · Improved Fury **14 seconds** · Master Fury **20 seconds**
 
-Fury lasts 8 seconds, Improved Fury lasts
-14 seconds and Master Fury lasts
-20 seconds.
+Lasts 8 seconds (Fury), 14 seconds (Improved Fury), or 20 seconds (Master Fury).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -6022,117 +5924,103 @@ Fury lasts 8 seconds, Improved Fury lasts
 
 Fury **0.15 seconds** · Improved Fury **0.3 seconds** · Master Fury **0.45 seconds**
 
-Fury takes vitality points every 0.15 seconds. Improved
-Fury takes them every 0.3 seconds, and Master Fury every
-0.45 seconds.
+Drains Vitality every 0.15 seconds (Fury), 0.3 seconds (Improved Fury), or 0.45 seconds (Master Fury).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-hp"></a>**Fury Vitality Loss** = **2 points** · `force.rage.hp`
 
-Each time, Fury takes 2% of the character's maximum vitality points.
+Drains 2% of your max Vitality per tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-least"></a>**Fury Minimum Vitality** = **10 points** · `force.rage.least`
 
-The character cannot activate Fury with less than 10% of maximum vitality points.
+Requires at least 10% of your max Vitality to activate.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
 <a id="force-rage-floor-hp"></a>**Fury Vitality Floor** = **1 HP** · `force.rage.floor_hp`
 
-If Fury would take the character below 1 vitality point, the character is left at that amount and Fury ends.
+Fury's own drain stops at 1 Vitality and ends Fury.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-recover-ms"></a>**Fury Recovery** = **10 seconds** (`10000 ms`) · `force.rage.recover_ms`
 
-After Fury ends, the character recovers for 10 seconds.
+After Fury ends, you recover for 10 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-speed"></a>**Fury Speed** = **×1.3** · `force.rage.speed`
 
-While Fury is active, the character moves 1.3 times as fast.
+Moves at 1.3× normal speed while Fury is active.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-recover-speed"></a>**Recovery Speed** = **×0.75** · `force.rage.recover_speed`
 
-While recovering from Fury, the character moves at 0.75 times normal speed.
+Moves at 0.75× normal speed while recovering from Fury.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-refire"></a>**Fury Attack Speed** = **×0.75** · `force.rage.refire`
 
-While Fury is active, the character's attacks and shots take 0.75 times the normal time.
+Attacks and shots take 0.75× normal time while Fury is active.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 <a id="force-rage-recover-refire"></a>**Recovery Attack Speed** = **×1.5** · `force.rage.recover_refire`
 
-While recovering from Fury, the character's attacks and shots take 1.5 times the normal time.
+Attacks and shots take 1.5× normal time while recovering from Fury.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 ### <a id="force-sight"></a>Force Sight
 
-Force Sight is a toggled power. The Jedi sees other characters through
-walls. Affect Mind cannot hide anyone from the Jedi.
+Lasts 10 seconds (rank 1), 20 seconds
+(rank 2), or 30 seconds (rank 3). Lets you see characters
+through walls and see through Affect Mind.
 
-When the power's script runs, the Jedi's screen also shows Force Sight's visual effect.
+When the power's script runs, your screen also shows Force Sight's visual effect.
 
 <a id="force-sight-length-ms"></a>**Force Sight Duration** = **10 seconds / 20 seconds / 30 seconds** (`10000 / 20000 / 30000 ms`) · `force.sight.length_ms`
 
 rank 1 **10 seconds** · rank 2 **20 seconds** · rank 3 **30 seconds**
 
-Force Sight lasts 10 seconds at rank 1,
-20 seconds at rank 2 and 30 seconds at
-rank 3.
+Lasts 10 seconds (rank 1), 20 seconds (rank 2), or 30 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-rolls"></a>Saving Throws and Force Resistance
 
-A Force power that allows a saving throw has a difficulty (DC) of
-5 + the Jedi's level + the Jedi's Wisdom modifier
-+ the Jedi's Charisma modifier + the bonus from Force Focus. Before the
-saving throw, a target under Force Resistance or Force Immunity may resist
-the power completely. The target's Force resistance is
-5 + 5
-for each rank of its Force Resistance or Force Immunity + its character
-level. An item or effect can set a higher Force resistance instead. The
-power affects the target only if the Jedi's d20 roll + the Jedi's level
-equals or exceeds the target's Force resistance.
+Save DC: 5 + level + Wisdom mod + Charisma mod +
+Force Focus bonus. Before a save, Force Resistance or Force Immunity can
+block the power outright if your d20 + level is below the target's Force
+resistance (5 +
+5 per rank + level, or higher from
+gear).
 
-Force resistance protects against stun, fear and droid powers, Slow,
-Affliction, Plague and Force Whirlwind. Force Suppression and Force Breach
-cannot be resisted. A saving throw roll of 1 always fails, and a roll of 20
-always succeeds.
+Force resistance protects against stun, fear, and droid powers, Slow,
+Affliction, Plague, and Force Whirlwind. Force Suppression and Force Breach
+cannot be resisted. A natural 1 always fails and a natural 20 always
+succeeds.
 
 <a id="force-rolls-dc-base"></a>**Force Power DC** = **5** · `force.rolls.dc_base`
 
-A Force power's saving throw DC is 5 + the Jedi's
-level + the Jedi's Wisdom modifier + the Jedi's Charisma modifier + the
-bonus from Force Focus.
+Force power save DC is 5 + level + Wisdom mod + Charisma mod + Force Focus.
 
 <sub>Source: KOTOR's engine (`GetSpellSaveDC`; StrategyWiki's K1 rule). Code: `sim::combat::force::save_dc`.</sub>
 
 <a id="force-rolls-resistance-base"></a>**Force Resistance Base** = **5** · `force.rolls.resistance_base`
 
-A character under Force Resistance or Force Immunity has a Force
-resistance of 5 +
-5 for each rank of the power + the
-character's level.
+Force resistance is 5 + 5 per rank + character level.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
 <a id="force-rolls-resistance-per-tier"></a>**Force Resistance per Rank** = **5** · `force.rolls.resistance_per_tier`
 
-Each rank of Force Resistance and Force Immunity adds
-5 to the character's Force
-resistance.
+Each rank of Force Resistance / Immunity adds +5 to Force resistance.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
@@ -6333,20 +6221,20 @@ script's values instead of these. The same bonus never counts twice.
 
 ### <a id="force-effects-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-While a speed power is active, the Jedi gains a bonus to Defense. Knight
-Speed and Master Speed also grant extra attacks each round. Burst of
-Speed, Knight Speed and Master Speed grant
-0 / 1 / 2 extra attacks, in that order.
+Grants +2 Defense (Burst of Speed) or
++4 Defense (Knight and Master Speed).
+Knight Speed adds 1 extra attack per
+round, and Master Speed adds 2.
 
-Each extra attack adds the full damage of one more attack to every hit with a weapon.
+Each extra attack adds a full extra attack's damage to every weapon hit.
 
 <a id="force-effects-speed-defence"></a>**Speed Defense Bonus** = **2 / 4 / 4** · `force_effects.speed.defence`
 
 Burst of Speed **2** · Knight Speed **4** · Master Speed **4**
 
-Burst of Speed grants a +2 bonus to
-Defense. Knight Speed grants +4 and
-Master Speed grants +4.
++2 Defense (Burst of Speed),
++4 (Knight Speed), and
++4 (Master Speed).
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
@@ -6354,124 +6242,118 @@ Master Speed grants +4.
 
 Burst of Speed **0** · Knight Speed **1** · Master Speed **2**
 
-Knight Speed grants 1 extra attack each
-round, and Master Speed grants 2. Burst
-of Speed grants 0.
+Knight Speed adds 1 extra attack per
+round, and Master Speed adds 2.
 
-Each extra attack adds the full damage of one more attack to every hit with a weapon.
+Each extra attack adds a full extra attack's damage to every weapon hit.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::extra_attacks`.</sub>
 
 ### <a id="force-effects-protect"></a>Force Aura, Force Shield and Force Armor
 
-When this power is activated, the Jedi gains a bonus to Defense and to all
-saving throws. Force Aura, Force Shield and Force Armor grant bonuses of
-2 / 4 / 6, in that order.
+Grants +2 (Force Aura),
++4 (Force Shield), or
++6 (Force Armor) to Defense and all
+saving throws.
 
 <a id="force-effects-protect-bonus"></a>**Defense and Save Bonus** = **2 / 4 / 6** · `force_effects.protect.bonus`
 
 Force Aura **2** · Force Shield **4** · Force Armor **6**
 
-Force Aura grants +2 to Defense and all
-saving throws. Force Shield grants +4
-and Force Armor grants +6.
++2 (Force Aura),
++4 (Force Shield), or
++6 (Force Armor) to Defense and all
+saving throws.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-valor"></a>Force Valor, Knight Valor and Master Valor
 
-This power increases the Strength, Dexterity, Constitution and all saving
-throws of the Jedi and of every party member within
-20 meters. The effect lasts for
-20 seconds. Knight Valor and Master Valor also grant
-immunity to poison. A Valor power does not replace a stronger Valor that is
-already active.
+Lasts 20 seconds. Grants
++2 (Force Valor),
++3 (Knight Valor), or
++5 (Master Valor) to Strength, Dexterity,
+Constitution, and all saving throws for you and every party member within
+20 m. Knight Valor and Master Valor
+also grant poison immunity. Will not overwrite a stronger Valor.
 
-Force Suppression ends Force Valor and Knight Valor. Force Breach ends all
-three. Jedi controlled by the computer keep Valor active.
+Force Suppression ends Force Valor and Knight Valor; Force Breach ends all
+three. Computer-controlled Jedi keep Valor active.
 
 <a id="force-effects-valor-bonus"></a>**Valor Bonus** = **2 / 3 / 5** · `force_effects.valor.bonus`
 
 Force Valor **2** · Knight Valor **3** · Master Valor **5**
 
-Force Valor grants +2 to Strength,
-Dexterity, Constitution and all saving throws. Knight Valor grants
-+3 and Master Valor grants
-+5.
++2 (Force Valor), +3 (Knight Valor), or +5 (Master Valor) to Strength, Dexterity, Constitution, and all saving throws.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-valor-length-ms"></a>**Valor Duration** = **20 seconds** (`20000 ms`) · `force_effects.valor.length_ms`
 
-Valor lasts for 20 seconds.
+Lasts 20 seconds.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 <a id="force-effects-valor-party-reach-m"></a>**Party Power Radius** = **20 m** · `force_effects.valor.party_reach_m`
 
-Valor and Improved Energy Resistance affect every party member within 20 meters of the Jedi.
+Valor and Improved Energy Resistance reach party members within 20 m.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 ### <a id="force-effects-energy-resistance"></a>Energy Resistance and Improved Energy Resistance
 
-This power surrounds the Jedi with the Force. It absorbs the first
+Lasts 120 seconds. Absorbs the first
 15 points of sonic, fire,
-cold and electrical damage from each attack. The effect lasts for
-120 seconds. Improved Energy Resistance
-protects every party member within 20
-meters, and also grants immunity to poison.
+cold, and electrical damage from every attack. Improved Energy Resistance
+affects every party member within 20
+m and also grants poison immunity.
 
-When the power's own script runs, the power protects against the five damage types that the script names.
+When the power's own script runs, it protects against the five damage types named by the script.
 
 <a id="force-effects-energy-resistance-resistance"></a>**Damage Absorbed** = **15 HP** · `force_effects.energy_resistance.resistance`
 
-Energy Resistance absorbs the first 15 points of each damage type from every attack.
+Absorbs the first 15 points of each damage type from every attack.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-energy-resistance-length-ms"></a>**Energy Resistance Duration** = **120 seconds** (`120000 ms`) · `force_effects.energy_resistance.length_ms`
 
-Energy Resistance lasts for 120 seconds.
+Lasts 120 seconds.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 ### <a id="force-effects-slow"></a>Slow, Affliction and Plague
 
-These powers affect a single target. They do not affect droids or a target
-that resists the Force. Slow inflicts a -2
-penalty to Defense, Reflex saves and attack rolls for
-30 seconds. A target that makes a Will save is not
-affected by Slow. Affliction drains 1 point of Strength, Dexterity and
-Constitution every 3 seconds, up to a total of
-7 points. The target of Affliction also
-moves at 0.5 times normal speed. A target
-that makes a Fortitude save against DC 20
-is not affected by Affliction. Plague drains 1 point every
-1 second, up to a total of
-12 points, and slows the target in the
-same way. Plague allows no saving throw. The drained points return when the
-effect ends.
+Single target; does not affect droids or targets that resist the Force.
+Slow inflicts -2 to Defense, Reflex saves,
+and attack rolls for 30 seconds (Will save negates).
+Affliction (Fortitude save DC 20) and
+Plague (no save) cut movement speed to 0.5×
+and drain 1 Strength, Dexterity, and Constitution every
+3 seconds up to
+7 (Affliction) or every
+1 second up to
+12 (Plague); lost attributes return when
+the effect ends.
 
-Affliction and Plague count as poisons. Knight Valor, Master Valor and
-Improved Energy Resistance grant immunity to them. Jedi controlled by the
-computer use Slow on their enemies.
+Affliction and Plague count as poisons (blocked by Knight/Master Valor and
+Improved Energy Resistance). Computer-controlled Jedi use Slow on enemies.
 
 <a id="force-effects-slow-penalty"></a>**Slow Penalty** = **2** · `force_effects.slow.penalty`
 
-Slow inflicts a -2 penalty to Defense, Reflex saves and attack rolls.
+Inflicts -2 to Defense, Reflex saves, and attack rolls.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-slow-length-ms"></a>**Slow Duration** = **30 seconds** (`30000 ms`) · `force_effects.slow.length_ms`
 
-Slow lasts for 30 seconds.
+Lasts 30 seconds.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::slow`.</sub>
 
 <a id="force-effects-slow-movement"></a>**Slowed Movement** = **×0.5** · `force_effects.slow.movement`
 
-A target of Affliction or Plague moves at 0.5 times normal speed.
+Cuts the target's movement speed to 0.5×.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -6479,9 +6361,7 @@ A target of Affliction or Plague moves at 0.5 times normal speed.
 
 Affliction **7** · Plague **12**
 
-Affliction drains up to 7 points from
-each of Strength, Dexterity and Constitution. Plague drains up to
-12 points from each.
+Drains up to 7 (Affliction) or 12 (Plague) from Strength, Dexterity, and Constitution.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
@@ -6489,98 +6369,81 @@ each of Strength, Dexterity and Constitution. Plague drains up to
 
 Affliction **3 seconds** · Plague **1 second**
 
-Affliction drains 1 point every 3 seconds, and
-Plague drains 1 point every 1 second. The
-first point is drained at once.
+Drains 1 point immediately, then every 3 seconds (Affliction) or 1 second (Plague).
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
 <a id="force-effects-slow-affliction-dc"></a>**Affliction DC** = **20** · `force_effects.slow.affliction_dc`
 
-A target that makes a Fortitude save against DC 20 is not affected by Affliction.
+Fortitude save DC 20 negates Affliction.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::slow`.</sub>
 
 ### <a id="force-effects-dispel"></a>Force Suppression and Force Breach
 
-These powers affect a single target and cannot be resisted. Force
-Suppression ends the target's active Force powers of the first and second
-rank. Force Breach ends all of them, whatever their rank. The powers they
-end are the speed powers, Force Aura, Force Shield, Force Armor, Force
-Resistance, Force Immunity, Valor and Energy Resistance.
+Single target; cannot be resisted. Force Suppression cancels rank 1 and 2
+buffs; Force Breach cancels buffs of any rank. Affects Force Speed, Force
+Aura/Shield/Armor, Force Resistance/Immunity, Valor, and Energy Resistance.
 
-Jedi controlled by the computer use these powers on enemies who have active Force powers.
+Computer-controlled Jedi use these powers on enemies with active Force buffs.
 
 ### <a id="force-effects-fury"></a>Fury
 
-Every creature the character kills while Fury is active adds +1 to the
-damage of the character's weapons. This bonus can reach at most
-+6. The bonus starts at 0 when Fury is
-activated, and it is lost when Fury ends. The bonus is added on top of any
-damage bonus from items, and the limit on item bonuses does not apply to
-it.
+Each kill while Fury is active adds +1 weapon damage (up to
++6), stacking above item bonus caps. Resets
+when Fury ends.
 
 <a id="force-effects-fury-most"></a>**Fury Maximum Bonus** = **6 HP** · `force_effects.fury.most`
 
-The damage bonus from kills made while Fury is active is at most +6.
+Kill damage bonus caps at +6.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-force-body"></a>Force Body
 
-While Force Body is active, a Force power takes only part of its cost from
-Force points, rounded down. Force Body, Improved Force Body and Master
-Force Body take 50% / 40% / 30% of the cost, in that
-order. The same number of points is also taken from vitality points, and
-temporary vitality points are used first. A Force power cannot be used if
-it would leave the character with
-1 vitality point or fewer.
+Splits Force power costs between Force points and Vitality (using temporary
+Vitality first): 50% each with Force Body,
+40% each with Improved Force Body, or
+30% each with Master Force Body (rounded
+down). Cannot cast a power that would leave you at
+1 Vitality or less.
 
 <a id="force-effects-force-body-share"></a>**Force Body Cost** = **50% / 40% / 30%** (`50 / 40 / 30%`) · `force_effects.force_body.share`
 
 Force Body **50%** · Improved Force Body **40%** · Master Force Body **30%**
 
-Force Body takes 50% of a power's cost
-from Force points, and the same number of points from vitality points.
-Improved Force Body takes 40% from each,
-and Master Force Body takes 30% from each.
+Takes 50% (Force Body), 40% (Improved), or 30% (Master) of a power's cost from Force and the same amount from Vitality.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::force_body_share`.</sub>
 
 <a id="force-effects-force-body-least-hp-left"></a>**Force Body Minimum Vitality** = **1 HP** · `force_effects.force_body.least_hp_left`
 
-While Force Body is active, a power cannot be used if it would leave the character with 1 vitality point or fewer.
+Cannot cast a power that would leave you with 1 Vitality or less.
 
 <sub>Source: TSL's executable (`HasSpell`). Code: `sim::combat::effects::can_pay`.</sub>
 
 ### <a id="force-effects-states"></a>Stun, Paralysis and Mind Trick
 
-Stun, paralysis, horror, Force Crush, Mind Trick, Droid Trick and the
-freezes that cutscenes use last as long as their effects. When several of
-them are active at once, only one of them takes effect. Mind Trick takes
-effect before horror, and horror takes effect before stun. Mind Trick and
-Droid Trick end when the target is damaged or attacked. They also end when
-the target sees an enemy within the square root of
-10 meters.
+Mind Trick and Droid Trick end immediately if the target is attacked,
+damaged, or spots an enemy within about 3.2 m. When multiple hold effects
+overlap, Mind Trick takes priority over horror, and horror over stun.
+
+The proximity check compares squared distance against 10 m² (√10 ≈ 3.2 m).
 
 <a id="force-effects-states-fragile-reach-squared"></a>**Mind Trick Range** = **10 m²** · `force_effects.states.fragile_reach_squared`
 
-Mind Trick and Droid Trick end when the target sees an enemy close by. The game compares the square of the distance to the enemy with 10 m². The standard value of 10 m² is a distance of about 3.2 metres.
+Mind Trick and Droid Trick end if the target spots an enemy within about 3.2 m (squared distance 10 m²).
 
 <sub>Source: TSL's executable (it compares the squared distance). Code: `sim::combat::effects::state::fragile`.</sub>
 
 ### <a id="force-effects-lasting"></a>Lasting Effects
 
-A lasting effect on a character lasts for its duration. Lasting effects can
-change attributes, Defense, saving throws, attack, damage, damage
-resistance, immunities, skills, movement speed, attacks per round and Force
-resistance. Bonuses or penalties from the same source to the same value do
-not stack, and only the strongest one counts. Effects from different
-sources stack. Movement speed effects cannot slow a character below
-10% of normal speed, or raise it above
-300%.
+Bonuses or penalties from the same source do not stack (only the strongest
+applies); effects from different sources stack. Movement speed effects
+cannot drop you below 10% or raise you
+above 300% of normal speed.
 
-The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while it is active.
+The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while active.
 
 <a id="force-effects-lasting-speed-least"></a>**Minimum Movement Speed** = **10%** · `force_effects.lasting.speed_least`
 
@@ -6596,10 +6459,10 @@ Movement speed effects cannot raise a character above 300% of normal speed.
 
 ### <a id="force-effects-haste"></a>Haste
 
-When a script applies haste (`EffectHaste`), the target moves
-50% faster and gains
-+4 Defense while the effect lasts. Haste
-does not grant extra attacks.
+Increases movement speed by 50% and grants
++4 Defense (no extra attacks).
+
+Applied by scripts via `EffectHaste`.
 
 <a id="force-effects-haste-speed"></a>**Haste Movement Bonus** = **50%** · `force_effects.haste.speed`
 
@@ -6615,26 +6478,23 @@ Haste grants a +4 dodge bonus to Defense.
 
 ### <a id="force-effects-knockdown"></a>Knockdown
 
-When a script applies a knockdown (`EffectKnockdown`), the target is
-knocked to the ground for the effect's duration plus
-1500 ms. A target that is immune to
-knockdown is not affected.
+Knocks the target to the ground for the effect's duration plus
+1.5 seconds (unless immune to knockdown).
+
+Applied by scripts via `EffectKnockdown`.
 
 <a id="force-effects-knockdown-extra-ms"></a>**Knockdown Extra Time** = **1.5 seconds** (`1500 ms`) · `force_effects.knockdown.extra_ms`
 
-A knockdown lasts 1500 ms longer than its effect's duration.
+A knockdown lasts 1.5 seconds longer than its effect's duration.
 
 <sub>Source: TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s). Code: `sim::world::harm`.</sub>
 
 ### <a id="force-effects-damage-shield"></a>Damage Shield
 
-When a script applies a damage shield (`EffectDamageShield`), the shield
-strikes back at every melee attacker that hits the target. The attacker
-takes the shield's base damage plus its damage bonus, as the shield's
-damage type. A damage bonus from 1 to 5 adds that many points. A damage
-bonus from 6 to 10 rolls dice instead. The dice for these bonuses come in
-pairs, the number of dice followed by the die size:
-1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
+Strikes back at every melee attacker with the shield's base damage plus its
+damage bonus.
+
+Applied by scripts via `EffectDamageShield`. Bonuses 1–5 add flat points; 6–10 roll dice in (count, size) pairs: 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
 
 <a id="force-effects-damage-shield-bonus-dice"></a>**Shield Bonus Dice** = **1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6** · `force_effects.damage_shield.bonus_dice`
 
@@ -6676,247 +6536,225 @@ current target is the enemy that the character is attacking.
 
 ### <a id="forms-shii-cho"></a>Shii-Cho (Form I)
 
-Shii-Cho is the Determination Form. A character using Shii-Cho gains
-+1 to attack. The character also gains
+Grants +1 to hit and
 +3 Defense against every attacker except
-its current target.
+your current target.
 
 <a id="forms-shii-cho-to-hit"></a>**Shii-Cho Attack Bonus** = **1** · `forms.shii_cho.to_hit`
 
-A character using Shii-Cho gains +1 to attack.
+Grants +1 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shii-cho-defence-others"></a>**Shii-Cho Defense** = **3** · `forms.shii_cho.defence_others`
 
-A character using Shii-Cho gains +3 Defense against every attacker except its current target.
+Grants +3 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 ### <a id="forms-makashi"></a>Makashi (Form II)
 
-Makashi is the Contention Form. A character using Makashi gains
-+3 to attack against an enemy who wields a
-lightsaber. Every weapon hit by the character deals
-+3 damage. The character suffers a
--5 penalty to blaster bolt deflection.
+Grants +3 to hit against lightsaber
+wielders and +3 weapon damage, at a
+-5 penalty to blaster deflection.
 
 <a id="forms-makashi-to-hit-saber"></a>**Makashi Attack Bonus** = **3** · `forms.makashi.to_hit_saber`
 
-A character using Makashi gains +3 to attack against an enemy who wields a lightsaber.
+Grants +3 to hit against lightsaber wielders.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-makashi-damage"></a>**Makashi Damage** = **3 HP** · `forms.makashi.damage`
 
-Every weapon hit by a character using Makashi deals +3 damage.
+Adds +3 damage to every weapon hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-makashi-deflection"></a>**Makashi Bolt Deflection** = **-5** · `forms.makashi.deflection`
 
-A character using Makashi suffers a -5 penalty to blaster bolt deflection.
+Inflicts -5 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-soresu"></a>Soresu (Form III)
 
-Soresu is the Resilience Form. A character using Soresu gains
-+2 Defense against its current target. The
-character also gains +4 to blaster bolt
-deflection. The critical threat range of the character's weapons shrinks by
-1.
-
-The critical threat range is the set of attack rolls that can score a
-critical hit. Soresu never shrinks it below a natural 20.
+Grants +2 Defense against your current
+target and +4 to blaster deflection. Shrinks
+your critical threat range by 1 (never below a
+natural 20).
 
 <a id="forms-soresu-defence-target"></a>**Soresu Defense** = **2** · `forms.soresu.defence_target`
 
-A character using Soresu gains +2 Defense against its current target.
+Grants +2 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-soresu-threat"></a>**Soresu Threat Range** = **1** · `forms.soresu.threat`
 
-The critical threat range of a character using Soresu shrinks by 1.
+Shrinks critical threat range by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-soresu-deflection"></a>**Soresu Bolt Deflection** = **4** · `forms.soresu.deflection`
 
-A character using Soresu gains +4 to blaster bolt deflection.
+Grants +4 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-ataru"></a>Ataru (Form IV)
 
-Ataru is the Aggression Form. A character using Ataru gains
-+3 Defense against its current target. The
-character suffers a -2 penalty to Defense
-against every other attacker. The character also suffers a
--4 penalty to blaster bolt deflection. The
-critical threat range of the character's weapons grows by
-1.
-
-Ataru never makes every attack roll a critical threat.
+Grants +3 Defense against your current
+target and +1 to critical threat range, at
+-2 Defense against other attackers and
+-4 to blaster deflection.
 
 <a id="forms-ataru-defence-target"></a>**Ataru Defense** = **3** · `forms.ataru.defence_target`
 
-A character using Ataru gains +3 Defense against its current target.
+Grants +3 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-defence-others"></a>**Ataru Defense Penalty** = **-2** · `forms.ataru.defence_others`
 
-A character using Ataru suffers a -2 penalty to Defense against every attacker except its current target.
+Inflicts -2 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-threat"></a>**Ataru Threat Range** = **1** · `forms.ataru.threat`
 
-The critical threat range of a character using Ataru grows by 1.
+Widens critical threat range by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-ataru-deflection"></a>**Ataru Bolt Deflection** = **-4** · `forms.ataru.deflection`
 
-A character using Ataru suffers a -4 penalty to blaster bolt deflection.
+Inflicts -4 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-shien"></a>Shien (Form V)
 
-Shien is the Perseverance Form. A character using Shien gains
-+2 to attack and +2 to
-blaster bolt deflection. The character suffers a
--5 penalty to Defense against its current
-target. The critical multiplier of the character's weapons rises by
-1.
+Grants +2 to hit, +2 to
+blaster deflection, and +1 to critical
+multiplier, at -5 Defense against your
+current target.
 
 <a id="forms-shien-to-hit"></a>**Shien Attack Bonus** = **2** · `forms.shien.to_hit`
 
-A character using Shien gains +2 to attack.
+Grants +2 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shien-defence-target"></a>**Shien Defense Penalty** = **-5** · `forms.shien.defence_target`
 
-A character using Shien suffers a -5 penalty to Defense against its current target.
+Inflicts -5 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-shien-crit-mult"></a>**Shien Critical Multiplier** = **×1** · `forms.shien.crit_mult`
 
-The critical multiplier of a character using Shien rises by 1. A critical hit by the character then deals that many more times the normal damage.
+Raises critical hit multiplier by +1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-shien-deflection"></a>**Shien Bolt Deflection** = **2** · `forms.shien.deflection`
 
-A character using Shien gains +2 to blaster bolt deflection.
+Grants +2 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-niman"></a>Niman (Form VI)
 
-Niman is the Moderation Form. A character using Niman gains
-+1 to attack, +1 Defense
-against every attacker and +1 to blaster bolt
-deflection. In combat, the character's Force points regenerate at
-0.3 times the rate at which they regenerate out of
+Grants +1 to hit, +1
+Defense, +1 to blaster deflection, and
+0.3× out-of-combat Force regeneration while in
 combat.
 
 <a id="forms-niman-to-hit"></a>**Niman Attack Bonus** = **1** · `forms.niman.to_hit`
 
-A character using Niman gains +1 to attack.
+Grants +1 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-niman-defence"></a>**Niman Defense** = **1** · `forms.niman.defence`
 
-A character using Niman gains +1 Defense against every attacker.
+Grants +1 Defense.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-niman-deflection"></a>**Niman Bolt Deflection** = **1** · `forms.niman.deflection`
 
-A character using Niman gains +1 to blaster bolt deflection.
+Grants +1 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 <a id="forms-niman-fp-base"></a>**Niman Force Regeneration** = **×0.3** · `forms.niman.fp_base`
 
-In combat, the Force points of a character using Niman regenerate at 0.3 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.3× your out-of-combat rate.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
 ### <a id="forms-juyo"></a>Juyo (Form VII)
 
-Juyo is the Ferocity Form. A character using Juyo makes
-1 extra attack each round. The character gains
-+4 to the roll that confirms a critical hit. The
-character suffers a -2 penalty to Defense
-against its current target, and a -4 penalty
-to Defense against every other attacker.
+Grants +1 extra main-hand attack per round
+and +4 to critical confirmation rolls, at
+-2 Defense against your current target and
+-4 against other attackers.
 
 <a id="forms-juyo-defence-target"></a>**Juyo Defense Penalty against the Target** = **-2** · `forms.juyo.defence_target`
 
-A character using Juyo suffers a -2 penalty to Defense against its current target.
+Inflicts -2 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-juyo-defence-others"></a>**Juyo Defense Penalty** = **-4** · `forms.juyo.defence_others`
 
-A character using Juyo suffers a -4 penalty to Defense against every attacker except its current target.
+Inflicts -4 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-juyo-confirm"></a>**Juyo Critical Hit Bonus** = **4** · `forms.juyo.confirm`
 
-A character using Juyo gains +4 to the roll that confirms a critical hit.
+Grants +4 to critical confirmation rolls.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::confirm`.</sub>
 
 <a id="forms-juyo-extra-attacks"></a>**Juyo Extra Attack** = **1** · `forms.juyo.extra_attacks`
 
-A character using Juyo makes 1 extra attack each round with the weapon in the main hand.
+Adds +1 extra main-hand attack per round.
 
-In kjk, a character attacks whenever the player swings, not once per round.
-Instead of an extra swing, each extra attack per round adds the damage of
-one more attack to every weapon hit the character makes.
+In kjk, each extra attack per round adds one extra attack's damage to every weapon hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::extra_attacks`.</sub>
 
 ### <a id="forms-focus"></a>Force Focus (Force Form I)
 
-A character using Force Focus regenerates Force points faster, both in and out of combat. The Form adds 0.5 to the regeneration rate.
+Adds +0.5 to your Force regeneration rate (in and out of combat).
 
 <a id="forms-focus-fp-bonus"></a>**Force Focus Regeneration** = **0.5** · `forms.focus.fp_bonus`
 
-Force Focus adds 0.5 to the rate at which the character's Force points regenerate.
+Adds +0.5 to Force regeneration.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_bonus`.</sub>
 
 ### <a id="forms-affinity"></a>Force Affinity (Force Form III)
 
-In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.6× your out-of-combat rate.
 
 <a id="forms-affinity-fp-base"></a>**Force Affinity Regeneration** = **×0.6** · `forms.affinity.fp_base`
 
-In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.6× your out-of-combat rate.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
 ### <a id="forms-costs"></a>Force Potency and Force Mastery (Force Forms II and IV)
 
-A character using Force Potency or Force Mastery spends
-1.2 times the normal Force points on every Force
-power, rounded down. Each Force power decides for itself how much stronger
-it becomes under these Forms.
+Multiplies Force power costs by 1.2× (rounded
+down) while boosting your Force powers.
 
 <a id="forms-costs-multiplier"></a>**Potency and Mastery Cost** = **×1.2** · `forms.costs.multiplier`
 
-A character using Force Potency or Force Mastery spends 1.2 times the normal Force points on every Force power.
+Multiplies Force power costs by 1.2×.
 
 <sub>Source: TSL's executable (`CSWSpell::GetAdjustedForcePoints`). Code: `sim::combat::forms::cost`.</sub>
 
@@ -11334,6 +11172,20 @@ A character walking to a mine counts as arrived once it is within 0.7 meters of 
 
 <sub>Source: ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too). Code: `sim::target::Walk::near`.</sub>
 
+<a id="targeting-walk-round-rings"></a>**Stands Around a Target** = **×0.5 / ×0.75 / ×1** (`×0.5 / 0.75 / 1`) · `targeting.walk.round_rings`
+
+nearest **×0.5** · middle **×0.75** · farthest **×1**
+
+Sometimes no path leads to the spot in front of a target, for example when a bartender stands deep behind a long counter. The character then walks to the place around the target that is nearest to the character and that a path leads to. The places tried lie 0.5, 0.75 and 1 times the action's arrival distance from the target, which is 0.8 times the action's reach. Only talking to a character and using an object look for such a place.
+
+<sub>Source: ours (KOTOR's player talks to Mika Dorin in Dreshdae's cantina from beside the bar). Code: `sim::target::Walk::round_stand`.</sub>
+
+<a id="targeting-walk-round-directions"></a>**Directions Around a Target** = **16** · `targeting.walk.round_directions`
+
+A character looking for a place around a target tries 16 places, evenly spaced, at each distance.
+
+<sub>Source: ours. Code: `sim::target::Walk::round_stand`.</sub>
+
 <a id="targeting-walk-walk-ms"></a>**Walk Time Limit** = **10 seconds** (`10000 ms`) · `targeting.walk.walk_ms`
 
 A walk to a target is canceled if it lasts longer than 10 seconds.
@@ -11525,7 +11377,7 @@ leads to does one of these things.
 
 <a id="dialogue-coop-gather-beyond-m"></a>**Gathering the Party** = **10 m** · `dialogue.coop.gather_beyond_m`
 
-When a conversation begins, party members who are farther away than 10 meters are brought to it. When a Pazaak match begins, other players within 10 meters watch it.
+When a conversation begins, party members who are farther away than 10 meters are brought to it. When the main character's player starts a conversation of their own, every other player who is free, can see it and stands within 10 meters joins it. When a Pazaak match begins, other players within 10 meters watch it.
 
 <sub>Source: ours [verify against KOTOR's scene staging]. Code: `sim::world::coop_talk::gather`.</sub>
 
@@ -11534,6 +11386,12 @@ When a conversation begins, party members who are farther away than 10 meters ar
 A line spoken by another player's character waits up to 10 seconds for that player's own conversation to end. After that, the line plays without that player.
 
 <sub>Source: ours. Code: `sim::script::dialogue`.</sub>
+
+<a id="dialogue-coop-shown-reply-most-ms"></a>**Shown Reply** = **4 seconds** (`4000 ms`) · `dialogue.coop.shown_reply_most_ms`
+
+When more than one player is in a conversation, the reply a player takes is shown to every player in it before it runs. It stays on screen as long as a line with no voice would, and at most 4 seconds. Any player in the conversation can skip it once it has been on screen for the skip delay.
+
+<sub>Source: ours. Code: `sim::script::dialogue::answers`.</sub>
 
 <a id="dialogue-coop-story-depth"></a>**Story Replies** = **4** · `dialogue.coop.story_depth`
 
@@ -12885,7 +12743,7 @@ A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC
 
 ### <a id="duel-grab"></a>Grabs
 
-Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground.
+Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground. While a finisher plays, no other attack, Force power or script knocks either character down, pushes them or plays another animation on them. Other attacks still deal their damage.
 
 <a id="duel-grab-hurt-below-pct"></a>**Hurt Enough to Grab** = **40%** · `duel.grab.hurt_below_pct`
 
@@ -12921,9 +12779,15 @@ The grab's clip is held 200 ms past its end. The grab reaches for the victim, an
 
 <a id="duel-grab-height-units"></a>**Grab Height** = **0.2 meters** (`8 units`) · `duel.grab.height_units`
 
-A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch.
+A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch. On a slope the victim may stand higher or lower by what the slope rises over the distance between them (Grab Slope).
 
 <sub>Source: G_GrabClient in code/game/g_active.cpp:2286. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-slope-deg"></a>**Grab Slope** = **25°** · `duel.grab.slope_deg`
+
+A grab takes a victim on a hillside. The victim may stand higher or lower than the grabber by 8 units, plus what a slope of 25 degrees rises over the distance between the two characters. Jedi Academy's maps are flat where its characters fight, but KOTOR's outdoor areas, such as the plains of Dantooine, are hilly.
+
+<sub>Source: kjk, for KOTOR's hilly ground (a grab on a Mandalorian on Dantooine's plains failed, reported on 22 November 2026). Code: `sim::world::grapples`.</sub>
 
 <a id="duel-grab-victim-extra-ms"></a>**Victim Held Longer** = **0.2 seconds** (`200 ms`) · `duel.grab.victim_extra_ms`
 
@@ -13181,7 +13045,14 @@ character opens or uses a door or an object from within
 2 meters.
 
 If a script orders a move to a place that cannot be reached, the move fails
-after 0.5 seconds. If a character's movement stalls
+after 0.5 seconds. A move to an object never fails this way.
+When the only way to the object leads through a door that will not open for
+the character, such as a locked door, the character walks up to that door
+and waits in front of it. It never passes the door while the door stays
+shut, and walks on once the door opens. When no way leads to the object at
+all, the character stands still and looks for a way again every
+2 seconds or a little more. If a
+character's movement stalls
 6 times in a row, its scripted move ends
 where the character stands.
 
@@ -13199,9 +13070,9 @@ A scripted move ends when the character is within 0.1 meters of its destination,
 
 <a id="scripts-moves-grace-ms"></a>**Failed Move** = **0.5 seconds** (`500 ms`) · `scripts.moves.grace_ms`
 
-A scripted move to a place that cannot be reached fails after 0.5 seconds.
+A scripted move to a place that cannot be reached fails after 0.5 seconds. A scripted move to an object does not fail this way. The character waits, in front of a locked door when one is in the way, until a way to the object opens.
 
-<sub>Source: ours. Code: `sim::script::MOVE_GRACE_MS`.</sub>
+<sub>Source: ours (TSL's executable keeps a move to an object going: `ActionMoveToObject` queues a check that queues the move again until the mover is in range). Code: `sim::script::MOVE_GRACE_MS`.</sub>
 
 <a id="scripts-moves-check-ms"></a>**Path Check** = **0.25 seconds** (`250 ms`) · `scripts.moves.check_ms`
 
@@ -13408,7 +13279,7 @@ A character that jumps, or that an area places or a script creates, finds a free
 
 <a id="scripts-jumps-party-m"></a>**Party Arrival Search** = **10 m** · `scripts.jumps.party_m`
 
-Companions arriving in an area stand within 10 meters of the arrival point. Their place does not need a straight walk back to that point.
+Companions arriving in an area stand within 10 meters of the arrival point. Their place does not need a straight walk back to that point. Each companion's place has room for its whole body, so a companion never arrives half inside a wall or a closed door.
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::install::stand_among`.</sub>
 

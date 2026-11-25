@@ -194,6 +194,8 @@ pub enum BarContent {
     Mine,
     Feat(u8),
     Stealth,
+    /// A device the party carries, by the `spells.2da` row it casts.
+    Device(u16),
 }
 
 /// One change to an action bar (`sim::action::BarEdit`).
@@ -309,6 +311,8 @@ pub enum LobbyIntent {
     SaberRules(String),
     /// The host chooses the collision, by its settings value.
     Collision(String),
+    /// The host turns "Show chosen replies" on or off.
+    ShowReplies(bool),
     /// The host goes back to the list of saves.
     ChangeSave,
     /// The host opens Steam's invite dialog.

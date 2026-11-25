@@ -41,24 +41,40 @@ pub fn is_item(id: ObjectId) -> bool {
 }
 
 /// Whether `item` is a stack that `holder` carries and that an item of
-/// `template` with these upgrades may join (not one that never runs out).
-/// As both games compare two items before stacking them, the upgrades
-/// must match too: K1's rows fitted and TSL's upgrade items by slot.
-fn joinable(item: &Item, (template, upgrades, fitted): Kind, holder: u32) -> bool {
+/// `kind` may join. A stack that never runs out is not one.
+fn joinable(item: &Item, kind: Kind, holder: u32) -> bool {
     item.holder == holder
         && item.slot.is_none()
         && !item.infinite
-        && item.template == template
-        && item.upgrades == upgrades
-        && in_slots(&item.fitted) == in_slots(fitted)
+        && item.template == kind.template
+        && item.upgrades == kind.upgrades
+        && in_slots(&item.fitted) == in_slots(kind.fitted)
+        && item.plot == kind.plot
+        && item.charges == kind.charges
 }
 
-/// What makes items stack: template, K1's upgrades, TSL's fitted parts.
-type Kind<'a> = (&'a str, u32, &'a [String]);
+/// What makes items stack, as both games compare two items before stacking
+/// them. The upgrades are K1's rows fitted and TSL's upgrade items by slot.
+/// The games also compare an item's tag, name and stolen flag, which an
+/// item here has no copy of.
+#[derive(Clone, Copy)]
+struct Kind<'a> {
+    template: &'a str,
+    upgrades: u32,
+    fitted: &'a [String],
+    plot: bool,
+    charges: u8,
+}
 
 /// `item`'s kind (`Kind`).
 fn kind_of(item: &Item) -> Kind<'_> {
-    (&item.template, item.upgrades, &item.fitted)
+    Kind {
+        template: &item.template,
+        upgrades: item.upgrades,
+        fitted: &item.fitted,
+        plot: item.plot,
+        charges: item.charges,
+    }
 }
 
 /// TSL's slots up to the last one filled: a slot emptied on the bench
@@ -184,7 +200,7 @@ pub(crate) fn wearer(
         feats: sheet.map_or_else(Default::default, |sheet| sheet.feats),
         gender: character.map_or(0, |character| character.gender),
         abilities: sheet.map_or([10; 6], |sheet| sheet.abilities),
-        player: view.pcs(&state.party).contains(&who),
+        is_pc: view.main_characters(&state.party).contains(&who),
         tag: thing
             .and_then(|thing| thing.facts.as_ref())
             .map_or_else(String::new, |facts| facts.tag.clone()),
@@ -200,7 +216,7 @@ impl State {
     /// A new item of `template` with `holder`, unless the template is not
     /// known. A carried stackable item joins a stack of the same template
     /// the holder has room on (the rest a new stack); the item made or
-    /// joined.
+    /// joined. `restore_item_unstacked` is the one that never joins.
     pub fn make_item(
         &mut self,
         catalog: &Catalog,
@@ -214,29 +230,76 @@ impl State {
         let facts = &facts;
         let mut left = stack.max(1);
         let mut joined = None;
-        if slot.is_none() && facts.stacking > 1 {
-            let new = (facts.template.as_str(), 0, facts.parts.as_slice());
-            let stacks: Vec<u32> = self
-                .items
-                .held_by(holder)
-                .filter(|(_, item)| joinable(item, new, holder))
-                .map(|(id, _)| id)
-                .collect();
-            for id in stacks {
-                let Some(mut item) = self.items.get_mut(&id) else {
-                    continue;
-                };
-                let room = facts.stacking.saturating_sub(item.stack).min(left);
-                item.stack += room;
-                left -= room;
-                joined = Some(ObjectId(id));
-                if left == 0 {
-                    return joined;
-                }
+        if slot.is_none() {
+            let new = Kind {
+                template: facts.template.as_str(),
+                upgrades: 0,
+                fitted: facts.parts.as_slice(),
+                plot: facts.plot,
+                charges: facts.charges,
+            };
+            (left, joined) = self.fill_stacks(holder, new, facts.stacking, left, None);
+            if left == 0 {
+                return joined;
             }
         }
         let rest = self.new_item(facts, holder, left, slot);
         Some(joined.unwrap_or(rest))
+    }
+
+    /// `count` of an item of `kind` put onto the stacks of that kind that
+    /// `holder` carries, in id order, each filled up to `most` before the
+    /// next, as both games merge an item into an inventory. `skip` is the
+    /// item being added, which never joins itself. How many are left over
+    /// for a stack of their own, and the last stack joined.
+    fn fill_stacks(
+        &mut self,
+        holder: u32,
+        kind: Kind,
+        most: u16,
+        count: u16,
+        skip: Option<u32>,
+    ) -> (u16, Option<ObjectId>) {
+        if most <= 1 {
+            return (count, None);
+        }
+        let stacks: Vec<u32> = self
+            .items
+            .held_by(holder)
+            .filter(|(id, item)| Some(*id) != skip && joinable(item, kind, holder))
+            .map(|(id, _)| id)
+            .collect();
+        let mut left = count;
+        let mut joined = None;
+        for id in stacks {
+            let Some(mut item) = self.items.get_mut(&id) else {
+                continue;
+            };
+            let room = most.saturating_sub(item.stack).min(left);
+            item.stack += room;
+            left -= room;
+            joined = Some(ObjectId(id));
+            if left == 0 {
+                break;
+            }
+        }
+        (left, joined)
+    }
+
+    /// A new item of `template` as a save held it, never joining a stack,
+    /// as the original games add a saved item; none if the template is not
+    /// known. The caller then puts the charges, upgrades and flags the save
+    /// kept onto it (`StoryItem::apply` in `saves`).
+    pub fn restore_item_unstacked(
+        &mut self,
+        catalog: &Catalog,
+        template: &str,
+        holder: u32,
+        stack: u16,
+        slot: Option<u8>,
+    ) -> Option<ObjectId> {
+        let facts = self.item_facts(catalog, &key(template))?.clone();
+        Some(self.new_item(&facts, holder, stack.max(1), slot))
     }
 
     /// One of `item`'s stack, as its own item where the stack is more than
@@ -352,33 +415,21 @@ impl State {
     }
 
     /// `item` added to `holder`'s carried items, as the games add an item
-    /// to an inventory: it joins a stack of the same kind (`joinable`)
-    /// with room for it, else it is a stack of its own there.
-    fn add_to(&mut self, catalog: &Catalog, item: u32, holder: u32) {
-        let Some(adding) = self.items.get(&item) else {
+    /// to an inventory: it fills the stacks of the same kind (`joinable`)
+    /// up to their most (`fill_stacks`), and what is left of it is a stack
+    /// of its own there. Nine of ten and three more are ten and two.
+    pub(crate) fn add_to(&mut self, catalog: &Catalog, item: u32, holder: u32) {
+        let Some(adding) = self.items.get(&item).cloned() else {
             return;
         };
         let most = self
             .item_facts(catalog, &adding.template)
             .map_or(1, |facts| facts.stacking);
-        let count = adding.stack;
-        let stack = self
-            .items
-            .held_by(holder)
-            .find(|(id, held)| {
-                *id != item
-                    && most > 1
-                    && joinable(held, kind_of(adding), holder)
-                    && held.stack.saturating_add(count) <= most
-            })
-            .map(|(id, _)| id);
-        if let Some(id) = stack {
-            if let Some(mut joined) = self.items.get_mut(&id) {
-                joined.stack += count;
-            }
+        let (left, _) = self.fill_stacks(holder, kind_of(&adding), most, adding.stack, Some(item));
+        if left == 0 {
             self.items.remove(&item);
         } else if let Some(mut moved) = self.items.get_mut(&item) {
-            (moved.holder, moved.slot) = (holder, None);
+            (moved.holder, moved.slot, moved.stack) = (holder, None, left);
         }
     }
 
@@ -811,11 +862,13 @@ impl State {
     /// What an upgrade bench's Assemble comes to (`Action::Assemble`; whose
     /// the item may be is `may_upgrade`'s): its changes made in turn
     /// (`fit`, `unfit`), every one or, one refused, none. One of a stack
-    /// is split off it first and changed alone, then added back to its
-    /// holder (`add_to`), as KOTOR 2's bench splits one off. TSL's item (one
+    /// is split off it first and changed alone. Every edited item that is
+    /// not worn is then added back to its holder (`add_to`), whether it was
+    /// split off or not, so that it joins a stack it now matches, as KOTOR
+    /// 2's bench puts every edited item back with a merge. TSL's item (one
     /// with slots) is off its wearer while on TSL's bench: back on after
     /// only if `wearer`, who wore it, may wear it as it now is (its feats,
-    /// its limits), else it stays with the party.
+    /// its limits), else it goes back to the party with a merge too.
     pub(crate) fn assemble(
         &mut self,
         catalog: &Catalog,
@@ -828,7 +881,6 @@ impl State {
             .items
             .get(&item)
             .is_some_and(|held| held.slot.is_some());
-        let whole = item;
         let item = self.one_of(ObjectId(item)).0;
         let made = changes.iter().try_for_each(|change| match *change {
             Fitting::In { upgrade, replace } => self.fit(catalog, out, item, upgrade, replace),
@@ -838,7 +890,7 @@ impl State {
             (self.items, self.next_item) = before;
             return Err(refused);
         }
-        if item != whole {
+        if !worn {
             let holder = self.items.get(&item).map_or(PARTY, |held| held.holder);
             self.add_to(catalog, item, holder);
             return Ok(());
@@ -847,12 +899,13 @@ impl State {
         let facts = self
             .item_facts(catalog, &held.template)
             .ok_or(Notice::CannotUpgrade)?;
-        if let Some(wearer) = wearer.filter(|_| worn && !facts.slot_kinds.is_empty()) {
+        if let Some(wearer) = wearer.filter(|_| !facts.slot_kinds.is_empty()) {
             let now = facts.fitted(held.upgrades, &held.fitted, catalog, &self.known);
             let wears = passive::may_equip(&wearer.feats, &now.needs)
                 && properties::may_wear(&now.limits, wearer).is_ok();
             if !wears {
                 self.carry(out, ObjectId(item), PARTY);
+                self.add_to(catalog, item, PARTY);
             }
         }
         Ok(())

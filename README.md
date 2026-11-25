@@ -25,8 +25,11 @@ The builds are not signed, so your computer warns you the first time:
 - **macOS:** open System Settings → Privacy & Security and click "Open Anyway".
 - **Windows:** click "More info", then "Run anyway".
 
-Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
-runs without it.
+kjk plays the games' movies itself, so you do not need to install anything
+else for them. This includes high-resolution movies from mods. A movie in
+a format other than the games' own (Bink 2, for example) still needs
+[ffmpeg](https://ffmpeg.org/download.html). Without ffmpeg, kjk skips such
+a movie.
 
 **Movie Duels (optional).** With Movie Duels installed for Jedi Academy
 (its `MD` folder beside `base/`, or its `MD_*.pk3` archives copied into

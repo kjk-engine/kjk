@@ -110,7 +110,7 @@ fn played(root: &Path) -> Option<Played> {
 
 /// A save's game: its meta's, else its story's, else the install its module
 /// is in.
-fn game_of(meta: &Meta, story: Option<&Story>) -> Game {
+pub(crate) fn game_of(meta: &Meta, story: Option<&Story>) -> Game {
     meta.game
         .as_deref()
         .or(story.map(|story| story.game.as_str()))

@@ -26,6 +26,7 @@ session = { path = "crates/session" }
 net = { path = "crates/net" }
 audio = { path = "crates/audio" }
 movie = { path = "crates/movie" }
+bink = { path = "crates/bink" }
 script_ncs = { path = "crates/script_ncs" }
 store = { path = "crates/store" }
 ui = { path = "crates/ui" }

@@ -52,7 +52,7 @@ use sim::{
     SimWorld, Snapshot, StepReason, TickInput, TickRate, buttons, step,
 };
 
-use crate::lifecycle::{Installer, Prepared};
+use crate::lifecycle::{HintAsk, Installer, Prepared};
 use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
@@ -76,6 +76,30 @@ const RECORD_EVERY: u64 = 100;
 /// Degrees of view per unit of mouse motion (JA's `m_yaw` 0.022 at
 /// `sensitivity` 5).
 pub(crate) const MOUSE_DEGREES: f32 = 0.11;
+
+/// Whether the mouse holds the cursor of one of `cursors` (the main
+/// window's).
+pub(crate) fn grabbed<'a>(cursors: impl IntoIterator<Item = &'a CursorOptions>) -> bool {
+    cursors
+        .into_iter()
+        .any(|cursor| cursor.grab_mode != CursorGrabMode::None)
+}
+
+/// Degrees the mouse's `motion` turns the view by this frame, as the
+/// player's `feel` has it (the defaults without one): x to the right, y
+/// down, or up when the mouse is inverted. None while the mouse does not
+/// hold the cursor (`grabbed`).
+pub(crate) fn mouse_look(
+    motion: Option<&AccumulatedMouseMotion>,
+    feel: Option<&MouseFeel>,
+    grabbed: bool,
+) -> Vec2 {
+    let feel = feel.map_or_else(MouseFeel::default, |feel| *feel);
+    let up = if feel.invert { -1.0 } else { 1.0 };
+    motion.filter(|_| grabbed).map_or(Vec2::ZERO, |motion| {
+        Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
+    })
+}
 
 /// Who sends seat 0's commands.
 #[derive(Clone)]
@@ -367,6 +391,27 @@ impl Look {
         let most = pitch_limit();
         self.pitch = (self.pitch + degrees.y).clamp(-most - held, most - held);
     }
+
+    /// The look that sends the angles the body of `seat` last took in
+    /// `snapshot` (`command_angles`). The sim adds the body's `view_offset`
+    /// to them, so the view after a load is the view the save holds. A save
+    /// keeps the angles and the offset apart, and the offset is often large:
+    /// a look started at a level pitch with that offset added turned the
+    /// view up to its limit, with the camera on the ground. `yaw` is the
+    /// look's yaw when the seat plays no body with a view.
+    pub fn resumed(snapshot: &Snapshot, seat: Seat, yaw: f32) -> Look {
+        let angles = snapshot
+            .body(seat)
+            .and_then(|body| body.player.as_ref())
+            .map(|player| player.command_angles);
+        match angles {
+            Some([pitch, yaw, _]) => Look {
+                pitch: sim::math::short_to_degrees(pitch),
+                yaw: sim::math::short_to_degrees(yaw),
+            },
+            None => Look { pitch: 0.0, yaw },
+        }
+    }
 }
 
 /// Says in the log which globals the module's scripts set that
@@ -479,7 +524,7 @@ pub fn look_probes() -> sim::probe::Checks {
         (view(&look), down)
     };
     let reaches = |(up, down): (f32, f32)| (up + limit).abs() < 0.5 && (down - limit).abs() < 0.5;
-    [
+    let mut checks: sim::probe::Checks = [
         ("a guest's look reaches the view's limit both ways", Seat(1)),
         (
             "the host's look through the companion it leads reaches the limit both ways",
@@ -491,12 +536,52 @@ pub fn look_probes() -> sim::probe::Checks {
         let told = format!("a {DELTA}° delta: up to {up:.1}°, down to {down:.1}° of ±{limit:.1}°");
         (name, check(reaches((up, down)), told))
     })
-    .into()
+    .into();
+    checks.push((
+        "a look resumed from a save keeps the save's view",
+        resumed_view(world.snapshot()),
+    ));
+    checks
+}
+
+/// A save from Hrakert Station on Manaan holds a level view as a command
+/// pitch of about 95° and a delta of about -95°, and a yaw delta of about
+/// -103°. The look resumed from it (`Look::resumed`) must give the sim the
+/// save's own view back.
+#[cfg(feature = "probes")]
+fn resumed_view(mut snapshot: Snapshot) -> Result<String, String> {
+    const ANGLES: [i16; 3] = [17317, 8509, 0];
+    const OFFSET: [i16; 3] = [-17317, -18748, 0];
+    let host = snapshot
+        .entities
+        .iter_mut()
+        .find(|entity| entity.kind == sim::Kind::Avatar(Seat(0)))
+        .and_then(|entity| entity.player.as_mut())
+        .ok_or("no host")?;
+    host.command_angles = ANGLES;
+    host.view_offset = OFFSET;
+    let saved = sim::motion::view_of(ANGLES, OFFSET);
+    let look = Look::resumed(&snapshot, Seat(0), 0.0);
+    let view = sim::motion::view_of(view_angles(look.pitch, look.yaw), OFFSET);
+    let kept = (0..2).all(|axis| (view[axis] - saved[axis]).abs() < 0.1);
+    sim::probe::check(
+        kept,
+        format!(
+            "saved view {:.1}° pitch, {:.1}° yaw; resumed {:.1}° pitch, {:.1}° yaw",
+            saved[0], saved[1], view[0], view[1]
+        ),
+    )
 }
 
 /// What a planning thread sends back.
 enum JobMessage {
-    Screen(Box<crate::lifecycle::LoadingScreen>),
+    /// The loading screen, and where the hints stand after it. The hints
+    /// are given only when the job was asked for a hint, and they have not
+    /// moved if no hint was found.
+    Screen(
+        Box<crate::lifecycle::LoadingScreen>,
+        Option<sim::script::Hints>,
+    ),
     Progress(f32),
     Prepared(Box<Result<Prepared, String>>),
 }
@@ -512,15 +597,18 @@ pub(crate) struct Job {
     expect: Option<Announcement>,
     /// A save made the world at commit, in place of the install (I30 P13).
     reload: Option<Box<Save>>,
+    /// Where the hints stand after the one the loading screen showed.
+    hints: Mutex<Option<sim::script::Hints>>,
 }
 
 impl Job {
     /// Starts planning `request` with `installer` on a thread of its own
     /// (with its scene when `scene`, `delay` late), and shows the loading
-    /// screen for it.
+    /// screen for it, with a hint when `ask` is given.
     pub(crate) fn spawn(
         installer: Arc<Installer>,
         request: Request,
+        ask: Option<HintAsk>,
         scene: bool,
         delay: Duration,
         loading: &mut Loading,
@@ -528,8 +616,10 @@ impl Job {
         let (sender, receiver) = channel();
         let job_request = request.clone();
         std::thread::spawn(move || {
-            let screen = installer.loading_screen(&job_request.module);
-            let _ = sender.send(JobMessage::Screen(Box::new(screen)));
+            let mut ask = ask;
+            let screen = installer.loading_screen(&job_request.module, ask.as_mut());
+            let hints = ask.map(|ask| ask.hints);
+            let _ = sender.send(JobMessage::Screen(Box::new(screen), hints));
             let progress = sender.clone();
             std::thread::sleep(delay);
             let prepared = installer.prepare_with(&job_request, scene, &move |done| {
@@ -558,6 +648,7 @@ impl Job {
             commanded: false,
             expect: None,
             reload: None,
+            hints: Mutex::new(None),
         }
     }
 
@@ -571,7 +662,8 @@ impl Job {
                 .expect("the job channel lock")
                 .try_recv();
             match message {
-                Ok(JobMessage::Screen(screen)) => {
+                Ok(JobMessage::Screen(screen, hints)) => {
+                    *self.hints.lock().expect("the job hints lock") = hints;
                     loading.image = screen.image;
                     loading.image_name = screen.name;
                     loading.bar = screen.bar;
@@ -580,7 +672,9 @@ impl Job {
                     loading.screen = true;
                     loading.progress = loading.progress.max(0.1);
                 }
-                Ok(JobMessage::Progress(progress)) => loading.progress = progress,
+                Ok(JobMessage::Progress(progress)) => {
+                    loading.progress = loading.progress.max(progress);
+                }
                 Ok(JobMessage::Prepared(prepared)) => return Some(*prepared),
                 Err(TryRecvError::Empty) => return None,
                 Err(TryRecvError::Disconnected) => {
@@ -603,6 +697,8 @@ struct Installed {
     scene_ms: f64,
     /// The area came from the installer's level cache.
     area_cached: bool,
+    /// A save loaded in place, not a module entered: it owes no autosave.
+    reload: bool,
     commit_ms: f64,
     live: usize,
     left_behind: usize,
@@ -677,6 +773,11 @@ struct Authority {
     /// settings have them now (`duel`). A world a save makes in play is set
     /// to them, so a changed option counts from the next load.
     damage_taken: Option<sim::combat::damage::Taken>,
+    /// Whether a live session played here shows chosen replies (the host's
+    /// lobby setting), taken from the settings when its world was made. A
+    /// world a save makes in play is set to it again, so it stays the same
+    /// for the whole session.
+    show_replies: Option<bool>,
     slowed: Slowed,
 }
 
@@ -901,6 +1002,16 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         if let Some(taken) = damage_taken {
             world.set_damage_taken(taken);
         }
+        // A live world shows chosen replies as the host's settings choose; a
+        // replay keeps its recording's. A headless live world has no
+        // settings and keeps what it has.
+        let show_replies = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(|settings| settings.on(ui::screens::options::SHOW_REPLIES));
+        if let Some(on) = show_replies {
+            world.set_show_replies(on);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -973,10 +1084,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             setup: Setup { rate, ..setup },
             driver,
             aim,
-            look: Look {
-                pitch: 0.0,
-                yaw: setup.world.yaw,
-            },
+            look: Look::resumed(&last, seat, setup.world.yaw),
             controls: Controls::default(),
             last,
             frames: 0,
@@ -995,6 +1103,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             music_asked: None,
             rules,
             damage_taken,
+            show_replies,
             slowed: Slowed::default(),
         });
     }
@@ -1005,7 +1114,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
 /// and a joined player's (`net_join::advance`) alike: the keys' and the
 /// pads' actions, the mouse's buttons among them while it holds the cursor
 /// (none without a window; none held, an idle command that keeps the view,
-/// while a screen or a movie is up), and how far the mouse
+/// while a screen, a movie or photo mode is up), and how far the mouse
 /// and the pad's stick turn the view (not while a movie is up: on the
 /// host the world waits for it, `movie_view`). What a movie skip, a
 /// conversation, a screen or the cursor took reads as up until let go
@@ -1023,6 +1132,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
     summary: Option<Res<'w, crate::progress::SummaryHold>>,
     wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
+    photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -1044,6 +1154,11 @@ impl PlayerInput<'_, '_> {
         self.summary.as_ref().is_some_and(|summary| summary.0)
     }
 
+    /// Photo mode, while it is on (`photo_mode`).
+    pub(crate) fn photo(&self) -> Option<&crate::photo_mode::PhotoMode> {
+        self.photo.as_deref().filter(|photo| photo.is_on())
+    }
+
     pub(crate) fn read(&self) -> Read {
         // In walk mode the keys and the mouse move the camera, never the
         // player.
@@ -1054,16 +1169,11 @@ impl PlayerInput<'_, '_> {
             };
         }
         let headless = self.headless.0;
-        let held = self.movie_up() || self.screens.as_ref().is_some_and(|open| open.0);
-        let feel = self
-            .feel
-            .as_deref()
-            .map_or_else(MouseFeel::default, |feel| *feel);
-        let grabbed = !self.movie_up()
-            && self
-                .windows
-                .iter()
-                .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
+        // Photo mode gives the player's character no orders.
+        let held = self.movie_up()
+            || self.screens.as_ref().is_some_and(|open| open.0)
+            || self.photo().is_some();
+        let grabbed = !self.movie_up() && grabbed(self.windows.iter());
         let actions = self
             .actions
             .as_deref()
@@ -1075,21 +1185,15 @@ impl PlayerInput<'_, '_> {
                         .is_some_and(|picking| picking.keys_scripted())
             })
             .map(|actions| if held { Actions::default() } else { *actions });
-        let mouse = self
-            .motion
-            .as_ref()
-            .filter(|_| grabbed)
-            .map_or(Vec2::ZERO, |motion| {
-                let up = if feel.invert { -1.0 } else { 1.0 };
-                Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
-            });
+        let mouse = mouse_look(self.motion.as_deref(), self.feel.as_deref(), grabbed);
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         // The orbit held turns the camera, not the player (`camera_tune`).
         let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
         // The power wheel open takes the mouse and the right stick for its
         // pointer (`wheel_view`).
         let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
-        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        let turning =
+            !headless && !self.movie_up() && !orbiting && !wheeling && self.photo().is_none();
         // A headless run's commands turn the view (`ui look`) through the
         // stick's turn.
         let scripted = headless && pad != Vec2::ZERO;
@@ -1101,19 +1205,49 @@ impl PlayerInput<'_, '_> {
     }
 }
 
+/// What photo mode does to the cursor this frame: holds and hides it while
+/// photo mode is on (`Some(true)`), lets it go as photo mode ends in a
+/// conversation (`Some(false)`), and leaves it alone otherwise (`None`).
+/// `was_photo` is whether photo mode was on the frame before, and is set to
+/// `photo` for the next frame.
+pub(crate) fn photo_cursor(photo: bool, was_photo: &mut bool, talking: bool) -> Option<bool> {
+    let was = std::mem::replace(was_photo, photo);
+    (photo || was && talking).then_some(photo)
+}
+
 /// In a window, the mouse turns the player: the cursor is held and hidden;
 /// a screen opening lets it go, the last one closing (or a click) takes it
 /// again; a conversation's screen frees it meanwhile (`dialogue_view`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn grab_cursor(
     headless: Res<Headless>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     replies: Option<Res<crate::dialogue_view::ReplyInput>>,
     mut swallowed: ResMut<crate::swallow::Swallowed>,
-    mut was_open: Local<Option<bool>>,
+    (mut was_open, mut was_photo): (Local<Option<bool>>, Local<bool>),
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
 ) {
-    if headless.0 || replies.is_some_and(|input| input.active) {
+    if headless.0 {
+        return;
+    }
+    // Photo mode holds the cursor, so the mouse looks with no button held,
+    // in a conversation too; one left in a conversation frees it again.
+    let photo = photo.is_some_and(|photo| photo.is_on());
+    let talking = replies.is_some_and(|input| input.active);
+    if let Some(held) = photo_cursor(photo, &mut was_photo, talking) {
+        for mut cursor in &mut windows {
+            cursor.grab_mode = if held {
+                CursorGrabMode::Locked
+            } else {
+                CursorGrabMode::None
+            };
+            cursor.visible = !held;
+        }
+        return;
+    }
+    if talking {
         return;
     }
     let open = screens.is_some_and(|screens| screens.0);
@@ -1499,14 +1633,26 @@ impl Authority {
 
     /// Starts planning `request` on a thread of its own, if the session
     /// installs modules and this transition did not fail before (a command
-    /// or a replay asks regardless).
+    /// or a replay asks regardless). Its loading screen's hint comes from
+    /// where the hints stand in `ask`, else in the world now.
     fn start(
         &mut self,
         request: Request,
         commanded: bool,
         expect: Option<Announcement>,
+        ask: Option<HintAsk>,
         loading: &mut Loading,
     ) -> bool {
+        if self.lifecycle.is_none() {
+            return false;
+        }
+        let ask = ask.unwrap_or_else(|| {
+            self.settle();
+            HintAsk {
+                hints: self.world.hints(),
+                visited: self.last.visited(&request.module),
+            }
+        });
         let Some(lifecycle) = &self.lifecycle else {
             return false;
         };
@@ -1527,7 +1673,14 @@ impl Authority {
         self.job = Some(Job {
             commanded,
             expect,
-            ..Job::spawn(installer, request, scene, Duration::ZERO, loading)
+            ..Job::spawn(
+                installer,
+                request,
+                Some(ask),
+                scene,
+                Duration::ZERO,
+                loading,
+            )
         });
         true
     }
@@ -1560,6 +1713,7 @@ impl Authority {
             Request::of(&announcement),
             false,
             Some(announcement),
+            None,
             loading,
         )
     }
@@ -1672,6 +1826,11 @@ fn store(
         character,
         build: Some(env!("KJK_GIT_SHA").into()),
         version: Some(env!("KJK_VERSION").into()),
+        game: snapshot
+            .place
+            .as_ref()
+            .map(|place| place.game.clone())
+            .filter(|game| !game.is_empty()),
         formats: Some(saves::Formats {
             save: sim::SAVE_FORMAT,
             snapshot: sim::SNAPSHOT_FORMAT,
@@ -1703,17 +1862,19 @@ fn store(
     Ok((id, meta, world))
 }
 
-/// A session a save's story restored (`SessionIntent::Restore`): its first
-/// module owes no autosave, which would rotate the autosaves and so move or
-/// remove the slot restored from when it is one of them (the restore never
-/// writes over its slot). Taken by the autosave once seen.
+/// A session started from a save, or from a save's story
+/// (`SessionIntent::Restore`). Its first module owes no autosave, as
+/// KOTOR writes none when a game is loaded. One would rotate the autosaves
+/// and so move or remove the slot loaded from when it is one of them.
+/// Taken by the autosave once seen.
 #[derive(Resource)]
-pub struct FromStory;
+pub struct FromSave;
 
 /// An autosave owed since a module was installed (`installs` counts them;
-/// none counted yet: the first module the game starts in is owed one too,
-/// but for a game a story restored): tried each second until nothing
-/// refuses it.
+/// none counted yet: the first module the game starts in is owed one too).
+/// A module that came from a save owes none: a game loaded from the menu,
+/// or a save loaded in place (issue 643). The autosave is tried each second
+/// until nothing refuses it.
 #[derive(Default)]
 struct AutosaveDue {
     installs: Option<usize>,
@@ -1723,19 +1884,18 @@ struct AutosaveDue {
 
 impl AutosaveDue {
     /// The authority's `installs` seen (`fresh` when it was just made: a
-    /// game started or loaded, `restored` from a story); whether an
-    /// autosave became owed, which only a player's game with `eligible`
-    /// (live, Autosave on) owes.
-    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, restored: bool) -> bool {
+    /// game started or loaded; `loaded` when the newest module came from a
+    /// save); whether an autosave became owed, which only a player's game
+    /// with `eligible` (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, loaded: bool) -> bool {
         if fresh {
             *self = AutosaveDue::default();
         }
         if Some(installs) == self.installs {
             return false;
         }
-        let first = self.installs.is_none();
         self.installs = Some(installs);
-        self.owed = eligible && !(first && restored);
+        self.owed = eligible && !loaded;
         self.owed
     }
 }
@@ -1814,7 +1974,9 @@ pub fn autosave_probes() -> sim::probe::Checks {
     let off = AutosaveDue::default().observe(0, true, false, false);
     let mut restored = AutosaveDue::default();
     let restored_first = restored.observe(0, true, true, true);
-    let restored_entered = restored.observe(1, false, true, true);
+    let restored_entered = restored.observe(1, false, true, false);
+    let reloaded = restored.observe(2, false, true, true);
+    let entered_after = restored.observe(3, false, true, false);
     vec![
         (
             "autosave_owed_each_game",
@@ -1826,18 +1988,28 @@ pub fn autosave_probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "autosave_not_owed_on_restore",
+            "autosave_not_owed_on_load",
             sim::probe::check(
                 !restored_first && restored_entered,
                 format!("first module {restored_first}, the next entered {restored_entered}"),
             ),
         ),
+        (
+            "autosave_not_owed_on_reload",
+            sim::probe::check(
+                !reloaded && entered_after,
+                format!(
+                    "a save loaded in place {reloaded}, the next module entered {entered_after}"
+                ),
+            ),
+        ),
     ]
 }
 
-/// The autosave owed after each module installed (KOTOR's rule) and when a
-/// script asks for one, once a second until nothing refuses it: a player's game, solo or hosting (the
-/// host's world is the authority), live, not an arena, with Autosave on.
+/// The autosave owed after each module entered (KOTOR's rule, not after a
+/// save loaded) and when a script asks for one, once a second until
+/// nothing refuses it: a player's game, solo or hosting (the host's world
+/// is the authority), live, not an arena, with Autosave on.
 fn autosave(
     mut authority: ResMut<Authority>,
     mut due: Local<AutosaveDue>,
@@ -1850,16 +2022,19 @@ fn autosave(
         Option<Res<SceneSwap>>,
     ),
     (own, mut autosaved): (Option<Res<OwnSeat>>, ResMut<crate::save_view::Autosaved>),
-    (made, from_story, mut commands): (
+    (made, from_save, mut commands): (
         Option<Res<crate::character::Made>>,
-        Option<Res<FromStory>>,
+        Option<Res<FromSave>>,
         Commands,
     ),
 ) {
-    let restored = from_story.is_some();
-    if restored {
-        commands.remove_resource::<FromStory>();
+    // The newest module came from a save: the game's first, loaded from
+    // the menu, or a save loaded in place.
+    let from_save = from_save.is_some();
+    if from_save {
+        commands.remove_resource::<FromSave>();
     }
+    let loaded = from_save || authority.installs.last().is_some_and(|last| last.reload);
     // An arena's level is never saved (`saves::refusal`): none owed there.
     // Read from the scene's level: the world itself may be away, being
     // stepped (`sim_worker`), until `settle` below brings it home.
@@ -1872,7 +2047,7 @@ fn autosave(
         authority.installs.len(),
         authority.is_added(),
         eligible,
-        restored,
+        loaded,
     ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
@@ -1946,7 +2121,11 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
          or the save is not in one.",
     )?;
     info!(target: "saves", id, module = %request.module, "reloading");
-    if authority.start(request, true, None, loading)
+    let ask = HintAsk {
+        hints: save.script.hints,
+        visited: save.snapshot.visited(&request.module),
+    };
+    if authority.start(request, true, None, Some(ask), loading)
         && let Some(job) = authority.job.as_mut()
     {
         job.reload = Some(Box::new(save));
@@ -2045,9 +2224,10 @@ fn advance(
         Res<CameraAim>,
         Option<Res<crate::lifecycle_view::Picture>>,
     ),
-    (bar_use, wheel): (
+    (bar_use, wheel, mut replay): (
         Option<Res<crate::bar_view::BarUse>>,
         Option<Res<crate::wheel_view::Wheel>>,
+        Option<ResMut<crate::photo_mode::Replay>>,
     ),
 ) {
     let authority = &mut *authority;
@@ -2108,7 +2288,7 @@ fn advance(
                     lifecycle
                         .installer
                         .request_from(&authority.last, &module, arrival.as_deref());
-                authority.start(request, true, None, &mut loading);
+                authority.start(request, true, None, None, &mut loading);
             }
             Some(_) => request.failed = Some("a module is being installed already".into()),
             None => request.failed = Some("this run installs no modules".into()),
@@ -2133,6 +2313,7 @@ fn advance(
         let prepare_ms = job.started.elapsed().as_secs_f64() * 1000.0;
         let reloaded = job.reload.take();
         let was_reload = reloaded.is_some();
+        let shown = job.hints.lock().expect("the job hints lock").take();
         let committed = result.and_then(|mut prepared| {
             // Walk mode takes each module's scripts and fights away, as it
             // does for the first one (`walk::stage`).
@@ -2168,6 +2349,9 @@ fn advance(
                     if let Some(taken) = taken {
                         world.set_damage_taken(taken);
                     }
+                    if let Some(on) = authority.show_replies.filter(|_| live) {
+                        world.set_show_replies(on);
+                    }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
                         world.set_targeted_blocks(targeted);
@@ -2179,6 +2363,9 @@ fn advance(
                         first =
                             sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
                                 .ok_or("the save was not made in a module")?;
+                    }
+                    if let Some(hints) = shown {
+                        world.set_hints(hints);
                     }
                     authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
@@ -2192,6 +2379,9 @@ fn advance(
                         .plan
                         .commit(&mut authority.world)
                         .map_err(|error| error.to_string())?;
+                    if let Some(hints) = shown {
+                        authority.world.set_hints(hints);
+                    }
                     if let Some(report) = authority.world.reconciled() {
                         warn!(target: "save-migrate", "{report}");
                         for snap in &report.snaps {
@@ -2272,6 +2462,7 @@ fn advance(
                     plan_ms: prepared.plan_ms,
                     scene_ms: prepared.scene_ms,
                     area_cached: prepared.plan.facts.cached,
+                    reload: was_reload,
                     commit_ms,
                     live: census.live_total(),
                     left_behind: census.stashed_total(),
@@ -2374,7 +2565,17 @@ fn advance(
     let unseen = picture
         .as_deref()
         .is_some_and(|picture| picture.holds(loading.committed));
-    let waiting = movie_up || on_break || summary_up || menu_up || unseen;
+    // Played alone, the world waits too while photo mode holds it, as for
+    // a menu, and a replay steps the one tick its step control lets
+    // through (`photo_mode`).
+    let replaying = matches!(authority.source, Source::Replay { .. });
+    let photo = input.photo().filter(|_| !authority.solo.hosting());
+    let one_tick = replay.as_deref_mut().is_some_and(|replay| {
+        replay.playing = replaying;
+        std::mem::take(&mut replay.step) && replaying
+    });
+    let photo_up = photo.is_some_and(crate::photo_mode::PhotoMode::holds_world) && !one_tick;
+    let waiting = movie_up || on_break || summary_up || menu_up || unseen || photo_up;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
@@ -2414,14 +2615,24 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
+            // The step control of a stopped replay lets one tick through.
+            None if one_tick => {
+                let tick = authority.last.tick + 1;
+                authority.clock = Accumulator::new(rate, tick);
+                vec![(tick, rate.msec(tick))]
+            }
             // A perfect block slows the clock for a moment (`Slowed`). The
             // power wheel slows it while it is open in a session of one
-            // seat (`wheel_view::time_scale`). The two scales never
-            // multiply. The clock runs at the slower of the two.
+            // seat (`wheel_view::time_scale`), and photo mode's speed does
+            // while it runs the world slowly (`photo_mode::Speed`). The
+            // scales never multiply. The clock runs at the slowest of them.
             None => {
                 let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
                 let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
-                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
+                let photo = photo.map_or(1.0, crate::photo_mode::PhotoMode::scale);
+                let scale = (authority.slowed.scale(time.elapsed_secs_f64()))
+                    .min(wheel)
+                    .min(photo);
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }
@@ -2500,7 +2711,7 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);
                 held_up = true;
@@ -2627,7 +2838,8 @@ fn advance(
         // with no keys too (headless: the console's `ui act`).
         let walking = autopilot
             .as_ref()
-            .is_some_and(|pilot| pilot.command.is_some());
+            .is_some_and(|pilot| pilot.command.is_some())
+            && input.photo().is_none();
         let own = match (&authority.source, &authority.driver, own) {
             (Source::Live { .. }, Driver::Player(_), own) if own.is_some() || walking => {
                 Some(crate::target_view::steer(
@@ -2782,7 +2994,7 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 authority.clock = Accumulator::new(rate, tick);
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);

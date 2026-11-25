@@ -17,7 +17,7 @@
 //! Not yet: pushing bolts back and pull's disarm (with I24's bolt
 //! deflection), rage and sight (KOTOR has no rows for them).
 
-use collision::{Bodies, CollisionWorld, Extents, UNIT};
+use collision::{Bodies, Extents, UNIT};
 
 use super::{
     Avatar, BODY, Clock, Fighting, Hit, Hits, Id, Inputs, Object, Player, PlayerSheet, SHOT,
@@ -64,8 +64,12 @@ struct Person {
     ordered: bool,
     /// Its sheet as what runs on it changes it (`effects::sheet_now`).
     sheet: Sheet,
-    /// Its bar's size: its own sheet's (`Sheet::pool`), whatever runs on it.
+    /// Its bar's size (`Sheet::pool`), as what runs on it changes its
+    /// Wisdom, Charisma or Constitution.
     pool: u16,
+    /// The hit points and bar points that what runs on it and what it wears
+    /// add to its own sheet's most (`effects::follow_maxima`).
+    added: (i16, i16),
     faction: u8,
     /// Where it stood before the powers.
     ps: MotionState,
@@ -154,7 +158,8 @@ impl Scene<'_> {
 
     /// The first body a line from `from` along `caster`'s view meets
     /// within `range`, with where (units): among the bodies as the caster
-    /// saw them, if it is a player behind the authority.
+    /// saw them, if it is a player behind the authority. A body whose box
+    /// the line starts in is met where it starts (`Bodies::shot`).
     fn aimed(&self, caster: usize, from: Vec3, range: f32) -> Option<(usize, Vec3)> {
         let me = &self.people[caster];
         let end = math::mad(from, range, me.forward());
@@ -162,7 +167,7 @@ impl Scene<'_> {
         let trace = self.level.with(self.states, |world| {
             Bodies::new(world, targets.met_by(me.id))
                 .skipping(me.id.0 | BODY)
-                .trace(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
+                .shot(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
         });
         let id = trace.entity.filter(|entity| entity & BODY != 0)?;
         let at = self.find(SimId(id & !BODY))?;
@@ -290,8 +295,13 @@ pub(super) fn force(
             // What runs on it changes its sheet (saves, defence, abilities).
             let base = sheet_of(*sheet, *object);
             let sheet = effects::sheet_now(base, &fighting.0, clock.time_ms);
+            let added = |now: u16, own: u16| (i32::from(now) - i32::from(own)) as i16;
             Person {
-                pool: base.pool(),
+                pool: sheet.pool(),
+                added: (
+                    added(sheet.max_hp, base.max_hp),
+                    added(sheet.pool(), base.pool()),
+                ),
                 id: id.0,
                 seat: seat.as_ref().map(|a| a.0),
                 party: super::in_party(*avatar, &fighting.0),
@@ -1136,7 +1146,7 @@ impl Cast<'_, '_> {
     /// A toggled power (speed, protect, absorb, mind trick): pressed while
     /// it runs, it stops if it has run `ja::TOGGLE_MIN_MS`; else it starts,
     /// paid now.
-    /// Protect and absorb exclude each other.
+    /// JA's protect and absorb exclude each other; KOTOR's do not.
     fn toggle(&mut self, at: usize, power: Power, level: u8, cost: i32) {
         let force = self.fighters[at].force;
         let (until, running_level) = match power {
@@ -1178,8 +1188,12 @@ impl Cast<'_, '_> {
         if power != Power::MindTrick && self.scripted() {
             self.cast_at(at, Some(at), &[at]);
         }
-        // Protect, absorb and rage exclude each other.
+        // JA's protect, absorb and rage exclude each other. KOTOR's scripts
+        // replace only the powers of the cast power's own tree (Force Aura,
+        // Shield and Armor; Resist Force and Force Immunity), so a power
+        // cast through its script leaves the other trees running.
         let excluded: &[Power] = match power {
+            _ if self.scripted() => &[],
             Power::Protect => &[Power::Absorb, Power::Rage],
             Power::Absorb => &[Power::Protect, Power::Rage],
             Power::Rage => &[Power::Protect, Power::Absorb],
@@ -1304,6 +1318,9 @@ impl Cast<'_, '_> {
                 || self.spared(at, them)
                 || !self.fighters[them].alive()
                 || self.fighters[them].saber.floored()
+                // A grapple finisher holds its pair where it put them
+                // (`world::grapples`).
+                || self.fighters[them].grapple.is_some()
             {
                 continue;
             }
@@ -1961,12 +1978,14 @@ impl Cast<'_, '_> {
         }
         let sheet = self.person(at).sheet;
         let pool = self.person(at).pool;
+        let added = self.person(at).added;
         let origin = self.person(at).ps.origin;
         let fighter = &mut self.fighters[at];
         // Items run out: a shield or a stim ends (a use lands in the
         // firing step, `items::press`); Affliction and Plague sap.
         items::settle(fighter, now);
         fighter.effects.sap(now);
+        effects::follow_maxima(fighter, added);
         effects::worn(fighter, &sheet, pool, (now, self.tick));
         if self.authority {
             effects::regenerate(fighter, (sheet.max_hp, pool), (now, self.msec));

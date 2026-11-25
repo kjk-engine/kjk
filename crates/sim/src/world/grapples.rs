@@ -6,7 +6,8 @@
 //! `grab::REACH_LEFT_MS[1]` of it are left (JA's `G_GrabClient`), it reaches
 //! for the victim: a living humanoid in front of the grabber within a
 //! punch's reach (`strikes::punch_reach`), standing on the ground at the
-//! grabber's height, not a beast or a droid, not knocked down, not in a
+//! grabber's height (on a slope, as much higher or lower as the slope
+//! rises between them: `level_within`), not a beast or a droid, not knocked down, not in a
 //! saber lock and not in a grab already; with friendly fire off, the party
 //! never grabs the party. The grabber's target comes first, else the
 //! nearest. The grab's roll (`grab_roll`) decides. A miss, or no one to
@@ -43,12 +44,16 @@
 //! rest of the victim's clip (its stand-up) never plays. The grabber stands
 //! when its own clip ends, or when the second finisher lets go.
 //!
-//! The grab breaks when the grabber dies or is knocked down before its clip
-//! ends. It also breaks when someone else knocks the victim down, when a
-//! script's death kills the victim, and when something pushes the two apart
-//! by more than JA's break distance for their gap (`grab::BREAK_DIST`). Both
-//! are then let go, and the victim falls. A victim a blow marked to die dies
-//! then too. Any other blow that would kill a held victim, a third
+//! A finisher holds its pair until it lets them go. No one else knocks
+//! either of them down meanwhile (`Fighter::knock_down`), and no kick, Force
+//! push or script's push moves them. A script's queued actions for either of
+//! them, an animation or a conversation, wait until the finisher lets go
+//! (the script queue's `advance`), and the view draws no other animation over the
+//! finisher's clips. The grab still breaks when the grabber dies before its
+//! clip ends, when a script's death kills the victim, and when something
+//! else moves the two apart by more than JA's break distance for their gap
+//! (`grab::BREAK_DIST`). Both are then let go, and the victim falls. A
+//! victim a blow marked to die dies then too. Any other blow that would kill a held victim, a third
 //! character's too, only marks it (`damage::apply`), and the death is
 //! credited to the grabber's finisher when it lets the victim go.
 
@@ -98,6 +103,15 @@ pub(crate) fn finisher(forward: i8, right: i8, began: u8) -> u8 {
     keyed_finisher(forward, right)
         .or((1..=3).contains(&began).then_some(began))
         .unwrap_or(1)
+}
+
+/// How far (units) a victim `distance` units away may stand above or below
+/// the grabber: JA's `grab::HEIGHT_UNITS`, plus what a slope of
+/// `grab::SLOPE_DEG` rises over that distance, so a grab works on KOTOR's
+/// hills as on JA's flat floors.
+pub(crate) fn level_within(distance: f32) -> f32 {
+    let (sin, cos) = collision::trig::sin_cos_deg(grab::SLOPE_DEG);
+    grab::HEIGHT_UNITS + distance * sin / cos
 }
 
 /// How far apart (units) the finisher `finisher` (1 to 3) stands its pair.
@@ -251,7 +265,7 @@ impl Step<'_> {
                 && man.ps.ground.is_some()
                 && !(apart && man.party)
                 && distance <= reach
-                && (man.ps.origin[2] - ps.origin[2]).abs() <= grab::HEIGHT_UNITS
+                && (man.ps.origin[2] - ps.origin[2]).abs() <= level_within(distance)
                 && (distance == 0.0 || math::dot(way, forward) >= rules::creatures::fists::FRONT)
         };
         let near = |at: &usize| math::flat_length(flat(&self.men[*at]));

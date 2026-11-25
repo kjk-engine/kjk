@@ -1,0 +1,19 @@
+# 1.0 of the lit level of each room.
+602dana 0.2722
+602danb 0.7016
+602danc 0.5043
+602dand 0.5548
+602dane 0.3623
+602danf 0.5568
+602dang 0.2703
+602danh 0.2252
+602dani 0.4273
+602danj 0.4259
+602dank 0.7050
+602danl 0.3579
+602danm 0.2097
+602dann 0.3584
+602dano 0.4756
+602danp 0.4592
+602danq 0.2328
+602danr 0.4178

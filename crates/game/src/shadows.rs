@@ -752,7 +752,10 @@ fn tiles_wanted() -> (bool, bool) {
 /// the light kinds' trial instead: the rooms keep half of their baked
 /// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines. `8`
 /// is the fitted lights' trial with a bake of their light in the rooms'
-/// lightmaps (`fitted_lights::baked`).
+/// lightmaps (`fitted_lights::baked_area`). `None` when the variable is not
+/// set: the fitted lights' mode and the area being drawn decide
+/// (`fitted_lights::trial_of_area`). That mode may change while the program
+/// runs (the level editor's lighting view).
 struct ShadowDebug(Option<u32>);
 
 impl Default for ShadowDebug {
@@ -767,17 +770,6 @@ impl Default for ShadowDebug {
             Ok(_) => Some(1),
             Err(_) => None,
         })
-    }
-}
-
-impl ShadowDebug {
-    /// The value the shader takes now. Without `KJK_SHADOW_DEBUG` it is the
-    /// fitted lights' mode, which may change while the program runs
-    /// (`fitted_lights::shader_trial`): the trial keeps half of the baked
-    /// light, the fittings' own lights making up the rest; `baked` is the
-    /// same trial with the rooms' light baked; `lamps` keeps none of it.
-    fn now(&self) -> u32 {
-        self.0.unwrap_or_else(crate::fitted_lights::shader_trial)
     }
 }
 
@@ -1456,7 +1448,14 @@ fn upload(
         .map_or(Vec3::ZERO, GlobalTransform::translation);
     let lights = &area.0.lights[..(area.0.count as usize).min(area.0.lights.len())];
     let mut list = Box::new(ShadowList {
-        debug: debug.now(),
+        // Without `KJK_SHADOW_DEBUG`, the fitted lights' trial keeps half of
+        // the baked light, and the fittings' own lights make up the rest.
+        // `baked` is the same trial with the rooms' light baked, and `lamps`
+        // keeps none of it (`fitted_lights::trial_of_area`).
+        debug: debug.0.unwrap_or_else(|| {
+            let baked = scene.as_ref().is_some_and(|scene| scene.0.baked);
+            crate::fitted_lights::trial_of_area(baked)
+        }),
         low: u32::from(settings.low()),
         rays: u32::from(settings == ShadowSettings::Ultra),
         ..default()

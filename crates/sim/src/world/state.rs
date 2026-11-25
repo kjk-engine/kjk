@@ -290,6 +290,7 @@ impl SimWorld {
         world.insert_resource(party::PartyState {
             paused_by: snapshot.paused_by,
             ready: snapshot.ready.clone(),
+            through: false,
         });
         world.insert_resource(drivers::Kept(snapshot.kept.clone()));
         world.init_resource::<drivers::Phantoms>();
@@ -308,6 +309,7 @@ impl SimWorld {
         world.init_resource::<scripts::WeaponSwaps>();
         world.init_resource::<scripts::Rounds>();
         world.init_resource::<scripts::StatesEnded>();
+        world.init_resource::<super::shut_in::DoorShut>();
         world.insert_resource(Module {
             place: snapshot.place.clone(),
             pending: snapshot.transition.clone(),
@@ -496,6 +498,7 @@ impl SimWorld {
                             scene::hold,
                             scripts::apply,
                             locks::refused,
+                            super::shut_in::free_shut_in,
                         )
                             .chain()
                             .run_if(on_authority),

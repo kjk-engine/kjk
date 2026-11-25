@@ -40,7 +40,8 @@ struct Params {
     samples: u32,
     rays: u32,
     seed: u32,
-    short: f32,
+    // Not read. It keeps `lift` and `sun` where `gpu.rs` writes them.
+    unused: f32,
     lift: f32,
     // The way to the sun, for `MODE_SKY`. `w` is half the sun's width where
     // the area gives one, and 0 for `SUN_WIDTH`.
@@ -56,8 +57,7 @@ struct Params {
 @group(0) @binding(4) var<storage, read> cells: array<vec2<u32>>;
 @group(0) @binding(5) var<storage, read> cell_lights: array<u32>;
 @group(0) @binding(6) var<uniform> params: Params;
-// The fixed directions of the CPU bake's bounce rays and wall rays, around +Z.
-@group(0) @binding(7) var<storage, read> dirs: array<vec4<f32>>;
+// The fixed directions of the wall rays, around +Z. Binding 7 is not used.
 @group(0) @binding(8) var<storage, read> wall_dirs: array<vec4<f32>>;
 // Each lightmap: where its texels start in a field, its width, its height,
 // and 1 when it clamps.
@@ -91,11 +91,8 @@ struct Params {
 // groups from bit 2 up (`HOLDER_GROUPS` in `gpu.rs`). A light's shadow rays
 // leave out the group of the prop that holds it (`Light::aim`'s w).
 const BLOCKERS: u32 = 0xfdu;
-const EVERYTHING: u32 = 0xffu;
 
-const MODE_DIRECT_OLD: u32 = 0u;
 const MODE_DIRECT_SOFT: u32 = 1u;
-const MODE_BOUNCE_OLD: u32 = 2u;
 const MODE_BOUNCE_NEW: u32 = 3u;
 const MODE_SKY: u32 = 4u;
 
@@ -118,6 +115,17 @@ const WRAP: f32 = 0.3;
 // `NEAR_LAMP_TO` everything does (metres).
 const NEAR_LAMP_FROM: f32 = 0.5;
 const NEAR_LAMP_TO: f32 = 1.0;
+// A light in a cell's list with this mark is the own light of the
+// placeable whose vertex the cell holds (`OWN_LIGHT` in `gpu.rs`). The
+// vertex takes it as if it stood no nearer than `OWN_LIGHT_LEAST` (metres),
+// so the vertices a few centimetres from the lamp are not blown out. The
+// placeable's own triangles block no ray here. A vertex that they hide from
+// its own light has that light left out of its cell's list (`own_seen` in
+// `gpu.rs`). Half a metre keeps the top of danm13's glowing table close to
+// its look on the probes, and its terminal dark. A third of a metre looked
+// the same, and a whole metre dimmed the table.
+const OWN_LIGHT: u32 = 0x80000000u;
+const OWN_LIGHT_LEAST: f32 = 0.5;
 
 fn falloff(span: f32, radius: f32) -> f32 {
     if span >= radius {
@@ -135,15 +143,16 @@ fn nearest(light: Light, at: vec3<f32>) -> vec3<f32> {
     return light.at.xyz + light.way.xyz * clamp(-dot(away, light.way.xyz), -half, half);
 }
 
-// What a light gives a surface at `at` (`Fitted::gives` in `detail_bake.rs`).
-fn gives(light: Light, at: vec3<f32>, normal: vec3<f32>, has_normal: bool) -> vec3<f32> {
+// What a light gives a surface at `at` (`Fitted::gives` in `detail_bake.rs`),
+// as if it stood no nearer than `least`.
+fn gives(light: Light, at: vec3<f32>, normal: vec3<f32>, has_normal: bool, least: f32) -> vec3<f32> {
     let to = nearest(light, at) - at;
-    let span = length(to);
+    let span = max(length(to), least);
     let radius = light.at.w;
     if span >= radius {
         return vec3<f32>(0.0);
     }
-    let toward = to / max(span, 1e-4);
+    let toward = to / max(length(to), 1e-4);
     var facing = 1.0;
     if has_normal {
         facing = WRAP + (1.0 - WRAP) * max(dot(normal, toward), 0.0);
@@ -225,23 +234,6 @@ fn random(seed: ptr<function, u32>) -> f32 {
     return f32(*seed >> 8u) / 16777216.0;
 }
 
-// The share of the CPU bake's targets a ray from `at` reaches: the nearest
-// place, and on a strip its two ends and the middle of each half.
-fn hard(light: Light, at: vec3<f32>) -> f32 {
-    var seen = select(0u, 1u, reaches(at, nearest(light, at), params.short, EVERYTHING));
-    let half = light.colour.w;
-    if half <= 0.0 {
-        return f32(seen);
-    }
-    var places = array<f32, 4>(-1.0, -0.5, 0.5, 1.0);
-    for (var k = 0u; k < 4u; k++) {
-        if reaches(at, light.at.xyz + light.way.xyz * (places[k] * half), params.short, EVERYTHING) {
-            seen += 1u;
-        }
-    }
-    return f32(seen) / 5.0;
-}
-
 // Whether a texel is inside a wall: too many of its rays meet the back of a
 // surface within `WALL_NEAR`. A surface farther off is no wall the texel is
 // in. The rays from the sand of tat_m20aa met the backs of the tents' cloth
@@ -302,24 +294,22 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let normal = point.normal.xyz;
     var seed = hash(index * 9781u + params.seed * 6271u + 1u);
 
-    if params.mode == MODE_DIRECT_OLD || params.mode == MODE_DIRECT_SOFT {
+    if params.mode == MODE_DIRECT_SOFT {
         let cell = cells[bitcast<u32>(point.at.w)];
         let has_shading = point.normal.w > 0.5;
         var lit = vec3<f32>(0.0);
         var open = vec3<f32>(0.0);
         for (var k = 0u; k < cell.y; k++) {
-            let number = cell_lights[cell.x + k];
+            let listed = cell_lights[cell.x + k];
+            let number = listed & ~OWN_LIGHT;
             let light = lights[number];
-            let given = gives(light, at, point.shading.xyz, has_shading);
+            let least = select(0.0, OWN_LIGHT_LEAST, (listed & OWN_LIGHT) != 0u);
+            let given = gives(light, at, point.shading.xyz, has_shading, least);
             if max(given.x, max(given.y, given.z)) < FAINTEST {
                 continue;
             }
             open += given;
-            if params.mode == MODE_DIRECT_OLD {
-                lit += given * hard(light, at);
-            } else {
-                lit += given * max(soft(number, at), near_lamp(light, at));
-            }
+            lit += given * max(soft(number, at), near_lamp(light, at));
         }
         results[2u * index] = vec4<f32>(lit, select(0.0, 1.0, counts(at, normal)));
         results[2u * index + 1u] = vec4<f32>(open, 0.0);
@@ -399,7 +389,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     // A bounce: the light the surfaces the rays meet send back.
     let side = side_of(normal);
     let up = cross(normal, side);
-    let total = select(params.rays, arrayLength(&dirs), params.mode == MODE_BOUNCE_OLD);
+    let total = params.rays;
     // One random shift of the whole grid of directions for each texel, so
     // neighbouring texels do not share the same pattern.
     let shift = vec2<f32>(random(&seed), random(&seed));
@@ -408,16 +398,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var b = vec3<f32>(0.0);
     var glow = vec3<f32>(0.0);
     for (var k = 0u; k < total; k++) {
-        var d: vec3<f32>;
-        if params.mode == MODE_BOUNCE_OLD {
-            d = dirs[k].xyz;
-        } else {
-            let u1 = fract((f32(k / across) + 0.5) / f32(across) + shift.x);
-            let u2 = fract((f32(k % across) + 0.5) / f32(across) + shift.y);
-            let r = sqrt(u1);
-            let phi = TAU * u2;
-            d = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
-        }
+        let u1 = fract((f32(k / across) + 0.5) / f32(across) + shift.x);
+        let u2 = fract((f32(k % across) + 0.5) / f32(across) + shift.y);
+        let r = sqrt(u1);
+        let phi = TAU * u2;
+        let d = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
         let direction = side * d.x + up * d.y + normal * d.z;
         var query: ray_query;
         rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 0xffu, 0.0, REACH, at, direction));

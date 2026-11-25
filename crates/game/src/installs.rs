@@ -107,15 +107,15 @@ fn opened(found: &vfs::Install) -> Result<Arc<Install>, String> {
 }
 
 /// Opens every found install on a thread of its own: its index and its
-/// fingerprint (the run's manifest lists them), and KOTOR 1's base
-/// resolver (the game played), ready when first asked for.
+/// fingerprint (the run's manifest lists them), and both KOTOR games' base
+/// resolvers so switching campaigns in the main menu is instant.
 pub fn warm(discovery: &Discovery) {
     for found in &discovery.installs {
         let found = found.clone();
         std::thread::spawn(move || {
             if let Ok(install) = opened(&found) {
                 install.fingerprint();
-                if install.game == Game::Kotor1 {
+                if matches!(install.game, Game::Kotor1 | Game::Kotor2) {
                     let _ = install.base();
                 }
             }

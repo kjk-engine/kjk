@@ -1104,6 +1104,7 @@ fn flat_model(name: &str, triangles: &[[[f32; 3]; 3]], texture: &str, glow: bool
             uv_scroll: None,
             skin: None,
             dangly: None,
+            referenced: false,
         }],
         lights: Vec::new(),
         emitters: Vec::new(),

@@ -58,6 +58,8 @@ wgpu = { version = "29.0.4", default-features = false, features = [
 ] }
 # `kjk report`: a player's bug report opened.
 zip = { version = "9", default-features = false, features = ["deflate"] }
+# `kjk lighting pack`: the SHA256SUMS the launcher checks a download with.
+sha2 = { version = "0.10", optional = true }
 
 [build-dependencies]
 # kjk.exe's icon (`kjk.rc`), through the toolchain's resource compiler.
@@ -69,7 +71,7 @@ default = ["probes", "steam"]
 # collision`, `kjk combat`, ...; `src/verbs.rs`) and the probes they run,
 # the game's and the layers' (`game/probes`). `--no-default-features`
 # builds the game alone.
-probes = ["editor_tools", "game/probes", "dep:original_hook"]
+probes = ["editor_tools", "game/probes", "dep:original_hook", "dep:sha2"]
 # The two checking verbs the level editor runs: `detail-bake` (its Bake
 # buttons) and `collision audit` (its Audit button). A release builds kjk
 # with it alone, so its editor bakes and audits (`src/editor_tools.rs`).

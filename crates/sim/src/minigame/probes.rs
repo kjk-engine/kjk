@@ -141,6 +141,7 @@ pub fn probes() -> Checks {
         ("race_leave_held", leave_held()),
         ("race_leave_waits_at_most", leave_waits()),
         ("race_voices_apart", voices_apart()),
+        ("turret_fires_once_a_press", fires_once_a_press()),
         ("turret_gunner_per_seat", gunners()),
         ("turret_fighters_scaled", scaled()),
         ("turret_late_gunner", late_gunner()),
@@ -290,6 +291,33 @@ fn leave_waits() -> Result<String, String> {
     check(
         early && late,
         format!("held before {early}, given at the wait {late}"),
+    )
+}
+
+/// The turret's gun fires once a press, as both executables fire it: fire
+/// held for 800 ms (the gun may fire every 300 ms) fires one bolt, and a
+/// second press, after the key is let go, fires a second.
+fn fires_once_a_press() -> Result<String, String> {
+    let rules = turret();
+    let mut course = Course::new(&rules);
+    // The bolts fired over `steps` steps of `fire`, counted as they leave
+    // the gun (a bolt is gone once it strikes the fighter).
+    let fired = |course: &mut Course, fire: bool, steps: u64| {
+        let mut count = 0;
+        for _ in 0..steps {
+            run(course, &rules, &[(0, command(0, 0, fire))], 1);
+            let now = course.time_ms;
+            count += course.bullets.iter().filter(|b| b.born == now).count();
+        }
+        count
+    };
+    fired(&mut course, false, 1);
+    let held = fired(&mut course, true, 100);
+    fired(&mut course, false, 1);
+    let pressed_again = held + fired(&mut course, true, 1);
+    check(
+        held == 1 && pressed_again == 2,
+        format!("bolts while held {held}, after a second press {pressed_again}"),
     )
 }
 

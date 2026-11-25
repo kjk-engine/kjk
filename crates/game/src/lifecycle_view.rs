@@ -2,14 +2,16 @@
 //! presented snapshots and `sim_host::Loading`):
 //!
 //! - the loading screen while a module is planned: the game's own
-//!   (`ui::screens::loading`, KOTOR 2's layout: the module's loading image,
-//!   the area's name, the bar) where the screens are drawn, else laid out
-//!   as KOTOR's `loadscreen.gui` has it (640 × 480): the module's loading
+//!   (`ui::screens::loading`, the campaign's own layout, with the module's
+//!   loading image, a hint and the bar) where the screens are drawn. Where
+//!   they are not (a run with no game screens), it is laid out in the 640 ×
+//!   480 of KOTOR 1's `loadscreen.gui` for either game: the module's loading
 //!   image over black, the progress bar (`PB_PROGRESS`, 238, 279, 164 ×
-//!   22, filled with `bluefill` from the left); it holds a moment once the
-//!   module is in, and then until the new scene can be drawn whole
-//!   (`PictureWait`), then this one fades, so the new scene appears
-//!   settled;
+//!   22, filled with `bluefill` from the left) and no hint. It holds a
+//!   moment once the module is in, and then until the new scene can be
+//!   drawn whole (`PictureWait`), then this one fades, so the new scene appears
+//!   settled. Behind it, the scene's cameras draw nothing of the new area
+//!   until its pipelines are compiled (`hold_scene`);
 //! - the doors, opening and closing as the sim has them: a door that
 //!   changes state plays its `opening1`/`opening2` (or `closing`) clip
 //!   (the first for a way its model has no clip for) from
@@ -125,6 +127,12 @@ impl Picture {
             self.wait = committed.map(|_| PictureWait::begin(compiled));
             self.ready = false;
         }
+        // The scene's cameras draw the area only once the warm-up is done
+        // (`hold_scene`), so the render frames it needs are counted from
+        // then.
+        if warming && let Some(wait) = &mut self.wait {
+            wait.frame = compiled.map_or(0, Compiled::frames);
+        }
         if let (Some(wait), Some(committed)) = (&self.wait, committed)
             && !self.ready
         {
@@ -146,6 +154,61 @@ type Drawing<'w> = (Option<Res<'w, Warmup>>, Option<Res<'w, Compiled>>);
 /// Looks at the picture after the last install, every frame.
 fn watch_picture(loading: Res<Loading>, mut picture: ResMut<Picture>, (warmup, compiled): Drawing) {
     picture.observe(loading.committed, compiled.as_deref(), warmup.is_some());
+}
+
+/// A scene camera that sees only the warm-up's stand-ins, and the layers it
+/// saw before (none: the scene's own).
+#[derive(Component)]
+struct Held(Option<RenderLayers>);
+
+/// While the loading screen waits for a new area and the area's pipeline
+/// warm-up is under way (`warmup`), the scene's cameras see only the
+/// warm-up's layer (`warmup::LAYER`). They draw only the stand-ins, so the
+/// warm-up still compiles every pipeline the area needs, and they draw
+/// nothing of the area itself. On an RTX 4070 Ti SUPER under Vulkan, with
+/// an empty shader cache, the graphics device was lost in 5 of 30 loads
+/// when the cameras drew the area while 200 to 340 pipelines were still
+/// compiling. The cameras see the area again once the warm-up is done, or
+/// once the loading screen has waited its longest (`LONGEST_WAIT`). The
+/// resolve then forgets the frames before (`temporal::TemporalCut`). A
+/// camera that does not see the scene's layer, such as the screens' or the
+/// HUD's, is left as it is.
+fn hold_scene(
+    mut commands: Commands,
+    (loading, picture, warmup): (Res<Loading>, Res<Picture>, Option<Res<Warmup>>),
+    cameras: Query<(Entity, Option<&RenderLayers>, Has<Held>), SceneCamera>,
+    held: Query<(Entity, &Held)>,
+    cut: Option<ResMut<crate::temporal::TemporalCut>>,
+) {
+    let hold =
+        warmup.is_some() && (loading.committed).is_some_and(|committed| !picture.ready(committed));
+    if hold {
+        let scene = RenderLayers::default();
+        for (entity, layers, held) in &cameras {
+            if held || layers.is_some_and(|layers| !layers.intersects(&scene)) {
+                continue;
+            }
+            commands.entity(entity).insert((
+                Held(layers.cloned()),
+                RenderLayers::layer(crate::warmup::LAYER),
+            ));
+        }
+        return;
+    }
+    if held.is_empty() {
+        return;
+    }
+    for (entity, Held(layers)) in &held {
+        let mut camera = commands.entity(entity);
+        camera.remove::<Held>();
+        match layers {
+            Some(layers) => camera.insert(layers.clone()),
+            None => camera.remove::<RenderLayers>(),
+        };
+    }
+    if let Some(mut cut) = cut {
+        cut.0 = true;
+    }
 }
 
 /// `kjk sim probes --only "loading hold"`: when the world waits for the
@@ -219,6 +282,10 @@ impl Plugin for LifecycleViewPlugin {
                         .chain()
                         .run_if(resource_exists::<Loading>),
                     count_assets,
+                    hold_scene
+                        .after(watch_picture)
+                        .after(crate::warmup::start)
+                        .run_if(resource_exists::<Loading>),
                 ),
             )
             .add_systems(
@@ -271,6 +338,7 @@ pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMateri
             alpha: 1.0,
             is_static: false,
             is_room: true,
+            room_flat: false,
             fogged: false,
         },
         &AreaLight::ambient([1.0; 3]),

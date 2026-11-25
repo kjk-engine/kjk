@@ -8,7 +8,10 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   `ControlState` into a `DrawList` of quads; `raster` draws one on the CPU
   (probes, `kjk gui render`). `screen::Stack` holds open screens: focus by
   `MOVETO` then direction, the pointer, lists, edit boxes, the veil;
-  screens raise `Intent`s. `screens/` has every screen; `vm::ViewModel` is
+  screens raise `Intent`s. A layout drawn under a screen (the in-game
+  menu bar, `Screen::under`) has its controls renumbered past the
+  screen's, so that the screen's `MOVETO` links never lead to the bar's
+  tabs. `screens/` has every screen; `vm::ViewModel` is
   all they read. `assets::GuiAssets` resolves layouts, textures, fonts,
   2DAs and the talk table.
 - **`game::ui_view`** steps the stack each frame and draws its layers
@@ -60,7 +63,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`skin::RENAMED`: the main menu, the party selection, the advanced
   graphics options). Screens are written for KOTOR 2's controls. A layout of the
   campaign's own world stays the campaign's, drawn with its art
-  (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
+  (`skin::own`). The galaxy map is one, because its buttons are its
+  planets. The loading screen is the other, because KOTOR 1's pictures have
+  a slot for its bar. A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
 - A layout from an override folder (the game's own or a Workshop item's)
   is a mod's, unless it is one of the files Aspyr's update ships there
@@ -103,8 +108,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - The inventory's and the store's filters sort items by kind
   (`vm::ItemKind`, from the template). An item row shows its icon in a
   square beside its name, as in KOTOR 2.
-- The main menu and loading screen show KOTOR 1's logos (the main menu
-  KOTOR 2's own in a KOTOR 2 campaign).
+- The main menu shows KOTOR 1's logo (KOTOR 2's own in a KOTOR 2
+  campaign). The loading screen is the campaign's own layout, so it shows
+  the campaign's own logo.
 - The main menu is in the game played last (`game::menu_figure`): the
   newer of the newest save (one's own or a copy of a host's) and the note
   every machine keeps beside the saves of the module it last played and
@@ -307,9 +313,10 @@ save on the Host screen, and when a guest joins. It is made from KOTOR 2's
 party selection layout (`partyselect_p`), whose pieces are moved and copied:
 the Players and Game panels and the description strip are copies of the
 panel behind the companion's name, the player portraits are copies of the
-companion portraits, and the saber rules and collision rows are copies of
-the Add button. The companions keep the layout's own portraits, set in one
-row of at most ten. Every piece is KOTOR 2's own art. A companion the story
+companion portraits, and the saber rules, collision and "Show chosen
+replies" rows are copies of the Add button. The companions keep the layout's own portraits, set in one
+row with the main character. The row holds up to twelve companions and the
+main character. Every piece is KOTOR 2's own art. A companion the story
 took away shows the layout's "no companion" art in place of the portrait,
 as KOTOR 2's party selection shows one who is not available. The player
 slots are the screen's main part, with larger portraits than the
@@ -342,7 +349,10 @@ party carries and wears that takes upgrades (weapons by kind, body armour:
 each kind it takes, two for its power crystals; the item's icon shows in
 each). The bench works on a copy, as TSL's: a slot chosen lists an empty
 row (taking out what is in it; not for a colour crystal, which stays
-until another takes its place), what is in it, then what the party
+until another takes its place), what is in it, the part it held when the
+bench opened if the visit took that part out (KOTOR 2's executable puts a
+part taken out back in the party's inventory at once, so the list offers
+it again), then what the party
 carries that fits it and no other slot of the visit takes (`LB_ITEMS`,
 from its top; one of an upgrade level above the item's greyed, refused
 with the game's message box 116713); a row chosen changes the copy and
@@ -479,7 +489,10 @@ shows (`ShowGalaxyMap`, `docs/WORLD-STATE.md`): KOTOR 1's own layout and
 art, not KOTOR 2's, whose buttons are KOTOR 2's planets (`skin::OWN`).
 The planets the scripts made available stand on their buttons
 (`planetary.2da`'s `guitag`; the rest hidden), those not selectable
-greyed. It opens on the planet the script named (where the party is):
+greyed. Each button shows its row's `icon` in place of the layout's
+picture, as both games do. A mod's table may name any control of a mod's
+layout as a planet's button, not only those whose tags start with
+`LBL_Planet_`. It opens on the planet the script named (where the party is):
 chosen, its name and description (`planetary.2da`: a strref's text, or
 the cell as written where it is no number, which is how a mod names a
 planet of its own, `GuiAssets::cell_text_or_written`), and its model
@@ -678,7 +691,15 @@ Running and checking:
   icon), `ui set KEY VALUE` (a setting changed as the options screens
   change it: `ui set display.size 800x600`), `ui camera orbit YAW PITCH`
   / `ui camera orbit off` / `ui camera zoom STEPS` (the camera's orbit held
-  and turned there, let go, a zoom; `MOVEMENT.md`), and `ui script upgrade|levelup|party|death|credits|end|box
+  and turned there, let go, a zoom; `MOVEMENT.md`), `ui photo on` / `ui
+  photo on X Y Z PITCH YAW [FOV]` / `ui photo off` (photo mode turned on at
+  the shot the player sees or at that place, metres in game space and
+  degrees, and turned off), `ui photo speed stopped|tenth|quarter|normal`,
+  `ui photo hide` (the player's own character hidden or shown), `ui photo
+  step` (one tick of a stopped replay) and `ui photo fly FORWARD RIGHT UP
+  [TURN_RIGHT TURN_DOWN]` (the photo camera's move held, each from -1 to 1,
+  and its turn in degrees a second; `ui photo fly 0 0 0` lets go;
+  `game::photo_mode`), and `ui script upgrade|levelup|party|death|credits|end|box
   <strref>|movie <name>|galaxy <planet> [<available> <selectable>]` (`party` lists no
   companions: `ui open party` in play shows the host's table; rows by commas,
   `ui script galaxy 3 1,3,4,5,6,7,9 3,4,5,6,7`) (a store opens
@@ -774,7 +795,7 @@ Running and checking:
   value, and the last value wraps to the first. Left and Right on the
   keyboard and the pad step it back and on while it is the list's cursor
   row. The Feedback page itself is KOTOR 2's and is unchanged. The
-  Interface page's seven rows are all deliberate additions to KOTOR 2:
+  Interface page's eight rows are all deliberate additions to KOTOR 2:
   - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
   - Maintain image aspect ratio (`display.image_aspect`).
   - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
@@ -811,6 +832,11 @@ Running and checking:
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
     changes what the sim does.
+  - Join nearby conversations (`game.join_talks`, on while unset). In
+    co-op, a player with it on joins a conversation the main character's
+    player starts when they stand within 10 meters, can see it, and are
+    free (`DIALOGUE.md`, "Joining nearby"). The player's game tells the
+    host as the option changes and each time it joins.
   - Two safety ceilings apply to a game with a window (issue 318). When
     V-Sync is off and the limit is Off, play is held to 240 frames per
     second. While a screen is open or the window is in the background, the
@@ -951,14 +977,36 @@ seat's, `headgear.hidden.<tag>` for a companion's, `game::headgear`), kept
 in their settings file, so another player in co-op still sees it.
 
 An item's description, wherever a screen shows one (equip, inventory,
-store, workbench, upgrade bench: `game::character::described`), is its
-UTI's `DescIdentified`; in TSL, once Bao-Dur has been met (his influence
-set: `Screens::bao_dur_met`, KJKS 65), one of the base items he cannot
-equip (the Jedi robes, the armoured flight suit, the Zeison Sha armour,
-and a sonic grenade, QUIRKS.md Q-0266) begins with "Cannot Equip:" and
-"Bao-Dur" then a blank line, as TSL's executable writes it
-(`sim::cannot_equip`). The executable's other lines there (what the item
-asks of its wearer, its properties) are not written here.
+store, workbench, upgrade bench: `game::character::described`), begins
+with what a character needs to use the item (`ItemLook::requirements`),
+as both games' executables write it. Each kind of requirement has a
+heading from the talk table, then a line for each requirement, then a
+blank line.
+
+- "Feats Required" (both games) names the feats the base item requires
+  (`baseitems.2da` `reqfeat0` to `reqfeat4`), then the feats of the item's
+  feat limitation properties (`itempropdef.2da` row 57). An armour names
+  only the highest armour proficiency its base item requires, so heavy
+  armour shows "Armor Proficiency -  Heavy" and not Light or Medium. A
+  feat name's colon becomes " - ", and the space after the colon stays,
+  as in both games.
+- KOTOR 2 writes "Attributes Required" before the feats, a line such as
+  "Minimum Constitution: 12" for each attribute limitation (row 69, the
+  minimum read from `iprp_attribcost.2da`). Its implants need these, not
+  feats.
+- KOTOR 2 writes "Gender Required", "Race Required" and "Useable By"
+  after the feats, for the gender, subrace and companion limitations
+  (rows 60, 61 and 62). A companion limitation of row 0 names the player.
+
+Grenades, lightsaber crystals and KOTOR 2's rockets (`itemtype` 6, 46
+and 49) list no requirements. The limitation properties listed as
+requirements are not listed again among the stats. In TSL, once Bao-Dur
+has been met (his influence set: `Screens::bao_dur_met`, KJKS 65), one of
+the base items he cannot equip (the Jedi robes, the armoured flight suit,
+the Zeison Sha armour, and a sonic grenade, QUIRKS.md Q-0266) then has
+"Cannot Equip:" and "Bao-Dur" then a blank line, as TSL's executable
+writes it (`sim::cannot_equip`). The stats follow, then the UTI's
+`DescIdentified`.
 
 
 The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot

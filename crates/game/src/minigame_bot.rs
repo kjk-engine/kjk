@@ -38,6 +38,10 @@ pub fn area_foes(snapshot: &sim::Snapshot) -> Vec<[f32; 3]> {
 /// use and a medpac in a playthrough.
 pub const PRESS_MS: u64 = 150;
 
+/// How long a turret's gunner holds the fire key, then lets it go (ms):
+/// ten presses a second, a player tapping quickly.
+const TAP_MS: u64 = 50;
+
 /// Whether a key pressed and let go by turns, `PRESS_MS` each, is down at
 /// `now_ms`.
 pub fn pressed(now_ms: u64) -> bool {
@@ -504,7 +508,10 @@ pub fn turret(rules: &Rules, course: &Course, foes: &[[f32; 3]]) -> Command {
             .iter()
             .map(|bank| course.bolt_speed(rules, bank.speed) * bank.lifespan_ms as f32 / 1000.0)
             .fold(0.0f32, f32::max);
-        if cos >= trig::sin_cos_deg(ON_TARGET_DEG).1 && length(d) <= range {
+        // A gun fires once a press (`sim::minigame::Course::shoot`): the
+        // gunner taps the key as a player does.
+        let tapped = (course.time_ms / TAP_MS).is_multiple_of(2);
+        if cos >= trig::sin_cos_deg(ON_TARGET_DEG).1 && length(d) <= range && tapped {
             command.buttons |= buttons::ATTACK;
         }
     }

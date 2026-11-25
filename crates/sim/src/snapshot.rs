@@ -404,7 +404,21 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 118: a fighter keeps when its last stun baton swing began
 /// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
 /// swing under way when the game was saved deals no blow after loading.
-pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
+/// 119: an action bar slot can hold a device, an item the party carries that
+/// its user uses on itself, such as the Sonic Emitter (`bar::Content::Device`),
+/// and the bar keeps the devices its fill has already put on it
+/// (`bar::Contents::devices`). Old saves: an older save's bar has seen no
+/// device, so the next step puts each device the party carries in the first
+/// empty slot of each member's bar.
+/// 120: a conversation keeps the reply shown before it runs
+/// (`Conversation::chosen`). Old saves: an older snapshot reads no reply shown:
+/// no conversation in it was showing one.
+/// 121: a character's effects keep the hit points and bar points they added to
+/// its most at the last step (`Effects::added`). Old saves: an older snapshot
+/// reads nothing added: older builds never raised the current points, so the
+/// first step after the load raises them by what the effects and worn items
+/// add.
+pub const VERSION: u32 = 121 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -1585,6 +1599,23 @@ impl Snapshot {
         SnapshotHash(*blake3::hash(&self.encode_state()).as_bytes())
     }
 
+    /// The screen as a loaded game shows it: a covering fade lifts over
+    /// `LIFT_MS`, as it does when a module has loaded, and no fade in waits
+    /// for a conversation any more. The games keep neither in a save. The
+    /// fade lives in the game's screen, and when a save has loaded, the
+    /// game fades the area in unless a conversation holds the fade.
+    /// `HoldWorldFadeInForDialog`'s hold is the screen's too, so a save
+    /// made on a black screen loads showing the area (issue 645). A fade
+    /// that a script locked (`SetFadeUntilScript`) stays, and a
+    /// conversation under way keeps the fades its lines set.
+    pub fn fade_in_as_loaded(&mut self) {
+        if !self.talk.conversations.is_empty() {
+            return;
+        }
+        self.fade = self.fade.map(|fade| fade.lifted(self.time_ms));
+        self.world_fade_in = WorldFadeIn::Done;
+    }
+
     /// Fits a snapshot made with the sets `was` to the sets `now`. A
     /// fighter's set keeps its meaning where `now` has a set of the same
     /// digest, and becomes 0 elsewhere. The set of the same name and digest
@@ -1904,21 +1935,26 @@ impl Snapshot {
     /// none while one seat alone plays a body (one player plays as before:
     /// the sim's `together`), watching, or in a party conversation it is not
     /// the listener of (only its listener leaves one); else whether it is
-    /// unlocked. The host's own character stands for its seat too while a
-    /// companion it leads acts for it (an accepted request's listener).
+    /// unlocked, or it joined a player's own (issue 636: a joined player
+    /// steps out of a locked one too). The host's own character stands for
+    /// its seat too while a companion it leads acts for it (an accepted
+    /// request's listener).
     pub fn may_leave(&self, seat: Seat, talk: &Conversation) -> Option<bool> {
         let own = (seat == crate::world::LEADER_SEAT)
             .then(|| self.own(seat))
             .flatten();
-        let stands = [self.body(seat), own].into_iter().flatten().any(|body| {
-            let body = ObjectId(body.id.0);
-            if talk.party {
-                talk.listener == body
-            } else {
-                talk.holds(body)
-            }
+        let bodies = || {
+            [self.body(seat), own]
+                .into_iter()
+                .flatten()
+                .map(|body| ObjectId(body.id.0))
+        };
+        let stands = bodies().any(|body| match talk.party {
+            true => talk.listener == body,
+            false => talk.holds(body),
         });
-        (self.together() && stands).then_some(!talk.locked)
+        let joined = !talk.party && bodies().any(|body| talk.joined.contains(&body));
+        (self.together() && stands).then_some(!talk.locked || joined)
     }
 
     /// More than one seat plays a body, as the sim's `View::together` has
@@ -2076,6 +2112,14 @@ impl Snapshot {
             .filter(|entity| matches!(entity.kind, Kind::Avatar(_)))
             .count();
         u8::try_from(avatars).unwrap_or(u8::MAX)
+    }
+
+    /// Whether the party has been in `module`. That is true when it is in
+    /// the module now, and when it left the module and the stash keeps it.
+    pub fn visited(&self, module: &str) -> bool {
+        let named = |place: &Place| place.module.eq_ignore_ascii_case(module);
+        self.place.as_ref().is_some_and(named)
+            || self.stash.iter().any(|stashed| named(&stashed.place))
     }
 
     /// The seats the session holds (`seats_held`): how many the server

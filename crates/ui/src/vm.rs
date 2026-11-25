@@ -296,6 +296,9 @@ pub struct MemberView {
     pub may_level: bool,
     /// What the player playing it is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
+    /// The seat of another player who plays it, if one does: its HUD
+    /// portrait names that player (`hud::players`).
+    pub played_by: Option<u8>,
     /// Its running effects' icons, in the order they took hold, as
     /// KOTOR's portrait counts them (`effecticon.2da`'s `good`, an icon
     /// without one not counted): stacked on its portraits
@@ -515,10 +518,14 @@ pub struct UpgradeItem {
 }
 
 /// An item's description in parts, as KOTOR 2's upgrade bench writes it
-/// (the item's property description): the lines that say who may not use
-/// it, its stats, then its own text.
+/// (the item's property description): what a character needs to use it,
+/// the lines that say who may not use it, its stats, then its own text.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ItemText {
+    /// What a character needs to use it, under a heading each. A line that
+    /// comes with an `upgrade.2da` row counts only while that row's bit is
+    /// in `fitted`.
+    pub requirements: Vec<crate::assets::Requirements>,
     pub head: Vec<u8>,
     /// Its own stats. A stat that comes with an `upgrade.2da` row is in
     /// force only while that row's bit is in `fitted`.
@@ -554,16 +561,22 @@ impl ItemText {
     }
 
     /// The description with the rows `fitted` in force and `more` stat
-    /// lines after its own: the head, a line for each stat, an empty line
-    /// after the stats, then its text. The critical threat counts the
-    /// `added` edges of the upgrades fitted to it besides its own.
+    /// lines after its own: the requirements, the head, a line for each
+    /// stat, an empty line after the stats, then its text. The critical
+    /// threat counts the `added` edges of the upgrades fitted to it besides
+    /// its own.
     pub fn written<'a>(
         &'a self,
         fitted: u32,
         more: impl Iterator<Item = &'a [u8]>,
         added: &[crate::assets::Edge],
     ) -> Vec<u8> {
-        let mut out = self.head.clone();
+        let mut out: Vec<u8> = self
+            .requirements
+            .iter()
+            .flat_map(|requirements| requirements.written(fitted))
+            .collect();
+        out.extend_from_slice(&self.head);
         let mut stats = 0;
         let critical = self.critical.as_ref().map(|(critical, edges)| {
             let own = edges.iter().filter(|edge| {
@@ -764,6 +777,11 @@ pub struct BarSlot {
     /// stacked behind the slot, as the power wheel stacks them behind its
     /// entry.
     pub kinds: u8,
+    /// The key or the controller's buttons that fire what the slot holds,
+    /// drawn at the slot's bottom. Only the feat slot has one, and only
+    /// while a blaster is in hand: the slot's own key (at its top) moves on
+    /// to the next feat attack, and this one fires the feat attack shown.
+    pub fire: Option<KeyLabel>,
 }
 
 /// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
@@ -970,7 +988,8 @@ pub struct LostView {
 
 /// A planet the galaxy map shows (a `planetary.2da` row the scripts made
 /// available): its button's tag (`guitag`), name, description and model,
-/// and whether the party may travel there.
+/// the picture its button shows (`icon`), and whether the party may travel
+/// there.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlanetView {
     pub row: u8,
@@ -978,6 +997,7 @@ pub struct PlanetView {
     pub name: Vec<u8>,
     pub description: Vec<u8>,
     pub model: Option<String>,
+    pub icon: Option<String>,
     pub selectable: bool,
 }
 
@@ -988,6 +1008,10 @@ pub struct PlanetView {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GalaxyView {
     pub planets: Vec<PlanetView>,
+    /// Every `planetary.2da` row's button tag (`guitag`), available or not.
+    /// A mod's planet buttons may have any tag, and the map hides those of
+    /// the planets not available.
+    pub buttons: Vec<String>,
     pub current: Option<u8>,
     pub host: bool,
 }
@@ -1006,6 +1030,9 @@ pub struct LobbyView {
     /// The saber rules and the collision, by their settings values.
     pub saber_rules: String,
     pub collision: String,
+    /// Whether a reply a player takes is shown to the other players in a
+    /// conversation before it runs ("Show chosen replies").
+    pub show_replies: bool,
     /// The story's character and who plays it; `None` while the host
     /// chooses a save.
     pub hero: Option<LobbyHeroView>,
@@ -1437,6 +1464,9 @@ pub struct ViewModel {
     /// Shadows at Ultra is offered: the graphics card can trace rays
     /// (`display.shadows`).
     pub ultra_shadows: bool,
+    /// Lighting at Enhanced Lightmaps is offered: a lighting download is
+    /// installed for the game being played (`display.lighting`).
+    pub baked_lighting: bool,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,
@@ -1448,8 +1478,8 @@ pub struct ViewModel {
     /// In play, what a save made now would be (its name the area's, no id
     /// or time yet); none where this player cannot save (a guest).
     pub here: Option<SaveView>,
-    /// A save may be loaded during play (alone: a host loads from the
-    /// main menu).
+    /// A save may be loaded during play: alone, or as the host, for
+    /// everyone (a guest cannot).
     pub load_in_play: bool,
     pub chargen: Option<ChargenView>,
     /// The journal's quests, the latest updated first.

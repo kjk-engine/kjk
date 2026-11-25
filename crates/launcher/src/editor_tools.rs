@@ -63,10 +63,11 @@ pub(crate) fn parse_zoom(text: &str) -> Result<[f32; 3], String> {
     }
 }
 
-/// An area's lightmaps made four times larger, with the detail the
-/// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
-/// one PNG for each lightmap. The game draws them when
-/// KJK_DETAIL_BAKE names the area's folder.
+/// An area's lightmaps baked anew from the game's fitted lights, at four
+/// times their stored size, on the graphics card. Writes one PNG for each
+/// lightmap into two sets: a, the live look with shadows and bounced light,
+/// and b, the lamps alone, which the lighting download ships. The game
+/// shows b with KJK_FITTED_LIGHTS=baked.
 #[derive(clap::Args)]
 pub(crate) struct DetailBakeArgs {
     /// The module, for example tar_m03ae
@@ -74,46 +75,23 @@ pub(crate) struct DetailBakeArgs {
     /// k1 or tsl; both are searched when left out
     #[arg(long)]
     pub(crate) game: Option<String>,
-    /// Each texel casts this many rays squared
-    #[arg(long, default_value_t = 16)]
-    pub(crate) rays: usize,
-    /// How much of the detail the new lightmaps take, from 0 to 1
-    #[arg(long, default_value_t = 1.0)]
-    pub(crate) strength: f32,
-    /// How wide the average is that the detail is measured against,
-    /// in stored texels. A wider average keeps larger shadows.
-    #[arg(long, default_value_t = 1.0)]
-    pub(crate) width: f32,
-    /// Plain occlusion in the detail's place: a texel is darkened by
-    /// the share of its rays that meet a surface nearer than --near
-    #[arg(long)]
-    pub(crate) plain: bool,
-    /// The distance in metres beyond which a surface blocks nothing
-    #[arg(long, default_value_t = 2.5)]
-    pub(crate) near: f32,
-    /// Bake from the fitted lights in this file, which the game writes
-    /// when KJK_FITTED_DUMP names it. Two sets of lightmaps are made:
-    /// a, the live look with shadows and bounced light, and b, the
-    /// lamps alone. The game shows one with KJK_FITTED_LIGHTS=baked
-    #[arg(long)]
+    /// The fitted lights to bake from: a file the game writes when
+    /// KJK_FITTED_DUMP names it. Every bake needs it
+    #[arg(long, required_unless_present_any = ["fingerprint", "stamp"])]
     pub(crate) lights: Option<std::path::PathBuf>,
-    /// With --lights, bake on the graphics card with its ray queries:
-    /// soft shadows, three bounces and one level for each room
+    /// The bake always runs on the graphics card. The flag is still
+    /// taken, so older command lines keep working
     #[arg(long)]
     pub(crate) gpu: bool,
-    /// With --gpu, do what the CPU bake does instead, ray for ray, so
-    /// the two can be compared
-    #[arg(long)]
-    pub(crate) old: bool,
-    /// With --gpu, print what the texels near a place see of each
+    /// Print what the texels near a place see of each
     /// light: "x y z radius" in metres
     #[arg(long)]
     pub(crate) probe: Option<String>,
-    /// With --gpu, the levels the lamps-alone set b aims at: a file
+    /// The levels the lamps-alone set b aims at: a file
     /// with one line for each room, its name and its mean stored level
     #[arg(long)]
     pub(crate) levels: Option<std::path::PathBuf>,
-    /// With --gpu, the area's sun and sky for set b, nine numbers:
+    /// The area's sun and sky for set b, nine numbers:
     /// the way to the sun "x y z", the stored level a surface facing
     /// the sun shows of it "r g b", and the same under the whole sky.
     /// Six more numbers give a second sun: its way and its colour.
@@ -121,39 +99,39 @@ pub(crate) struct DetailBakeArgs {
     /// shadows
     #[arg(long, allow_hyphen_values = true)]
     pub(crate) sun: Option<String>,
-    /// With --gpu, print the ways to the sun that fit the stored
+    /// Print the ways to the sun that fit the stored
     /// lightmaps best
     #[arg(long)]
     pub(crate) sun_fit: bool,
-    /// With --gpu, a room's level is its level where the game lights
+    /// A room's level is its level where the game lights
     /// it today: each texel counts by its stored level
     #[arg(long)]
     pub(crate) weigh: bool,
-    /// With --gpu, no room takes the even light: a room its lamps and
+    /// No room takes the even light: a room its lamps and
     /// the sun cannot bring to its level stays darker
     #[arg(long)]
     pub(crate) no_even: bool,
-    /// With --gpu, a room its lamps cannot bring to its level takes its
+    /// A room its lamps cannot bring to its level takes its
     /// own stored light for the rest, and not an even light
     #[arg(long)]
     pub(crate) fill_stored: bool,
-    /// With --gpu, each texel of the lamps' set shows at least this
+    /// Each texel of the lamps' set shows at least this
     /// share of its stored linear light in the game (`floor.txt`)
     #[arg(long)]
     pub(crate) floor: Option<f32>,
-    /// With --gpu, every room with a lightmapped mesh is baked, not
+    /// Every room with a lightmapped mesh is baked, not
     /// only the rooms with a walkable face, as under a sun
     #[arg(long)]
     pub(crate) every_room: bool,
-    /// With --gpu, a room with no walkable face shows its stored light in
+    /// A room with no walkable face shows its stored light in
     /// the lamps' set, and not twice it
     #[arg(long)]
     pub(crate) stored_backdrop: bool,
-    /// With --gpu, the least a room's lamps are scaled by (0.5 when
+    /// The least a room's lamps are scaled by (0.5 when
     /// left out)
     #[arg(long)]
     pub(crate) least: Option<f32>,
-    /// With --gpu, the most a room's lamps are scaled by (6 when left
+    /// The most a room's lamps are scaled by (6 when left
     /// out)
     #[arg(long)]
     pub(crate) most: Option<f32>,
@@ -161,6 +139,29 @@ pub(crate) struct DetailBakeArgs {
     /// down into their room, by their node's name, with spaces between
     #[arg(long)]
     pub(crate) skylights: Option<String>,
+    /// The placeables block the rays where they rest, so they
+    /// cast their shadows into the lightmaps. Skinned and dangling meshes
+    /// do not
+    #[arg(long)]
+    pub(crate) placeables: bool,
+    /// Each vertex of a placeable's mesh that is not skinned
+    /// and does not dangle is lit as a texel is, into placeables.txt of
+    /// the lamps' set. It implies --placeables
+    #[arg(long)]
+    pub(crate) placeable_light: bool,
+    /// Bake nothing. Print the fingerprint of each of the module's
+    /// areas in the game files as they are now: the format, and the
+    /// digests of the rooms and of the placeables. The game compares it
+    /// with fingerprint.txt in a bake's folder
+    #[arg(long)]
+    pub(crate) fingerprint: bool,
+    /// Bake nothing. Write fingerprint.txt into this folder of
+    /// lightmaps baked earlier, from the game files as they are now.
+    /// This is right only when the game files are still the ones the
+    /// bake was made from. Over other files the game would then show a
+    /// bake that does not fit them
+    #[arg(long)]
+    pub(crate) stamp: Option<std::path::PathBuf>,
     /// The folder the files are written to
     #[arg(long, default_value_os_t = detail_bake::default_out())]
     pub(crate) out: std::path::PathBuf,
@@ -169,31 +170,32 @@ pub(crate) struct DetailBakeArgs {
 /// Runs `kjk detail-bake`.
 pub(crate) fn detail_bake(args: DetailBakeArgs) -> ExitCode {
     let DetailBakeArgs {
-            module,
-            game,
-            rays,
-            strength,
-            width,
-            plain,
-            near,
-            lights,
-            gpu,
-            old,
-            probe,
-            levels,
-            sun,
-            sun_fit,
-            weigh,
-            no_even,
-            fill_stored,
-            floor,
-            every_room,
-            stored_backdrop,
-            least,
-            most,
-            skylights,
-            out,
+        module,
+        game,
+        lights,
+        gpu: _,
+        probe,
+        levels,
+        sun,
+        sun_fit,
+        weigh,
+        no_even,
+        fill_stored,
+        floor,
+        every_room,
+        stored_backdrop,
+        least,
+        most,
+        skylights,
+        placeables,
+        placeable_light,
+        fingerprint,
+        stamp,
+        out,
     } = args;
+    if fingerprint || stamp.is_some() {
+        return detail_bake::fingerprint(&discover(), &module, game.as_deref(), stamp.as_deref());
+    }
     let probe = match probe.as_deref().map(|text| {
         text.split_whitespace()
             .map(str::parse::<f32>)
@@ -232,9 +234,11 @@ pub(crate) fn detail_bake(args: DetailBakeArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let on_gpu = gpu.then_some(detail_bake::GpuOptions {
-        rays,
-        old,
+    let Some(lights) = lights else {
+        eprintln!("detail-bake: give the fitted lights with --lights");
+        return ExitCode::from(2);
+    };
+    let options = detail_bake::GpuOptions {
         probe,
         levels,
         sun,
@@ -251,22 +255,10 @@ pub(crate) fn detail_bake(args: DetailBakeArgs) -> ExitCode {
             .flat_map(|names| names.split_whitespace())
             .map(str::to_string)
             .collect(),
-    });
-    detail_bake::run(
-        &discover(),
-        &module,
-        game.as_deref(),
-        &detail_bake::Options {
-            rays,
-            strength,
-            width,
-            plain,
-            near,
-        },
-        lights.as_deref(),
-        on_gpu.as_ref(),
-        &out,
-    )
+        placeables: placeables || placeable_light,
+        placeable_light,
+    };
+    detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
 }
 
 /// The containment audit: where a player gets off the walkmesh by

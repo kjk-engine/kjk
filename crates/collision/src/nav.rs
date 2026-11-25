@@ -574,9 +574,15 @@ impl NavMesh {
             mins: [-SLIVER / 2.0, -SLIVER / 2.0, 0.5],
             maxs: [SLIVER / 2.0, SLIVER / 2.0, 1.6],
         };
-        // How far from a point any of the boxes looked with reaches.
-        let across = self.radius.max(0.05);
-        let (below, above) = (0.1, 1.6);
+        // The farthest any box that an entity is asked about reaches from a
+        // point: sideways, down and up. The search for entities near a face
+        // is grown by these, so a change to a box changes the search too.
+        let boxes = [&extents, &FOOTPRINT, &UNDER_SHAPE];
+        let across = (boxes.iter())
+            .flat_map(|b| [b.mins[0], b.mins[1], b.maxs[0], b.maxs[1]])
+            .fold(0.0_f32, |far, side: f32| far.max(side.abs()));
+        let below = (boxes.iter()).fold(0.0_f32, |far, b| far.max(-b.mins[2]));
+        let above = (boxes.iter()).fold(0.0_f32, |far, b| far.max(b.maxs[2]));
         for face in &mut self.faces {
             let points = [
                 face.centre,

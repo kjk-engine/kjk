@@ -120,7 +120,7 @@ fn several_items_stay() -> Result<String, String> {
     let wrong: Vec<String> = cases
         .iter()
         .filter_map(|(several, want)| {
-            let listed = Rules::with(None, false, |rules| {
+            let listed = Rules::with(None, (false, &[]), |rules| {
                 let several = |shelf| *several && shelf == Shelf::Grenade;
                 bar::wheel(&sheet, rules, 0, &several)
             });

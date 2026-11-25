@@ -144,7 +144,20 @@ pub fn screen(
                 .collect();
         }
         if name == "lobby" {
-            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0, false));
+        }
+        if name == "party" {
+            vm.party_selection = Some(stand_in_party(&mut assets, game, false));
+        }
+        if name == "pazaak_game" {
+            vm.pazaak = Some(stand_in_pazaak());
+        }
+        // The in-game menu of a game played alone, with a party of three,
+        // where the player may save and load.
+        if ui::screens::tabs::under_tabs(name) {
+            vm.here = Some(ui::vm::SaveView::default());
+            vm.load_in_play = true;
+            vm.party = vec![ui::vm::MemberView::default(); 3];
         }
         // `level CLASS N` sets the member before the screen opens, so the
         // level-up screen opens on its next level.
@@ -180,15 +193,37 @@ pub fn screen(
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0, false));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "hero")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1, false));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "hero guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1, false));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "all")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0, true));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("party", "all")) => {
+                    vm.party_selection = Some(stand_in_party(&mut assets, game, true));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("pazaak", change)) => {
+                    let table = vm.pazaak.as_mut().ok_or("pazaak: on pazaak_game only")?;
+                    match change.split_once(' ') {
+                        Some(("turn", whose)) => table.turn = whose.parse().ok(),
+                        Some(("played", nth)) => {
+                            let nth: usize = nth.parse().map_err(|_| "pazaak played N")?;
+                            if let Some(held) = table.sides[0].hand.get_mut(nth) {
+                                *held = None;
+                            }
+                        }
+                        _ => return Err(format!("{step}: `pazaak turn N` or `pazaak played N`")),
+                    }
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "droid")) => {
@@ -254,10 +289,18 @@ pub fn screen(
                         ("Activate", Key::Activate),
                         ("Back", Key::Back),
                         ("Primary", Key::Primary),
+                        ("Second", Key::Second),
+                        ("Accept", Key::Accept),
+                        ("NextTab", Key::NextTab),
+                        ("PrevTab", Key::PrevTab),
+                        ("NextPage", Key::NextPage),
+                        ("PrevPage", Key::PrevPage),
                     ]
                     .into_iter()
                     .find(|(name, _)| *name == moved)
-                    .ok_or(format!("{moved}: Up, Down, Left, Right, Activate, Back or Primary"))?
+                    .ok_or(format!(
+                        "{moved}: Up, Down, Left, Right, Activate, Back, Primary, Second, Accept, NextTab, PrevTab, NextPage or PrevPage"
+                    ))?
                     .1;
                     let keyed = ui::input::UiInput {
                         keys: vec![key],
@@ -267,6 +310,9 @@ pub fn screen(
                     for intent in frame.intents {
                         outln!("{step}: {intent:?}");
                     }
+                    // Where the move left the focus, so that a check can
+                    // follow a pad's player across the screen.
+                    outln!("{step}: focus {}", stack.focused().unwrap_or("none"));
                 }
                 Some(("point", at)) => {
                     let parsed: Vec<f32> = at.split(' ').filter_map(|n| n.parse().ok()).collect();
@@ -295,7 +341,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND` or `pazaak turn N`"
                     ));
                 }
             }
@@ -438,22 +484,70 @@ const LOBBY_TSL: &[(u8, &str)] = &[
     (8, "p_t3m4"),
     (9, "p_visas"),
 ];
+/// The two KOTOR 2 companions that take another's place, Hanharr (in
+/// Mira's) and the Disciple (in the Handmaiden's). A mod can recruit them
+/// beside the companions whose place they take.
+const LOBBY_TSL_STAND_INS: &[(u8, &str)] = &[(10, "p_hanharr"), (11, "p_disciple")];
+
+/// The companions a stand-in screen lists: the game's usual ten (nine in
+/// KOTOR 1), and with `all` KOTOR 2's stand-ins too, as a mod that recruits
+/// every companion makes them.
+fn stand_in_roster(game: Game, all: bool) -> Vec<(u8, &'static str)> {
+    match game {
+        Game::Kotor2 if all => [LOBBY_TSL, LOBBY_TSL_STAND_INS].concat(),
+        Game::Kotor2 => LOBBY_TSL.to_vec(),
+        _ => LOBBY_K1.to_vec(),
+    }
+}
+
+/// The table a script's party selection screen shows (`kjk gui screen
+/// <game> party`, and the `party all` step for every companion of KOTOR 2
+/// available): the game's companions by their own names and portraits,
+/// the first and third picked.
+fn stand_in_party(assets: &mut GuiAssets, game: Game, all: bool) -> ui::vm::PartySelectionView {
+    let roster = stand_in_roster(game, all);
+    let slots = if game == Game::Kotor2 { 12 } else { 9 };
+    let mut companions = vec![None; slots];
+    for &(npc, template) in &roster {
+        companions[usize::from(npc)] = Some(ui::vm::CompanionView {
+            portrait: assets.portrait_of(template, 0),
+            appearance: None,
+            armour: None,
+            good_evil: None,
+            name: (assets.template_name(template, fmt_odyssey::ResType::UTC))
+                .unwrap_or_else(|| template.as_bytes().to_vec()),
+            selectable: true,
+        });
+    }
+    ui::vm::PartySelectionView {
+        slots,
+        companions,
+        opening: vec![roster[0].0, roster[2].0],
+        forced: Vec::new(),
+        open: true,
+        cancel: true,
+        change: ui::vm::PartyChange::May,
+    }
+}
 
 /// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, the
 /// `lobby guest` step for a guest's view, and the `lobby hero` and `lobby
 /// hero guest` steps where the first guest plays the main character): the
 /// game's companions by its own names and portraits, two guests who chose
 /// the third and first, the fifth taken away by the story, the main
-/// character played by slot `hero`, seen from slot `own`.
+/// character played by slot `hero`, seen from slot `own`. With `all` (the
+/// `lobby all` step) every companion of KOTOR 2 is recruited, as a mod
+/// makes them, and none is taken away.
 fn stand_in_lobby(
     assets: &mut GuiAssets,
     game: Game,
     own: usize,
     hero: usize,
+    all: bool,
 ) -> ui::vm::LobbyView {
     use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
     use sim::script::party_choice::Choice;
-    let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
+    let roster = stand_in_roster(game, all);
     let class = |assets: &mut GuiAssets, row: usize| {
         assets.cell_text("classes", row, "name").unwrap_or_else(Vec::new)
     };
@@ -465,7 +559,11 @@ fn stand_in_lobby(
             portrait: assets.portrait_of(template, 0).unwrap_or_else(String::new),
             class: class(assets, at % 3),
             level: 4,
-            choice: if at == 4 { Choice::Unavailable } else { Choice::Open },
+            choice: if at == 4 && !all {
+                Choice::Unavailable
+            } else {
+                Choice::Open
+            },
         })
         .collect();
     let summary = Summary {
@@ -507,7 +605,7 @@ fn stand_in_lobby(
 /// (the Endar Spire with Trask): the first guest plays him and the second
 /// flies a remote droid, seen from the second guest's slot.
 fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
-    let mut view = stand_in_lobby(assets, game, 2, 0);
+    let mut view = stand_in_lobby(assets, game, 2, 0, false);
     view.companions.truncate(1);
     view.companions[0].state = ui::vm::LobbyCompanionState::Played {
         slot: 1,
@@ -528,6 +626,37 @@ fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
         save.party[1] = view.companions[0].name.clone();
     }
     view
+}
+
+/// The table `kjk gui screen <game> pazaak_game` opens on: the player's
+/// turn, four ± cards in the player's hand and one in the opponent's. The
+/// `pazaak turn N` and `pazaak played N` steps change whose turn it is and
+/// take a hand card away.
+fn stand_in_pazaak() -> ui::vm::PazaakView {
+    use ui::vm::{PazaakCard, PazaakSide, PazaakStage, PazaakView};
+    let card = PazaakCard {
+        face: "+1".into(),
+        art: "lbl_cardrarem".into(),
+        signed: Some(["+1", "-1", "+2", "-2"].map(String::from)),
+        minus_art: "lbl_cardraref".into(),
+        sized: false,
+    };
+    PazaakView {
+        stage: PazaakStage::Game,
+        most: 50,
+        sides: [
+            PazaakSide {
+                hand: std::array::from_fn(|_| Some(card.clone())),
+                ..PazaakSide::default()
+            },
+            PazaakSide {
+                hand: [Some(card.clone()), None, None, None],
+                ..PazaakSide::default()
+            },
+        ],
+        turn: Some(0),
+        ..PazaakView::default()
+    }
 }
 
 /// The member the character page shows: the first seat's character, whose

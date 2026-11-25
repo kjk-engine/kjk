@@ -61,6 +61,12 @@ pub enum LightingMode {
     /// The frame's values may go above 1, and the roll-off brings them
     /// back into what a screen shows.
     Enhanced,
+    /// Enhanced, with kjk's baked lightmaps from the lighting download
+    /// (`lighting_bakes`). The options call it Enhanced Lightmaps. The bake
+    /// itself is taken when kjk starts (`lighting_bakes::chosen`), so a
+    /// change to or from it takes effect at the next start
+    /// (`settings::Settings::lighting`).
+    Baked,
 }
 
 impl LightingMode {
@@ -68,13 +74,14 @@ impl LightingMode {
     pub fn named(value: &str) -> LightingMode {
         match value {
             "enhanced" => LightingMode::Enhanced,
+            crate::lighting_bakes::SETTING_VALUE => LightingMode::Baked,
             _ => LightingMode::Classic,
         }
     }
 
     /// Whether the frame's values may go above 1.
     pub fn enhanced(self) -> bool {
-        self == LightingMode::Enhanced
+        matches!(self, LightingMode::Enhanced | LightingMode::Baked)
     }
 }
 

@@ -153,9 +153,9 @@ pub(crate) enum Progress {
 struct Flow {
     job: Option<Mutex<Receiver<Progress>>>,
     launch: bool,
-    /// The session being prepared restores a save's story
-    /// (`sim_host::FromStory` once it is in).
-    restoring: bool,
+    /// The session being prepared loads a save or restores a save's story
+    /// (`sim_host::FromSave` once it is in).
+    from_save: bool,
     /// A save's story offered (`story_restore`), its question the
     /// session's error until the box closes.
     asking: bool,
@@ -548,14 +548,22 @@ fn start(
             // During play a save is loaded in place, as the reload after
             // the party fell is (`sim_host::ReloadRequest`): its module
             // planned behind the loading screen, the world made from the
-            // save at the commit; the program and its window go on. Alone
-            // only (a host's guests would be dropped: it loads from the
-            // main menu). The screens' Load, quick load and the console's
-            // `ui load` all come here.
+            // save at the commit; the program and its window go on. A host
+            // loads for everyone, as that reload does: the server keeps
+            // its guests and their seats. A host loads only its own saves,
+            // never a copy of another host's game. The screens' Load,
+            // quick load and the console's `ui load` all come here.
             Intent::Session(SessionIntent::Solo { save: Some(id), .. }) if playing.is_some() => {
+                let copy = || {
+                    ui.vm
+                        .saves
+                        .iter()
+                        .any(|save| save.id == id && save.from.is_some())
+                };
                 let refused = match here.as_deref() {
                     Some(here) if here.alone => None,
-                    Some(_) => Some("A hosted game loads from the main menu."),
+                    Some(_) if copy() => Some("A hosted game loads only the host's own saves."),
+                    Some(_) => None,
                     None => Some("Only the host loads a save."),
                 };
                 if let Some(why) = refused {
@@ -580,7 +588,12 @@ fn start(
             }
             Intent::Session(session) if flow.job.is_none() => {
                 info!(target: "session", ?session, "starting");
-                flow.restoring = matches!(session, SessionIntent::Restore { .. });
+                flow.from_save = matches!(
+                    session,
+                    SessionIntent::Restore { .. }
+                        | SessionIntent::Solo { save: Some(_), .. }
+                        | SessionIntent::Host { save: Some(_), .. }
+                );
                 // A guest keeps what the host gives: nothing made here.
                 made.0 = match &session {
                     SessionIntent::Solo { character, .. }
@@ -670,13 +683,13 @@ fn finish(world: &mut World) {
         return;
     };
     let launch = std::mem::take(&mut world.resource_mut::<Flow>().launch);
-    let restoring = std::mem::take(&mut world.resource_mut::<Flow>().restoring);
+    let from_save = std::mem::take(&mut world.resource_mut::<Flow>().from_save);
     world.resource_mut::<Flow>().job = None;
     match result.and_then(|loaded| install(world, loaded)) {
         Ok(()) => {
             world.resource_mut::<console::Hold>().0 = false;
-            if restoring {
-                world.insert_resource(crate::sim_host::FromStory);
+            if from_save {
+                world.insert_resource(crate::sim_host::FromSave);
             }
         }
         Err(why) if launch => {

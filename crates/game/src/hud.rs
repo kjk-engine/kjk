@@ -344,18 +344,38 @@ pub(crate) fn item_icon<'a>(
         .find_map(|template| Some(assets.item_ref(template)?.icon.clone()))
 }
 
+/// What the party carries that the bar's slots show: the item each kind's
+/// slot uses now (`chosen`), the kit the next mine lay sets (`mine`), and
+/// the devices the party carries (`devices`, `bar_view::Means::devices`).
+#[derive(Clone, Copy)]
+pub(crate) struct Stock<'a> {
+    pub chosen: &'a Chosen,
+    pub mine: Option<&'a LaidKit>,
+    pub devices: &'a [sim::inventory::Device],
+}
+
+impl Stock<'_> {
+    /// The template of the device that casts `spells.2da` row `row`.
+    fn device(&self, row: u16) -> Option<&str> {
+        let device = self.devices.iter().find(|device| device.row == row)?;
+        Some(device.template.as_str())
+    }
+}
+
 /// The icon of what a bar slot contains. A power shows its `spells.2da`
 /// icon, and Pull shows Push's (`force::data_row`). A kind of item shows
 /// the icon of the item that its slot uses now, or a stock item of the
 /// kind when the character has none left. A feat attack shows the
-/// `feat.2da` icon of the highest tier the character knows.
+/// `feat.2da` icon of the highest tier the character knows. A device
+/// shows its item's icon.
 pub(crate) fn bar_icon(
     assets: &mut ui::assets::GuiAssets,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,
-    (chosen, mine): (&Chosen, Option<&LaidKit>),
+    stock: Stock,
 ) -> Option<String> {
     use sim::combat::bar::Content;
+    let Stock { chosen, mine, .. } = stock;
     match content {
         Content::Power(row) => {
             assets.cell("spells", usize::from(force::data_row(row)), "iconresref")
@@ -378,6 +398,7 @@ pub(crate) fn bar_icon(
             assets.cell("feat", usize::from(row), "icon")
         }
         Content::Stealth => Some(STEALTH_ICON.into()),
+        Content::Device(row) => item_icon(assets, stock.device(row)),
     }
 }
 
@@ -391,16 +412,17 @@ pub(crate) const PULL_NAME: &[u8] = b"Force Pull";
 /// (`bar_setup_view`). Mines show the name of the kit the next lay sets
 /// (`sim::traps::laid_kit`). A feat attack shows
 /// the name of the highest tier the character knows, and stealth mode
-/// shows the Stealth skill's name. A content with no name in the game's
-/// tables shows none.
+/// shows the Stealth skill's name, and a device its item's name. A content
+/// with no name in the game's tables shows none.
 pub(crate) fn bar_name(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,
-    (chosen, mine): (&Chosen, Option<&LaidKit>),
+    stock: Stock,
 ) -> Vec<u8> {
     use crate::pick_view::{item_name, table_name};
     use sim::combat::bar::Content;
+    let Stock { chosen, mine, .. } = stock;
     let name = match content {
         Content::Power(force::PULL) => Some(PULL_NAME.to_vec()),
         Content::Power(row) => table_name(ui, "spells", usize::from(row)),
@@ -416,6 +438,10 @@ pub(crate) fn bar_name(
             .or(line.rows().first().copied())
             .and_then(|row| table_name(ui, "feat", usize::from(row))),
         Content::Stealth => table_name(ui, "skills", sim::combat::sheet::skills::STEALTH),
+        Content::Device(row) => stock
+            .device(row)
+            .zip(ui.assets.as_mut())
+            .and_then(|(template, assets)| Some(assets.item_ref(template)?.name.clone())),
     };
     name.unwrap_or(Vec::new())
 }
@@ -430,15 +456,15 @@ pub(crate) fn bar_entry(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
     means: &crate::bar_view::Means,
-    chosen: &Chosen,
-    mine: Option<&LaidKit>,
+    stock: Stock,
 ) -> ui::vm::WheelEntry {
     use sim::combat::bar::Content;
     let sheet = &means.sheet;
+    let Stock { chosen, mine, .. } = stock;
     let icon = ui
         .assets
         .as_mut()
-        .and_then(|assets| bar_icon(assets, content, sheet, (chosen, mine)));
+        .and_then(|assets| bar_icon(assets, content, sheet, stock));
     let count = match content {
         Content::Item(shelf) => chosen[shelf as usize].as_ref().map(|kind| kind.left),
         Content::Mine => Some(mine.map_or(0, |kit| kit.left)),
@@ -446,7 +472,7 @@ pub(crate) fn bar_entry(
     };
     ui::vm::WheelEntry {
         icon: icon.unwrap_or(String::new()),
-        name: bar_name(ui, content, sheet, (chosen, mine)),
+        name: bar_name(ui, content, sheet, stock),
         count,
         dim: !crate::bar_view::usable(content, means) || !crate::bar_view::payable(content, means),
         lit: crate::bar_view::lit(content, sheet, means.fighter),
@@ -460,14 +486,16 @@ pub(crate) fn bar_entry(
 /// of the rank the character knows. A power and a feat attack go on with
 /// the rulebook's lines for them, as on the character pages
 /// (`character::described_row`). A kind of item shows the description
-/// of the item that the kind's slot uses now. Stealth mode and mines have
-/// no description, and show only their names.
+/// of the item that the kind's slot uses now, and a device its item's
+/// description. Stealth mode and mines have no description, and show only
+/// their names.
 pub(crate) fn bar_description(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,
-    chosen: &Chosen,
+    stock: Stock,
 ) -> Vec<u8> {
+    let chosen = stock.chosen;
     use sim::combat::bar::Content;
     let Some(assets) = ui.assets.as_mut() else {
         return Vec::new();
@@ -487,6 +515,9 @@ pub(crate) fn bar_description(
         Content::Item(shelf) => chosen[shelf as usize]
             .as_ref()
             .and_then(|kind| kind.template.as_ref())
+            .and_then(|template| Some(assets.item_ref(template)?.description.clone())),
+        Content::Device(row) => stock
+            .device(row)
             .and_then(|template| Some(assets.item_ref(template)?.description.clone())),
         Content::Mine | Content::Stealth => None,
     };
@@ -538,11 +569,10 @@ fn slots_now(means: &crate::bar_view::Means) -> [SlotNow; sim::combat::bar::SLOT
 pub(crate) fn setup_slots(
     ui: &mut crate::ui_view::Ui,
     means: &crate::bar_view::Means,
-    (chosen, counts, mine): (&Chosen, &Counts, Option<&LaidKit>),
+    items: (Stock, &Counts),
     keys: Vec<ui::vm::KeyLabel>,
 ) -> Vec<ui::vm::BarSlot> {
     let now = slots_now(means);
-    let items = (chosen, counts, mine);
     bar_view(ui, &means.sheet, items, &now, keys, (None, None), None).0
 }
 
@@ -556,7 +586,7 @@ pub(crate) fn setup_slots(
 fn bar_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
-    (chosen, counts, mine): (&Chosen, &Counts, Option<&LaidKit>),
+    (stock, counts): (Stock, &Counts),
     now: &[SlotNow; sim::combat::bar::SLOTS],
     keys: Vec<ui::vm::KeyLabel>,
     (held, held_shelf): (Option<usize>, Option<items::Shelf>),
@@ -564,6 +594,7 @@ fn bar_view(
 ) -> BarShown {
     use crate::pick_view::LabelOn;
     use sim::combat::bar::Content;
+    let Stock { chosen, mine, .. } = stock;
     let contents = sheet.bar.slots();
     let slots = keys
         .into_iter()
@@ -572,7 +603,7 @@ fn bar_view(
             let content = contents[at];
             let icon = content
                 .zip(ui.assets.as_mut())
-                .and_then(|(content, assets)| bar_icon(assets, content, sheet, (chosen, mine)));
+                .and_then(|(content, assets)| bar_icon(assets, content, sheet, stock));
             let shelf = match content {
                 Some(Content::Item(shelf)) => Some(shelf as usize),
                 _ => None,
@@ -590,6 +621,7 @@ fn bar_view(
                 dim: content.is_some() && !now[at].ready,
                 lit: pressed || now[at].on,
                 kinds: shelf.map_or(0, |at| counts[at]),
+                fire: None,
             }
         })
         .collect::<Vec<_>>();
@@ -645,14 +677,17 @@ fn form_slot(
 /// attacks (`Picks::shown`), or while a double-bladed lightsaber has one
 /// blade lit, as the next-feat key then does nothing (`feat_view`).
 /// Otherwise it holds the `feat.2da` icon of the feat attack in use (none
-/// while it uses none) and the next-feat key.
+/// while it uses none) and the next-feat key. With a blaster in hand it also
+/// shows the key that fires the feat attack (`fire`), because a controller
+/// player otherwise has no sign of which buttons do it.
 fn feat_slot(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    key: ui::vm::KeyLabel,
+    (key, fire): (ui::vm::KeyLabel, ui::vm::KeyLabel),
 ) -> Option<ui::vm::BarSlot> {
     use sim::combat::picks::{Picks, Shown};
+    use sim::combat::saber::{Held, Kit};
     if fighter.saber.second_off {
         return None;
     }
@@ -662,9 +697,11 @@ fn feat_slot(
         }
         Shown::Nothing => None,
     };
+    let blaster = matches!(Kit::of(sheet).held(fighter.hand), Held::Blaster(_));
     Some(ui::vm::BarSlot {
         icon,
         key,
+        fire: blaster.then_some(fire),
         ..ui::vm::BarSlot::default()
     })
 }
@@ -1009,14 +1046,17 @@ fn show(
             material.params.tint = tint;
         }
     };
-    let health = fighter.hp as f32 / (f32::from(sheet.max_hp) * 100.0);
+    // The bars count the most as effects and worn items leave it, as the
+    // sim holds the points to it (Master Valor's Constitution raises both).
+    let most = sim::combat::effects::sheet_now(sheet, &fighter, snapshot.time_ms);
+    let health = fighter.hp as f32 / (f32::from(most.max_hp) * 100.0);
     set(
         hud.hp,
         Some(filled(HP, health)),
         Some(Vec4::new(1.0 - health, 0.25 + 0.65 * health, 0.2, 0.95)),
         true,
     );
-    let pool = f32::from(sheet.pool()) * 100.0;
+    let pool = f32::from(most.pool()) * 100.0;
     let gauges = gauges(snapshot.saber_rules, &sheet);
     let bar = if sheet.max_fp > 0 {
         Vec4::new(0.25, 0.45, 1.0, 0.95)
@@ -1084,13 +1124,21 @@ fn show(
         picking.as_deref(),
     );
     let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
-    // How each bar slot stands, from what the character can use now.
-    let now = swap
+    // How each bar slot stands, from what the character can use now, and
+    // the devices the party carries.
+    let (now, devices) = swap
         .as_ref()
         .and_then(|swap| {
-            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| slots_now(means))
+            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| {
+                (slots_now(means), means.devices.clone())
+            })
         })
-        .unwrap_or([SlotNow::default(); sim::combat::bar::SLOTS]);
+        .unwrap_or(([SlotNow::default(); sim::combat::bar::SLOTS], Vec::new()));
+    let stock = Stock {
+        chosen: &chosen,
+        mine: mine.as_ref(),
+        devices: &devices,
+    };
     // The keyboard's bar shows its first six slots, and the slots after
     // them up to the last one that holds something (`Bar::shown`).
     let shown = if prompts.pad() {
@@ -1147,7 +1195,7 @@ fn show(
         let bar = bar_view(
             ui,
             &sheet,
-            (&chosen, &counts, mine.as_ref()),
+            (stock, &counts),
             &now,
             keys,
             (
@@ -1159,7 +1207,15 @@ fn show(
                 .and_then(|picking| picking.label(real.elapsed_secs())),
         );
         let form = form_slot(ui, &sheet, prompts.label(Action::Form));
-        let feat = feat_slot(ui, &sheet, &fighter, prompts.label(Action::NextFeat));
+        let feat = feat_slot(
+            ui,
+            &sheet,
+            &fighter,
+            (
+                prompts.label(Action::NextFeat),
+                prompts.label(Action::DuelAltAttack),
+            ),
+        );
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             form,
@@ -1169,7 +1225,7 @@ fn show(
             duel: duel.clone(),
             ..kotor_view(
                 ui,
-                &sheet,
+                &most,
                 &fighter,
                 bar,
                 (

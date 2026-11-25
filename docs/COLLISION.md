@@ -265,7 +265,17 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     753 ms (152har), where the slowest before took 553 ms (851nih).
   - What it does not cover:
     - placeables made during play (`MadeWalls` in `sim::walk`). They are
-      not in the built level and keep their walls;
+      not in the built level and keep their walls. A character meets a
+      made placeable as boxes along the edge of its walkmesh
+      (`world::made_bodies`). A character moving round across meets each
+      box as a box, as it meets the level's brushes, and only a living
+      character's body round across. Met round, each box was smaller than
+      the box the mover's own test for standing inside the placeable used,
+      so a player counted as inside before touching it and walked through
+      it. The swoop bikes and speeders that the dune sea's scripts make on
+      Tatooine (K1 tat_m18aa) were walked through this way (bug report of
+      2026-11-23). The synthetic collision probe `upright meets a cell as a
+      box` checks the rule;
     - an animated placeable's other looks. The shape is the model at
       rest, so a footlocker's open lid is not solid;
     - a broken droid (`plc_brokndrd`). It is all small, low parts, so a
@@ -484,6 +494,34 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       a ramp at the table's foot leads a walker up to 1.05 m, as before.
       He now walks on over the table (494 spots off the walkmesh on foot
       where there were 177, cells of 0.25 m).
+- Walls round high tops (`roofs.rs`): the edge walls keep a body inside
+  the walkmesh's outline, but the tops of tall things inside it (wall
+  tops overhanging the floor, door frames, a mast, the Ebon Hawk's hull)
+  were reached by Force jumps, and a player ran along the walls of
+  Tatooine's docking bay (K1 tat_m17ab, Discord report of 2026-11-23).
+  The area is looked down on in columns half a metre wide. In each, the
+  player's box is let down from 12.5 m over the highest walkmesh face
+  under it (higher than a rank 3 Force jump carries a body) to what it
+  rests on. Under each part of the box's footprint, the look goes down
+  through walkmesh faces that are not walkable to the first walkable one,
+  else the lowest. The column is a high top when that face is more than
+  2.5 m down (the audit's perch height, `collision::PERCH`) somewhere
+  under the footprint and nowhere within it. A box on the floor, on a crate
+  or on a console is no high top. Nor is a column with a walkable floor
+  within a half width of its sides, from 2.5 m under the top to 0.35 m
+  over it (a catwalk past a ledge), since a box on that floor reaches over
+  the column's side. Each side of a high top's column gets a `WALK_CLIP`
+  wall from just under the top: up to the sky, or to just under a walkable
+  floor found over a band a half width either side of the side, beside a
+  column that is no high top; up to the higher top beside one more than a
+  step higher; and none beside one about as high. Sides along a line make
+  one wall while their feet, and their tops, stay within 0.25 m of each
+  other, so a wall along a slope never drifts far below its sides. No wall
+  comes lower than 2.15 m over the walkmesh, so walking is untouched: the audit reaches the same spots on foot as
+  without them in every module tried. In the docking bay the audit's
+  escapes went from 29, 40 and 47 regions (Force jump ranks 1, 2 and 3) to
+  none, and on Manaan (K1 manm26aa) 22 087 leaks out of the grid went to
+  none. `KJK_ROOF_WALLS=off` builds the verbs' levels without them.
 - Non-walkable walkmesh faces (`surfacemat.2da`'s walk 0: non-walk,
   obscuring, lava, deep water), and drawn triangles taking their material,
   are `SOLID | NONWALK`. KOTOR's walker, a point, never stands on one;
@@ -551,7 +589,8 @@ leaks into the void) to 21 (0, 125, 7 800); K1 from 72 (392, 2205,
 leak: chains of jumps over drawn furniture inside the walls up onto roofs
 and tall structures more than 2.5 m over the floor (TSL 901mal 29
 regions, 902mal 20, 301nar 12; K1 manm26aa 54, tar_m04aa 34); the leaks
-left come by force jumps (TSL 650dan, 302nar). It writes `facts.json`, `audit.png` and `escape-*.png` maps
+left come by force jumps (TSL 650dan, 302nar). Those counts are from
+before the walls round high tops, which close most of that climbing. It writes `facts.json`, `audit.png` and `escape-*.png` maps
 (edge walls light blue). Two checks of what walking keeps: the column
 centres on walkable walkmesh (the topmost face under the feet) reached on
 foot, and those reached only by jumping though the walkmesh joins them to

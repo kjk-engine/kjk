@@ -159,6 +159,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
             diffuse: [1.0; 3],
             uv_scroll: None,
             dangly: None,
+            referenced: false,
             skin: Some(SkinIr {
                 joints: (1..=slots).collect(),
                 inverse_binds: vec![IDENTITY; slots],

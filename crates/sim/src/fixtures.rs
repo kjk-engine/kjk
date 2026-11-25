@@ -199,6 +199,8 @@ fn fill(save: &mut Save, ground: &Level) {
     script.journal.push(("k_fixture_quest".into(), 20));
     script.xp.insert(crate::inventory::PARTY, 1_500);
     script.gold = 250;
+    script.hints.gameplay = 4;
+    script.hints.story[0] = 2;
     script.purses.insert(2, 15);
     script.components = 4;
     script.chemicals = 6;
@@ -485,6 +487,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         cost_multipliers: _,
         button_mash: _,
         subscreen: _,
+        hints: _,
     } = &save.script;
     check!("script", save.script, blank;
         numbers, booleans, strings, places, unescapable, left, locals, pending,
@@ -497,7 +500,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
         keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,
-        cost_multipliers, button_mash, subscreen,
+        cost_multipliers, button_mash, subscreen, hints,
     );
     out
 }

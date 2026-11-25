@@ -410,9 +410,22 @@ pub(super) fn think(
         if let Some(walker) = mind.walker.as_mut().filter(|_| carried(&player.0)) {
             walker.keep_headway(now, &player.0);
         }
-        let command = scripted_walk(mind, &level.0, &player.0, goal, now, &party_ways);
+        let waits = crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+        let ways = crate::walk::ThroughShut(&party_ways, waits);
+        let command = scripted_walk(mind, &level.0, &player.0, goal, now, &ways);
         fighting.0.last_command = command;
         driven.0.push(id.0);
+    }
+    // The companion leading, a script walking it, goes by its mind's walk
+    // (below), not by its player's keys, as the first seat's own character
+    // does above. Its keys move nothing during its own conversation. With
+    // one seat that conversation holds the world, and KOTOR's walker carried
+    // it anyway. With two it holds no one else, so the walk was never made:
+    // the companion stayed where it stood while Taris's Matrik ran out of
+    // his apartment before it blew (`k_ptar_matrik30x`), and the rubble
+    // shut it in.
+    if let Some(body) = lent.filter(|body| scripts.state.goals.contains_key(&body.0)) {
+        driven.0.push(body);
     }
     let mut minds: Vec<_> = actors
         .iter_mut()
@@ -821,7 +834,12 @@ pub(super) fn think(
         let mut paced_fight = false;
         let mut out_of_reach = false;
         let mut command = match mind.task {
-            _ if let Some(goal) = scripted => scripted_walk(mind, &level.0, ps, goal, now, opening),
+            _ if let Some(goal) = scripted => {
+                let waits =
+                    crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+                let ways = crate::walk::ThroughShut(opening, waits);
+                scripted_walk(mind, &level.0, ps, goal, now, &ways)
+            }
             Task::Engage => {
                 let entry = target.expect("engaging a target");
                 let weapon = in_hand;

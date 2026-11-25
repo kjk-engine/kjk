@@ -182,6 +182,7 @@ mod level;
 mod movement;
 #[cfg(feature = "probes")]
 pub mod push_probes;
+mod shut_in;
 mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;
@@ -573,9 +574,7 @@ fn struck_by(
             }
         }
         gear::Struck::Knockdown => {
-            fighter
-                .saber
-                .knock_down(now, crate::combat::force::ja::KNOCKDOWN_MS);
+            fighter.knock_down(now, crate::combat::force::ja::KNOCKDOWN_MS);
         }
         gear::Struck::Death => {}
     }
@@ -610,13 +609,14 @@ fn thrown(
     knockdown: Option<u64>,
 ) {
     use crate::combat::force::ja;
-    if !fighter.alive() {
+    // A grapple finisher holds its pair where it put them (`world::grapples`).
+    if !fighter.alive() || fighter.grapple.is_some() {
         return;
     }
     if let Some(ms) = knockdown
         && !fighter.saber.floored()
     {
-        fighter.saber.knock_down(now, ms);
+        fighter.knock_down(now, ms);
     }
     let mut direction = math::sub(ps.origin, centre);
     direction[2] = 0.0;
@@ -959,6 +959,14 @@ impl SimWorld {
     /// The share of the normal damage each side takes.
     pub fn damage_taken(&self) -> crate::combat::damage::Taken {
         self.world.resource::<DamageTaken>().0
+    }
+
+    /// Whether a reply a player takes is shown to the other players in the
+    /// conversation before it runs (the host's lobby setting "Show chosen
+    /// replies"). A module change and a save keep the choice.
+    pub fn set_show_replies(&mut self, on: bool) {
+        let scripts = &mut self.world.resource_mut::<scripts::Scripts>();
+        scripts.state.talk.hide_replies = !on;
     }
 
     /// Whether targeted blocks apply. They apply only under the Advanced

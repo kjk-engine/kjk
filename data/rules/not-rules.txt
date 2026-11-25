@@ -22,6 +22,7 @@ crates/sim/src/action.rs FORFEIT  # a player action's wire tag
 crates/sim/src/action.rs FORM  # a player action's wire tag
 crates/sim/src/action.rs GRENADE  # a player action's wire tag
 crates/sim/src/action.rs HOLSTER  # a player action's wire tag
+crates/sim/src/action.rs JOIN_TALKS  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
@@ -39,6 +40,7 @@ crates/sim/src/action.rs RECOVER  # a player action's wire tag
 crates/sim/src/action.rs REQUEST  # a player action's wire tag
 crates/sim/src/action.rs RESUME  # a player action's wire tag
 crates/sim/src/action.rs REVIVE  # a player action's wire tag
+crates/sim/src/action.rs SCREEN  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_CLOSED  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_OPENED  # a player action's wire tag
 crates/sim/src/action.rs SELL  # a player action's wire tag
@@ -61,6 +63,7 @@ crates/sim/src/action.rs WATCH  # a player action's wire tag
 crates/sim/src/action.rs SUB_SCREEN  # a player action's wire tag
 crates/sim/src/combat/ai.rs TASKS  # the tasks' wire order
 crates/sim/src/combat/bar.rs ALL  # table width: the FeatLine enum's variants
+crates/sim/src/combat/bar.rs DEVICE  # a device slot's wire tag
 crates/sim/src/combat/bar.rs EMPTY  # an empty slot's wire tag
 crates/sim/src/combat/bar.rs FILLED  # the action bar's layout: the slots its own fill uses
 crates/sim/src/combat/bar.rs KEPT  # the action bar's layout: the slots the HUD always shows
@@ -526,7 +529,7 @@ crates/sim/src/script/engine.rs NEUTRAL  # script constant: ALIGNMENT_*
 crates/sim/src/script/engine.rs NPC_PLAYER  # script constant: NPC_PLAYER
 crates/sim/src/script/engine.rs OPENED  # a `last` kind id
 crates/sim/src/script/engine.rs PATTERN  # a `last` kind id
-crates/sim/src/script/engine.rs PCS  # iterator kind id
+crates/sim/src/script/engine.rs MAIN_CHARACTERS  # iterator kind id
 crates/sim/src/script/engine.rs PERCEIVED  # a `last` kind id
 crates/sim/src/script/engine.rs PERCEPTION  # a `last` kind id
 crates/sim/src/script/engine.rs PERSISTENT  # iterator kind id
@@ -534,6 +537,7 @@ crates/sim/src/script/engine.rs POWER_LANDED  # a `last` kind id
 crates/sim/src/script/engine.rs PUPPETS_FACTION  # script constant: STANDARD_FACTION_PARTYPUPPET
 crates/sim/src/script/engine.rs REGARDS  # script constants: REPUTATION_TYPE_* names
 crates/sim/src/script/engine.rs SAVES  # script constants: SAVING_THROW_* names
+crates/sim/src/script/engine.rs SCENE_ROUND  # a `last` kind id
 crates/sim/src/script/engine.rs SHAPE  # iterator kind id
 crates/sim/src/script/engine.rs SPEAKER  # a `last` kind id
 crates/sim/src/script/engine.rs SPELL  # a `last` kind id
@@ -569,6 +573,7 @@ crates/sim/src/script/mod.rs SEEN  # perception kind id
 crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
 crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/xp.rs SWITCHED_OUT  # an experience holder id
 crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs BASES  # the names of the modules that are the party's bases, a list
@@ -734,6 +739,7 @@ crates/sim/src/script/engine.rs METAMAGIC  # a `last` kind id
 crates/sim/src/script/state.rs FOLLOW  # save tag
 crates/sim/src/script/state.rs PICK_UP  # save tag
 crates/sim/src/script/state.rs PUT_DOWN  # save tag
+crates/sim/src/script/state.rs SOUND  # save tag
 crates/sim/src/script/minigame.rs ANSWERED  # the minigames' routines' names, a list
 crates/sim/src/script/rare.rs NO_METAMAGIC  # the executables' metamagic byte before a cast
 crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
@@ -787,3 +793,4 @@ crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force j
 crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc
 crates/sim/src/combat/spells.rs RAISES_THE_FALLEN  # Revitalize's spells.2da rows, a list of table rows
+crates/sim/src/action.rs PLAY  # a player action's wire tag

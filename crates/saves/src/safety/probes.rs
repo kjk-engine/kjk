@@ -9,7 +9,8 @@ use sim::probe::{Checks, check};
 /// - the meta's new fields round-trip, and an older meta without them reads;
 /// - a save whose world is not what its meta's hash says is listed as
 ///   damaged and does not load; one without a hash is trusted;
-/// - autosaves rotate through their three slots;
+/// - autosaves rotate through their three slots, each game's through its
+///   own;
 /// - the backup on a new release: none without saves or for the same
 ///   release, a whole copy for a new one, five kept;
 /// - a write that fails leaves no half-written save;
@@ -30,6 +31,11 @@ pub fn probes() -> Checks {
         ("save_damaged_listed", damaged(&at("damaged"))),
         ("save_without_hash_trusted", without_hash(&at("unhashed"))),
         ("autos_rotate", autos(&at("autos"))),
+        ("autos_per_game", autos_per_game(&at("autos-per-game"))),
+        (
+            "older_tsl_slots_moved",
+            older_tsl_slots(&at("older-tsl-slots")),
+        ),
         ("failed_write_leaves_nothing", failed_write(&at("failed"))),
         ("refusal_names_build", names_build(&at("refused"))),
         (
@@ -136,6 +142,53 @@ fn autos(root: &Path) -> Result<String, String> {
     check(
         names == ["auto 4", "auto 3", "auto 2"],
         format!("{names:?}"),
+    )
+}
+
+/// KOTOR 1 and KOTOR 2 autosave into their own slots: four KOTOR 2
+/// autosaves rotate through KOTOR 2's slots and leave KOTOR 1's one where
+/// it was.
+fn autos_per_game(root: &Path) -> Result<String, String> {
+    let of = |game: &str, name: String| Meta {
+        game: Some(game.into()),
+        ..meta(&name)
+    };
+    write_auto(root, b"world", &of("k1", "k1 auto".into()), None)?;
+    for n in 1..=4 {
+        write_auto(root, b"world", &of("tsl", format!("tsl auto {n}")), None)?;
+    }
+    let name = |id: &str| crate::read_meta(&root.join(id)).map(|meta| meta.name);
+    let k1 = AUTOS.map(|id| name(id).ok());
+    let tsl: Vec<String> = TSL_AUTOS
+        .iter()
+        .map(|id| name(id))
+        .collect::<Result<_, _>>()?;
+    check(
+        k1 == [Some("k1 auto".into()), None, None]
+            && tsl == ["tsl auto 4", "tsl auto 3", "tsl auto 2"],
+        format!("k1 {k1:?}, tsl {tsl:?}"),
+    )
+}
+
+/// A KOTOR 2 quick save and autosave made before each game had its own
+/// slots move to KOTOR 2's slots. A KOTOR 1 save in the same slots stays,
+/// and a KOTOR 2 save whose own slot is taken stays too.
+fn older_tsl_slots(root: &Path) -> Result<String, String> {
+    for id in [crate::QUICK, AUTOS[0], AUTOS[1]] {
+        write_encoded(root, Some(id), b"world", &meta(id), None)?;
+    }
+    write_encoded(root, Some(TSL_AUTOS[1]), b"world", &meta("taken"), None)?;
+    let moved = [
+        crate::move_to_own_slot(root, crate::QUICK, "tsl"),
+        crate::move_to_own_slot(root, AUTOS[0], "tsl"),
+        crate::move_to_own_slot(root, AUTOS[1], "tsl"),
+        crate::move_to_own_slot(root, "0001", "tsl"),
+    ];
+    let k1 = crate::move_to_own_slot(root, AUTOS[1], "k1");
+    let kept = root.join(AUTOS[1]).exists() && !root.join(crate::QUICK).exists();
+    check(
+        moved == [Some(crate::TSL_QUICK), Some(TSL_AUTOS[0]), None, None] && k1.is_none() && kept,
+        format!("moved {moved:?}, k1 {k1:?}, kept {kept}"),
     )
 }
 

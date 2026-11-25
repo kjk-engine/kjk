@@ -1,0 +1,9 @@
+# 1.0 of the lit level of each room.
+m26aa_10a 0.8312
+m26aa_10b 0.7692
+m26aa_10c 0.6799
+m26aa_10d 0.7747
+m26aa_10e 0.7566
+m26aa_11a 0.6290
+m26aa_12a 0.6420
+m26aa_14a 0.7648
