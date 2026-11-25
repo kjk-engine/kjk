@@ -416,6 +416,57 @@ fn input() -> Result<String, String> {
     )
 }
 
+/// In a conversation, the Photo mode key and a pad's Photo mode chord
+/// come through, and the conversation keeps play's other actions. With
+/// photo mode on, in a conversation too, photo mode has every action.
+fn talk_keys() -> Result<String, String> {
+    use crate::pad::{Taken, bit, open_keys};
+    let photo = bit(Action::PhotoMode);
+    let key = open_keys(Taken::Talk, KeyMap::defaults()).is_some_and(|open| open & photo != 0);
+    let pad = Taken::Talk.keeps_pad(Action::PhotoMode) && !Taken::Talk.keeps_pad(Action::Jump);
+    let on = Taken::Talk.with_photo(true);
+    let all = on == Taken::Photo
+        && on.keeps_pad(Action::Jump)
+        && open_keys(on, KeyMap::defaults()) == Some(u64::MAX)
+        && Taken::Screens.with_photo(true) == Taken::Screens;
+    check(
+        key && pad && all,
+        format!("key {key}, pad {pad}, photo mode has every action {all}"),
+    )
+}
+
+/// A key held as photo mode ends stays out of play until it is let go, as
+/// after a screen: the attack held from photo mode does not attack. The
+/// movement keys, Crouch among them, go on moving. Pressed again, the attack
+/// attacks.
+fn held_after() -> Result<String, String> {
+    use crate::pad::{Taken, bit, gate_keys, open_keys};
+    let (attack, moving) = (
+        bit(Action::Attack),
+        bit(Action::Forward) | bit(Action::Crouch),
+    );
+    let mut kept = 0;
+    let frames = [
+        (Taken::Photo, attack | moving, attack),
+        (Taken::Play, attack | moving, 0),
+        (Taken::Play, moving, 0),
+        (Taken::Play, attack | moving, attack),
+    ]
+    .map(|(taken, held, down)| {
+        gate_keys(open_keys(taken, KeyMap::defaults()), &mut kept, held, down)
+    });
+    let wanted = [
+        (attack | moving, attack),
+        (moving, 0),
+        (moving, 0),
+        (attack | moving, attack),
+    ];
+    check(
+        frames == wanted,
+        format!("held and pressed {frames:?}, wanted {wanted:?}"),
+    )
+}
+
 /// Photo mode holds the cursor while it is on. Left in a conversation, it
 /// lets the cursor go, so the player can pick a reply. Left in play, it
 /// leaves the cursor to play, which holds it.
@@ -555,5 +606,7 @@ pub fn probes() -> Checks {
         ("photo mode coop", coop()),
         ("photo mode quick break", quick_break()),
         ("photo mode cursor", cursor()),
+        ("photo mode key in a conversation", talk_keys()),
+        ("photo mode keys held after", held_after()),
     ]
 }

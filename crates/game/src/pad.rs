@@ -1018,14 +1018,21 @@ const SCREEN_KEYS: [Action; 4] = [
 
 /// What a conversation with no screen over it leaves to the keys, beside
 /// the screens' actions: answering a guest's join request, a break and a
-/// ready check, and following the next party member while watching.
-const TALK_KEYS: [Action; 5] = [
+/// ready check, following the next party member while watching, and photo
+/// mode.
+const TALK_KEYS: [Action; 6] = [
     Action::AcceptCall,
     Action::EndCall,
     Action::Break,
     Action::Ready,
     Action::Follow,
+    Action::PhotoMode,
 ];
+
+/// What a conversation with no screen over it leaves to a pad, beside
+/// `SCREEN_ACTIONS`: photo mode, which has no button unless the player binds
+/// one.
+const TALK_PAD: [Action; 1] = [Action::PhotoMode];
 
 /// What has the keys this frame instead of play.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1035,6 +1042,10 @@ pub(crate) enum Taken {
     Talk,
     /// A screen or a movie.
     Screens,
+    /// Photo mode (`photo_mode`), in play or in a conversation. It has
+    /// every action, as play does, and play gets none of them
+    /// (`photo_mode::take_keys`).
+    Photo,
 }
 
 impl Taken {
@@ -1047,6 +1058,26 @@ impl Taken {
             Taken::Play
         }
     }
+
+    /// What has the keys with photo mode on (`photo`) or off. Photo mode
+    /// is never on under a screen or a movie.
+    pub(crate) fn with_photo(self, photo: bool) -> Taken {
+        match self {
+            Taken::Play | Taken::Talk if photo => Taken::Photo,
+            taken => taken,
+        }
+    }
+
+    /// Whether a pad's chord of `action` comes through while this has the
+    /// pad. In play and in photo mode every chord does. A screen or a movie
+    /// keeps `SCREEN_ACTIONS`, and a conversation keeps `TALK_PAD` too.
+    pub(crate) fn keeps_pad(self, action: Action) -> bool {
+        match self {
+            Taken::Play | Taken::Photo => true,
+            Taken::Screens => SCREEN_ACTIONS.contains(&action),
+            Taken::Talk => SCREEN_ACTIONS.contains(&action) || TALK_PAD.contains(&action),
+        }
+    }
 }
 
 /// The bits of `actions` in `Actions`.
@@ -1057,8 +1088,10 @@ fn bits<'a>(actions: impl IntoIterator<Item = &'a Action>) -> u64 {
 }
 
 /// The actions the keys keep while `taken` has them, or `None` in play,
-/// where every action counts. A screen or a movie keeps `SCREEN_ACTIONS`
-/// and `SCREEN_KEYS`. A conversation keeps `TALK_KEYS` too, except one
+/// where every action counts. Photo mode keeps every action, but as
+/// something other than play, so what is still held as it ends stays out of
+/// play until it is let go (`gate_keys`). A screen or a movie keeps
+/// `SCREEN_ACTIONS` and `SCREEN_KEYS`. A conversation keeps `TALK_KEYS` too, except one
 /// bound to a key the conversation reads itself (`dialogue_view::reads`:
 /// a reply's number, or a key that moves through the replies or the
 /// lines). The conversation's use of that key wins.
@@ -1070,6 +1103,7 @@ pub(crate) fn open_keys(taken: Taken, keys: &KeyMap) -> Option<u64> {
     });
     match taken {
         Taken::Play => None,
+        Taken::Photo => Some(u64::MAX),
         Taken::Screens => Some(screens),
         Taken::Talk => Some(screens | bits(talk)),
     }
@@ -1224,7 +1258,9 @@ impl Pressed {
 
 /// Reads this frame's `Actions` (after bevy's input, before play). The
 /// screens have the pad while one of `Busy` is up (a screen, a
-/// conversation, a movie).
+/// conversation, a movie). Photo mode has the whole pad, the sticks too, in
+/// a conversation as well. As it ends, what is still held reads as up until
+/// it is let go, as when a screen closes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sample(
     desk: Desk,
@@ -1235,9 +1271,10 @@ pub(crate) fn sample(
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
     (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed, mut wheeled): Kept,
-    (picking, wheel): (
+    (picking, wheel, photo): (
         Option<Res<crate::pick_view::Picking>>,
         Option<Res<crate::wheel_view::Wheel>>,
+        Option<Res<crate::photo_mode::PhotoMode>>,
     ),
     scripted: Option<Res<ScriptedPad>>,
     mut kept_keys: Local<u64>,
@@ -1254,15 +1291,15 @@ pub(crate) fn sample(
     let key_map = key_map.as_deref().unwrap_or(KeyMap::defaults());
     let pad_map = pad_map.as_deref().unwrap_or(PadMap::defaults());
     let feel = feel.as_deref().copied().unwrap_or_else(PadFeel::default);
-    let taken = Taken::of(taken);
-    let menus = taken != Taken::Play;
+    let taken = Taken::of(taken).with_photo(photo.is_some_and(|photo| photo.is_on()));
+    let menus = !matches!(taken, Taken::Play | Taken::Photo);
     // The wheel's state is the frame before's: `wheel_view::steer` runs
     // after this.
     let wheeling = !menus && wheel.is_some_and(|wheel| wheel.open);
     // Let go by the screens: what is still held reads as up until released.
     // The bumpers too, because RB opens the power wheel and LB blocks, and
     // the screens use both to step through their tabs.
-    if *was_busy && !menus {
+    if *was_busy && taken == Taken::Play {
         for (_, mut pad, _) in &mut gamepads {
             let held: Vec<GamepadButton> = pad.digital().get_pressed().copied().collect();
             for button in held {
@@ -1270,7 +1307,7 @@ pub(crate) fn sample(
             }
         }
     }
-    *was_busy = menus;
+    *was_busy = taken != Taken::Play;
 
     let mut next = Actions {
         device: actions.device,
@@ -1364,7 +1401,7 @@ pub(crate) fn sample(
                 && on == Some(Layer::Lb)
                 && !pad_map.on_lb(chord.button);
             let live = on == Some(chord.layer) || under_block || choosing == Some(*action);
-            if menus && !SCREEN_ACTIONS.contains(action) || !live {
+            if !taken.keeps_pad(*action) || !live {
                 continue;
             }
             if *stepping && steps(chord.button) {
