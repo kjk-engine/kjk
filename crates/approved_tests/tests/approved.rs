@@ -4492,7 +4492,7 @@ fn duel_rules() {
 /// sim alone (proposed 2026-11-26, awaiting approval).
 #[test]
 fn force_leap() {
-    probed("force leap", &sim::trace::force_leap_probes::probes(), 7);
+    probed("force leap", &sim::trace::force_leap_probes::probes(), 10);
 }
 /// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
 /// power's cost by alignment and the room's Force rating, Force point

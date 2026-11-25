@@ -1632,11 +1632,11 @@ impl Move<'_, '_> {
                 state.pace = duel::Pace::Own;
             }
         }
-        // An ordinary swing opens the window for a Force leap; a special
-        // attack closes it.
+        // An ordinary swing opens the window for a Force leap, the same swing
+        // repeated while [Attack] is held too; a special attack closes it.
         if next.special() || next.kata() {
             arms.fighter.leap_armed_until = 0;
-        } else if (next.start() || next.attack()) && next != current {
+        } else if next.start() || next.attack() {
             arms.fighter.leap_armed_until = self.time_ms + specials::LEAP_WINDOW_MS;
         }
         let saber = &mut arms.fighter.saber;
@@ -1737,7 +1737,7 @@ impl Move<'_, '_> {
     /// Starts a Force leap if one may start now: the player's own body,
     /// with Force Jump and a lit lightsaber, pressing [Jump] afresh within
     /// `specials::LEAP_WINDOW_MS` of starting an ordinary swing
-    /// (`Fighter::leap_armed_until`), on its feet on the ground, and an
+    /// (`Fighter::leap_armed_until`) or while that swing still plays, on its feet on the ground, and an
     /// enemy in front (`leap_target`). The swing gives way to the leap.
     fn start_leap(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
@@ -1762,10 +1762,13 @@ impl Move<'_, '_> {
             && !current.kata()
             && !is_special_move(self.ps.legs.anim)
             && !is_special_move(self.ps.torso.anim);
+        // Within the window, or while the ordinary swing still plays.
+        let swinging = current.start() || current.attack() || current.transition();
+        let armed = fighter.leap_armed_until > now || swinging;
         if !(arms.keyed
             && arms.player
             && fresh
-            && fighter.leap_armed_until > now
+            && armed
             && lightsaber
             && rank > 0
             && free

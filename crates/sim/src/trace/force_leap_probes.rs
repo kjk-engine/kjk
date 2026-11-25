@@ -135,6 +135,12 @@ pub fn probes() -> Checks {
         ("the leap goes for an enemy a little aside", in_the_arc()),
         ("no leap at an enemy well aside", out_of_the_arc()),
         ("the player leaps again after the first leap", leaps_again()),
+        ("the player leaps among several enemies", among_several()),
+        ("the player leaps out of a melee", out_of_a_melee()),
+        (
+            "the player leaps out of a melee with [Attack] held",
+            out_of_a_held_melee(),
+        ),
         ("no leap without Force Jump", no_feat()),
         ("no leap without a swing", no_swing()),
         ("no leap at a near enemy", too_near()),
@@ -168,5 +174,93 @@ fn leaps_again() -> Result<String, String> {
     check(
         starts >= 2,
         format!("enemy {away} units off twice: {starts} leaps started"),
+    )
+}
+/// Three enemies: one straight ahead far off, one nearer a little aside in
+/// the way, one well to the side. The leap goes for one of them.
+fn among_several() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap among several\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {far} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         put c2 {} {} {STANDING_Z} 180\n\
+         tick 1 b0=attack\ntick 5\ntick 1 u0=127\ntick 220\n",
+        LANE + 200.0,
+        LANE - 200.0,
+        READY - 1,
+        far * 0.6,
+        LANE + 20.0,
+        far * 0.5,
+        LANE - 300.0,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leapt = ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .find_map(|fighter| fighter.leap);
+    check(
+        leapt.is_some(),
+        format!(
+            "three enemies, the nearest {} units off: leap {leapt:?}",
+            far * 0.5
+        ),
+    )
+}
+/// An enemy in melee range, fighting the player and meeting its swing, and
+/// another farther off a little aside: the swing and the press leap at the
+/// one farther off.
+fn out_of_a_melee() -> Result<String, String> {
+    melee("tick 120\ntick 1 b0=attack\ntick 5\ntick 1 u0=127\ntick 220\n")
+}
+/// `out_of_a_melee`, [Attack] held all along, so the same swing repeats.
+fn out_of_a_held_melee() -> Result<String, String> {
+    melee("tick 120 b0=attack\ntick 1 u0=127 b0=attack\ntick 220\n")
+}
+fn melee(keys: &str) -> Result<String, String> {
+    let far = far();
+    let (sin, cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC * 0.6);
+    let text = format!(
+        "scenario force leap out of a melee\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=4000\n\
+         creature medium x=60 y={LANE} yaw=180 defence=3 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c1 {} {} {STANDING_Z} 180\n{keys}",
+        LANE + 300.0,
+        READY - 1,
+        far * cos,
+        LANE + far * sin,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leapt = ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .find_map(|fighter| fighter.leap);
+    let moves: Vec<String> = ticks
+        .iter()
+        .rev()
+        .skip(220)
+        .take(125)
+        .step_by(8)
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .map(|fighter| {
+            format!(
+                "{} armed {}",
+                fighter.saber.current_move.name(),
+                fighter.leap_armed_until
+            )
+        })
+        .collect();
+    check(
+        leapt.is_some(),
+        format!(
+            "an enemy in melee, another {far} units off: leap {leapt:?}; before the press {moves:?}"
+        ),
     )
 }

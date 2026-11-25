@@ -204,7 +204,7 @@ second bar.
 title = "Force Leap"
 summary = """
 Start an ordinary swing with a lightsaber, then press [Jump] within
-{saber_moves.specials.leap_window_ms:s}. The character needs Force Jump. If an
+{saber_moves.specials.leap_window_ms:s}, or while the swing still plays. The character needs Force Jump. If an
 enemy stands in front of the character, more than
 {saber_moves.specials.leap_least:m} away and within the leap's range, with
 nothing in the way, the character leaps across the distance and strikes once.
