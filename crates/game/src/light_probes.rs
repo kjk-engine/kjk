@@ -38,6 +38,15 @@
 //! `KJK_PROBES=only` shows each probed model in its probe light alone, with
 //! no lamps and no texture. `KJK_ROOM_SHADOW=up` puts the room's light back
 //! straight above every model.
+//!
+//! `KJK_MODEL_LIGHT` shows one part of each probed model's light alone,
+//! with no texture, while every room surface shows its whole light with no
+//! texture (`term_mode`). The parts are those of the baked trial:
+//! `probes` (the probes' light, `above` and `sides` of it), `lamps` (the
+//! game's own lamps), `fitted` (the fitted lights), `glow` (the model's own
+//! glow) and `floor` (the least probe light, `PROBE_FLOOR` in the shader).
+//! `whole` shows the whole light, and `mask` every probed model in magenta,
+//! so that a script can find a model's pixels in a picture.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -146,6 +155,48 @@ pub fn mode() -> Mode {
         Ok("only") => Mode::Only,
         _ => Mode::On,
     })
+}
+
+/// What `KJK_MODEL_LIGHT` asks for: every surface shows one part of its
+/// light alone, with no texture, as `probe_list.mode` (`TERM_*` in
+/// `odyssey.wgsl`). A room's surface shows its whole light, so a model's
+/// part can be measured against the floor beside it. The parts are those of
+/// the baked trial (`KJK_FITTED_LIGHTS=baked`). Unset, the game is drawn as
+/// normal.
+pub(crate) fn term_mode() -> u32 {
+    static TERM: OnceLock<u32> = OnceLock::new();
+    *TERM.get_or_init(|| match std::env::var("KJK_MODEL_LIGHT").as_deref() {
+        Ok("whole") => 2,
+        Ok("probes") => 3,
+        Ok("above") => 4,
+        Ok("sides") => 5,
+        Ok("lamps") => 6,
+        Ok("fitted") => 7,
+        Ok("glow") => 8,
+        Ok("floor") => 9,
+        Ok("mask") => 10,
+        _ => 0,
+    })
+}
+
+/// Whether, under the baked trial, a model that the bake lights takes none
+/// of the game's own lamps (`KJK_MODEL_LAMPS=off`). Such a model is one the
+/// probes light, a character among them, or a placeable's mesh with baked
+/// light of its own (`placeable_light`). By default it takes the lamps that
+/// light from a direction, at half.
+///
+/// Those lamps count twice under the bake. Each room's lamp that is not
+/// ambient only is also a fitted light, a hidden lamp at the same place and
+/// with the same radius (`fitted_lights::fill`), and so it is in the bake's
+/// light already. In unk_m44ac, 411dxn, danm13 and 203tel that is every
+/// such lamp of a room but the sky's two far-reaching ones, which stand for
+/// the sun the bake has of its own (22 November 2026). The bake holds a
+/// hidden lamp at a tenth or so of the lamp's colour, after its room's
+/// level, while the game adds the lamp at half. A trial's switch, to compare
+/// pictures.
+pub fn lamps_off() -> bool {
+    static OFF: OnceLock<bool> = OnceLock::new();
+    *OFF.get_or_init(|| std::env::var("KJK_MODEL_LAMPS").is_ok_and(|value| value == "off"))
 }
 
 /// How much of each lamp's share is taken out of the probe light, from 0
@@ -277,6 +328,39 @@ pub struct Probe {
     pub at: Vec3,
     pub light: [Vec3; 6],
     pub lit: bool,
+    /// The share of the sun that reaches it, under the live sun
+    /// (`ProbeSun`). 0 for a probe the game makes.
+    pub sun: f32,
+}
+
+/// A probe the bake wrote (`probes.txt` in a bake's set): its room's name in
+/// lower case, its place (game space) and the light on its six sides in the
+/// order of `AXES`, at the level the bake's lightmaps store.
+pub struct BakedProbe {
+    pub room: String,
+    pub at: Vec3,
+    pub light: [Vec3; 6],
+    /// The share of the sun that reaches it, under the live sun
+    /// (`ProbeSun`). 0 otherwise.
+    pub sun: f32,
+}
+
+/// The live sun of the baked trial (`KJK_PROBE_SUN=on` with
+/// `KJK_BAKED_PROBES=on`), from `probes-sun.txt` in a bake's set. The bake's
+/// probes then hold their linear light without the sun's direct light and
+/// before the bake's curve. The shader adds the sun's colour times how
+/// squarely a surface faces the sun times the probes' share of it, and puts
+/// the sum through the bake's curve (`eased_level` in
+/// `crates/launcher/src/detail_bake/gpu.rs`). Without the sun on a model's
+/// sides, Yoda in danm13 was 0.42 of his floor against 0.70 today.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProbeSun {
+    /// The way toward the sun (Bevy's space, as the shader's normals).
+    pub way: Vec3,
+    /// The sun's linear colour.
+    pub colour: Vec3,
+    /// The curve: its gamma, its knee and the most it lets over the knee.
+    pub curve: Vec3,
 }
 
 /// One room's probes, and a grid of them across the floor to find the
@@ -309,10 +393,13 @@ impl RoomProbes {
     /// read): the probes with light within `BLEND_REACH` across and
     /// `BLEND_STOREY` up or down, each weighed by how near it is. `None`
     /// when no such probe is near.
-    pub fn blend(&self, at: Vec3) -> Option<[Vec3; 6]> {
+    /// The second part is the blend of the probes' shares of the sun
+    /// (`ProbeSun`).
+    pub fn blend(&self, at: Vec3) -> Option<([Vec3; 6], f32)> {
         let (x, y) = grid_key(at);
         let span = (BLEND_REACH / SPACING).ceil() as i32;
         let mut sum = [Vec3::ZERO; 6];
+        let mut sun = 0.0;
         let mut weight = 0.0;
         for dx in -span..=span {
             for dy in -span..=span {
@@ -332,11 +419,12 @@ impl RoomProbes {
                     for (sum, light) in sum.iter_mut().zip(probe.light) {
                         *sum += light * w;
                     }
+                    sun += probe.sun * w;
                     weight += w;
                 }
             }
         }
-        (weight > 0.0).then(|| sum.map(|light| light / weight))
+        (weight > 0.0).then(|| (sum.map(|light| light / weight), sun / weight))
     }
 }
 
@@ -363,6 +451,12 @@ pub struct AreaProbes {
     /// other opaque ones, which are drawn at full light.
     pub lightmapped: usize,
     pub unlit: usize,
+    /// The baked light of each placeable that the bake lit, by its model's
+    /// number in the scene (`placeable_light`). Empty but under the baked
+    /// trial with a bake that holds it.
+    pub placeables: BTreeMap<usize, std::sync::Arc<crate::placeable_light::BakedPlaceable>>,
+    /// The live sun, when the bake's probes hold their light without it.
+    pub sun: Option<ProbeSun>,
 }
 
 impl AreaProbes {
@@ -379,7 +473,7 @@ impl AreaProbes {
         rooms: &[RoomView],
         room: Option<usize>,
         at: Vec3,
-    ) -> Result<[Vec3; 6], Fallback> {
+    ) -> Result<([Vec3; 6], f32), Fallback> {
         if self.is_empty() {
             return Err(Fallback::NoProbes);
         }
@@ -575,6 +669,18 @@ impl<'s> Level<'s> {
             .map(|hit| (hit.surface as usize, hit.t))
     }
 
+    /// As `first_hit`, with the point's weights for the surface's second and
+    /// third corners. `kjk detail-bake` reads the surface's lightmap there.
+    pub fn first_hit_at(
+        &self,
+        from: Vec3,
+        direction: Vec3,
+        reach: f32,
+    ) -> Option<(usize, f32, f32, f32)> {
+        self.cast(from, direction, reach)
+            .map(|hit| (hit.surface as usize, hit.t, hit.u, hit.v))
+    }
+
     /// The nearest surface the ray from `from` along `direction` (a unit
     /// vector) meets within `reach`. It walks the grid cell by cell along
     /// the ray and stops once a hit lies inside the cell it has reached.
@@ -734,6 +840,7 @@ fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
         at,
         light,
         lit: found.iter().any(|found| *found),
+        sun: 0.0,
     }
 }
 
@@ -861,6 +968,7 @@ pub fn bake(
     models: &[Placed],
     rooms: &[RoomView],
     textures: &BTreeMap<String, TextureIr>,
+    baked: Option<Vec<BakedProbe>>,
 ) -> AreaProbes {
     let started = Instant::now();
     let mut maps: Vec<Pixels> = Vec::new();
@@ -928,7 +1036,28 @@ pub fn bake(
     }
     let lightmapped = surfaces.iter().filter(|s| s.lightmap.is_some()).count();
     let unlit = surfaces.len() - lightmapped;
-    let rooms = if lightmapped == 0 {
+    let rooms = if let Some(baked) = baked {
+        // The bake's probes hold the light arriving at them from its lamps,
+        // its sun and its sky, the light on each side as a surface facing
+        // that way takes it. The lightmaps hold what leaves the walls, so a
+        // model in the open missed the sun on its sides: the Rakatan chair
+        // of unk_m44ac was 0.50 of its floor under the bake and 0.69 today.
+        let mut probes: Vec<Vec<Probe>> = vec![Vec::new(); rooms.len()];
+        for probe in baked {
+            if let Some(room) = rooms
+                .iter()
+                .position(|room| room.name.eq_ignore_ascii_case(&probe.room))
+            {
+                probes[room].push(Probe {
+                    at: probe.at,
+                    light: probe.light,
+                    lit: true,
+                    sun: probe.sun,
+                });
+            }
+        }
+        probes.into_iter().map(RoomProbes::new).collect()
+    } else if lightmapped == 0 {
         Vec::new()
     } else {
         let floors: Vec<&[[[f32; 3]; 3]]> = rooms.iter().map(|room| &room.floor[..]).collect();
@@ -939,6 +1068,8 @@ pub fn bake(
         bake_ms: started.elapsed().as_secs_f64() * 1000.0,
         lightmapped,
         unlit,
+        placeables: BTreeMap::new(),
+        sun: None,
     }
 }
 
@@ -1022,6 +1153,13 @@ pub struct GpuProbe {
 #[derive(Clone, Debug, PartialEq, ShaderType)]
 pub struct ProbeList {
     pub mode: u32,
+    /// 1 under `KJK_MODEL_LAMPS=off` (`lamps_off`).
+    pub lamps_off: u32,
+    /// The live sun (`ProbeSun`): its way with w 1 when there is one, its
+    /// linear colour, and the bake's curve.
+    pub sun_way: Vec4,
+    pub sun_colour: Vec4,
+    pub sun_curve: Vec4,
     pub entries: [GpuProbe; PROBE_SLOTS],
     pub room_lights: [Vec4; PROBE_SLOTS],
 }
@@ -1030,6 +1168,10 @@ impl Default for ProbeList {
     fn default() -> ProbeList {
         ProbeList {
             mode: 0,
+            lamps_off: 0,
+            sun_way: Vec4::ZERO,
+            sun_colour: Vec4::ZERO,
+            sun_curve: Vec4::ZERO,
             entries: [GpuProbe::default(); PROBE_SLOTS],
             room_lights: [Vec4::ZERO; PROBE_SLOTS],
         }
@@ -1045,6 +1187,9 @@ struct Entry {
     raw: [Vec3; 6],
     target: [Vec3; 6],
     now: [Vec3; 6],
+    /// The share of the live sun (`ProbeSun`), to settle on and shown.
+    sun_target: f32,
+    sun_now: f32,
     /// The source of the room's light its shadow takes (`room_light`): the
     /// one to settle on, and the one shown, which eases toward it.
     room_target: Vec4,
@@ -1245,14 +1390,26 @@ fn light_objects(
             let sample = origin + Vec3::Y * SAMPLE_HEIGHT;
             let room = culling.fight.room_of(&loaded.rooms, to_game(origin));
             match loaded.probes.light_at(&loaded.rooms, room, to_game(sample)) {
-                Ok(light) => {
+                Ok((light, sun)) => {
                     entry.raw = light;
-                    entry.target = without_lamps(
-                        light,
-                        &state.lamps,
-                        (origin, sample),
-                        model_placed.is_static,
-                    );
+                    entry.sun_target = sun;
+                    // Under the baked trial the lightmaps hold the fitted
+                    // lights, the sun and the sky, and none of the game's
+                    // lamps, so no lamp is taken out. The game's lamp with
+                    // a reach of 5000 metres in unk_m44ac emptied the light
+                    // from above of every model, so a model in the floor's
+                    // shade stayed bright. The owner said on 21 November
+                    // 2026: "plasteel cylinder in the shade is too bright".
+                    entry.target = if loaded.baked {
+                        light
+                    } else {
+                        without_lamps(
+                            light,
+                            &state.lamps,
+                            (origin, sample),
+                            model_placed.is_static,
+                        )
+                    };
                     entry.room_target = match room_shadow() {
                         RoomShadow::Probes => room_light(&entry.raw),
                         RoomShadow::LampsOut => room_light(&entry.target),
@@ -1260,6 +1417,7 @@ fn light_objects(
                     };
                     if !entry.valid {
                         entry.now = entry.target;
+                        entry.sun_now = entry.sun_target;
                         entry.room_now = entry.room_target;
                         entry.valid = true;
                         changed = true;
@@ -1280,9 +1438,18 @@ fn light_objects(
                 *entry = Entry::default();
                 continue;
             }
-            if !entry.valid || (entry.now == entry.target && entry.room_now == entry.room_target) {
+            if !entry.valid
+                || (entry.now == entry.target
+                    && entry.room_now == entry.room_target
+                    && entry.sun_now == entry.sun_target)
+            {
                 continue;
             }
+            entry.sun_now = if (entry.sun_now - entry.sun_target).abs() < 1e-3 {
+                entry.sun_target
+            } else {
+                entry.sun_now + (entry.sun_target - entry.sun_now) * ease
+            };
             for (now, target) in entry.now.iter_mut().zip(entry.target) {
                 *now = if now.distance(target) < 1e-3 {
                     target
@@ -1303,7 +1470,20 @@ fn light_objects(
     }
     if changed {
         let mut list = Box::new(ProbeList {
-            mode: u32::from(mode == Mode::Only),
+            mode: if mode == Mode::Only { 1 } else { term_mode() },
+            lamps_off: u32::from(lamps_off()),
+            sun_way: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.way.extend(1.0)),
+            sun_colour: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.colour.extend(0.0)),
+            sun_curve: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.curve.extend(0.0)),
             ..default()
         });
         for ((slot, room), entry) in list
@@ -1313,8 +1493,14 @@ fn light_objects(
             .zip(&state.entries)
         {
             if entry.valid {
+                // The first colour's w is 1 for a model with light, and the
+                // second's holds its share of the live sun.
                 slot.light = std::array::from_fn(|axis| {
-                    entry.now[axis].extend(if axis == 0 { 1.0 } else { 0.0 })
+                    entry.now[axis].extend(match axis {
+                        0 => 1.0,
+                        1 => entry.sun_now,
+                        _ => 0.0,
+                    })
                 });
                 if entry.room_now.w > 0.0 {
                     *room = entry

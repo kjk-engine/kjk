@@ -1,0 +1,10 @@
+# 1.0 of the lit level of each room of module 902mal, and at most none.
+902mala 0.6088
+902malc 0.4040
+902mald 0.2653
+902male 0.3018
+902malf 0.3141
+902malg 0.4092
+902malh 0.3251
+902mali 0.2647
+902malj 0.2426

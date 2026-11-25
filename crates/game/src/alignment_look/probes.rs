@@ -172,7 +172,7 @@ fn placed() -> Result<String, String> {
                 None,
                 None,
             ),
-            None,
+            (None, None),
             dark,
             ([0.0; 3], 0.0),
             &mut models,

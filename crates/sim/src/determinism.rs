@@ -282,6 +282,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         kind,
         tag: tag.to_string(),
         cased_tag: String::new(),
+        placed_tag: String::new(),
         template: String::new(),
         position: at,
         yaw: TURN_DEGREES,

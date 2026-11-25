@@ -1,0 +1,8 @@
+# 1.0 of the lit level of each room.
+204tela 0.9040
+204telb 0.8566
+204telc 0.7347
+204teld 0.7626
+204tele 0.7599
+204telf 0.8564
+204telo 0.5517

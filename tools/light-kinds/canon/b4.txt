@@ -1,0 +1,4 @@
+ebo_m12aa 0.4 --no-even --least 0.15 --most 1.0
+stunt_07 0.4 --no-even --least 0.15 --most 1.0
+sta_m45ab 0.7 --no-even --least 0.3 --most 2.0
+tat_m17ac 0.75 --no-even --most 2.0

@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+853nih01 0.0543
+853nih02 0.3854
+853nih03 0.2352
+853nih04 0.0646
+853nih05 0.1856

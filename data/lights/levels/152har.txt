@@ -1,0 +1,22 @@
+# The live look's mean stored level in each room of the Harbinger (KJK_FITTED_LIGHTS=on), measured by kjk detail-bake --gpu on 18 November 2026.
+152har16 0.4743
+152har17 0.2544
+152har18 0.3755
+152har19 0.4052
+152har20 0.3959
+152har21 0.3823
+152har22 0.3601
+152har23 0.2244
+152har24 0.2317
+152har25 0.2318
+152har26 0.3610
+152har27 0.3858
+152har28 0.3444
+152har29 0.2885
+152har30 0.3788
+152har31 0.3485
+152har32 0.2705
+152har33 0.4613
+152har34 0.4602
+152har36 0.2024
+152har38 0.4560

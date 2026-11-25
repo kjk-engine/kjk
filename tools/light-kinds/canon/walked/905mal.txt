@@ -1,0 +1,9 @@
+# 1.0 of the lit level of each room.
+905malb 0.5622
+905malc 0.6029
+905mald 0.4925
+905male 0.5894
+905malf 0.6555
+905malg 0.5738
+905malh 0.4382
+905mali 0.5445

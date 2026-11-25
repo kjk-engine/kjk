@@ -44,7 +44,7 @@ const ENVMAP: u32 = 4u;
 const VERTEX_ALPHA: u32 = 64u;
 const OPAQUE_TEXTURE: u32 = 256u;
 // As `odyssey.wgsl` has them (`material::PUNCH_THROUGH_CUT`).
-const PUNCH_THROUGH: u32 = 65536u;
+const PUNCH_THROUGH: u32 = 2097152u;
 const PUNCH_THROUGH_CUT: f32 = 0.35;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: OdysseyParams;

@@ -103,6 +103,9 @@ The sim and the game see the packs only; the readers in `fmt_odyssey`,
   import/<game>/<fingerprint>/<product>/<xx>/<key>   packs, by install
   cache/<kind>/<xx>/<key>                             other derived products
   cache/fingerprint/<game>.tsv                        the installs' fingerprints
+  lighting-check-v1/<xx>/<key>                        `kjk lighting check`'s answers
+  lighting/<k1|tsl>/<area>/                           the installed lighting download
+  lighting/<k1|tsl>/manifest.txt                      its manifest
 ```
 
 Every worktree, the main checkout and later the shipped game use the same
@@ -115,6 +118,9 @@ and `gc` also removes, whatever their age, the kinds a newer format
 supersedes: `<name>-vN` beside a higher `<name>-vM`, and a plain `<name>`
 (made before kinds named their format) beside any. Only versions lower than
 the highest there go, so an older build's gc never drops a newer one's.
+`gc` never removes anything under `lighting/`, which holds what the player
+installed (`kjk lighting install`, `crates/game/src/lighting_bakes.rs`), not
+what kjk made.
 
 Run folders (`kjk-artifacts/runs/`: recordings, videos, facts) stay per
 worktree, since they are a task's evidence; there is no `kjk runs prune`

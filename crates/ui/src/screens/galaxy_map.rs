@@ -1,7 +1,9 @@
 //! The galaxy map (`galaxymap`), which a script shows (`ShowGalaxyMap`) on
 //! the planet the party is at: the planets the scripts made available on
 //! their buttons (`planetary.2da`'s `guitag`), those not selectable greyed,
-//! the rest hidden, over the galaxy (`galaxy.mdl`). A planet pressed is
+//! the rest hidden, over the galaxy (`galaxy.mdl`). Each button shows its
+//! row's `icon` in place of the layout's picture, as KOTOR 2 does, so a
+//! mod's planet looks as the mod's table says. A planet pressed is
 //! chosen; the chosen one's name, description and turning model show, and
 //! it is lit. Accept travels there (`GameAction::Travel`) when it is
 //! selectable; Back closes the map. Every player sees the map; only the
@@ -36,6 +38,16 @@ const ACCEPT: &str = "BTN_ACCEPT";
 const BACK: &str = "BTN_BACK";
 /// The layout's planet buttons start so (`LBL_Planet_Taris`, `LBL_Live01`).
 const PLANETS: [&str; 2] = ["LBL_Planet_", "LBL_Live"];
+
+/// The control is a planet's button: a tag `planetary.2da` names, or one
+/// of the layout's own planet tags.
+fn is_planet(galaxy: &GalaxyView, tag: &str) -> bool {
+    PLANETS.iter().any(|prefix| tag.starts_with(prefix))
+        || galaxy
+            .buttons
+            .iter()
+            .any(|button| button.eq_ignore_ascii_case(tag))
+}
 
 fn planet<'v>(galaxy: &'v GalaxyView, tag: &str) -> Option<&'v PlanetView> {
     galaxy
@@ -102,16 +114,15 @@ impl Screen for GalaxyMap {
             },
             ACCEPT if !galaxy.host => hidden(),
             ACCEPT if !self.travels(galaxy) => disabled(),
-            tag if PLANETS.iter().any(|prefix| tag.starts_with(prefix)) => {
-                match planet(galaxy, tag) {
-                    Some(planet) => ControlState {
-                        selected: Some(planet.row) == self.chosen,
-                        disabled: !planet.selectable,
-                        ..ControlState::default()
-                    },
-                    None => hidden(),
-                }
-            }
+            tag if is_planet(galaxy, tag) => match planet(galaxy, tag) {
+                Some(planet) => ControlState {
+                    selected: Some(planet.row) == self.chosen,
+                    disabled: !planet.selectable,
+                    fill: planet.icon.clone(),
+                    ..ControlState::default()
+                },
+                None => hidden(),
+            },
             DISPLAY => ControlState {
                 scene: Some(SceneView::Model(GALAXY.into())),
                 text: Some(Vec::new()),

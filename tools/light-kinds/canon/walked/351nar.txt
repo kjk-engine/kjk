@@ -1,0 +1,20 @@
+# 1.0 of the lit level of each room.
+351nara 0.6446
+351narb 0.7401
+351narc 0.8277
+351nard 0.7975
+351nare 0.6477
+351narf 0.7619
+351narg 0.6660
+351narh 0.7723
+351nari 0.8343
+351narj 0.7215
+351nark 0.7863
+351narl 0.7561
+351narm 0.7759
+351narn 0.7625
+351naro 0.7483
+351narp 0.5446
+351narq 0.5540
+351narr 0.5392
+351narsb 0.1468

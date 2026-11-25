@@ -1,0 +1,13 @@
+# 1.0 of the lit level of each room.
+m02ac_02a 0.3429
+m02ac_02b 0.5648
+m02ac_02c 0.6205
+m02ac_02d 0.4370
+m02ac_02e 0.5073
+m02ac_02g 0.3251
+m02ac_02h 0.2771
+m02ac_02i 0.4638
+m02ac_02j 0.4316
+m02ac_02k 0.3869
+m02ac_02o 0.3558
+m02ac_02p 0.3422
