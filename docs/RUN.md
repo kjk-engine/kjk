@@ -11,7 +11,7 @@ kjk --reset-display                   # opens in a window: the settings' screen 
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
 KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
-KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
+KJK_SHARPEN=0.5 kjk …                 # the sharpening after TAA, the upscaler and DLSS for the run, from 0 (off) to 1, over the Sharpening option, for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_DEPTH_PREPASS=none kjk …          # sets the depth prepass's coverage for the run (none or full) in place of the GPU load check. The old value rooms now gives full. TAA, the upscalers and ambient occlusion still get the full one (`game::prepasses`, docs/PREPASSES.md)
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
@@ -315,9 +315,10 @@ window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
 `taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
 and a third of the window's side. `dlss-performance` sets DLSS at a half
 of the side, and falls back to `taa-performance` on a card or a build
-without DLSS. Under the upscaler, a line under each scene gives the GPU
-time of its resolve (`taa_upscale`) and of its sharpening
-(`taa_upscale_sharpen`).
+without DLSS. Under a temporal choice, a line under each scene gives the
+GPU time of the upscaler's resolve (`taa_upscale`) and of the sharpening
+(`sharpen`). `taa-sharpen-off` is `taa` with the options' Sharpening off,
+to compare with `taa`, where it is at Medium.
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps

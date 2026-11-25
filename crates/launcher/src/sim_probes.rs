@@ -31,6 +31,7 @@ const GROUPS: &[Group] = &[
     ("sound groups", asset_odyssey::sound::group_probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
+    ("sharpening", kjk_game::sharpen::probes),
     ("gpu load check", kjk_game::load_check_probes),
     ("ui material", kjk_game::ui_material::probes),
     ("cut-out surfaces", kjk_game::material::cutout_probes),
