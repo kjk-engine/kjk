@@ -1464,8 +1464,8 @@ pub struct ViewModel {
     /// In play, what a save made now would be (its name the area's, no id
     /// or time yet); none where this player cannot save (a guest).
     pub here: Option<SaveView>,
-    /// A save may be loaded during play (alone: a host loads from the
-    /// main menu).
+    /// A save may be loaded during play: alone, or as the host, for
+    /// everyone (a guest cannot).
     pub load_in_play: bool,
     pub chargen: Option<ChargenView>,
     /// The journal's quests, the latest updated first.

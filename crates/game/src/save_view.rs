@@ -273,7 +273,7 @@ fn here(
         }
     }
     let vm = &mut ui.vm;
-    vm.load_in_play = world.as_ref().is_some_and(|world| world.alone);
+    vm.load_in_play = world.is_some();
     let module = swap.filter(|_| world.is_some());
     let module = module.as_ref().and_then(|swap| swap.level.module());
     if vm.here.as_ref().map(|here| &here.module) == module.map(|module| &module.name) {
