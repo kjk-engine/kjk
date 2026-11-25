@@ -44,12 +44,16 @@
 //! rest of the victim's clip (its stand-up) never plays. The grabber stands
 //! when its own clip ends, or when the second finisher lets go.
 //!
-//! The grab breaks when the grabber dies or is knocked down before its clip
-//! ends. It also breaks when someone else knocks the victim down, when a
-//! script's death kills the victim, and when something pushes the two apart
-//! by more than JA's break distance for their gap (`grab::BREAK_DIST`). Both
-//! are then let go, and the victim falls. A victim a blow marked to die dies
-//! then too. Any other blow that would kill a held victim, a third
+//! A finisher holds its pair until it lets them go. No one else knocks
+//! either of them down meanwhile (`Fighter::knock_down`), and no kick, Force
+//! push or script's push moves them. A script's queued actions for either of
+//! them, an animation or a conversation, wait until the finisher lets go
+//! (the script queue's `advance`), and the view draws no other animation over the
+//! finisher's clips. The grab still breaks when the grabber dies before its
+//! clip ends, when a script's death kills the victim, and when something
+//! else moves the two apart by more than JA's break distance for their gap
+//! (`grab::BREAK_DIST`). Both are then let go, and the victim falls. A
+//! victim a blow marked to die dies then too. Any other blow that would kill a held victim, a third
 //! character's too, only marks it (`damage::apply`), and the death is
 //! credited to the grabber's finisher when it lets the victim go.
 

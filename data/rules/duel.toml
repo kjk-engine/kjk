@@ -1288,7 +1288,7 @@ see = "sim::world::sabers"
 
 [grab]
 title = "Grabs"
-summary = "Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground."
+summary = "Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground. While a finisher plays, no other attack, Force power or script knocks either character down, pushes them or plays another animation on them. Other attacks still deal their damage."
 
 [grab.hurt_below_pct]
 name = "Hurt Enough to Grab"

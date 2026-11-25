@@ -317,6 +317,10 @@ tests beside the code);
 approval (issue 705: items added to a stack with room for only some of
 them fill it, and the rest are a stack of their own, as both games'
 executables merge an item);
+`kicked_victim_stays_held` (group "grapples") proposed 2026-11-24,
+awaiting approval (a third fighter kicks a victim held in a grapple
+finisher eight times; the kicks hurt it, it never lies down while held,
+and it is held exactly as long as without the kicks);
 `carried_camera_clip_holds` changed 2026-11-25, awaiting approval (a
 line that starts the camera clip still playing carries it on, as TSL's
 executable goes on with a clip its camera model already plays);

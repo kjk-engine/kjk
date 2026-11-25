@@ -446,7 +446,7 @@ pub(super) fn hurt(
                         if fighter.alive() && !immune && !fighter.saber.floored() {
                             let held = until.map_or(0, |until| until.saturating_sub(now));
                             let ms = held.saturating_add(rules::force_effects::knockdown::EXTRA_MS);
-                            fighter.saber.knock_down(now, ms);
+                            fighter.knock_down(now, ms);
                         }
                     }
                 }

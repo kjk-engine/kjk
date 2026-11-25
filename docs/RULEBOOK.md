@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c8329ea440b58df0`.
+Edition `386315d9c09d779f`.
 
 ## Contents
 
@@ -12737,7 +12737,7 @@ A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC
 
 ### <a id="duel-grab"></a>Grabs
 
-Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground.
+Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground. While a finisher plays, no other attack, Force power or script knocks either character down, pushes them or plays another animation on them. Other attacks still deal their damage.
 
 <a id="duel-grab-hurt-below-pct"></a>**Hurt Enough to Grab** = **40%** · `duel.grab.hurt_below_pct`
 

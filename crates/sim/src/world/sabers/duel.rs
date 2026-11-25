@@ -733,7 +733,7 @@ impl Step<'_> {
         }
         if took == Took::KnockedDown {
             let now = self.now;
-            self.men[at].f.saber.knock_down(now, kick::DOWN_MS);
+            self.men[at].f.knock_down(now, kick::DOWN_MS);
             return;
         }
         let man = &self.men[at];
@@ -889,7 +889,7 @@ impl Step<'_> {
         } else {
             let man = &mut self.men[d];
             let longer = kicks::DOWN_MS[usize::from(npc)];
-            man.f.saber.knock_down(now, kick::DOWN_MS + longer);
+            man.f.knock_down(now, kick::DOWN_MS + longer);
             man.f.saber.on = false;
             man.ps.velocity = math::scale(kick.direction, kick.push.0);
             man.ps.velocity[2] = kick::LIFT;

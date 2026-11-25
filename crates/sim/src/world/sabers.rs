@@ -1504,7 +1504,7 @@ impl Step<'_> {
             if banked > 0 && !super_break && self.men[l].f.alive() {
                 let winner = self.men[w].id;
                 let loser = &mut self.men[l];
-                loser.f.saber.knock_down(now, lock::LOSS_DOWN_MS);
+                loser.f.knock_down(now, lock::LOSS_DOWN_MS);
                 loser.ps.velocity = lock::shove(from, to, true);
                 loser.f.last_attacker = Some((winner, now));
                 if loser.sheet.flags & flags::PLOT == 0 {
@@ -1616,7 +1616,13 @@ impl Step<'_> {
                 direction: Some(kick.direction),
             });
         }
-        if !self.foes(a, d) || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0 {
+        // A grapple finisher holds its pair where it put them
+        // (`world::grapples`): a kick hurts them but neither moves nor
+        // staggers nor floors them.
+        if !self.foes(a, d)
+            || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0
+            || self.men[d].f.grapple.is_some()
+        {
             return;
         }
         if self.pair_rules(a, d).duel() && self.men[d].saber_out() {
@@ -1643,7 +1649,7 @@ impl Step<'_> {
         victim.ps.velocity = math::mad(victim.ps.velocity, shove, kick.direction);
         victim.ps.velocity[2] = kick::LIFT;
         if victim.f.alive() && floored {
-            victim.f.saber.knock_down(now, kick::DOWN_MS);
+            victim.f.knock_down(now, kick::DOWN_MS);
         }
         victim.f.last_attacker = Some((kicker, now));
     }

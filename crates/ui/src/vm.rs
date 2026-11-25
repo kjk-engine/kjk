@@ -777,6 +777,11 @@ pub struct BarSlot {
     /// stacked behind the slot, as the power wheel stacks them behind its
     /// entry.
     pub kinds: u8,
+    /// The key or the controller's buttons that fire what the slot holds,
+    /// drawn at the slot's bottom. Only the feat slot has one, and only
+    /// while a blaster is in hand: the slot's own key (at its top) moves on
+    /// to the next feat attack, and this one fires the feat attack shown.
+    pub fire: Option<KeyLabel>,
 }
 
 /// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
