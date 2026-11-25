@@ -18,9 +18,9 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::input::gamepad::GamepadButton;
-use bevy::input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel};
+use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::window::{CursorOptions, PrimaryWindow};
 use sim::action::Action as SimAction;
 use sim::{Seat, Snapshot};
 
@@ -54,8 +54,6 @@ const AREA_MARGIN: f32 = 2.0;
 /// touched (seconds), over `LINE_FADE`.
 const LINE_AFTER: f32 = 3.0;
 const LINE_FADE: f32 = 0.5;
-/// A wheel's pixels per line (a touchpad scrolls by pixels).
-const WHEEL_PIXELS: f32 = 40.0;
 
 /// How fast the world runs in photo mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -136,7 +134,7 @@ impl Camera {
     pub fn of((at, angles, fov): TalkShot) -> Camera {
         Camera {
             at: Vec3::from_array(at),
-            angles: angles.map(|angle| (angle + 180.0).rem_euclid(360.0) - 180.0),
+            angles: angles.map(crate::camera_tune::around),
             fov,
             velocity: Vec3::ZERO,
             ease: 0.0,
@@ -585,30 +583,12 @@ impl Controls<'_, '_> {
         let bound_held = |action: Action| read.iter().any(|(of, on, _)| *of == action && *on);
         let axis = |plus: bool, minus: bool| f32::from(i8::from(plus) - i8::from(minus));
         let either = |key: f32, other: f32| if key != 0.0 { key } else { other };
-        let wheel: f32 = self
-            .wheel
-            .read()
-            .map(|event| match event.unit {
-                MouseScrollUnit::Line => event.y,
-                MouseScrollUnit::Pixel => event.y / WHEEL_PIXELS,
-            })
-            .sum();
-        let grabbed = self
-            .cursors
-            .iter()
-            .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
-        let feel =
-            (self.feel.as_deref().copied()).unwrap_or_else(crate::settings::MouseFeel::default);
-        let mouse = self
-            .motion
-            .as_ref()
-            .filter(|_| grabbed)
-            .map_or(Vec2::ZERO, |motion| {
-                let up = if feel.invert { -1.0 } else { 1.0 };
-                Vec2::new(motion.delta.x, up * motion.delta.y)
-                    * crate::sim_host::MOUSE_DEGREES
-                    * feel.scale
-            });
+        let wheel = crate::pick_view::turned(&mut self.wheel);
+        let mouse = crate::sim_host::mouse_look(
+            self.motion.as_deref(),
+            self.feel.as_deref(),
+            crate::sim_host::grabbed(&self.cursors),
+        );
         let dt = self.time.delta_secs();
         Input {
             forward: either(

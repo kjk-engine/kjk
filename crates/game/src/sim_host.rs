@@ -77,6 +77,30 @@ const RECORD_EVERY: u64 = 100;
 /// `sensitivity` 5).
 pub(crate) const MOUSE_DEGREES: f32 = 0.11;
 
+/// Whether the mouse holds the cursor of one of `cursors` (the main
+/// window's).
+pub(crate) fn grabbed<'a>(cursors: impl IntoIterator<Item = &'a CursorOptions>) -> bool {
+    cursors
+        .into_iter()
+        .any(|cursor| cursor.grab_mode != CursorGrabMode::None)
+}
+
+/// Degrees the mouse's `motion` turns the view by this frame, as the
+/// player's `feel` has it (the defaults without one): x to the right, y
+/// down, or up when the mouse is inverted. None while the mouse does not
+/// hold the cursor (`grabbed`).
+pub(crate) fn mouse_look(
+    motion: Option<&AccumulatedMouseMotion>,
+    feel: Option<&MouseFeel>,
+    grabbed: bool,
+) -> Vec2 {
+    let feel = feel.map_or_else(MouseFeel::default, |feel| *feel);
+    let up = if feel.invert { -1.0 } else { 1.0 };
+    motion.filter(|_| grabbed).map_or(Vec2::ZERO, |motion| {
+        Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
+    })
+}
+
 /// Who sends seat 0's commands.
 #[derive(Clone)]
 pub enum Driver {
@@ -1141,15 +1165,7 @@ impl PlayerInput<'_, '_> {
         let held = self.movie_up()
             || self.screens.as_ref().is_some_and(|open| open.0)
             || self.photo().is_some();
-        let feel = self
-            .feel
-            .as_deref()
-            .map_or_else(MouseFeel::default, |feel| *feel);
-        let grabbed = !self.movie_up()
-            && self
-                .windows
-                .iter()
-                .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
+        let grabbed = !self.movie_up() && grabbed(&self.windows);
         let actions = self
             .actions
             .as_deref()
@@ -1161,14 +1177,7 @@ impl PlayerInput<'_, '_> {
                         .is_some_and(|picking| picking.keys_scripted())
             })
             .map(|actions| if held { Actions::default() } else { *actions });
-        let mouse = self
-            .motion
-            .as_ref()
-            .filter(|_| grabbed)
-            .map_or(Vec2::ZERO, |motion| {
-                let up = if feel.invert { -1.0 } else { 1.0 };
-                Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
-            });
+        let mouse = mouse_look(self.motion.as_deref(), self.feel.as_deref(), grabbed);
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         // The orbit held turns the camera, not the player (`camera_tune`).
         let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);

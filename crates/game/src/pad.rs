@@ -1280,10 +1280,7 @@ pub(crate) fn sample(
     };
     // The mouse's buttons count while it holds the cursor: the click that
     // takes it (`swallow`) and one on a free pointer are the pointer's.
-    let grabbed = desk
-        .cursors
-        .iter()
-        .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
+    let grabbed = crate::sim_host::grabbed(&desk.cursors);
     let mouse = desk.mouse.as_deref().filter(|_| grabbed);
     let (mut held, mut down) = (0, 0);
     for (action, on, pressed) in key_map.read(desk.keys.as_deref(), mouse) {

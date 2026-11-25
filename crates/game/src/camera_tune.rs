@@ -381,8 +381,6 @@ const ORBIT_DONE: f32 = 0.1;
 /// Zoom steps per degree the pad's right stick pushes up or down while the
 /// orbit is held.
 const PAD_ZOOM: f32 = 0.05;
-/// A wheel's pixels per line (a touchpad scrolls by pixels).
-const WHEEL_PIXELS: f32 = 40.0;
 
 impl Orbit {
     /// A run's request (`ui camera …`): `orbit YAW PITCH` holds the orbit
@@ -415,7 +413,7 @@ impl Orbit {
 
 /// `degrees` within half a turn either way, so the way back is the short
 /// one.
-fn around(degrees: f32) -> f32 {
+pub(crate) fn around(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
@@ -435,14 +433,7 @@ pub(crate) struct CameraInput<'w, 's> {
 /// across, its push up or down zooming) and the wheel zooming.
 pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<Orbit>) {
     use crate::settings::Action;
-    let wheel: f32 = input
-        .wheel
-        .read()
-        .map(|event| match event.unit {
-            bevy::input::mouse::MouseScrollUnit::Line => event.y,
-            bevy::input::mouse::MouseScrollUnit::Pixel => event.y / WHEEL_PIXELS,
-        })
-        .sum();
+    let wheel = crate::pick_view::turned(&mut input.wheel);
     if let Some(to) = orbit.scripted {
         let most = SCRIPT_TURN * time.delta_secs();
         orbit.held = true;
@@ -466,24 +457,11 @@ pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<O
     }
     orbit.held = orbit.free && key;
     if orbit.held {
-        let grabbed = input
-            .cursors
-            .iter()
-            .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
-        let feel = input
-            .feel
-            .as_deref()
-            .map_or_else(crate::settings::MouseFeel::default, |feel| *feel);
-        let up = if feel.invert { -1.0 } else { 1.0 };
-        let mouse = input
-            .motion
-            .as_ref()
-            .filter(|_| grabbed)
-            .map_or(Vec2::ZERO, |motion| {
-                Vec2::new(motion.delta.x, up * motion.delta.y)
-                    * crate::sim_host::MOUSE_DEGREES
-                    * feel.scale
-            });
+        let mouse = crate::sim_host::mouse_look(
+            input.motion.as_deref(),
+            input.feel.as_deref(),
+            crate::sim_host::grabbed(&input.cursors),
+        );
         orbit.yaw = around(orbit.yaw - mouse.x - actions.turn.x);
         orbit.pitch = (orbit.pitch + mouse.y).clamp(-ORBIT_PITCH, ORBIT_PITCH);
         orbit.zoom -= actions.turn.y * PAD_ZOOM;
