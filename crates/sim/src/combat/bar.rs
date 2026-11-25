@@ -12,7 +12,8 @@
 //! bar on its own (`Bar::settle`):
 //!
 //! - The first fill puts the character's attack powers in the first four
-//!   slots, then the feat attacks that fit the weapon in hand, then
+//!   slots, then the feat attacks the weapon in hand chooses among (none
+//!   for a single blade, `FeatLine::chosen_by`), then
 //!   grenades, then medpacs, until the four slots are full. An attack power
 //!   that is a lower tier of another power the character knows is left out.
 //! - Each later fill looks only at the powers and feat attacks the
@@ -104,8 +105,17 @@ impl FeatLine {
 
     /// Whether the weapon in `hand` can use the line (`combat::picks`). A
     /// gun uses the gun lines. Two blades, a double-bladed weapon, a stun
-    /// baton and empty hands use the melee lines. A single blade uses none.
+    /// baton and empty hands use the melee lines. A single blade uses the
+    /// melee lines too, and each one switches it to its style
+    /// (`Picks::switches_to`).
     pub fn fits(self, sheet: &Sheet, hand: u8) -> bool {
+        self.chosen_by(sheet, hand) || (self.melee() && picks::single_blade(sheet, hand))
+    }
+
+    /// Whether the weapon in `hand` chooses the line as the feat attack it
+    /// carries: `fits` but for a single blade. The bar's first fill puts
+    /// only these on the bar.
+    fn chosen_by(self, sheet: &Sheet, hand: u8) -> bool {
         picks::chooses_melee(sheet, hand) == Some(self.melee())
     }
 
@@ -556,7 +566,7 @@ impl Bar {
         let attacks = powers(sheet, rules).into_iter().filter(|row| {
             sheet.powers.has(*row) && rules.hostile(*row) && !lower_tier(sheet, rules, *row)
         });
-        let feats = FeatLine::known_by(sheet).filter(|line| line.fits(sheet, hand));
+        let feats = FeatLine::known_by(sheet).filter(|line| line.chosen_by(sheet, hand));
         let items = [Shelf::Grenade, Shelf::Medpac]
             .into_iter()
             .filter(|shelf| carries(sheet, *shelf));

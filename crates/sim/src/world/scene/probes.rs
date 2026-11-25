@@ -56,6 +56,7 @@ const PROBES: &[Probe] = &[
     ("cutscene_shot_rounds", cutscene_shot_rounds),
     ("cutscene_shot_at_object", cutscene_shot_at_object),
     ("script_push_throws", script_push_throws),
+    ("script_push_ends_linked", script_push_ends_linked),
     ("creature_lob_lands_on_target", creature_lob_lands_on_target),
     ("assured_shot_rounds", assured_shot_rounds),
     ("assured_shot_once_a_round", assured_shot_once_a_round),
@@ -353,7 +354,15 @@ object GetItemInSlot(int nInventorySlot, object oCreature=OBJECT_SELF);
 void ActionEquipItem(object oItem, int nInventorySlot, int bInstant=FALSE);
 // 37
 void SetLocked(object oTarget, int bLocked);
+// 38
+effect EffectVisualEffect(int nVisualEffectId, int nMissEffect=FALSE);
+// 39
+effect EffectLinkEffects(effect eChildEffect, effect eParentEffect);
 "#;
+
+/// K1's `visualeffects.2da` row of `VFX_DUR_HOLD`, the stasis field's look
+/// and hum, which `probe_hold_push_dummy` links to its push.
+const HOLD_ROW: i32 = 2008;
 
 /// The `ambientmusic.2da` row `probe_battle_music` makes the battle track.
 const BATTLE_ROW: u16 = 7;
@@ -427,6 +436,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   for nothing;
 /// - `probe_push_dummy` pushes the dummy away from the talker
 ///   (`EffectForcePushTargeted` at its location, applied at once);
+///   `probe_hold_push_dummy` applies the same push permanently, linked to
+///   the stasis field's look (`HOLD_ROW`);
 /// - `probe_face_zero` turns its caller to 0° (`SetFacing`);
 /// - `probe_lock_turn` and `probe_lock_head` put the talker on the
 ///   conversation's lock-orientation and head-follow lock lists;
@@ -486,16 +497,22 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         program(&ops)
     };
     let cutscene = |animation, damage| cutscene_at("dummy", animation, damage);
-    let mut push = vec![Op::Const(Const::Float(0.0))];
-    push.extend(tagged("dummy"));
-    push.push(Op::Const(Const::Int(0)));
-    push.extend(tagged("talker"));
-    push.extend([
-        call(15, 1),
-        call(13, 2),
-        Op::Const(Const::Int(0)),
-        call(14, 4),
-    ]);
+    // At once, or held: linked to the stasis field's look, permanently.
+    let push = |held: bool| {
+        let mut ops = vec![Op::Const(Const::Float(0.0))];
+        ops.extend(tagged("dummy"));
+        ops.push(Op::Const(Const::Int(0)));
+        ops.extend(tagged("talker"));
+        ops.extend([call(15, 1), call(13, 2)]);
+        if held {
+            let look = [Const::Int(0), Const::Int(HOLD_ROW)].map(Op::Const);
+            ops.extend(look);
+            ops.extend([call(38, 2), call(39, 2)]);
+        }
+        let duration = if held { 2 } else { 0 };
+        ops.extend([Op::Const(Const::Int(duration)), call(14, 4)]);
+        program(&ops)
+    };
     let lock = |routine| {
         let mut ops = vec![Op::Const(Const::Int(1))];
         ops.extend(tagged("talker"));
@@ -736,7 +753,8 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_cutscene_shot", cutscene(SHOT_ROW, SCENE_DAMAGE)),
             ("probe_cutscene_kill", cutscene(SHOT_ROW, KILLING_DAMAGE)),
             ("probe_cutscene_gate", cutscene_at("gate", SHOT_ROW, 0)),
-            ("probe_push_dummy", program(&push)),
+            ("probe_push_dummy", push(false)),
+            ("probe_hold_push_dummy", push(true)),
             ("probe_face_zero", face_zero),
             ("probe_lock_turn", lock(7)),
             ("probe_lock_head", lock(8)),
@@ -2219,6 +2237,56 @@ fn creature_lob_lands_on_target() -> Found {
 /// Spire's blast throwing a soldier) knocks its target down and throws it
 /// away from the centre.
 fn script_push_throws() -> Found {
+    let pushed = pushed_dummy("probe_push_dummy")?;
+    check(pushed.thrown(), pushed.to_string())
+}
+
+/// A script's push applied permanently, linked to a stasis field's look
+/// (Brotherhood of Shadow's last boss on the player), throws its target as
+/// one applied at once does, and the look ends with the push: both
+/// executables end the push, and all linked to it, when the state of being
+/// pushed it brings ends, and that state lasts as long as the push was
+/// applied for (none, applied permanently).
+fn script_push_ends_linked() -> Found {
+    let pushed = pushed_dummy("probe_hold_push_dummy")?;
+    check(pushed.thrown() && !pushed.held, pushed.to_string())
+}
+
+/// What a script's push did to the dummy over half a second: whether it
+/// was knocked down, how far from the centre it stood before and after,
+/// and whether the stasis field's look was still on it at the end.
+struct Pushed {
+    down: bool,
+    before: f32,
+    after: f32,
+    held: bool,
+}
+
+impl Pushed {
+    /// Knocked down and thrown more than a metre away from the centre.
+    fn thrown(&self) -> bool {
+        self.down && self.after > self.before + 1.0
+    }
+}
+
+impl std::fmt::Display for Pushed {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let Pushed {
+            down,
+            before,
+            after,
+            held,
+        } = self;
+        write!(
+            f,
+            "knocked down {down}, {before:.2} m from the centre, then {after:.2} m, \
+             the stasis look still on {held}"
+        )
+    }
+}
+
+/// The dummy pushed away from the talker by `script`, in a cutscene.
+fn pushed_dummy(script: &str) -> Result<Pushed, String> {
     let mut ground = Ground::new(1)?;
     let host = ground.body(0)?;
     ground.put(host, [-6.0, -3.0]);
@@ -2226,20 +2294,29 @@ fn script_push_throws() -> Found {
     let dummy = ground.place(DUMMY, [-4.0, 2.0])?;
     ground.cutscene()?;
     let before = between(ground.at(talker), ground.at(dummy));
-    ground.run_script("probe_push_dummy", TALKER)?;
+    ground.run_script(script, TALKER)?;
     let mut down = false;
+    let mut held = false;
     for _ in 0..steps(500) {
         ground.step();
+        let now = ground.last.time_ms;
         let mut fighters = ground.world.world.query::<(&Id, &Fighting)>();
-        down |= fighters
+        let Some((_, fighting)) = fighters
             .iter(&ground.world.world)
-            .any(|(id, fighting)| id.0 == dummy && fighting.0.saber.floored());
+            .find(|(id, _)| id.0 == dummy)
+        else {
+            continue;
+        };
+        down |= fighting.0.saber.floored();
+        held = (fighting.0.effects.visuals(now)).any(|(row, ..)| i32::from(row) == HOLD_ROW);
     }
     let after = between(ground.at(talker), ground.at(dummy));
-    check(
-        down && after > before + 1.0,
-        format!("knocked down {down}, {before:.2} m from the centre, then {after:.2} m"),
-    )
+    Ok(Pushed {
+        down,
+        before,
+        after,
+        held,
+    })
 }
 
 /// A gunner's assured attack (`EffectAssuredHit`, then `ActionAttack`: Taris's

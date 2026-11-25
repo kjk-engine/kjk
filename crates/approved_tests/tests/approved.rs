@@ -339,6 +339,25 @@ fn disruptor_beams() {
     probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
 }
 
+/// Which lines of a computer's conversation show a camera feed
+/// (`kjk_game::terminal::feed_probes`). A line shows the feed only when a
+/// placed camera films it, which is its camera angle 6. A silent line with
+/// a camera id of -1 and no camera angle shows the computer's screen with
+/// its replies. A mod's storage computer on the Orion gave such a line, and
+/// kjk showed an empty camera feed that no click could leave. Needs
+/// `--features rig`; no installs (proposed 2026-11-25, awaiting approval).
+#[test]
+fn computer_camera_feeds() {
+    #[cfg(not(feature = "rig"))]
+    println!("computer_camera_feeds skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "computer camera feeds",
+        &kjk_game::terminal::feed_probes(),
+        6,
+    );
+}
+
 /// The photo camera (`kjk_game::photo_mode::camera_probes`): it moves at
 /// 3, 12 and 0.75 metres a second, reaches its speed in 0.2 seconds and
 /// stops in 0.2 seconds from any speed, zooms between 15 and 100 degrees, tilts up to 45 degrees, stops
@@ -364,7 +383,10 @@ fn photo_camera() {
 /// built only the upper blade for them. A made-up hilt with eight blade
 /// nodes of one name builds two blades, one up and one down. With K1
 /// installed, `w_dblsbr_001` with its blade nodes renamed in memory builds
-/// the same two blades as with its own names. Needs `--features rig`
+/// the same two blades as with its own names. A blade core that a mod
+/// ships with its hilt, with no self-illumination and a decal texture,
+/// glows at full light (the Schematic Lightsaber Mod's cores; proposed
+/// 2026-11-25, awaiting approval). Needs `--features rig`
 /// (proposed 2026-11-21, awaiting approval).
 #[test]
 fn double_blades_sharing_a_name() {
@@ -373,7 +395,7 @@ fn double_blades_sharing_a_name() {
         "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
     );
     #[cfg(feature = "rig")]
-    probed("saber blades", &kjk_game::weapons::blade_probes(), 2);
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 3);
 }
 
 /// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
@@ -4430,7 +4452,9 @@ fn pistols_in_one_hand() {
 /// double-bladed weapon carry each melee line known in turn, then none, and
 /// a blow carries the chosen feat (Flurry makes two blades, a staff or
 /// fists attack faster, and multiplies no blow's damage); a single
-/// blade has no choice; a script's talent chooses too; the choices come
+/// blade keeps no feat choice, and Flurry, Critical Strike or Power Attack
+/// chosen on the action bar switches it to the fast, medium or strong
+/// style; a script's talent chooses too; the choices come
 /// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn feat_picks() {
@@ -4445,15 +4469,17 @@ fn feat_picks() {
 /// older than the ten slots reads its six slots, and slots 7 to 10 are
 /// empty. The HUD shows the first six slots, and the slots after them up to
 /// the last one that holds something. The bar's first fill
-/// puts attack powers, feat attacks that fit the weapon in hand, grenades
-/// and medpacs in the first four slots. A power learned later takes an
+/// puts attack powers, the feat attacks the weapon in hand chooses among,
+/// grenades and medpacs in the first four slots. A single blade chooses
+/// among none, so its first fill puts no feat attack on the bar. A power learned later takes an
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
 /// client leaves it to the host. The power wheel lists offensive powers
 /// first. It leaves out what the player hid, lower tiers, and what is on
 /// the bar, except an item kind of which the character carries two or more
 /// different items. Mines are listed only with a rank in Demolitions. Choosing a feat
-/// attack sets it for the weapon in hand. For blades and empty hands,
-/// choosing it again turns it off. A gun always uses a line the character
+/// attack sets it for the weapon in hand. For two blades, a double-bladed
+/// weapon and empty hands, choosing it again turns it off. A single blade
+/// keeps no feat choice. A gun always uses a line the character
 /// knows, so choosing the line a gun uses already changes nothing. The bar
 /// edit and feat attack actions come back whole from their
 /// bytes. A seat edits only the bars of the party members it may control,

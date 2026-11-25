@@ -404,6 +404,7 @@ fn input() -> Result<String, String> {
             rules: sim::combat::saber::SaberRules::default(),
             blade: true,
             blaster: false,
+            single_blade: false,
         },
     );
     let empty = command.buttons == 0

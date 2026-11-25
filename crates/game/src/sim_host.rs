@@ -1369,8 +1369,8 @@ pub struct CameraAim(pub [i8; 3]);
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a throw or
 /// kata with a saber) and also aims a blaster (`Action::Aim`); G kicks; ]
-/// and [ pick the hand, L cycles the saber style, X turns stealth mode on
-/// or off (H holsters: `holster_view`).
+/// and [ pick the hand, L cycles the saber style (T too, with a single blade
+/// in hand), X turns stealth mode on or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
@@ -1379,8 +1379,8 @@ pub struct CameraAim(pub [i8; 3]);
 /// it is the alternate attack, whatever the right button does. A pad's
 /// chord that is also the attack under the block
 /// (`Actions::feat_under_block`) makes only a blaster's feat attack. What is
-/// in hand is read at most once, and only when the shared button, the stick
-/// or R needs it.
+/// in hand is read at most once, and only when the shared button, the stick,
+/// R or the next-feat key needs it.
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
@@ -1401,7 +1401,11 @@ pub(crate) fn player_command(
         (walk, buttons::WALKING),
         (held(Action::Attack), buttons::ATTACK),
         (held(Action::AltAttack), buttons::ALT_ATTACK),
-        (held(Action::SaberStyle), buttons::SABER_STYLE),
+        // With a single blade, the next-feat key is the saber style key.
+        (
+            held(Action::SaberStyle) || held(Action::NextFeat) && hand.single_blade,
+            buttons::SABER_STYLE,
+        ),
         (held(Action::Stealth), buttons::STEALTH),
     ];
     let command = Command {
@@ -1457,6 +1461,10 @@ pub(crate) struct InHand {
     /// What it holds is a blaster, which aims with the alternate attack's
     /// button (`pad::step`).
     pub blaster: bool,
+    /// What it holds is a single blade with no blade in the other hand
+    /// (`sim::combat::picks::single_blade`). The next-feat key then cycles
+    /// the saber style, as the saber style key does.
+    pub single_blade: bool,
 }
 
 impl InHand {
@@ -1470,16 +1478,21 @@ impl InHand {
     /// living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
         use sim::combat::Delivery;
-        let delivery = last
+        let body = last
             .body(seat)
-            .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
-            .map(|entity| {
-                crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
-            });
+            .filter(|entity| entity.fighter.is_some_and(|f| f.alive()));
+        let delivery = body.map(|entity| {
+            crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
+        });
+        let single_blade = body.is_some_and(|entity| {
+            let sheet = crate::cast::worn_sheet(last, entity, level);
+            (entity.fighter).is_some_and(|f| sim::combat::picks::single_blade(&sheet, f.hand))
+        });
         InHand {
             rules: last.saber_rules,
             blade: matches!(delivery, Some(Delivery::Saber(_) | Delivery::Melee)),
             blaster: matches!(delivery, Some(Delivery::Blaster(_))),
+            single_blade,
         }
     }
 }

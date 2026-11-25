@@ -1909,8 +1909,8 @@ impl<'t> Spawner<'t> {
 
     /// The material one mesh of a blade a mod ships is drawn with
     /// (`BladeSpec::meshes`): by its texture's TXI, as KOTOR draws a hilt's
-    /// mesh (its glows added), its flip-book cycling. `None` when its
-    /// texture did not load.
+    /// mesh (its glows added), lit as `shipped_lighting` says, its
+    /// flip-book cycling. `None` when its texture did not load.
     fn shipped_material(
         &mut self,
         stores: &mut Stores,
@@ -1923,16 +1923,7 @@ impl<'t> Spawner<'t> {
             part.alpha,
             (Some(facts), &[facts]),
         );
-        let lighting = Lighting {
-            self_illum: part.self_illum,
-            ambient: part.ambient,
-            diffuse: part.diffuse,
-            alpha: part.alpha,
-            is_static: false,
-            is_room: false,
-            room_flat: false,
-            fogged: false,
-        };
+        let lighting = shipped_lighting(part, facts);
         let made = OdysseyMaterial::new(
             Vec4::ONE,
             Some(image.clone()),
@@ -3699,6 +3690,28 @@ fn see_through_pieces(positions: &[[f32; 3]], indices: &[u32]) -> Vec<Vec<u32>> 
         return vec![indices.to_vec()];
     }
     pieces.into_values().collect()
+}
+
+/// How one mesh of a blade a mod ships is lit (`BladeSpec::meshes`), its
+/// texture's facts `facts`. A mesh whose texture is a decal glows at full
+/// light (`material::decal_glow`), as it does on any other model. The
+/// Schematic Lightsaber Mod's blade cores are blended decal meshes with no
+/// self-illumination. Lit by the area's lamps alone, they showed grey and
+/// dark on the side away from the light.
+pub(crate) fn shipped_lighting(
+    part: &asset_odyssey::model::MeshIr,
+    facts: &TextureFacts,
+) -> Lighting {
+    Lighting {
+        self_illum: material::decal_glow(part.self_illum, Some(facts)),
+        ambient: part.ambient,
+        diffuse: part.diffuse,
+        alpha: part.alpha,
+        is_static: false,
+        is_room: false,
+        room_flat: false,
+        fogged: false,
+    }
 }
 
 /// A mesh of quads. An empty one is given a single degenerate quad: Bevy's

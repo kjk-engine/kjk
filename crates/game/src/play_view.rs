@@ -2578,7 +2578,7 @@ const ANGLE_SHOULDER: u8 = 2;
 const ANGLE_WIDE: u8 = 3;
 const ANGLE_NONE: u8 = 4;
 const ANGLE_KEEP: u8 = 5;
-const ANGLE_PLACED: u8 = 6;
+pub(crate) const ANGLE_PLACED: u8 = 6;
 
 /// Cutscene stunt clips by stunt model and clip name (`None`: the model
 /// has no such clip).

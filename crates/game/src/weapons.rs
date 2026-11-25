@@ -2139,27 +2139,18 @@ pub fn blade_probes() -> sim::probe::Checks {
     vec![
         ("double blades sharing a name", made_double_blades()),
         ("vanilla double blades renamed", renamed_double_blades()),
+        ("a shipped blade's decal core glows", shipped_decal_core()),
     ]
 }
 
-/// `(origin, dir, length)` of each blade, to compare two builds.
+/// A made-up node of a probe's model, without children.
 #[cfg(feature = "probes")]
-fn blade_lines(blades: &[BladeSpec]) -> Vec<String> {
-    (blades.iter())
-        .map(|b| format!("{:.3?} {:.0?} {:.2}", b.origin, b.dir, b.length))
-        .collect()
-}
-
-/// A made-up double-bladed hilt: a grip and eight saber nodes, all named
-/// `plane239`. Each has a blade box 0.8 long running up from its node.
-/// Four sit 0.1 above the grip, and four sit 0.9 below it, so that their
-/// boxes end 0.1 below the grip. It builds two blades of the same length.
-/// One leaves the grip 0.1 above it and runs up +Z, and the other leaves
-/// it 0.1 below it and runs down −Z.
-#[cfg(feature = "probes")]
-fn made_double_blades() -> Result<String, String> {
-    use fmt_odyssey::mdl::{Mesh, Model, Node};
-    let node = |name: &str, position: [f32; 3], mesh: Option<Mesh>| Node {
+fn probe_node(
+    name: &str,
+    position: [f32; 3],
+    mesh: Option<fmt_odyssey::mdl::Mesh>,
+) -> fmt_odyssey::mdl::Node {
+    fmt_odyssey::mdl::Node {
         flags: 0,
         number: 0,
         name: name.into(),
@@ -2172,10 +2163,16 @@ fn made_double_blades() -> Result<String, String> {
         mesh,
         children: Vec::new(),
         animated: false,
-    };
-    let saber_mesh = || Mesh {
+    }
+}
+
+/// A made-up mesh of `texture` with a blade box 0.8 long running up from
+/// its node, a saber mesh when `saber`, and no self-illumination.
+#[cfg(feature = "probes")]
+fn probe_mesh(texture: &str, saber: bool) -> fmt_odyssey::mdl::Mesh {
+    fmt_odyssey::mdl::Mesh {
         bounds: [-0.01, -0.01, 0.0, 0.01, 0.01, 0.8],
-        textures: ["w_lsabre_red01".into(), "".into(), "".into(), "".into()],
+        textures: [texture.into(), "".into(), "".into(), "".into()],
         diffuse: [1.0; 3],
         ambient: [1.0; 3],
         transparency_hint: 0,
@@ -2195,17 +2192,15 @@ fn made_double_blades() -> Result<String, String> {
         skin: None,
         dangly: None,
         aabb: None,
-        saber: true,
-    };
-    let mut root = node("w_dblsbr_probe", [0.0; 3], None);
-    for z in [0.1, -0.9] {
-        for _ in 0..4 {
-            let piece = node("plane239", [0.0, 0.0, z], Some(saber_mesh()));
-            root.children.push(piece);
-        }
+        saber,
     }
-    let model = Model {
-        name: "w_dblsbr_probe".into(),
+}
+
+/// A probe's model of `root`, named as it.
+#[cfg(feature = "probes")]
+fn probe_model(root: fmt_odyssey::mdl::Node) -> fmt_odyssey::mdl::Model {
+    fmt_odyssey::mdl::Model {
+        name: root.name.clone(),
         classification: 0,
         subclassification: 0,
         affected_by_fog: false,
@@ -2215,8 +2210,76 @@ fn made_double_blades() -> Result<String, String> {
         animation_scale: 1.0,
         root,
         animations: Vec::new(),
+    }
+}
+
+/// A blade core a mod ships with its hilt, as the Schematic Lightsaber
+/// Mod's are: a mesh with no self-illumination whose texture's TXI says
+/// `decal 1` (and nothing about blending). It glows at full light, as a
+/// decal does on any other model. The same mesh with a texture that is no
+/// decal keeps its black self-illumination.
+#[cfg(feature = "probes")]
+fn shipped_decal_core() -> Result<String, String> {
+    let mut root = probe_node("w_lghtsbr_probe", [0.0; 3], None);
+    // One triangle, so that the model keeps the mesh.
+    let core = fmt_odyssey::mdl::Mesh {
+        positions: vec![[0.0; 3], [0.01, 0.0, 0.0], [0.0, 0.0, 0.8]],
+        normals: vec![[0.0, -1.0, 0.0]; 3],
+        uv1: vec![[0.0; 2]; 3],
+        faces: vec![fmt_odyssey::mdl::Face {
+            normal: [0.0, -1.0, 0.0],
+            distance: 0.0,
+            material: 0,
+            adjacent: [u16::MAX; 3],
+            vertices: [0, 1, 2],
+        }],
+        indices: vec![0, 1, 2],
+        ..probe_mesh("w_lsabcrprobe01", false)
     };
-    let ir = ModelIr::from_model(&model);
+    root.children
+        .push(probe_node("blade", [0.0, 0.0, 0.1], Some(core)));
+    let ir = ModelIr::from_model(&probe_model(root));
+    let part = ir.meshes.first().ok_or("no core mesh")?;
+    let glow = |decal: bool| {
+        let facts = asset_odyssey::texture::TextureFacts {
+            decal,
+            alpha: true,
+            ..Default::default()
+        };
+        crate::scene::shipped_lighting(part, &facts).self_illum
+    };
+    let (decal, plain) = (glow(true), glow(false));
+    sim::probe::check(
+        part.self_illum == [0.0; 3] && decal == [1.0; 3] && plain == [0.0; 3],
+        format!("decal {decal:?}, not a decal {plain:?}"),
+    )
+}
+
+/// `(origin, dir, length)` of each blade, to compare two builds.
+#[cfg(feature = "probes")]
+fn blade_lines(blades: &[BladeSpec]) -> Vec<String> {
+    (blades.iter())
+        .map(|b| format!("{:.3?} {:.0?} {:.2}", b.origin, b.dir, b.length))
+        .collect()
+}
+
+/// A made-up double-bladed hilt: a grip and eight saber nodes, all named
+/// `plane239`. Each has a blade box 0.8 long running up from its node.
+/// Four sit 0.1 above the grip, and four sit 0.9 below it, so that their
+/// boxes end 0.1 below the grip. It builds two blades of the same length.
+/// One leaves the grip 0.1 above it and runs up +Z, and the other leaves
+/// it 0.1 below it and runs down −Z.
+#[cfg(feature = "probes")]
+fn made_double_blades() -> Result<String, String> {
+    let mut root = probe_node("w_dblsbr_probe", [0.0; 3], None);
+    for z in [0.1, -0.9] {
+        for _ in 0..4 {
+            let saber = probe_mesh("w_lsabre_red01", true);
+            let piece = probe_node("plane239", [0.0, 0.0, z], Some(saber));
+            root.children.push(piece);
+        }
+    }
+    let ir = ModelIr::from_model(&probe_model(root));
     let (_, blades) = kotor_blades(ir).ok_or("no blades")?;
     let ends: Vec<[f32; 2]> = (blades.iter())
         .map(|blade| [blade.origin[2], blade.dir[2]])

@@ -1415,7 +1415,19 @@ impl Engine<'_> {
         if target == ObjectId::INVALID {
             return;
         }
-        for (carried, until) in [(carried, until), (kept, Some(u64::MAX))] {
+        // A script's push puts its target in a state of being pushed that
+        // carries the push's own id and time, in both executables. When that
+        // state ends, everything with the id ends with it. So a push applied
+        // permanently or at once takes everything linked to it away straight
+        // after the push (Brotherhood of Shadow's last boss links a stasis
+        // field's look to one), and a temporary push changes nothing.
+        let pushed = (effect.leaves().iter()).any(|leaf| matches!(leaf, Effect::Pushed { .. }));
+        let now = self.view.now_ms;
+        let ends = |until: Option<u64>| match until {
+            Some(u64::MAX) if pushed => Some(now),
+            until => until,
+        };
+        for (carried, until) in [(carried, ends(until)), (kept, ends(Some(u64::MAX)))] {
             self.carry(carried, (target, at), by, until);
         }
     }

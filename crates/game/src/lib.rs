@@ -212,7 +212,7 @@ pub mod stored_fill;
 mod swallow;
 pub mod target_view;
 pub mod temporal;
-mod terminal;
+pub mod terminal;
 pub mod transcript;
 mod transforms;
 mod ui_composite;
