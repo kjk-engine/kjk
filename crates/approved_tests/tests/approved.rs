@@ -10445,6 +10445,7 @@ fn lamp_light_mesh() {
         uv_scroll: None,
         skin: None,
         dangly: None,
+        referenced: false,
         positions,
     };
     let room = ModelIr {
