@@ -1143,9 +1143,27 @@ impl Engine<'_> {
     }
 
     /// How `from` regards `to` by their factions (a trap's as its script
-    /// asks, `k_trp_generic`'s `GetIsNeutral`).
+    /// asks, `k_trp_generic`'s `GetIsNeutral`), as `module::relation` has
+    /// it: two members of the party are friends, and a member of the party
+    /// (a TSL puppet that joined too) stands as the player's faction.
     fn regard(&self, from: ObjectId, to: ObjectId) -> Option<Regard> {
-        let (from, to) = (self.faction(from)?, self.faction(to)?);
+        let side = |id: ObjectId| {
+            let puppet =
+                (self.state.party.puppet_creatures()).any(|(_, creature)| creature == id.0);
+            Some(crate::module::Side {
+                id: id.0,
+                faction: self.faction(id)?,
+                party: puppet || super::in_party(self.view, self.state, id),
+            })
+        };
+        let (from, to) = (side(from)?, side(to)?);
+        if from.party && to.party {
+            return Some(Regard::Friend);
+        }
+        let (from, to) = (
+            crate::module::party_faction(from),
+            crate::module::party_faction(to),
+        );
         let repute = self.view.module.repute.with(&self.state.reputation);
         Some(if repute.hostile(from, to) {
             Regard::Enemy

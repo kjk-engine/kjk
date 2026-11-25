@@ -4918,10 +4918,13 @@ fn scene_mode() {
 /// a break's freeze and the ready check, and what enters a trigger; the sim
 /// alone. The check that the view and the shots agree on whom a player's
 /// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
-/// the other player only with friendly fire full) awaits approval.
+/// the other player only with friendly fire full) awaits approval. So
+/// does the check that a member of the party stands as the player's
+/// faction (`party_stands_as_the_player`: Bao-Dur's Remote against the
+/// storm beasts on Malachor).
 #[test]
 fn party_calls() {
-    probed("party", &sim::party::probes(), 20);
+    probed("party", &sim::party::probes(), 21);
 }
 
 /// Which companions a player may choose (`sim::script::party_choice`),
