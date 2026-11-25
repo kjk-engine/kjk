@@ -2553,12 +2553,10 @@ match the KOTOR rooms' light yet.
 - **A new map is played in kjk only.** Its module has no AI paths (PTH),
   no map picture, and walkmeshes whose edges name no neighbouring room,
   which the original game needs. Every room sees every room.
-- **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
-  archives, which the Rooms tab does not read.
-- **Lights without a bake do not show in play by themselves.** A level
-  whose project has its own lights or kinds but keeps no bake is lit as
-  the game stores it, unless `KJK_FITTED_LIGHTS` is set. The live fitted
-  lights are still a trial.
+- **Lights without a bake are live.** A level whose project has its own
+  lights or lamps but keeps no bake is lit by them live in play. The live
+  fitted lights are still a trial, and a bake is what the level looks like
+  once it is done.
 - **Props are not in the navigation mesh.** A solid prop is solid for
   every body, but the game's characters do not path onto it or around it.
   A walkable box or a nav blocker placed with it does that.
