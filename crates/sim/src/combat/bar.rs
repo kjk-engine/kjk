@@ -104,7 +104,9 @@ impl FeatLine {
 
     /// Whether the weapon in `hand` can use the line (`combat::picks`). A
     /// gun uses the gun lines. Two blades, a double-bladed weapon, a stun
-    /// baton and empty hands use the melee lines. A single blade uses none.
+    /// baton and empty hands use the melee lines. A single blade uses the
+    /// melee lines too, and each one switches it to its style
+    /// (`Picks::switches_to`).
     pub fn fits(self, sheet: &Sheet, hand: u8) -> bool {
         picks::chooses_melee(sheet, hand) == Some(self.melee())
     }

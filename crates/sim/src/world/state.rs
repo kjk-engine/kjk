@@ -459,9 +459,12 @@ impl SimWorld {
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
                     (
-                        // The seats' stance set picks come before the
-                        // moves, whose saber step applies a queued set.
+                        // The seats' stance set picks and the styles a
+                        // single blade's feat attacks switch to come before
+                        // the moves, whose saber step applies a queued set
+                        // or style.
                         stances::picks,
+                        feat_styles::feat_styles,
                         move_actors,
                         remote::flight::fly,
                         remote::kit::kit.run_if(on_authority),

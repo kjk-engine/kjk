@@ -61,6 +61,7 @@ use crate::script::effects::Hold;
 #[cfg(feature = "probes")]
 pub mod destroy_probes;
 pub mod falls;
+mod feat_styles;
 #[cfg(feature = "probes")]
 pub mod feats;
 #[cfg(feature = "probes")]

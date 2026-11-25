@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `386315d9c09d779f`.
+Edition `81ac6a8c3e58131c`.
 
 ## Contents
 
@@ -411,6 +411,10 @@ damage.
 styles. The fast style requires Flurry. The medium style requires Critical
 Strike, or only proficiency with the weapon. The strong style requires Power
 Attack.
+
+The action bar's Flurry, Critical Strike and Power Attack buttons also switch
+the style of a single blade. Flurry switches to the fast style, Critical
+Strike to the medium style and Power Attack to the strong style.
 
 With a double-bladed lightsaber, [Saber style] turns the second blade off and
 on. With one blade lit, it fights like a single lightsaber. It then has no
