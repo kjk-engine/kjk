@@ -460,7 +460,7 @@ pub(crate) fn steer(mut input: CameraInput, time: Res<Time>, mut orbit: ResMut<O
         let mouse = crate::sim_host::mouse_look(
             input.motion.as_deref(),
             input.feel.as_deref(),
-            crate::sim_host::grabbed(&input.cursors),
+            crate::sim_host::grabbed(input.cursors.iter()),
         );
         orbit.yaw = around(orbit.yaw - mouse.x - actions.turn.x);
         orbit.pitch = (orbit.pitch + mouse.y).clamp(-ORBIT_PITCH, ORBIT_PITCH);

@@ -1175,6 +1175,14 @@ type Kept<'s> = (
     Local<'s, bool>,
 );
 
+/// What `sample` reads of the view: a pick under way, the power wheel, and
+/// photo mode.
+type Overlays<'w> = (
+    Option<Res<'w, crate::pick_view::Picking>>,
+    Option<Res<'w, crate::wheel_view::Wheel>>,
+    Option<Res<'w, crate::photo_mode::PhotoMode>>,
+);
+
 /// The layer each held button of each pad went down on. A button keeps that
 /// layer until it is let go, whatever LB does meanwhile. So a player who
 /// lets go of LB a moment before A still has the first bar slot held, and
@@ -1271,11 +1279,7 @@ pub(crate) fn sample(
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
     (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed, mut wheeled): Kept,
-    (picking, wheel, photo): (
-        Option<Res<crate::pick_view::Picking>>,
-        Option<Res<crate::wheel_view::Wheel>>,
-        Option<Res<crate::photo_mode::PhotoMode>>,
-    ),
+    (picking, wheel, photo): Overlays,
     scripted: Option<Res<ScriptedPad>>,
     mut kept_keys: Local<u64>,
 ) {
@@ -1317,7 +1321,7 @@ pub(crate) fn sample(
     };
     // The mouse's buttons count while it holds the cursor: the click that
     // takes it (`swallow`) and one on a free pointer are the pointer's.
-    let grabbed = crate::sim_host::grabbed(&desk.cursors);
+    let grabbed = crate::sim_host::grabbed(desk.cursors.iter());
     let mouse = desk.mouse.as_deref().filter(|_| grabbed);
     let (mut held, mut down) = (0, 0);
     for (action, on, pressed) in key_map.read(desk.keys.as_deref(), mouse) {

@@ -1173,7 +1173,7 @@ impl PlayerInput<'_, '_> {
         let held = self.movie_up()
             || self.screens.as_ref().is_some_and(|open| open.0)
             || self.photo().is_some();
-        let grabbed = !self.movie_up() && grabbed(&self.windows);
+        let grabbed = !self.movie_up() && grabbed(self.windows.iter());
         let actions = self
             .actions
             .as_deref()

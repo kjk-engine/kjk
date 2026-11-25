@@ -622,7 +622,7 @@ impl Controls<'_, '_> {
         let mouse = crate::sim_host::mouse_look(
             self.motion.as_deref(),
             self.feel.as_deref(),
-            crate::sim_host::grabbed(&self.cursors),
+            crate::sim_host::grabbed(self.cursors.iter()),
         );
         let dt = self.time.delta_secs();
         Input {
@@ -745,6 +745,16 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device, map: &KeyMap) ->
     ]
 }
 
+/// What `photo_keys` writes: photo mode itself, the screens, the asks for
+/// the party (a break and its resume), a replay's speed, and the dump.
+type Written<'w> = (
+    ResMut<'w, PhotoMode>,
+    ResMut<'w, crate::ui_view::Ui>,
+    ResMut<'w, crate::party_calls::Asked>,
+    ResMut<'w, Replay>,
+    ResMut<'w, console::DumpFacts>,
+);
+
 /// Photo mode turned on and off, and its camera flown, each frame. In
 /// co-op it calls and resumes the break (`party_calls::Asked`). It writes
 /// the corner line for the screens (`Ui::photo`), which hide the rest of
@@ -752,13 +762,7 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device, map: &KeyMap) ->
 pub(crate) fn photo_keys(
     mut controls: Controls,
     play: Play,
-    (mut photo, mut ui, mut asked, mut replay, mut facts): (
-        ResMut<PhotoMode>,
-        ResMut<crate::ui_view::Ui>,
-        ResMut<crate::party_calls::Asked>,
-        ResMut<Replay>,
-        ResMut<console::DumpFacts>,
-    ),
+    (mut photo, mut ui, mut asked, mut replay, mut facts): Written,
 ) {
     let photo = &mut *photo;
     let keys = photo.keys;
