@@ -484,7 +484,8 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 `put`, `save NAME` (a checkpoint; `@NAME` for the module starts from it), `unlock` (Security, with a spike
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
-the same, keeping its kit), `cast ROW`
+the same, keeping its kit), `shoot X,Y` (the mine the party sees nearest there shot with a blaster
+from where the player stands, until no mine the party sees is left within 3 m), `cast ROW`
 (that power cast on the player from its power list until its effect lasts), `heal ROW`
 (that healing power cast on the player until its vitality is full), `item TEMPLATE`
 (one of that item the party carries used on the player, once, as the inventory's Use Item button does:

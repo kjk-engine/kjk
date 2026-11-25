@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `fb173f0c62f440a2`.
 
 ## Contents
 
@@ -210,6 +210,7 @@ Edition `cabb3b32628c7ec4`.
   - [Set Mine](#traps-lay)
   - [Triggering Mines](#traps-springing)
   - [Mines on Locks](#traps-door-mines)
+  - [Shooting Mines](#traps-shooting)
 - [Doors, Locks and Bashing](#interaction)
   - [Skill Checks](#interaction-checks)
   - [Locks and Security](#interaction-security)
@@ -9052,6 +9053,35 @@ Devastating mines add +12. Other mines
 add nothing.
 
 <sub>Source: TSL's executable's table. Code: `sim::traps::blast_strength`.</sub>
+
+### <a id="traps-shooting"></a>Shooting Mines
+
+A blaster bolt fired by a player's character sets off a mine that the party
+has found. The mine explodes and harms every creature in its blast, as if a
+creature had walked into it. The party receives no experience and no mine
+for a mine that is shot. A mine that the party has not found cannot be
+shot.
+
+One bolt is enough, whatever the blaster. The mine's own trap script decides
+who is hurt. The script hurts every creature in the blast that is not
+neutral toward the mine, so a mine can hurt its own side. A mine that a
+player's character set deals its damage as that character's attack. Bolts
+fired by enemies, and by companions that no player controls, fly through
+mines. A mine with a story script of its own, a disabled mine and a mine set
+on a lock cannot be shot. Neither original game lets a weapon set off a
+mine. KOTOR 2's droid powers set off a found mine in the same way.
+
+<a id="traps-shooting-radius-m"></a>**Mine Width for Bolts** = **0.4 m** · `traps.shooting.radius_m`
+
+A bolt sets off a mine when it passes within 0.4 meters of the mine's center, measured along each floor axis.
+
+<sub>Source: ours (the mine's drawn body is smaller; a box this wide can still be hit from a distance). Code: `sim::traps::shot_box`.</sub>
+
+<a id="traps-shooting-height-m"></a>**Mine Height for Bolts** = **0.3 m** · `traps.shooting.height_m`
+
+A bolt sets off a mine when it passes no higher than 0.3 meters above the mine.
+
+<sub>Source: ours. Code: `sim::traps::shot_box`.</sub>
 
 ## <a id="interaction"></a>Doors, Locks and Bashing
 

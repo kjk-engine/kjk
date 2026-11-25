@@ -438,3 +438,159 @@ pub fn traps(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         }
     }
 }
+
+/// One trap trigger template of a module, as the mine census lists it.
+struct Census {
+    module: String,
+    template: String,
+    row: u32,
+    label: String,
+    script: String,
+    key: String,
+    placed: usize,
+    shootable: bool,
+}
+
+/// `traps.2da` of the install, by row: each row's label, and its kit and
+/// trap script as `sim::traps::shootable` reads them.
+fn trap_rows(resolver: &vfs::resolver::Resolver) -> Result<Vec<sim::traps::TrapRow>, String> {
+    use fmt_odyssey::{ResType, twoda::TwoDa};
+    let found = resolver
+        .find("traps", ResType::TWO_DA)
+        .ok_or("traps.2da: not in the install")?;
+    let bytes = found.location.read().map_err(|error| error.to_string())?;
+    let table = TwoDa::parse(&bytes).map_err(|error| error.to_string())?;
+    let text = |row: usize, column: &str| {
+        table
+            .text(row, column)
+            .map_or_else(String::new, |text| text.to_ascii_lowercase())
+    };
+    Ok((0..table.cells.len())
+        .map(|row| sim::traps::TrapRow {
+            label: text(row, "label"),
+            script: text(row, "trapscript"),
+            kit: text(row, "resref"),
+            ..sim::traps::TrapRow::default()
+        })
+        .collect())
+}
+
+/// Every module's trap trigger templates: its own, and those its areas
+/// place from the shared data, with how often its areas place each.
+fn census_rows(discovery: &Discovery, game: &str) -> Result<Vec<Census>, String> {
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::Gff;
+    use vfs::resolver::Resolver;
+    let (_, index, base) = open(discovery, game)?;
+    let rows = trap_rows(&base)?;
+    let shared: std::collections::BTreeSet<String> =
+        base.layers.iter().map(|layer| layer.name.clone()).collect();
+    let mut found = Vec::new();
+    for module in Resolver::modules(&index) {
+        let Ok(resolver) = base.with_module(&index, &module) else {
+            continue;
+        };
+        let read = |location: &vfs::resolver::Location| Gff::parse(&location.read().ok()?).ok();
+        let own: Vec<_> = (resolver.layers.iter())
+            .filter(|layer| !shared.contains(&layer.name))
+            .flat_map(|layer| layer.resources.iter())
+            .collect();
+        let placements: Vec<String> = (own.iter())
+            .filter(|((_, restype), _)| *restype == ResType::GIT)
+            .filter_map(|(_, location)| read(location))
+            .flat_map(|git| {
+                (git.root.list("TriggerList").iter())
+                    .filter_map(|trigger| trigger.resref("TemplateResRef"))
+                    .map(|template| template.to_ascii_lowercase())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        // The module's own templates, and those its areas place from the
+        // shared data.
+        let templates: std::collections::BTreeSet<String> = (own.iter())
+            .filter(|((_, restype), _)| *restype == ResType::UTT)
+            .map(|((name, _), _)| name.clone())
+            .chain(placements.iter().cloned())
+            .collect();
+        for template in templates {
+            let Some(utt) = (resolver.find(&template, ResType::UTT))
+                .and_then(|found| read(&found.location))
+            else {
+                continue;
+            };
+            let root = &utt.root;
+            if root.int("TrapFlag").unwrap_or(0) == 0 {
+                continue;
+            }
+            let row = root.uint("TrapType").unwrap_or(0);
+            let script = root.resref("OnTrapTriggered").unwrap_or_default().to_ascii_lowercase();
+            let trap_row = rows.get(row as usize);
+            found.push(Census {
+                module: module.clone(),
+                row,
+                label: trap_row.map_or_else(String::new, |row| row.label.clone()),
+                key: root.resref("KeyName").unwrap_or_default(),
+                placed: placements.iter().filter(|placed| **placed == template).count(),
+                shootable: sim::traps::shootable(
+                    sim::trap::PARTY_SEES,
+                    false,
+                    Some(&script),
+                    trap_row,
+                ),
+                script,
+                template,
+            });
+        }
+    }
+    found.sort_by(|a, b| (&a.module, &a.template).cmp(&(&b.module, &b.template)));
+    Ok(found)
+}
+
+/// `kjk script mines k1|tsl`: the mine census. It lists every module's
+/// trap trigger templates (its own, and the shared ones its areas place)
+/// with the `traps.2da` row, the trigger's own
+/// `OnTrapTriggered` script, its key, how many times the module's areas
+/// place it, and whether a player's bolt can set it off once the party has
+/// found it (`sim::traps::shootable`). A count of each row closes the list.
+pub fn mine_census(discovery: &Discovery, game: &str) -> ExitCode {
+    let found = match census_rows(discovery, game) {
+        Ok(found) => found,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("module\ttemplate\trow\tlabel\tscript\tkey\tplaced\tshootable");
+    for mine in &found {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            mine.module,
+            mine.template,
+            mine.row,
+            mine.label,
+            if mine.script.is_empty() { "-" } else { &mine.script },
+            if mine.key.is_empty() { "-" } else { &mine.key },
+            mine.placed,
+            if mine.shootable { "yes" } else { "no" }
+        );
+    }
+    let mut by_row: std::collections::BTreeMap<(u32, bool), (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for mine in &found {
+        let count = by_row.entry((mine.row, mine.shootable)).or_default();
+        count.0 += 1;
+        count.1 += mine.placed;
+    }
+    println!();
+    for ((row, shootable), (templates, placed)) in &by_row {
+        let can = if *shootable { "can" } else { "cannot" };
+        println!("row {row}: {templates} templates placed {placed} times, which a bolt {can} set off");
+    }
+    let placed: usize = found.iter().map(|mine| mine.placed).sum();
+    let shot: usize = (found.iter())
+        .filter(|mine| mine.shootable)
+        .map(|mine| mine.placed)
+        .sum();
+    println!("{game}: {} trap trigger templates placed {placed} times, {shot} of the placed mines can be shot", found.len());
+    ExitCode::SUCCESS
+}
