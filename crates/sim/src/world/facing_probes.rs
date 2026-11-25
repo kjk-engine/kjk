@@ -9,7 +9,8 @@
 //! - the script's own creature, turned to the marker's `GetFacing`, faces
 //!   the same;
 //! - a placeable made at a location facing `MADE_FACING` turns its model's
-//!   +Y there: its bearing is `MADE_FACING` − 90.
+//!   -Y there: its bearing is `MADE_FACING` + 90 (the player's torture cage
+//!   on the Leviathan opens towards Saul Karath, as in KOTOR 1).
 
 use fmt_odyssey::ncs::{Const, Op};
 
@@ -249,7 +250,7 @@ fn turned_maker(seen: &Seen) -> Result<String, String> {
 }
 
 fn made_placeable(seen: &Seen) -> Result<String, String> {
-    let wanted = MADE_FACING - QUARTER;
+    let wanted = MADE_FACING + QUARTER;
     check(
         same(seen.placeable, wanted),
         format!(
