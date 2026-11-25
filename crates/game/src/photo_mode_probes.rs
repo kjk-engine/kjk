@@ -415,6 +415,21 @@ fn input() -> Result<String, String> {
     )
 }
 
+/// Photo mode holds the cursor while it is on. Left in a conversation, it
+/// lets the cursor go, so the player can pick a reply. Left in play, it
+/// leaves the cursor to play, which holds it.
+fn cursor() -> Result<String, String> {
+    let frames = |talking: bool| {
+        let mut was = false;
+        [true, false, false].map(|photo| crate::sim_host::photo_cursor(photo, &mut was, talking))
+    };
+    let (talk, play) = (frames(true), frames(false));
+    check(
+        talk == [Some(true), Some(false), None] && play == [Some(true), None, None],
+        format!("in a conversation {talk:?}, in play {play:?}"),
+    )
+}
+
 /// Two seats on the arena, stepped with the calls photo mode makes.
 struct Pair {
     world: sim::SimWorld,
@@ -500,5 +515,6 @@ pub fn probes() -> Checks {
         ("photo mode alone", alone()),
         ("photo mode input", input()),
         ("photo mode coop", coop()),
+        ("photo mode cursor", cursor()),
     ]
 }

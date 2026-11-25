@@ -1197,6 +1197,16 @@ impl PlayerInput<'_, '_> {
     }
 }
 
+/// What photo mode does to the cursor this frame: holds and hides it while
+/// photo mode is on (`Some(true)`), lets it go as photo mode ends in a
+/// conversation (`Some(false)`), and leaves it alone otherwise (`None`).
+/// `was_photo` is whether photo mode was on the frame before, and is set to
+/// `photo` for the next frame.
+pub(crate) fn photo_cursor(photo: bool, was_photo: &mut bool, talking: bool) -> Option<bool> {
+    let was = std::mem::replace(was_photo, photo);
+    (photo || was && talking).then_some(photo)
+}
+
 /// In a window, the mouse turns the player: the cursor is held and hidden;
 /// a screen opening lets it go, the last one closing (or a click) takes it
 /// again; a conversation's screen frees it meanwhile (`dialogue_view`).
@@ -1218,14 +1228,14 @@ pub(crate) fn grab_cursor(
     // in a conversation too; one left in a conversation frees it again.
     let photo = photo.is_some_and(|photo| photo.is_on());
     let talking = replies.is_some_and(|input| input.active);
-    if photo || std::mem::replace(&mut *was_photo, photo) && talking {
+    if let Some(held) = photo_cursor(photo, &mut was_photo, talking) {
         for mut cursor in &mut windows {
-            cursor.grab_mode = if photo {
+            cursor.grab_mode = if held {
                 CursorGrabMode::Locked
             } else {
                 CursorGrabMode::None
             };
-            cursor.visible = !photo;
+            cursor.visible = !held;
         }
         return;
     }
