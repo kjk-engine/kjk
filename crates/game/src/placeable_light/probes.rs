@@ -54,6 +54,7 @@ fn triangle(corners: [[f32; 3]; 3]) -> MeshIr {
         uv_scroll: None,
         skin: None,
         dangly: None,
+        referenced: false,
     }
 }
 
