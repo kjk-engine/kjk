@@ -123,6 +123,14 @@ impl Contents {
     /// walker meets the placeable's walkmesh (`ROUTED_SOLID`). The player
     /// moving by their own keys meets the shape and not these walls.
     pub const FOOTPRINT_CLIP: Contents = Contents(1 << 6);
+    /// Not a surface's contents but a mask's: a trace with it meets the
+    /// level alone, passing every body [`Bodies`] adds (characters, and the
+    /// placeables play made, such as the remains of the dead). A Force leap
+    /// traces so.
+    pub const NO_BODIES: Contents = Contents(1 << 30);
+    /// What a Force leap meets: the level's own surfaces and the invisible
+    /// walls that keep players in it, and nothing else.
+    pub const LEVEL_ONLY: Contents = Contents(1 | (1 << 1) | (1 << 30));
 
     /// What stops a player or creature (`MASK_PLAYERSOLID`, and the walkmesh
     /// edge walls).

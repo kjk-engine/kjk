@@ -14,6 +14,8 @@
 //! - A movement key held makes no leap.
 //! - A leap started in the air does not rise above where it started.
 //! - A leap from the ground starts at once and hops no higher than its hop.
+//! - Only the level stops a leap: not the remains of the dead, which an
+//!   ordinary move meets.
 //! - An enemy standing in the way does not turn the leap aside, and killing
 //!   some of a group leaves the leap working on the rest.
 //! - Of three enemies side by side, the leap goes for the one looked at.
@@ -180,6 +182,7 @@ pub fn probes() -> Checks {
             down_a_ledge(),
         ),
         ("a leap from the ground hops low, with no crouch", low_hop()),
+        ("a leap passes the remains of the dead", passes_made_boxes()),
         ("no leap with a movement key held", moving_no_leap()),
         ("a leap from the air does not rise", from_the_air_no_rise()),
         ("no leap without Force Jump", no_feat()),
@@ -643,6 +646,37 @@ fn low_hop() -> Result<String, String> {
             "from the ground at {:.1}: rose to {highest:.1}, moved {moved:.1} by its second step, \
              {last:.0} units from the enemy at the end, struck it {struck}",
             from[2]
+        ),
+    )
+}
+/// A placeable box made in play (as the remains of the dead are) across the
+/// arena's floor, a body's height tall: an ordinary move's sweep stops at
+/// it, a Force leap's (`Contents::LEVEL_ONLY`) passes it and meets the
+/// arena's wall beyond.
+fn passes_made_boxes() -> Result<String, String> {
+    use collision::{Bodies, Body, CollisionWorld, Contents, Extents, Shape};
+    let level = crate::Level::arena();
+    let world = level.collision().as_ref();
+    let remains = [Body {
+        entity: 7 | crate::world::BODY,
+        min: [2.0, -1.0, 0.0],
+        max: [2.5, 1.0, 1.8],
+        contents: Contents::SOLID,
+    }];
+    let bodies = Bodies::new(world, &remains);
+    let half = crate::motion::HALF_WIDTH * collision::UNIT;
+    let shape = Shape::Upright(Extents {
+        mins: [-half, -half, 0.1],
+        maxs: [half, half, 1.6],
+    });
+    let (from, to) = ([0.0, 0.0, 0.0], [3.5, 0.0, 0.0]);
+    let walking = bodies.sweep(from, to, &shape, Contents::PLAYER_SOLID);
+    let leaping = bodies.sweep(from, to, &shape, Contents::LEVEL_ONLY);
+    check(
+        walking.fraction < 1.0 && leaping.fraction >= 1.0,
+        format!(
+            "across a made box: a move stops at {:.2}, a leap reaches {:.2} of the way",
+            walking.fraction, leaping.fraction
         ),
     )
 }

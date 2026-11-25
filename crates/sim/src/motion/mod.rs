@@ -403,8 +403,9 @@ struct Move<'a, 'b> {
     velocity_before: Vec3,
     room: SearchedOnce,
     freed: SearchedOnce,
-    /// A Force leap flies (`saber::Move::leap_step`): its traces pass through
-    /// other characters, so none it passes over turns it from its enemy.
+    /// A Force leap flies (`saber::Move::leap_step`): its traces meet the level
+    /// alone (`Contents::LEVEL_ONLY`), so no character, remains or other
+    /// placeable it passes over turns it from its enemy.
     leaping: bool,
 }
 
@@ -867,7 +868,7 @@ impl Move<'_, '_> {
 
     fn trace(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> Hit {
         let mask = if self.leaping {
-            Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0)
+            Contents::LEVEL_ONLY
         } else {
             Contents::PLAYER_SOLID
         };

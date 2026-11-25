@@ -595,7 +595,7 @@ name = "Force Leap Clearance"
 value = 48.0
 unit = "units"
 range = [0.0, 512.0]
-summary = "A Force leap needs a clear way to the enemy: the character's body must pass up to {saber_moves.specials.leap_clear:m} over the higher of the two, halfway along, and down to where it lands, without meeting walls or ground. The enemy may stand no higher above the character than the character's Force Jump rises."
+summary = "A Force leap needs a clear way to the enemy: the character's body must pass up to {saber_moves.specials.leap_clear:m} over the higher of the two, halfway along, and down to where it lands, without meeting the level: its walls, floors and the invisible walls that keep players in it. Characters, the remains of the dead and other placeables do not stop a leap, and it passes over them. The enemy may stand no higher above the character than the character's Force Jump rises."
 source = "ours"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
@@ -618,7 +618,7 @@ source = "KOTOR's visualeffects.2da (VFX_IMP_FORCE_JUMP_ADVANCED)"
 see = "sim::world::strikes"
 [specials.leap_hop]
 name = "Force Leap Hop"
-value = 16.0
+value = 24.0
 unit = "units"
 range = [0.0, 128.0]
 summary = "A Force leap rises {saber_moves.specials.leap_hop:m} above the straight line to where it lands, at its highest halfway along. A leap started in the air never rises above where it started."

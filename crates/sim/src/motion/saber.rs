@@ -1858,14 +1858,16 @@ impl Move<'_, '_> {
     /// box, at the enemy's height. The way is clear when a box as wide as
     /// the character's own meets nothing of the level going up to a point
     /// `specials::LEAP_CLEAR` over the higher of the two halfway along, and
-    /// from there down to where it lands; other characters do not stop it.
+    /// from there down to where it lands. Only the level counts
+    /// (`Contents::LEVEL_ONLY`): characters, the remains of the dead and
+    /// other placeables do not stop it.
     fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
         let most = specials::LEAP_MOST[rank];
         let highest = rules::force::jump::HEIGHTS[rank + 1];
         let (_, least_cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC);
         let o = self.ps.origin;
         let (ahead, _, _) = self.flat_view();
-        let level = Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0);
+        let level = Contents::LEVEL_ONLY;
         // The crosshair's line, and how near it a body's middle must be.
         let sight = crate::combat::mind::crosshair(self.ps);
         let (look, _, _) = math::angle_vectors(self.ps.view);
