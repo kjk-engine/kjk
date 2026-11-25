@@ -264,6 +264,16 @@ pub(in crate::world) fn apply(
     // The step's destroys, by id: the soonest each (the first of equals).
     let mut destroys: BTreeMap<u32, (Entity, u32, Option<Going>)> = BTreeMap::new();
     let changes = std::mem::take(&mut scripts.changes);
+    // The bodies a script destroyed at once this step: already gone for the
+    // scripts (`GetObjectByTag` finds them no more), so they hold no place a
+    // jump looks for.
+    let destroyed_now: Vec<u32> = changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::Destroy { who, ms: 0, .. } => Some(who.0),
+            _ => None,
+        })
+        .collect();
     for change in changes {
         match change {
             Change::Sound {
@@ -299,7 +309,10 @@ pub(in crate::world) fn apply(
                 // free place of the rings about it within `install::JUMP` (the party
                 // jumped beside Kashyyyk's Star Map guardian would stand in
                 // its pedestal), clear of the other living bodies by the two
-                // bodies' personal spaces; no place, no jump.
+                // bodies' personal spaces; no place, no jump. A body a script
+                // destroyed at once this step holds no place: Sunry's trial
+                // takes the Republic prosecutor away as it jumps the Sith one
+                // onto the same mark (`k_pman_26a_aread`, issue 703).
                 let space = |id: u32| {
                     let own = objects
                         .iter()
@@ -314,9 +327,11 @@ pub(in crate::world) fn apply(
                         .any(|(of, fighting)| of.0 == id && fighting.0.alive())
                 };
                 let mine = space(who.0);
+                let stands =
+                    |id: SimId| id.0 != who.0 && alive(id) && !destroyed_now.contains(&id.0);
                 let taken: Vec<([f32; 3], f32)> = players
                     .iter()
-                    .filter(|(id, _)| id.0.0 != who.0 && alive(id.0))
+                    .filter(|(id, _)| stands(id.0))
                     .map(|(id, player)| (player.0.origin, mine + space(id.0.0)))
                     .collect();
                 let free = level.0.with(states.as_deref(), |world| {
@@ -342,7 +357,7 @@ pub(in crate::world) fn apply(
                     free,
                     players
                         .iter()
-                        .filter(|(id, _)| id.0.0 != who.0 && alive(id.0))
+                        .filter(|(id, _)| stands(id.0))
                         .map(|(id, player)| (id.0.0, player.0.origin, mine + space(id.0.0))),
                 ));
                 if let Some(free) = free
