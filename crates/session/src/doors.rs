@@ -82,7 +82,7 @@ pub(crate) fn drawn_boxes(source: &dyn Source, model: &str) -> Arc<[Bulk]> {
     let Some(mdl) = source.read(&model, ResType::MDL) else {
         return Arc::from([]);
     };
-    let mdx = source.read(&model, ResType::MDX).unwrap_or_default();
+    let mdx = source.read(&model, ResType::MDX).unwrap_or_else(Vec::new);
     let Ok(parsed) = Model::parse(&mdl, &mdx) else {
         return Arc::from([]);
     };
