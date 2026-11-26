@@ -7,6 +7,14 @@
 //! A run puts them before it opens any resolver that should hold them.
 //! Every resolver of their game opened after that (`Resolver::base`) has
 //! them as a layer over every other, the project's folder too (`project`).
+//!
+//! Nothing here is ever dropped. Each program fills the store once, at its
+//! start: the game with the rooms its mods' maps place, the level editor
+//! with the rooms its projects cut. Any level loaded later in the run can
+//! ask for them, so they are kept until the program closes. A room made
+//! again takes the place of the one made before under its name (`put`). A
+//! program that makes rooms again and again while it runs, under new
+//! names, needs a way to drop the old ones, which it should bring with it.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
