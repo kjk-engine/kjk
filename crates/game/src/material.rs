@@ -145,6 +145,9 @@ const VERTEX_LIGHT_ALONE: u32 = 1048576;
 /// A punch-through surface (`Surface::Cutout`): its texels whose alpha is
 /// not above `PUNCH_THROUGH_CUT` are left out.
 const PUNCH_THROUGH: u32 = 2097152;
+/// Water (`OdysseyMaterial::water`): its env map alone, as its bump map
+/// turns it, at full light. The base texture is the bump map's frame.
+const WATER: u32 = 4194304;
 
 /// The alpha a punch-through texel must be above to be drawn. Both games'
 /// executables draw a texture whose TXI says `blending punchthrough` with
@@ -792,9 +795,10 @@ pub fn surface(
         .any(|facts| facts.blending == Blending::Additive);
     let envmap = loaded.iter().any(|facts| facts.envmap.is_some());
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
+    let water = water(diffuse).is_some();
     if additive {
         Surface::Additive
-    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned && alpha) {
+    } else if water || decal || mesh_alpha < 1.0 || (hint > 1 && !skinned && alpha) {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
@@ -819,6 +823,13 @@ pub fn decal_glow(self_illum: [f32; 3], diffuse: Option<&TextureFacts>) -> [f32;
     } else {
         self_illum
     }
+}
+
+/// A diffuse texture drawn as water (`OdysseyMaterial::water`): its TXI's
+/// `wateralpha` and the bump map it names, when it also names an env map.
+pub fn water(diffuse: Option<&TextureFacts>) -> Option<(f32, &str)> {
+    let facts = diffuse.filter(|facts| facts.envmap.is_some())?;
+    facts.water_alpha.zip(facts.bumpmap.as_deref())
 }
 
 /// Whether a mesh is drawn, given whether it is part of a room, whether it
@@ -1562,6 +1573,37 @@ impl OdysseyMaterial {
         self.params.flags |= EVEN_LIGHT;
         self.params.tint = Vec3::ONE.extend(self.params.tint.w);
         self.culled = true;
+    }
+
+    /// Drawn as water, as both games' executables draw a texture whose TXI
+    /// says `wateralpha` below 1 and names a bump map and an env map
+    /// (`bumpyshinytexture`). The diffuse texture is not drawn. The env map
+    /// alone is drawn, reflected about the surface as its bump map turns
+    /// it, at full light and whatever the place's light. It is blended by
+    /// `alpha` (the TXI's `wateralpha`) times the env map's own alpha, and
+    /// the mesh's own alpha takes no part. The bump map is a flip-book of
+    /// heights, so the reflection ripples, and the mesh's scrolling UVs move
+    /// it along. (Read in KOTOR 2's Mac program: its bump-mapped env map
+    /// pass skips the diffuse pass for such a texture, and its fragment
+    /// program writes the env map's colour and its alpha times `wateralpha`.
+    /// KOTOR 1's program reads the same TXI word.)
+    ///
+    /// `bump` is the bump map's first frame; the flip-book's other frames
+    /// take its place in turn (`scene::cycle_flipbooks`).
+    pub fn water(mut self, bump: Option<Handle<Image>>, alpha: f32) -> OdysseyMaterial {
+        self.base = bump;
+        self.params.tint = Vec4::new(1.0, 1.0, 1.0, alpha);
+        self.params.flags &= !OPAQUE_TEXTURE;
+        self.params.flags |= WATER | UNLIT;
+        self
+    }
+
+    /// `water` when the mesh is water (`material::water`), else the same.
+    pub fn water_if(self, water: Option<(Option<Handle<Image>>, f32)>) -> OdysseyMaterial {
+        match water {
+            Some((bump, alpha)) => self.water(bump, alpha),
+            None => self,
+        }
     }
 
     /// Its sort rank (`rank`).
