@@ -293,18 +293,27 @@ pub fn slug(name: &str) -> String {
 /// window, so a story draws it over the same spot at every size.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Capture {
+    /// The game it was taken in, by its key (`k1`, `tsl`). Its words are
+    /// lines of that game's talk table.
+    pub game: String,
     pub window: [f32; 2],
     pub scale_factor: f32,
     pub view: crate::vm::ViewModel,
 }
 
 impl Capture {
-    /// `view` as drawn in a window of `window` logical pixels, on a display
+    /// `view` of `game` as drawn in a window of `window` logical pixels, on a display
     /// of `scale_factor` physical pixels to each. The list of the saves on
     /// disk is left out: it names the player's own saves, and no screen
     /// over play shows it.
-    pub fn of(view: &crate::vm::ViewModel, window: [f32; 2], scale_factor: f32) -> Capture {
+    pub fn of(
+        view: &crate::vm::ViewModel,
+        game: vfs::Game,
+        window: [f32; 2],
+        scale_factor: f32,
+    ) -> Capture {
         Capture {
+            game: game.key().to_string(),
             window,
             scale_factor,
             view: crate::vm::ViewModel {

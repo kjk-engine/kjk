@@ -755,10 +755,10 @@ Running and checking:
   `name`, the `screen` as `screens::open` names it, the `steps` that
   `kjk gui screen --step` takes, the `games` it is drawn on (both by
   default) and, for the message screen, an `error`. A story may also start
-  from a capture of play instead of stand-ins (below). A module drawn over
-  play other than the HUD and the power wheel (barks, the conversation),
-  or one that is only a part of other screens, has no stories yet, and its
-  notes say why. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
+  from a capture of play instead of stand-ins (below). Every module has at
+  least one story. A module that is only a part of other screens (the
+  companion places, the filter, the tab and the menu bar) has stories that
+  open the screens drawing it. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
   (`catalogue::SIZES`: `deck`, `1080p`, `4k-tv`, `4k-monitor` at a scale
   factor of 2, `4x3`, `ultrawide`) and with two inputs (`pad`, its hints
   shown, the Steam Deck's buttons on `deck`; `mouse`). The screens step in
@@ -806,7 +806,8 @@ Running and checking:
     and again with `ui pad xbox` after `wait world` and the name
     `nar-shaddaa-low-force-pad`.
   - **A story from a capture.** A story names its captures by their names,
-    `capture` for the mouse and `pad_capture` for a pad. Its view model is
+    `capture` for the mouse and `pad_capture` for a pad. A capture records
+    the game it was taken in, and a story draws it on that game alone. Its view model is
     then the capture's, and none of the stand-ins is added. A story with a
     `capture` and no `pad_capture` is drawn with the mouse alone. The
     `pad KIND` step renames the pad glyphs a capture holds
@@ -814,11 +815,20 @@ Running and checking:
     pad shows the Steam Deck's buttons at the `deck` size. The story then
     takes its own steps on top, such as `set display.target_top false`.
   - **What is drawn over play.** The screen `play` (`catalogue::PLAY`)
-    draws KOTOR's HUD, the floating target block, the power wheel and the
-    banner over a plain background, with no screen of the stack open
-    (`ui::hud_layer::Hud::still`). The game draws the same layers each
-    frame through the same `ui::hud_layer::Hud`, so a story shows what
-    play shows. Its stories start from a capture. The wheel takes three
+    draws everything that stands over play besides the screens of the
+    stack, over a plain background (`ui::over_play::OverPlay::still`). It
+    draws them in the order a frame of play stacks them. First come
+    KOTOR's HUD and its floating target block, the words floating over
+    creatures, the area transition panel, the power wheel and the arena's
+    line and panel. Then come a terminal's camera feed, a bark, the
+    status summaries, the conversation, the host's request card and the
+    banner. A conversation hides the HUD and what stands with it, barks
+    and the summaries, as in play. The game draws the same layers each
+    frame through the same `ui::over_play::OverPlay`, so a story shows
+    what play shows. A minigame and a fade also hide the HUD in play, but
+    a capture does not record them. Its stories start from a capture. The
+    step `feed on` turns a terminal's camera feed on, as the game does
+    while a computer conversation shows a camera. The wheel takes three
     steps of its own. `wheel at N` highlights entry N, counting from 0.
     `wheel pick NAME` highlights the first entry whose name holds NAME,
     such as `wheel pick Stun`. `wheel close` shuts the wheel. The pointer
@@ -826,7 +836,9 @@ Running and checking:
     before goes away, because only the game knows an entry's arc.
   - **The check.** The approved test `ui_catalogue` fails when a capture a
     story names is missing, does not read, reads otherwise once written
-    again, or was taken with the wrong input. It needs no game data, so it
+    again, was taken in another game than the story is drawn on, or was
+    taken with the wrong input. A story with a capture must open its
+    screen on that capture. It needs no game data, so it
     reads each line of the talk table as stand-in words (`talk 1234`,
     `ui::catalogue::StandInTalk`).
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format

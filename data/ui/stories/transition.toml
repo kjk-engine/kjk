@@ -1,3 +1,10 @@
 # The stories of the screens in crates/ui/src/screens/transition.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack, so `kjk gui screen` cannot open it. Its stories come with captures of play."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures): the main character faces the South Apartments' door out to Upper City South on Taris."
+
+[[story]]
+name = "The door to Upper City South"
+screen = "play"
+games = ["k1"]
+capture = "taris-apartment-exit"
+pad_capture = "taris-apartment-exit-pad"

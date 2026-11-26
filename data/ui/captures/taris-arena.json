@@ -1,0 +1,1852 @@
+{
+  "game": "k1",
+  "scale_factor": 1.0,
+  "view": {
+    "antialias": [
+      "1",
+      "2",
+      "4",
+      "taa",
+      "taa_quality",
+      "taa_balanced",
+      "taa_performance",
+      "taa_ultra_performance"
+    ],
+    "arena": null,
+    "arena_panel": {
+      "rows": [
+        {
+          "key": [
+            70,
+            50
+          ],
+          "on": true,
+          "state": {
+            "$talk": 5549
+          },
+          "words": [
+            83,
+            112,
+            97,
+            119,
+            110
+          ]
+        },
+        {
+          "key": [
+            70,
+            51
+          ],
+          "on": false,
+          "state": [],
+          "words": [
+            78,
+            101,
+            120,
+            116,
+            32,
+            102,
+            111,
+            101
+          ]
+        },
+        {
+          "key": [
+            70,
+            52
+          ],
+          "on": false,
+          "state": [
+            111,
+            102,
+            102
+          ],
+          "words": [
+            71,
+            111,
+            100,
+            32,
+            109,
+            111,
+            100,
+            101
+          ]
+        },
+        {
+          "key": [
+            70,
+            54
+          ],
+          "on": false,
+          "state": [],
+          "words": [
+            67,
+            108,
+            101,
+            97,
+            114,
+            32,
+            102,
+            111,
+            101,
+            115
+          ]
+        },
+        {
+          "key": [
+            91,
+            32,
+            93
+          ],
+          "on": false,
+          "state": [],
+          "words": [
+            80,
+            105,
+            99,
+            107,
+            32,
+            112,
+            111,
+            119,
+            101,
+            114
+          ]
+        },
+        {
+          "key": [
+            70
+          ],
+          "on": false,
+          "state": [],
+          "words": [
+            67,
+            97,
+            115,
+            116,
+            32,
+            112,
+            111,
+            119,
+            101,
+            114
+          ]
+        }
+      ],
+      "title": [
+        67,
+        79,
+        77,
+        66,
+        65,
+        84,
+        32,
+        68,
+        69,
+        66,
+        85,
+        71
+      ]
+    },
+    "baked_lighting": false,
+    "bar_setup": null,
+    "bark": null,
+    "block_reticle": null,
+    "calls": {
+      "banner": null,
+      "button": "Break"
+    },
+    "camera_feed": false,
+    "campaigns": [
+      "k1",
+      "tsl"
+    ],
+    "character": null,
+    "chargen": null,
+    "combat_log": [],
+    "computer": null,
+    "credits": [],
+    "crosshair": true,
+    "dialog": null,
+    "dialog_log": [],
+    "displays": [],
+    "feedback": [],
+    "floaties": [],
+    "galaxy": null,
+    "here": {
+      "area": {
+        "$talk": 35938,
+        "text": true
+      },
+      "from": null,
+      "id": "",
+      "module": "tar_m03ae",
+      "name": {
+        "$talk": 35938,
+        "text": true
+      },
+      "when": ""
+    },
+    "hitmark": null,
+    "hud": {
+      "bar": [
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_wave",
+          "key": {
+            "badge": null,
+            "words": [
+              49
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_storm",
+          "key": {
+            "badge": null,
+            "words": [
+              50
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_deathfield",
+          "key": {
+            "badge": null,
+            "words": [
+              51
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_drainforce03",
+          "key": {
+            "badge": null,
+            "words": [
+              52
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              53
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              54
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        }
+      ],
+      "bar_label": null,
+      "busy": null,
+      "duel": null,
+      "feat": null,
+      "form": null,
+      "fp": [
+        380,
+        380
+      ],
+      "hp": [
+        200,
+        200
+      ],
+      "lit": [],
+      "minimap": {
+        "at": [
+          0.38816532492637634,
+          0.8386424779891968
+        ],
+        "fog": {
+          "cells": [
+            24,
+            13
+          ],
+          "explored": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "picture": "lbl_mapm03ae",
+        "spin": 1.5707963705062866,
+        "used": 0.859375
+      },
+      "poisoned": false,
+      "portrait": "po_pmha1",
+      "solo": false,
+      "stealth": false
+    },
+    "journal": [],
+    "keys": [
+      {
+        "action": "forward",
+        "key": "KeyW",
+        "label": "Forward",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "backward",
+        "key": "KeyS",
+        "label": "Backward",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "left",
+        "key": "KeyA",
+        "label": "Strafe left",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "right",
+        "key": "KeyD",
+        "label": "Strafe right",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "jump",
+        "key": "Space",
+        "label": "Jump",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "crouch",
+        "key": "KeyC",
+        "label": "Crouch",
+        "movement": true,
+        "shares": [
+          "leave_talk"
+        ]
+      },
+      {
+        "action": "walk",
+        "key": "ShiftLeft",
+        "label": "Walk",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "attack",
+        "key": "MouseLeft",
+        "label": "Attack",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "alt_attack",
+        "key": "MouseRight",
+        "label": "Alt attack",
+        "movement": false,
+        "shares": [
+          "block",
+          "aim"
+        ]
+      },
+      {
+        "action": "aim",
+        "key": "MouseRight",
+        "label": "Aim",
+        "movement": false,
+        "shares": [
+          "alt_attack",
+          "block"
+        ]
+      },
+      {
+        "action": "use",
+        "key": "KeyE",
+        "label": "Use",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "security",
+        "key": "KeyU",
+        "label": "Security",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "saber_style",
+        "key": "KeyL",
+        "label": "Saber style",
+        "movement": false,
+        "shares": [
+          "leave_talk",
+          "orbit"
+        ]
+      },
+      {
+        "action": "next_feat",
+        "key": "KeyT",
+        "label": "Next feat attack",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_1",
+        "key": "Digit1",
+        "label": "Action bar slot 1",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_2",
+        "key": "Digit2",
+        "label": "Action bar slot 2",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_3",
+        "key": "Digit3",
+        "label": "Action bar slot 3",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_4",
+        "key": "Digit4",
+        "label": "Action bar slot 4",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_5",
+        "key": "Digit5",
+        "label": "Action bar slot 5",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_6",
+        "key": "Digit6",
+        "label": "Action bar slot 6",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_7",
+        "key": "Digit7",
+        "label": "Action bar slot 7",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_8",
+        "key": "Digit8",
+        "label": "Action bar slot 8",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_9",
+        "key": "Digit9",
+        "label": "Action bar slot 9",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_10",
+        "key": "Digit0",
+        "label": "Action bar slot 10",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "wheel",
+        "key": "KeyF",
+        "label": "Power wheel",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_setup",
+        "key": "",
+        "label": "Action bar setup",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "stealth",
+        "key": "KeyX",
+        "label": "Stealth mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "block",
+        "key": "MouseRight",
+        "label": "Block (Advanced rules)",
+        "movement": false,
+        "shares": [
+          "alt_attack",
+          "aim"
+        ]
+      },
+      {
+        "action": "kick",
+        "key": "KeyG",
+        "label": "Kick",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "duel_alt_attack",
+        "key": "KeyR",
+        "label": "Saber throw/kata/ranged feat",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "holster",
+        "key": "KeyH",
+        "label": "Draw or holster weapon",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "next_form",
+        "key": "KeyV",
+        "label": "Next Form",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "switch_weapons",
+        "key": "KeyB",
+        "label": "Switch weapons",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "right_hand",
+        "key": "BracketRight",
+        "label": "Right hand",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "left_hand",
+        "key": "BracketLeft",
+        "label": "Left hand",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "inventory",
+        "key": "KeyI",
+        "label": "Inventory",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "equipment",
+        "key": "",
+        "label": "Equipment",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "character",
+        "key": "",
+        "label": "Character",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "messages",
+        "key": "",
+        "label": "Messages",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "journal",
+        "key": "KeyJ",
+        "label": "Journal",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "map",
+        "key": "KeyM",
+        "label": "Map",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "party",
+        "key": "KeyP",
+        "label": "Party",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "abilities",
+        "key": "KeyK",
+        "label": "Abilities",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "quick_save",
+        "key": "F5",
+        "label": "Quick save",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "quick_load",
+        "key": "F9",
+        "label": "Quick load",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "leader",
+        "key": "Tab",
+        "label": "Switch party leader",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "solo",
+        "key": "KeyQ",
+        "label": "Solo mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "follow",
+        "key": "KeyN",
+        "label": "Follow the next (watching)",
+        "movement": false,
+        "shares": [
+          "end_call"
+        ]
+      },
+      {
+        "action": "break",
+        "key": "KeyZ",
+        "label": "Take a break",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "ready",
+        "key": "KeyY",
+        "label": "Ready to go",
+        "movement": false,
+        "shares": [
+          "accept_call"
+        ]
+      },
+      {
+        "action": "view",
+        "key": "F1",
+        "label": "First person",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "photo_mode",
+        "key": "F2",
+        "label": "Photo mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "zoom_in",
+        "key": "Equal",
+        "label": "Camera closer",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "zoom_out",
+        "key": "Minus",
+        "label": "Camera farther",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "orbit",
+        "key": "AltLeft",
+        "label": "Look around (hold)",
+        "movement": false,
+        "shares": [
+          "saber_style"
+        ]
+      },
+      {
+        "action": "swap_shoulder",
+        "key": "MouseMiddle",
+        "label": "Swap camera shoulder",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "hide_interface",
+        "key": "",
+        "label": "Hide interface",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "leave_talk",
+        "key": "KeyL",
+        "label": "Leave a conversation",
+        "movement": false,
+        "shares": [
+          "saber_style",
+          "crouch"
+        ]
+      },
+      {
+        "action": "accept_call",
+        "key": "KeyY",
+        "label": "Accept a join request",
+        "movement": false,
+        "shares": [
+          "ready"
+        ]
+      },
+      {
+        "action": "end_call",
+        "key": "KeyN",
+        "label": "End a join request",
+        "movement": false,
+        "shares": [
+          "follow"
+        ]
+      },
+      {
+        "action": "report",
+        "key": "F12",
+        "label": "Report a bug",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "screenshot",
+        "key": "PrintScreen",
+        "label": "Take a screenshot",
+        "movement": false,
+        "shares": []
+      }
+    ],
+    "levelup": null,
+    "load_in_play": true,
+    "lobby": null,
+    "loot": null,
+    "lost": null,
+    "map": null,
+    "melee_out": false,
+    "movie_duels": false,
+    "movie_duels_incomplete": false,
+    "new_game": {
+      "area": {
+        "$talk": 10221,
+        "text": true
+      },
+      "from": null,
+      "id": "",
+      "module": "end_m01aa",
+      "name": "",
+      "when": ""
+    },
+    "overhead": [],
+    "pad_keys": [
+      {
+        "action": "jump",
+        "key": "South",
+        "label": "Jump",
+        "movement": true,
+        "shares": []
+      },
+      {
+        "action": "crouch",
+        "key": "East",
+        "label": "Crouch",
+        "movement": true,
+        "shares": [
+          "leave_talk"
+        ]
+      },
+      {
+        "action": "attack",
+        "key": "RightTrigger2",
+        "label": "Attack",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "alt_attack",
+        "key": "LeftTrigger2",
+        "label": "Alt attack",
+        "movement": false,
+        "shares": [
+          "block",
+          "aim"
+        ]
+      },
+      {
+        "action": "aim",
+        "key": "LeftTrigger2",
+        "label": "Aim",
+        "movement": false,
+        "shares": [
+          "alt_attack",
+          "block"
+        ]
+      },
+      {
+        "action": "use",
+        "key": "West",
+        "label": "Use",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "security",
+        "key": "LB+DPadDown",
+        "label": "Security",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "saber_style",
+        "key": "RightThumb",
+        "label": "Saber style",
+        "movement": false,
+        "shares": [
+          "leave_talk",
+          "orbit"
+        ]
+      },
+      {
+        "action": "next_feat",
+        "key": "DPadUp",
+        "label": "Next feat attack",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_1",
+        "key": "LB+South",
+        "label": "Action bar slot 1",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_2",
+        "key": "LB+East",
+        "label": "Action bar slot 2",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_3",
+        "key": "LB+West",
+        "label": "Action bar slot 3",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_4",
+        "key": "LB+North",
+        "label": "Action bar slot 4",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_5",
+        "key": "",
+        "label": "Action bar slot 5",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_6",
+        "key": "",
+        "label": "Action bar slot 6",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_7",
+        "key": "",
+        "label": "Action bar slot 7",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_8",
+        "key": "",
+        "label": "Action bar slot 8",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_9",
+        "key": "",
+        "label": "Action bar slot 9",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_10",
+        "key": "",
+        "label": "Action bar slot 10",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "wheel",
+        "key": "RightTrigger",
+        "label": "Power wheel",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "bar_setup",
+        "key": "",
+        "label": "Action bar setup",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "stealth",
+        "key": "LeftThumb",
+        "label": "Stealth mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "block",
+        "key": "LeftTrigger",
+        "label": "Block (Advanced rules)",
+        "movement": false,
+        "shares": [
+          "alt_attack",
+          "aim"
+        ]
+      },
+      {
+        "action": "kick",
+        "key": "",
+        "label": "Kick",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "duel_alt_attack",
+        "key": "LB+RightTrigger2",
+        "label": "Saber throw/kata/ranged feat",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "holster",
+        "key": "DPadDown",
+        "label": "Draw or holster weapon",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "next_form",
+        "key": "LB+LeftThumb",
+        "label": "Next Form",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "switch_weapons",
+        "key": "LB+DPadUp",
+        "label": "Switch weapons",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "right_hand",
+        "key": "",
+        "label": "Right hand",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "left_hand",
+        "key": "",
+        "label": "Left hand",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "inventory",
+        "key": "Select",
+        "label": "Inventory",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "equipment",
+        "key": "",
+        "label": "Equipment",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "character",
+        "key": "",
+        "label": "Character",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "messages",
+        "key": "",
+        "label": "Messages",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "journal",
+        "key": "",
+        "label": "Journal",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "map",
+        "key": "",
+        "label": "Map",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "party",
+        "key": "",
+        "label": "Party",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "abilities",
+        "key": "",
+        "label": "Abilities",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "quick_save",
+        "key": "LB+Start",
+        "label": "Quick save",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "quick_load",
+        "key": "",
+        "label": "Quick load",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "leader",
+        "key": "North",
+        "label": "Switch party leader",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "solo",
+        "key": "LB+LeftTrigger2",
+        "label": "Solo mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "follow",
+        "key": "LB+RightThumb",
+        "label": "Follow the next (watching)",
+        "movement": false,
+        "shares": [
+          "end_call"
+        ]
+      },
+      {
+        "action": "break",
+        "key": "",
+        "label": "Take a break",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "ready",
+        "key": "LB+Select",
+        "label": "Ready to go",
+        "movement": false,
+        "shares": [
+          "accept_call"
+        ]
+      },
+      {
+        "action": "view",
+        "key": "",
+        "label": "First person",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "photo_mode",
+        "key": "",
+        "label": "Photo mode",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "zoom_in",
+        "key": "",
+        "label": "Camera closer",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "zoom_out",
+        "key": "",
+        "label": "Camera farther",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "orbit",
+        "key": "RightThumb",
+        "label": "Look around (hold)",
+        "movement": false,
+        "shares": [
+          "saber_style"
+        ]
+      },
+      {
+        "action": "swap_shoulder",
+        "key": "",
+        "label": "Swap camera shoulder",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "hide_interface",
+        "key": "",
+        "label": "Hide interface",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "leave_talk",
+        "key": "East",
+        "label": "Leave a conversation",
+        "movement": false,
+        "shares": [
+          "saber_style",
+          "crouch"
+        ]
+      },
+      {
+        "action": "accept_call",
+        "key": "LB+Select",
+        "label": "Accept a join request",
+        "movement": false,
+        "shares": [
+          "ready"
+        ]
+      },
+      {
+        "action": "end_call",
+        "key": "LB+RightThumb",
+        "label": "End a join request",
+        "movement": false,
+        "shares": [
+          "follow"
+        ]
+      },
+      {
+        "action": "report",
+        "key": "",
+        "label": "Report a bug",
+        "movement": false,
+        "shares": []
+      },
+      {
+        "action": "screenshot",
+        "key": "",
+        "label": "Take a screenshot",
+        "movement": false,
+        "shares": []
+      }
+    ],
+    "pad_kind": "xbox",
+    "pad_names": [
+      [
+        "South",
+        "A"
+      ],
+      [
+        "East",
+        "B"
+      ],
+      [
+        "West",
+        "X"
+      ],
+      [
+        "North",
+        "Y"
+      ],
+      [
+        "LeftTrigger",
+        "LB"
+      ],
+      [
+        "RightTrigger",
+        "RB"
+      ],
+      [
+        "LeftTrigger2",
+        "LT"
+      ],
+      [
+        "RightTrigger2",
+        "RT"
+      ],
+      [
+        "Select",
+        "View"
+      ],
+      [
+        "Start",
+        "Menu"
+      ],
+      [
+        "LeftThumb",
+        "LS"
+      ],
+      [
+        "RightThumb",
+        "RS"
+      ],
+      [
+        "DPadUp",
+        "Up"
+      ],
+      [
+        "DPadDown",
+        "Down"
+      ],
+      [
+        "DPadLeft",
+        "Left"
+      ],
+      [
+        "DPadRight",
+        "Right"
+      ],
+      [
+        "Mode",
+        "Guide"
+      ]
+    ],
+    "pad_playing": false,
+    "pages": [],
+    "pages_datapad": false,
+    "party": [
+      {
+        "busy": null,
+        "class": [],
+        "debilitated": false,
+        "dresses": true,
+        "effects": [],
+        "fp": [
+          380,
+          380
+        ],
+        "hp": [
+          200,
+          200
+        ],
+        "id": 0,
+        "level": 20,
+        "may_level": false,
+        "name": [],
+        "played_by": null,
+        "poisoned": false,
+        "portrait": "po_pmha1"
+      }
+    ],
+    "party_selection": null,
+    "pazaak": null,
+    "perfect_mark": false,
+    "players": [],
+    "requests": null,
+    "reticle": null,
+    "saves": [],
+    "session": {
+      "campaign": null,
+      "error": null,
+      "image": "load_arena@tar_m03ae",
+      "progress": 1.0,
+      "status": "",
+      "version": "kjk v0.21.0 (374727db)"
+    },
+    "session_rules": "ja",
+    "settings": {
+      "camera.body_fade": "true",
+      "camera.fov": "0.40",
+      "camera.gun": "shoulder",
+      "camera.gun.fov": "0.40",
+      "camera.gun.height": "0.42",
+      "camera.gun.range": "0.20",
+      "camera.gun.shoulder": "0.78",
+      "camera.height": "0.50",
+      "camera.invert": "false",
+      "camera.preset": "ja",
+      "camera.range": "0.25",
+      "camera.shoulder": "0.50",
+      "camera.tracking": "ja",
+      "camera.view": "third",
+      "display.ambient_occlusion": "on",
+      "display.anisotropy": "16",
+      "display.corner_notices": "true",
+      "display.effects": "high",
+      "display.frame_limit": "0",
+      "display.gamma": "0.50",
+      "display.grass": "true",
+      "display.image_aspect": "true",
+      "display.lighting": "enhanced",
+      "display.menu_width": "16x9",
+      "display.mode": "window",
+      "display.msaa": "taa_balanced",
+      "display.shadows": "low",
+      "display.size": "",
+      "display.small_fonts": "auto",
+      "display.target_top": "true",
+      "display.text_scale": "100",
+      "display.vsync": "true",
+      "feedback.floating_numbers": "true",
+      "feedback.hide_menu_buttons": "false",
+      "feedback.hide_unequippable": "false",
+      "feedback.minimap": "true",
+      "feedback.status_summary": "true",
+      "feedback.tooltips": "true",
+      "feedback.tutorials": "true",
+      "game.autosave": "true",
+      "game.collision": "limited",
+      "game.damage_enemies": "100",
+      "game.damage_party": "100",
+      "game.duel_bars": "false",
+      "game.duel_slow_motion": "true",
+      "game.duel_warning": "false",
+      "game.join_talks": "true",
+      "game.saber_rules": "ja",
+      "game.show_replies": "true",
+      "game.stance_sets": "true",
+      "host.id": "e48d10752e710558",
+      "key.abilities": "KeyK",
+      "key.accept_call": "KeyY",
+      "key.aim": "MouseRight",
+      "key.alt_attack": "MouseRight",
+      "key.attack": "MouseLeft",
+      "key.backward": "KeyS",
+      "key.bar_1": "Digit1",
+      "key.bar_10": "Digit0",
+      "key.bar_2": "Digit2",
+      "key.bar_3": "Digit3",
+      "key.bar_4": "Digit4",
+      "key.bar_5": "Digit5",
+      "key.bar_6": "Digit6",
+      "key.bar_7": "Digit7",
+      "key.bar_8": "Digit8",
+      "key.bar_9": "Digit9",
+      "key.bar_setup": "none",
+      "key.block": "MouseRight",
+      "key.break": "KeyZ",
+      "key.character": "none",
+      "key.crouch": "KeyC",
+      "key.duel_alt_attack": "KeyR",
+      "key.end_call": "KeyN",
+      "key.equipment": "none",
+      "key.follow": "KeyN",
+      "key.forward": "KeyW",
+      "key.hide_interface": "none",
+      "key.holster": "KeyH",
+      "key.inventory": "KeyI",
+      "key.journal": "KeyJ",
+      "key.jump": "Space",
+      "key.kick": "KeyG",
+      "key.leader": "Tab",
+      "key.leave_talk": "KeyL",
+      "key.left": "KeyA",
+      "key.left_hand": "BracketLeft",
+      "key.map": "KeyM",
+      "key.messages": "none",
+      "key.next_feat": "KeyT",
+      "key.next_form": "KeyV",
+      "key.orbit": "AltLeft",
+      "key.party": "KeyP",
+      "key.photo_mode": "F2",
+      "key.quick_load": "F9",
+      "key.quick_save": "F5",
+      "key.ready": "KeyY",
+      "key.report": "F12",
+      "key.right": "KeyD",
+      "key.right_hand": "BracketRight",
+      "key.saber_style": "KeyL",
+      "key.screenshot": "PrintScreen",
+      "key.security": "KeyU",
+      "key.solo": "KeyQ",
+      "key.stealth": "KeyX",
+      "key.swap_shoulder": "MouseMiddle",
+      "key.switch_weapons": "KeyB",
+      "key.use": "KeyE",
+      "key.view": "F1",
+      "key.walk": "ShiftLeft",
+      "key.wheel": "KeyF",
+      "key.zoom_in": "Equal",
+      "key.zoom_out": "Minus",
+      "keys.layout": "8",
+      "mouse.sensitivity": "0.50",
+      "pad.abilities": "none",
+      "pad.accept_call": "LB+Select",
+      "pad.aim": "LeftTrigger2",
+      "pad.alt_attack": "LeftTrigger2",
+      "pad.attack": "RightTrigger2",
+      "pad.bar_1": "LB+South",
+      "pad.bar_10": "none",
+      "pad.bar_2": "LB+East",
+      "pad.bar_3": "LB+West",
+      "pad.bar_4": "LB+North",
+      "pad.bar_5": "none",
+      "pad.bar_6": "none",
+      "pad.bar_7": "none",
+      "pad.bar_8": "none",
+      "pad.bar_9": "none",
+      "pad.bar_setup": "none",
+      "pad.block": "LeftTrigger",
+      "pad.break": "none",
+      "pad.character": "none",
+      "pad.crouch": "East",
+      "pad.deadzone": "0.15",
+      "pad.duel_alt_attack": "LB+RightTrigger2",
+      "pad.end_call": "LB+RightThumb",
+      "pad.equipment": "none",
+      "pad.follow": "LB+RightThumb",
+      "pad.hide_interface": "none",
+      "pad.holster": "DPadDown",
+      "pad.inventory": "Select",
+      "pad.invert": "false",
+      "pad.journal": "none",
+      "pad.jump": "South",
+      "pad.kick": "none",
+      "pad.leader": "North",
+      "pad.leave_talk": "East",
+      "pad.left_hand": "none",
+      "pad.map": "none",
+      "pad.messages": "none",
+      "pad.next_feat": "DPadUp",
+      "pad.next_form": "LB+LeftThumb",
+      "pad.orbit": "RightThumb",
+      "pad.party": "none",
+      "pad.quick_load": "none",
+      "pad.quick_save": "LB+Start",
+      "pad.ready": "LB+Select",
+      "pad.report": "none",
+      "pad.right_hand": "none",
+      "pad.rumble": "true",
+      "pad.saber_style": "RightThumb",
+      "pad.screenshot": "none",
+      "pad.security": "LB+DPadDown",
+      "pad.sensitivity": "0.50",
+      "pad.solo": "LB+LeftTrigger2",
+      "pad.stealth": "LeftThumb",
+      "pad.swap_shoulder": "none",
+      "pad.switch_weapons": "LB+DPadUp",
+      "pad.use": "West",
+      "pad.view": "none",
+      "pad.wheel": "RightTrigger",
+      "pad.zoom_in": "none",
+      "pad.zoom_out": "none",
+      "saber.hilt.double": "",
+      "saber.hilt.single": "",
+      "setup.done": "1",
+      "sound.effects": "1.00",
+      "sound.movie": "1.00",
+      "sound.music": "1.00",
+      "sound.voice": "1.00"
+    },
+    "stances": [],
+    "store": null,
+    "summaries": [],
+    "target": null,
+    "transition": null,
+    "ultra_shadows": false,
+    "upgrades": [],
+    "viewed": 0,
+    "wheel": null,
+    "workbench": null
+  },
+  "window": [
+    1920.0,
+    1080.0
+  ]
+}

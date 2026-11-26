@@ -1,3 +1,10 @@
 # The stories of the screens in crates/ui/src/screens/floaty.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack, so `kjk gui screen` cannot open it. Its stories come with captures of play."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures): a Sith trooper spawned in the Taris arena has just shot the main character."
+
+[[story]]
+name = "Damage taken in the arena"
+screen = "play"
+games = ["k1"]
+capture = "taris-arena-fight"
+pad_capture = "taris-arena-fight-pad"

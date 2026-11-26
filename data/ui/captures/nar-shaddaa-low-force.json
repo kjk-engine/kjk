@@ -1,4 +1,5 @@
 {
+  "game": "tsl",
   "scale_factor": 1.0,
   "view": {
     "antialias": [
@@ -1512,7 +1513,7 @@
       "image": "load_301nar",
       "progress": 1.0,
       "status": "",
-      "version": "kjk v0.21.0 (5ab8992a)"
+      "version": "kjk v0.21.0 (374727db)"
     },
     "session_rules": "ja",
     "settings": {

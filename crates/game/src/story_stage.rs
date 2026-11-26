@@ -235,6 +235,9 @@ impl Staged {
                 stack.step(assets, vm, quiet);
             }
             Some(("wheel", what)) => wheel_step(vm, what)?,
+            // A terminal's camera feed over play, as the game turns it on
+            // while a computer conversation shows a camera.
+            Some(("feed", "on")) => vm.camera_feed = true,
             Some(("level", _)) => {}
             Some(("stands", folder)) => {
                 if let Some(me) = vm.character.as_mut() {
@@ -328,7 +331,7 @@ impl Staged {
             }
             _ => {
                 return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close` or `pazaak turn N`"
+                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
                 ));
             }
         }

@@ -1,3 +1,10 @@
 # The stories of the screens in crates/ui/src/screens/arena_line.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack, so `kjk gui screen` cannot open it. Its stories come with captures of play."
+notes = "It is drawn over play, outside the screen stack, on the floors stage. Its stories open the screen `play` on a capture of play (data/ui/captures) on the stage `floors`."
+
+[[story]]
+name = "The floors stage"
+screen = "play"
+games = ["k1"]
+capture = "floors-stage"
+pad_capture = "floors-stage-pad"

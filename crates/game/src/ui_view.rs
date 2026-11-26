@@ -630,7 +630,11 @@ fn requests(
             // docs/UI.md, "Captures of play".
             ["capture", name] => {
                 let window = [ui.floating.window.0, ui.floating.window.1];
-                let capture = ui::catalogue::Capture::of(&ui.vm, window, ui.scale_factor);
+                let game = ui
+                    .assets
+                    .as_ref()
+                    .map_or(vfs::Game::Kotor1, |assets| assets.game);
+                let capture = ui::catalogue::Capture::of(&ui.vm, game, window, ui.scale_factor);
                 let written = (ui.assets.as_ref().and_then(GuiAssets::talk))
                     .ok_or("no talk table to name the game's words by".to_string())
                     .and_then(|tlk| {

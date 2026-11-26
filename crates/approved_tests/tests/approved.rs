@@ -3871,8 +3871,9 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// view-model or on its capture, or names the screen over play
 /// (`ui::catalogue::PLAY`). Each
 /// capture of play a story names is in `data/ui/captures`, reads, reads the
-/// same once written again, and was taken with its input: the mouse for
-/// `capture`, a pad for `pad_capture`. It needs no game data: the lines of
+/// same once written again, was taken in each game the story is drawn on,
+/// and was taken with its input: the mouse for `capture`, a pad for
+/// `pad_capture`. It needs no game data: the lines of
 /// the talk table a capture names are read as stand-in words.
 #[test]
 fn ui_catalogue() {
@@ -3941,6 +3942,9 @@ fn ui_catalogue() {
                 let talk = ui::catalogue::StandInTalk;
                 let why = match ui::catalogue::read_capture(&folder, name, &talk) {
                     Err(why) => Some(why),
+                    Ok(capture) if story.games.iter().any(|game| *game != capture.game) => Some(
+                        format!("taken in {}, drawn on {:?}", capture.game, story.games),
+                    ),
                     Ok(capture) if capture.view.pad_playing != pad => Some(format!(
                         "taken with the {}",
                         if pad { "mouse" } else { "pad" }

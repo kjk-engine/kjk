@@ -1,3 +1,11 @@
 # The stories of the screens in crates/ui/src/screens/feed.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack, so `kjk gui screen` cannot open it. Its stories come with captures of play."
+notes = "It is drawn over play, outside the screen stack, while a computer conversation shows a camera. No capture has one yet: the only camera terminal the routes reach is on Onderon, deep in KOTOR 2. Its story turns the feed on by hand (`feed on`) over a capture of the Taris lower city. The feed reads nothing but the window and the clock."
+
+[[story]]
+name = "Over the Taris lower city"
+screen = "play"
+games = ["k1"]
+capture = "taris-lower-city-target"
+pad_capture = "taris-lower-city-target-pad"
+steps = ["feed on"]

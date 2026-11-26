@@ -157,8 +157,10 @@ was extended for the HUD's stories (https://github.com/kjk-engine/roadmap/issues
 and the owner approved the extension the same day. A story may now name the
 screen `play`, which is drawn over play and not opened in the stack. Each
 capture of play a story names must be in `data/ui/captures`, must read,
-must read the same once written again, and must have been taken with its
-input. The checks
+must read the same once written again, must have been taken in the game the
+story is drawn on, and must have been taken with its input. A story with a
+capture opens its screen on that capture rather than on an empty view
+model. The checks
 `tree_marks`, `tree_focus_links` and `palette_tokens` were added to
 `gui_layouts` the same day. They check the marks a painter leaves for the
 control trees, the focus links the trees record, and that the code's
