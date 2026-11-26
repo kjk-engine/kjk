@@ -469,12 +469,13 @@ pub(super) fn scripts(
         ResMut<StatesEnded>,
         Res<super::minigame::Struck>,
     ),
-    (casts, presses, begun, ordered, let_go): (
+    (casts, presses, begun, ordered, let_go, mut shot): (
         Res<Casts>,
         Res<super::covert::Presses>,
         Res<Rounds>,
         Res<Ordered>,
         Res<LetGo>,
+        ResMut<super::traps::Shot>,
     ),
     area: Res<super::Module>,
     mut next_id: ResMut<super::NextId>,
@@ -497,6 +498,8 @@ pub(super) fn scripts(
     >,
 ) {
     let level = &level.0;
+    // The mines players' bolts met this step, emptied whatever the level.
+    let shot = std::mem::take(&mut shot.0);
     let (Some(library), Some(module)) = (level.scripts(), level.module()) else {
         return;
     };
@@ -1201,6 +1204,7 @@ pub(super) fn scripts(
         &mut streams.authority,
     ) || handled;
     triggers(&view, level, library.items(), state, &mut out);
+    super::traps::shot(&view, state, &mut out, &shot);
     super::spawners::step(
         &view,
         level,

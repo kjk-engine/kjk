@@ -70,7 +70,7 @@ pub const SHADERS: &[(&str, &str)] = &[
     ("ui.wgsl", include_str!("ui.wgsl")),
     ("ui_composite.wgsl", include_str!("ui_composite.wgsl")),
     ("upscale.wgsl", include_str!("upscale.wgsl")),
-    ("upscale_sharpen.wgsl", include_str!("upscale_sharpen.wgsl")),
+    ("sharpen.wgsl", include_str!("sharpen.wgsl")),
     ("video_effect.wgsl", include_str!("video_effect.wgsl")),
 ];
 

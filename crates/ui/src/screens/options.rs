@@ -953,11 +953,13 @@ const PAGES: [Spec; 12] = [
 
 /// The Interface page's rows: the menu width, whether pictures keep their
 /// shape, the text size, the text scale, the notifications in the corner,
-/// the target block at the top centre, the frame rate limit, and whether
-/// the player joins nearby conversations in co-op. Each one but the last is
-/// off or at KOTOR 2's value while its setting is unset. The last is on
-/// while unset.
-const INTERFACE: [Line; 8] = [
+/// the target block at the top centre, the frame rate limit, the
+/// sharpening, and whether the player joins nearby conversations in co-op.
+/// Each one but the last is off or at KOTOR 2's value while its setting is
+/// unset. The last is on while unset. The sharpening is a graphics setting,
+/// but both graphics pages use every row of their layouts, so it sits here
+/// beside the frame rate limit.
+const INTERFACE: [Line; 9] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -993,7 +995,25 @@ const INTERFACE: [Line; 8] = [
         FRAME_LIMIT,
         Values::Rates(FRAME_LIMITS),
     ),
+    stepped(
+        strings::SHARPENING,
+        strings::SHARPENING_HELP,
+        SHARPENING,
+        Values::Named(SHARPENINGS),
+    ),
     ticked_on_by(JOIN_TALKS, strings::JOIN_TALKS, strings::JOIN_TALKS_HELP),
+];
+
+/// The key of Sharpening (`game::sharpen`): the strength from 0 to 1, 0.35
+/// while unset.
+pub const SHARPENING: &str = "display.sharpening";
+
+/// Sharpening's steps (`display.sharpening`). Medium is the default.
+const SHARPENINGS: &[(&str, &str)] = &[
+    ("0", strings::SHARPENING_OFF),
+    ("0.2", strings::SHARPENING_LOW),
+    ("0.35", strings::SHARPENING_MEDIUM),
+    ("0.6", strings::SHARPENING_HIGH),
 ];
 
 /// The key of "Join nearby conversations" (`game::dialogue_view`): `true`

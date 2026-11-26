@@ -158,6 +158,7 @@ mod particle_surfaces;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;
+pub mod reshade;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]
@@ -182,6 +183,7 @@ mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
 pub mod shadows;
+pub mod sharpen;
 mod shell;
 pub mod shot_fx;
 pub mod shots;

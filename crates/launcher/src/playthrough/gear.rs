@@ -413,6 +413,13 @@ pub(super) fn use_item(snapshot: &Snapshot, template: &str) -> Option<Action> {
 /// The armed, disarmable mine (a trap trigger) the party sees nearest `at`
 /// (metres), within 3 m of it: its object index.
 pub(super) fn mine_near(here: &Here, at: [f32; 2]) -> Option<u32> {
+    seen_mine_near(here, at, true).map(|(index, _)| index)
+}
+
+/// The armed mine the party sees nearest `at` (metres), within 3 m of it,
+/// and disarmable when `disarmable` says so: its object index and its
+/// middle (metres).
+pub(super) fn seen_mine_near(here: &Here, at: [f32; 2], disarmable: bool) -> Option<(u32, [f32; 3])> {
     use sim::trap;
     here.snapshot
         .entities
@@ -426,11 +433,11 @@ pub(super) fn mine_near(here: &Here, at: [f32; 2]) -> Option<u32> {
                 return None;
             }
             let facts = here.facts_of(entity)?;
-            facts.trap.as_ref().filter(|trap| trap.disarmable)?;
+            facts.trap.as_ref().filter(|trap| trap.disarmable || !disarmable)?;
             let centre = sim::traps::centre(&facts.geometry, entity.position);
             let d = (centre[0] - at[0]).hypot(centre[1] - at[1]);
-            (d <= 3.0).then_some((d, index))
+            (d <= 3.0).then_some((d, (index, centre)))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, index)| index)
+        .map(|(_, found)| found)
 }
