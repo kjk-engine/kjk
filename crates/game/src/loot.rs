@@ -253,10 +253,16 @@ fn show(
     swap: Option<Res<SceneSwap>>,
     mut ui: ResMut<Ui>,
     (mut pending, mut closing, mut given): (ResMut<Pending>, ResMut<Closing>, ResMut<Given>),
-    mut told: ResMut<Told>,
+    (mut told, console_log): (
+        ResMut<Told>,
+        Option<ResMut<crate::console_view::ConsoleLog>>,
+    ),
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let ui = &mut *ui;
+    if let Some(mut console_log) = console_log {
+        console_log.echo(&told.0);
+    }
     // A level refused is told in a message over the screen open, so the
     // player sees why the level-up screen closed without the level.
     if let Some(refused) = told.0.iter().find(|text| text.starts_with(LEVEL_REFUSED)) {
@@ -646,19 +652,42 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
 
 /// What became of a console command that changes the game, as the player
 /// reads it.
-fn cheat_words(outcome: sim::cheats::Outcome) -> &'static str {
+const CHEAT_WORDS: [(sim::cheats::Outcome, &str); 7] = {
     use sim::cheats::Outcome;
-    match outcome {
-        Outcome::Done => "The console command was carried out.",
-        Outcome::Off => "Cheats are off in this game.",
-        Outcome::HostOnly => "Only the host can use this command in this game.",
-        Outcome::NotYours => "That character belongs to another player.",
-        Outcome::Unknown => "Nothing here has that name.",
-        Outcome::Protected => "That character cannot be killed.",
-        Outcome::ArenaOnly => {
-            "This command works only on the Debug Mode map and the other combat test levels."
-        }
-    }
+    [
+        (Outcome::Done, "The console command was carried out."),
+        (Outcome::Off, "Cheats are off in this game."),
+        (
+            Outcome::HostOnly,
+            "Only the host can use this command in this game.",
+        ),
+        (
+            Outcome::NotYours,
+            "That character belongs to another player.",
+        ),
+        (Outcome::Unknown, "Nothing here has that name."),
+        (Outcome::Protected, "That character cannot be killed."),
+        (
+            Outcome::ArenaOnly,
+            "This command works only on the Debug Mode map and the other combat test levels.",
+        ),
+    ]
+};
+
+fn cheat_words(outcome: sim::cheats::Outcome) -> &'static str {
+    CHEAT_WORDS
+        .iter()
+        .find(|(each, _)| *each == outcome)
+        .map_or("", |(_, words)| words)
+}
+
+/// The cheat order's outcome that `text` tells of, if it tells of one
+/// (`console_view::ConsoleLog::echo`).
+pub(crate) fn cheat_outcome(text: &str) -> Option<sim::cheats::Outcome> {
+    CHEAT_WORDS
+        .iter()
+        .find(|(_, words)| *words == text)
+        .map(|(outcome, _)| *outcome)
 }
 
 /// How a refused level's words begin: the game shows them in a message box

@@ -53,6 +53,15 @@ pub(crate) fn list(first: Option<&str>, saves: &[SaveView], pointed: usize) -> C
     }
 }
 
+/// KOTOR 2's time played label, which kjk does not fill: "Cheats used" for
+/// a save that a console command changed, hidden for any other.
+pub(crate) fn cheats(save: Option<&SaveView>) -> ControlState {
+    match save.is_some_and(|save| save.cheats) {
+        true => text(strings::CHEATS_USED),
+        false => hidden(),
+    }
+}
+
 /// A module's loading image, where the save's screenshot would be.
 pub(crate) fn screenshot(module: Option<&str>) -> ControlState {
     image(module.map(|module| format!("load_{module}")))
@@ -150,8 +159,10 @@ impl Screen for SaveLoad {
                 save.or(vm.here.as_ref().filter(|_| self.saving))
                     .map_or("", |save| save.area.as_str()),
             ),
-            "LBL_PM1" | "LBL_PM2" | "LBL_PM3" | "LBL_PCNAME" | "LBL_TIMEPLAYED"
-            | "CB_CLOUDSAVE" | "BTN_FILTER" => hidden(),
+            "LBL_TIMEPLAYED" => cheats(save),
+            "LBL_PM1" | "LBL_PM2" | "LBL_PM3" | "LBL_PCNAME" | "CB_CLOUDSAVE" | "BTN_FILTER" => {
+                hidden()
+            }
             "LBL_AREANAME" => match (save, &vm.here) {
                 (Some(save), _) => text(&save.when),
                 (None, Some(here)) if self.saving => text(&here.area),

@@ -134,6 +134,9 @@ pub enum Action {
     Report,
     /// Save a picture of the window in the screenshots folder (`report`).
     Screenshot,
+    /// Open or close the console (`console_view`), once the Console option
+    /// is on.
+    Console,
 }
 
 /// The action bar's slots, from the first to the tenth.
@@ -162,7 +165,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 62] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 63] = [
     (
         Action::Forward,
         "forward",
@@ -579,6 +582,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 62] = [
         Some(Input::Key(KeyCode::PrintScreen)),
         false,
     ),
+    (
+        Action::Console,
+        "console",
+        "Console",
+        Some(Input::Key(KeyCode::Backquote)),
+        false,
+    ),
 ];
 
 /// Keys a binding may name, by the name the screens and the file use.
@@ -992,7 +1002,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 43] = [
+const DEFAULTS: [(&str, &str); 44] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -1024,6 +1034,7 @@ const DEFAULTS: [(&str, &str); 43] = [
     (ui::draw::CORNER_NOTICES, "true"),
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
+    (ui::screens::options::CONSOLE, "false"),
     (COLLISION, "limited"),
     (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
     (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
@@ -1237,7 +1248,12 @@ const RETIRED: [&str; 8] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
+        "options_gameplay" => &[
+            "camera.invert",
+            AUTOSAVE,
+            COLLISION,
+            ui::screens::options::CONSOLE,
+        ],
         "options_sabers" => &[
             SABER_RULES,
             DUEL_BARS,

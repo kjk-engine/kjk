@@ -16,7 +16,7 @@ use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
 use crate::screens::campaign;
 use crate::screens::main_menu::SEATS;
-use crate::screens::save_load::{list, screenshot};
+use crate::screens::save_load::{cheats, list, screenshot};
 use crate::screens::tab::{enabled, hidden, text};
 use crate::strings;
 use crate::vm::{SaveView, ViewModel};
@@ -140,8 +140,11 @@ impl Screen for NewOrLoad {
                 self.save(vm)
                     .map_or(vm.new_game.module.as_str(), |save| save.module.as_str()),
             )),
-            "LBL_PM1" | "LBL_PM2" | "LBL_PM3" | "LBL_PCNAME" | "LBL_TIMEPLAYED"
-            | "CB_CLOUDSAVE" | "BTN_FILTER" => hidden(),
+            "LBL_TIMEPLAYED" if self.host => hidden(),
+            "LBL_TIMEPLAYED" => cheats(self.save(vm)),
+            "LBL_PM1" | "LBL_PM2" | "LBL_PM3" | "LBL_PCNAME" | "CB_CLOUDSAVE" | "BTN_FILTER" => {
+                hidden()
+            }
             "BTN_DELETE" if self.host => text(format!("{} {}", strings::SEATS, self.seats)),
             "BTN_DELETE" => ControlState {
                 text: Some(strings::bytes(strings::DELETE)),

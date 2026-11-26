@@ -129,6 +129,14 @@ pub const STANCE_NEEDS: &str =
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
 pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+/// The console's option on the Gameplay page, its description, and the
+/// console's own title (`screens::console`).
+pub const CONSOLE: &str = "Console";
+pub const CONSOLE_HELP: &str = "Enables the console. Press {console} to open it.";
+pub const CONSOLE_TITLE: &str = "CONSOLE";
+/// A save made after a console command changed the game, on the save
+/// screens.
+pub const CHEATS_USED: &str = "Cheats used";
 pub const COLLISION_RESTRICTED: &str = "Collision: Restricted";
 pub const COLLISION_LIMITED: &str = "Collision: Limited";
 pub const COLLISION_HELP: &str = "Restricted: Characters collide with the world as in the original game. A jump cannot land on furniture or containers.\n\nLimited: A jump can land on tables, crates, containers and other objects.\n\nA change applies when you next start or load a game. In co-op, the host's collision applies.";

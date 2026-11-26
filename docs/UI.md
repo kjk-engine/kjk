@@ -1297,6 +1297,53 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).
 
+## The console
+
+The console is off until the player turns on Console on the Gameplay
+options page. That check box is KOTOR 2's unused level-up box. A run with a
+command script (`--cmds`) and a run with `KJK_CONSOLE=1` may use the console
+without the option. The console's key is the key left of the 1 key by
+default. The player can rebind it on the Key Mapping page. The same key and
+Escape close the console, and the key's own letter is never typed. A movie
+keeps the console from opening.
+
+The console drops down from the top of the window and is 40% of the
+window's height, and at least 8 lines of log. It is drawn over everything
+else: the HUD, the menus and a conversation. It is not a screen on the
+stack, so the screen under it stays open and takes no input until the
+console closes. It is drawn in KOTOR 2's colours whichever game is played.
+Its frame is the rim of KOTOR 2's option buttons. Its log is in the font of
+KOTOR 2's Messages log, and a mistake is in KOTOR 2's red. The log scrolls
+with the scroll bar of KOTOR 2's Messages page.
+
+While the console is open it takes every key, the mouse wheel and the mouse
+buttons, so no key acts in the game and the character stands still. The
+screens count it as open (`UiOpen`), so the cursor is free and the host
+counts the player as busy. The game does not pause for it.
+
+- Left, Right, Home and End move the caret. Backspace and Delete remove a
+  letter. The line is limited to 256 letters.
+- Enter runs the line. Up and Down go through the last 200 lines, which are
+  kept in `console-history.txt` beside the settings' file.
+- Ctrl+V (Cmd+V on a Mac) pastes. A paste of several lines runs each line,
+  up to 64 lines. Ctrl+C copies the line. Ctrl+L empties the log.
+- Page Up, Page Down and the mouse wheel scroll the log.
+- Tab completes the word before the caret. When several words match, up to
+  8 of them show in a box above the line, an item's name beside its
+  template. Tab, Shift+Tab, Up and Down choose one, and the pointer chooses
+  the one under it. Enter or a click takes it, and Escape closes the box.
+
+A headless run drives the console with `ui console open`, `ui console
+close`, `ui console type WORDS`, `ui console paste WORDS` (`\n` between
+lines) and `ui console key NAME`. NAME is one of tab, backtab, enter,
+backspace, delete, left, right, home, end, up, down, pageup, pagedown,
+escape, copy and clear (`game::console_view`, `ui::screens::console`).
+
+A save made after a console command changed the game says "Cheats used" on
+the Load Game, Save Game and Solo screens, in KOTOR 2's unused time played
+label. A bug report has a `console.txt` with that mark and the console's
+log.
+
 ## The minimap and the map page
 
 KOTOR's minimap at the HUD's top left (`ui::screens::hud::minimap`,

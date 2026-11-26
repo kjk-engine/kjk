@@ -42,6 +42,7 @@ const GROUPS: &[Group] = &[
     ("power_wheel", kjk_game::wheel_view::probes::probes),
     ("bindings", kjk_game::settings::binding_probes),
     ("hide interface", kjk_game::hide_probes),
+    ("console overlay", kjk_game::console_view::probes::probes),
     ("photo mode", kjk_game::photo_mode::probes),
     ("reshade", kjk_game::reshade::probes),
     ("stance sets table", kjk_game::stance_sets::probes),
