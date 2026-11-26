@@ -7976,6 +7976,18 @@ fn console_edit_quoted_words() {
         plain[0],
         console::Command::Edit(["select", "creature", "0"].map(String::from).to_vec())
     );
+    // A quote that is opened and never closed is an error that names its
+    // command. The rest of the script used to become part of that command.
+    let open = console::parse(
+        "wait 2f; edit conversation tst replies line 2 \"Who are you?; screenshot\nquit",
+    )
+    .unwrap_err();
+    assert_eq!(open.index, 2, "{open}");
+    assert_eq!(
+        open.text,
+        "edit conversation tst replies line 2 \"Who are you?; screenshot"
+    );
+    assert!(open.reason.contains("double quote"), "{open}");
 }
 
 /// A new map's room turned by any angle (`docs/LEVEL-EDIT.md`, "New maps"):

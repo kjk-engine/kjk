@@ -212,7 +212,12 @@ impl std::error::Error for ParseError {}
 
 /// A script's commands: its text cut at each `;` and each line's end that
 /// is not inside double quotes, so a conversation's line can hold a `;`.
-fn commands_of(script: &str) -> Vec<&str> {
+///
+/// A quote that is opened and not closed is an error, which names the
+/// command it is in. Without the error the rest of the script became
+/// part of that command, and a `quit` after it never ran. A quoted part
+/// cannot hold a double quote itself.
+fn commands_of(script: &str) -> Result<Vec<&str>, ParseError> {
     let mut pieces = Vec::new();
     let (mut start, mut quoted) = (0, false);
     for (at, c) in script.char_indices() {
@@ -225,12 +230,24 @@ fn commands_of(script: &str) -> Vec<&str> {
             _ => {}
         }
     }
-    pieces.push(&script[start..]);
-    pieces
-        .into_iter()
+    let last = script[start..].trim();
+    let mut commands: Vec<&str> = (pieces.into_iter())
         .map(str::trim)
         .filter(|piece| !piece.is_empty())
-        .collect()
+        .collect();
+    if quoted {
+        return Err(ParseError {
+            index: commands.len() + 1,
+            // The command's first line: the rest of the script is not its
+            // own.
+            text: last.lines().next().unwrap_or(last).to_string(),
+            reason: "a double quote is opened and not closed".to_string(),
+        });
+    }
+    if !last.is_empty() {
+        commands.push(last);
+    }
+    Ok(commands)
 }
 
 /// An `edit` command's words. A part between double quotes is one word,
@@ -271,7 +288,7 @@ fn edit_words(text: &str) -> Vec<String> {
 pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
     let mut commands = Vec::new();
     let (mut screenshots, mut dumps, mut films) = (0, 0, 0);
-    let pieces = commands_of(script);
+    let pieces = commands_of(script)?;
     for (index, text) in pieces.into_iter().enumerate() {
         let error = |reason: &str| ParseError {
             index: index + 1,
