@@ -56,7 +56,11 @@
 //!   mod made it, its planes, core and glow with their own textures and
 //!   TXI blending, in place of JA's glow and core (`BladeSpec::meshes`). It
 //!   grows, reaches and trails as JA's would, its trail and its light in
-//!   the colour of the hilt's light. A blade is lit
+//!   the colour of the hilt's light. A crossguard hilt's side blades (its
+//!   saber nodes that run across the hilt) are drawn too, each along its
+//!   own node, as long and as wide against the main blade as the model
+//!   has them, lit with the main blade; only the main blade cuts
+//!   (`BladeSpec::follows`). A blade is lit
 //!   as the sim lights it (`saber::blades::slots`: the saber on, a staff's
 //!   second blade unless put out, none while the saber is away, none once
 //!   its holder is dead), grows and shrinks as JA's do, and trails while the
@@ -108,6 +112,9 @@ pub struct Held {
     pub model: usize,
     pub name: String,
     pub blades: Vec<usize>,
+    /// For each of `blades`, the main blade it is lit with: its own number,
+    /// or for a crossguard's side blade its main blade's.
+    pub follows: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<PowerClips>,
@@ -131,6 +138,8 @@ pub struct Armed {
     pub root: Entity,
     pub name: String,
     pub blades: Vec<usize>,
+    /// For each of `blades`, the main blade it is lit with (`Held::follows`).
+    pub follows: Vec<usize>,
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<Power>,
@@ -158,6 +167,7 @@ impl Held {
                 .iter()
                 .map(|blade| first_blade + blade)
                 .collect(),
+            follows: self.follows.clone(),
             ends: self.ends.clone(),
             gun: self.gun.clone(),
             power: self.power.as_ref().map(|clips| clips.bind(nodes)),
@@ -880,7 +890,15 @@ fn texture_colour(texture: &TextureIr) -> Option<[f32; 3]> {
 /// double-bladed hilt's second blade) down −Z, each from its end nearest
 /// the grip, as long. A blade the mod ships (see the module documentation)
 /// takes its meshes on its side of the grip, and the hilt loses them too.
-/// `None` for a model without blades (anything but a lightsaber).
+///
+/// A crossguard hilt has more blades: short ones whose nodes run across
+/// the hilt (their +Z more than 45° off the hilt's). Each node place and
+/// direction they share is a side blade (`BladeSpec::follows`), drawn from
+/// where its planes start, along its node's +Z, as long as its planes and
+/// as wide against the main blade as they are, with its own shipped
+/// meshes. It is lit with the main blade on its side of the grip. The main
+/// blades come first. `None` for a model without blades (anything but a
+/// lightsaber).
 pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
     let textures: Vec<String> = ir.saber_textures().map(str::to_string).collect();
     let is_blade = |mesh: &MeshIr| {
@@ -913,19 +931,30 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             .map(Vec3::from_array)
             .collect()
     };
-    // Each blade mesh's points, and each saber mesh's box's corners (a
-    // hilt whose planes are all saber meshes has only those).
-    let planes = ir
-        .meshes
-        .iter()
-        .filter(|m| is_blade(m))
-        .map(|mesh| {
-            mesh.positions
-                .iter()
-                .map(|&p| place(mesh.node, p))
-                .collect::<Vec<_>>()
-        })
-        .chain(parts.iter().map(points));
+    // Where a node sits and which way its +Z runs, in the model's space.
+    let node_line = |node: usize| {
+        let w = &ir.nodes[node].world;
+        let at = Vec3::new(w[0][3], w[1][3], w[2][3]);
+        let along = Vec3::new(w[0][2], w[1][2], w[2][2]).normalize_or_zero();
+        (at, along)
+    };
+    let across = |node: usize| node_line(node).1.z.abs() < std::f32::consts::FRAC_1_SQRT_2;
+    // Each plane of the blades' texture with its node, in the model's
+    // space: as the hilt rests, and as its power clips grow it.
+    let rest_planes = ir.meshes.iter().filter(|m| is_blade(m)).map(|mesh| {
+        let points = mesh.positions.iter().map(|&p| place(mesh.node, p));
+        (mesh.node, points.collect::<Vec<_>>())
+    });
+    let grown_planes = (ir.folded.iter())
+        .filter(|mesh| is_blade(mesh))
+        .map(|mesh| (mesh.node, points(&in_model(&ir, mesh))));
+    let planes: Vec<(usize, Vec<Vec3>)> = rest_planes.collect();
+    let grown_planes: Vec<(usize, Vec<Vec3>)> = grown_planes.collect();
+    // Each piece of a blade: its node and its points in the model's space.
+    // Every blade plane, every shipped mesh, and each saber mesh's box's
+    // corners (a hilt whose planes are all saber meshes has only those).
+    // A side blade without shipped meshes is its planes as the power clips
+    // grow them too: some hilts rest with their planes shrunk to nothing.
     let boxes = ir.refusals.iter().filter_map(|(_, refusal)| {
         let Refusal::SaberBlade {
             node, bounds: b, ..
@@ -939,18 +968,26 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             let pick = |axis: usize| b[axis + 3 * ((c >> axis) & 1)];
             place(node, [pick(0), pick(1), pick(2)])
         });
-        Some(corners.collect())
+        Some((node, corners.collect()))
     });
+    let grown = (grown_planes.iter())
+        .filter(|(node, _)| !shipped && across(*node))
+        .cloned();
+    let pieces: Vec<(usize, Vec<Vec3>)> = (planes.iter().cloned())
+        .chain(parts.iter().map(|mesh| (mesh.node, points(mesh))))
+        .chain(boxes)
+        .chain(grown)
+        .collect();
     // Above the grip (0) or below it (1).
     let group_of = |points: &[Vec3]| {
         let centre = points.iter().sum::<Vec3>() / points.len().max(1) as f32;
         usize::from(centre.z < 0.0)
     };
-    // (low, high) of the blades above and below the grip.
+    // (low, high) of the main blades above and below the grip.
     let mut groups = [(Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)); 2];
-    for points in planes.chain(boxes) {
-        let group = &mut groups[group_of(&points)];
-        for p in points {
+    for (_, points) in pieces.iter().filter(|(node, _)| !across(*node)) {
+        let group = &mut groups[group_of(points)];
+        for &p in points {
             group.0 = group.0.min(p);
             group.1 = group.1.max(p);
         }
@@ -963,37 +1000,42 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             .find(|light| group_of(&[place(light.node, [0.0; 3])]) == below)
             .map(|light| light.color)
     };
-    let blades: Vec<BladeSpec> = groups
-        .iter()
-        .enumerate()
-        .filter(|(_, (low, high))| low.z <= high.z)
-        .map(|(below, (low, high))| {
-            let centre = (*low + *high) / 2.0;
-            let (start, dir) = if below == 0 {
-                (low.z, 1.0)
-            } else {
-                (high.z, -1.0)
-            };
-            let meshes: Vec<MeshIr> = (parts.iter())
-                .filter(|mesh| group_of(&points(mesh)) == below)
-                .cloned()
-                .collect();
-            let light = light(below).filter(|_| !meshes.is_empty());
-            // How far its core reaches (its glow and planes, without one):
-            // the end of the blade as it shows.
-            let reach = |mesh: &MeshIr| {
-                (mesh.positions.iter())
-                    .map(|&p| (p[2] - start) * dir)
-                    .fold(0.0, f32::max)
-            };
-            let cores = meshes.iter().filter(|mesh| !is_blade(mesh));
-            let reach = (cores.map(reach).reduce(f32::max))
-                .or_else(|| meshes.iter().map(reach).reduce(f32::max))
-                .unwrap_or(0.0);
+    // How far a blade's core reaches from `origin` along `dir` (its glow
+    // and planes, without one): the end of the blade as it shows.
+    let reach_of = |meshes: &[MeshIr], origin: Vec3, dir: Vec3| {
+        let reach = |mesh: &MeshIr| {
+            (mesh.positions.iter())
+                .map(|&p| (Vec3::from_array(p) - origin).dot(dir))
+                .fold(0.0, f32::max)
+        };
+        let cores = meshes.iter().filter(|mesh| !is_blade(mesh));
+        (cores.map(reach).reduce(f32::max))
+            .or_else(|| meshes.iter().map(reach).reduce(f32::max))
+            .unwrap_or(0.0)
+    };
+    // The size of the planes `ours` takes, resting or grown, about a
+    // blade's line: how wide they spread from it, and how long they run
+    // along it.
+    let size_of = |ours: &dyn Fn(usize, &[Vec3]) -> bool, origin: Vec3, dir: Vec3| {
+        let points = (planes.iter().chain(&grown_planes))
+            .filter(|(node, points)| ours(*node, points))
+            .flat_map(|(_, points)| points);
+        let (mut width, mut low, mut high) = (0.0f32, f32::MAX, f32::MIN);
+        for &p in points {
+            width = width.max((p - origin).reject_from_normalized(dir).length());
+            let along = (p - origin).dot(dir);
+            (low, high) = (low.min(along), high.max(along));
+        }
+        (width, (high - low).max(0.0))
+    };
+    let spec =
+        |origin: Vec3, dir: Vec3, length: f32, meshes: Vec<MeshIr>, light: Option<[f32; 3]>| {
+            let light = light.filter(|_| !meshes.is_empty());
+            let reach = reach_of(&meshes, origin, dir);
             let spec = BladeSpec::new(
-                [centre.x, centre.y, start],
-                [0.0, 0.0, dir],
-                (high.z - low.z) / asset_ja::UNIT,
+                origin.to_array(),
+                dir.to_array(),
+                length / asset_ja::UNIT,
                 3.0,
                 color,
             );
@@ -1004,16 +1046,107 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
                 reach,
                 ..spec
             }
-        })
-        .collect();
+        };
+    let mut mains = Vec::new();
+    let mut blades: Vec<BladeSpec> = Vec::new();
+    for (below, (low, high)) in groups.iter().enumerate() {
+        if low.z > high.z {
+            continue;
+        }
+        let centre = (*low + *high) / 2.0;
+        let (start, dir) = if below == 0 {
+            (low.z, Vec3::Z)
+        } else {
+            (high.z, Vec3::NEG_Z)
+        };
+        let origin = Vec3::new(centre.x, centre.y, start);
+        let meshes: Vec<MeshIr> = (parts.iter())
+            .filter(|mesh| !across(mesh.node) && group_of(&points(mesh)) == below)
+            .cloned()
+            .collect();
+        let main = |node: usize, points: &[Vec3]| !across(node) && group_of(points) == below;
+        let size = size_of(&main, origin, dir);
+        mains.push((below, size));
+        // A hilt resting with its planes shrunk to nothing is as long as
+        // its grown planes.
+        let length = Some(high.z - low.z).filter(|&length| length > 0.0);
+        blades.push(spec(
+            origin,
+            dir,
+            length.unwrap_or(size.1),
+            meshes,
+            light(below),
+        ));
+    }
     if blades.is_empty() {
         return None;
+    }
+    // The side blades: the pieces across the hilt, by the node place and
+    // direction they share.
+    let mut sides: Vec<(Vec3, Vec3, Vec<usize>)> = Vec::new();
+    for &(node, _) in pieces.iter().filter(|(node, _)| across(*node)) {
+        let (at, along) = node_line(node);
+        let same = |(a, d, _): &&mut (Vec3, Vec3, Vec<usize>)| {
+            a.distance(at) < SIDE_SAME_PLACE && d.dot(along) > SIDE_SAME_WAY
+        };
+        match sides.iter_mut().find(same) {
+            Some((_, _, nodes)) => nodes.push(node),
+            None => sides.push((at, along, vec![node])),
+        }
+    }
+    for (at, along, nodes) in sides {
+        let ours = |node: usize, _: &[Vec3]| nodes.contains(&node);
+        let spread: Vec<f32> = (pieces.iter())
+            .filter(|(node, _)| nodes.contains(node))
+            .flat_map(|(_, points)| points.iter().map(|&p| (p - at).dot(along)))
+            .collect();
+        let (low, high) = spread
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        // The blade runs the way most of it lies from its node.
+        let (dir, start, length) = if high >= -low {
+            (along, low.max(0.0), high - low.max(0.0))
+        } else {
+            (-along, (-high).max(0.0), -low - (-high).max(0.0))
+        };
+        if length <= 0.0 {
+            continue;
+        }
+        let origin = at + dir * start;
+        let below = group_of(&[origin]);
+        let follows = (mains.iter())
+            .position(|(group, _)| *group == below)
+            .unwrap_or(0);
+        let (main_width, main_span) = mains[follows].1;
+        let (width, span) = size_of(&ours, origin, dir);
+        let meshes: Vec<MeshIr> = (parts.iter())
+            .filter(|mesh| nodes.contains(&mesh.node))
+            .cloned()
+            .collect();
+        let main = &blades[follows];
+        let side = spec(origin, dir, length, meshes, light(below));
+        // Its size against the main blade's, by their planes.
+        let share = |side: f32, main: f32| (side > 0.0 && main > 0.0).then(|| side / main);
+        blades.push(BladeSpec {
+            length: share(span, main_span).map_or(side.length, |share| main.length * share),
+            radius: main.radius * share(width, main_width).unwrap_or(1.0),
+            follows: Some(follows),
+            ..side
+        });
     }
     let grown: Vec<usize> = parts.iter().map(|mesh| mesh.node).collect();
     ir.meshes
         .retain(|m| !is_blade(m) && !grown.contains(&m.node));
     Some((ir, blades))
 }
+
+/// Two side blade pieces whose nodes are closer than this (metres) and
+/// run the same way (`SIDE_SAME_WAY`) are one blade.
+const SIDE_SAME_PLACE: f32 = 0.005;
+
+/// The cosine of the angle under which two side blade nodes run the same
+/// way.
+const SIDE_SAME_WAY: f32 = 0.99;
 
 /// `p` through `w`: a point moved by its translation too (`point` 1), a
 /// direction only turned (`point` 0).
@@ -1053,17 +1186,20 @@ pub fn arm(
             model: model?,
             name: placed.ir.name.clone(),
             blades: Vec::new(),
+            follows: Vec::new(),
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
             power: PowerClips::of(&placed.ir),
             lay: [Transform::IDENTITY; 2],
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
+            let (specs, sides): (Vec<BladeSpec>, Vec<BladeSpec>) =
+                specs.into_iter().partition(|spec| spec.follows.is_none());
             // A JA hilt the settings name in its place (`Sabers::hilts`),
-            // its blades leaving it where JA's do.
-            let (hilt, specs) = match sabers.hilt_for(&held.name, specs.len()) {
-                Some(ja) => (ja.model(&hilt), ja.blades(&specs)),
-                None => (hilt, specs),
+            // its blades leaving it where JA's do; it has no side blades.
+            let (hilt, specs, sides) = match sabers.hilt_for(&held.name, specs.len()) {
+                Some(ja) => (ja.model(&hilt), ja.blades(&specs), Vec::new()),
+                None => (hilt, specs, sides),
             };
             placed.ir = hilt;
             // A lightsaber's power is its JA blade, lit as the sim lights it.
@@ -1078,6 +1214,7 @@ pub fn arm(
                 }
                 _ => None,
             };
+            let mut drawn = Vec::new();
             for (n, spec) in specs.into_iter().enumerate() {
                 let longer = middle.zip(ja.ends.get(n)).map_or(0.0, |(middle, end)| {
                     (Vec3::from_array(end.0).length()
@@ -1100,14 +1237,47 @@ pub fn arm(
                     held.name, spec.glow, spec.origin, spec.dir, spec.length
                 ));
                 held.blades.push(blades.len());
+                held.follows.push(n);
                 held.ends
                     .push((Vec3::from_array(spec.origin), Vec3::from_array(spec.dir)));
+                let length = length.unwrap_or(spec.length);
+                drawn.push((spec.length, spec.reach, spec.radius, length));
                 blades.push(BladeSpec {
                     model: held.model,
-                    length: length.unwrap_or(spec.length),
+                    length,
                     radius: ja.radius,
                     live: true,
                     ..spec
+                });
+            }
+            // A crossguard's side blades keep their size against the main
+            // blade they are lit with, as the model has them: their shipped
+            // cores' reach against its core's, else their planes' length
+            // against its planes'.
+            for side in sides {
+                let n = side.follows.unwrap_or(0);
+                let Some(&(planes, reach, radius, length)) = drawn.get(n) else {
+                    continue;
+                };
+                let share = if side.reach > 0.0 && reach > 0.0 {
+                    side.reach / reach
+                } else if planes > 0.0 {
+                    side.length / planes
+                } else {
+                    continue;
+                };
+                notes.push(format!(
+                    "{}: side blade of blade {n} from {:?} along {:?}, KOTOR's planes {:.1} units",
+                    held.name, side.origin, side.dir, side.length
+                ));
+                held.blades.push(blades.len());
+                held.follows.push(n);
+                blades.push(BladeSpec {
+                    model: held.model,
+                    length: length * share,
+                    radius: ja.radius * side.radius / radius,
+                    live: true,
+                    ..side
                 });
             }
         }
@@ -1444,6 +1614,8 @@ struct Wield {
     root: Entity,
     name: String,
     blades: Vec<usize>,
+    /// For each of `blades`, the main blade it is lit with.
+    follows: Vec<usize>,
     ends: Vec<BladeEnd>,
     gun: Option<GunShape>,
     /// The hand node it hangs from, and its place under it.
@@ -1697,6 +1869,7 @@ impl Wielded {
                 root: armed.root,
                 name: armed.name,
                 blades: armed.blades,
+                follows: armed.follows,
                 ends: armed.ends,
                 gun: armed.gun,
                 power: armed.power,
@@ -1770,6 +1943,7 @@ impl Wielded {
                 root: wield.root,
                 name: wield.name,
                 blades: wield.blades,
+                follows: wield.follows,
                 ends: wield.ends,
                 gun: wield.gun,
                 power: wield.power,
@@ -1981,7 +2155,7 @@ impl Wielded {
                 }
                 _ => {}
             }
-            for (n, &spec) in wield.blades.iter().enumerate() {
+            for (index, (&spec, &n)) in wield.blades.iter().zip(&wield.follows).enumerate() {
                 let sim = lit.iter().position(|lit| {
                     lit.is_some_and(|lit| lit.id.hand == hand && lit.id.blade == n)
                 });
@@ -1989,7 +2163,10 @@ impl Wielded {
                 // first alone (`cg_players.c`: the others drawn at length 0).
                 let flies_lit = flying && (n == 0 || !saber.second_off);
                 let on = at.alive && shown && (flies_lit || sim.is_some());
-                if let Some(sim) = sim.filter(|_| on && !flying) {
+                // A side blade is drawn with its main blade, which alone
+                // cuts.
+                let main = index == n;
+                if let Some(sim) = sim.filter(|_| on && !flying && main) {
                     drawn.blades.push((sim, spec));
                 }
                 if let Some(live) = props.lives.0.get_mut(spec) {
@@ -1998,7 +2175,7 @@ impl Wielded {
                         trail_ms: if flying { THROWN_TRAIL_MS } else { trail_ms },
                     };
                 }
-                drawn.lit += usize::from(on);
+                drawn.lit += usize::from(on && main);
             }
         }
         self.drawn = drawn;
@@ -2140,6 +2317,7 @@ pub fn blade_probes() -> sim::probe::Checks {
         ("double blades sharing a name", made_double_blades()),
         ("vanilla double blades renamed", renamed_double_blades()),
         ("a shipped blade's decal core glows", shipped_decal_core()),
+        ("a crossguard's side blades", crossguard_blades()),
     ]
 }
 
@@ -2252,6 +2430,86 @@ fn shipped_decal_core() -> Result<String, String> {
     sim::probe::check(
         part.self_illum == [0.0; 3] && decal == [1.0; 3] && plain == [0.0; 3],
         format!("decal {decal:?}, not a decal {plain:?}"),
+    )
+}
+
+/// A made-up crossguard hilt: a main saber node 0.1 above the grip with a
+/// blade box 1.0 long running up, and two side saber nodes 0.08 above the
+/// grip and 0.03 to either side, turned so their +Z runs along +Y and −Y,
+/// each with a blade box 0.2 long. It builds the main blade first, running
+/// up +Z, and then one side blade for each side node, lit with the main
+/// blade. Each side blade starts at its node and runs along its node's +Z
+/// for 0.2. Held, the main blade is drawn as long as JA's, and each side
+/// blade as much shorter as its box is against the main blade's.
+#[cfg(feature = "probes")]
+fn crossguard_blades() -> Result<String, String> {
+    let mut root = probe_node("w_lghtsbr_probe", [0.0; 3], None);
+    let main = fmt_odyssey::mdl::Mesh {
+        bounds: [-0.01, -0.01, 0.0, 0.01, 0.01, 1.0],
+        ..probe_mesh("w_lsabre_red01", true)
+    };
+    root.children
+        .push(probe_node("plane1", [0.0, 0.0, 0.1], Some(main)));
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    for (y, turn) in [(0.03, -half), (-0.03, half)] {
+        let side = fmt_odyssey::mdl::Mesh {
+            bounds: [-0.01, -0.01, 0.0, 0.01, 0.01, 0.2],
+            ..probe_mesh("w_lsabre_red01", true)
+        };
+        root.children.push(fmt_odyssey::mdl::Node {
+            orientation: [half, turn, 0.0, 0.0],
+            ..probe_node("plane2", [0.0, y, 0.08], Some(side))
+        });
+    }
+    let ir = ModelIr::from_model(&probe_model(root));
+    let (_, kotor) = kotor_blades(ir.clone()).ok_or("no blades")?;
+    let near = |a: [f32; 3], b: [f32; 3]| Vec3::from_array(a).distance(Vec3::from_array(b)) < 1e-3;
+    let side_length = 0.2 / asset_ja::UNIT;
+    let built = kotor.len() == 3
+        && kotor[0].follows.is_none()
+        && near(kotor[0].dir, [0.0, 0.0, 1.0])
+        && (kotor[1..]
+            .iter()
+            .zip([[0.0, 0.03, 0.08], [0.0, -0.03, 0.08]]))
+        .all(|(side, origin)| {
+            side.follows == Some(0)
+                && near(side.origin, origin)
+                && near(side.dir, [0.0, origin[1].signum(), 0.0])
+                && (side.length - side_length).abs() < 1e-2
+        });
+    let saber = JaSaber {
+        lengths: vec![40.0],
+        radius: 3.0,
+        ends: vec![([0.0; 3], [0.0, 0.0, 1.0])],
+    };
+    let sabers = Sabers {
+        single: saber.clone(),
+        staff: saber,
+        hilts: BTreeMap::new(),
+    };
+    let mut models = vec![Placed::at(ir, [0.0; 3])];
+    let mut blades = Vec::new();
+    let [held, _] = arm(
+        &mut models,
+        &mut blades,
+        [Some(0), None],
+        &sabers,
+        &mut Vec::new(),
+    );
+    let held = held.ok_or("not armed")?;
+    let drawn_side = side_length * 40.0 / kotor[0].length;
+    let armed = held.follows == [0, 0, 0]
+        && held.ends.len() == 1
+        && blades.len() == 3
+        && (blades[0].length - 40.0).abs() < 1e-3
+        && (blades[1..].iter()).all(|side| (side.length - drawn_side).abs() < 1e-2);
+    let lengths: Vec<f32> = blades.iter().map(|blade| blade.length).collect();
+    sim::probe::check(
+        built && armed,
+        format!(
+            "built {:?}, drawn lengths {lengths:.2?}",
+            blade_lines(&kotor)
+        ),
     )
 }
 
@@ -2382,7 +2640,8 @@ fn back_lays() -> Result<String, String> {
 /// hilt a `saber.hilt.*` setting puts in its place. Heart of the Guardian's
 /// hilts carry the gold texture and Mantle of the Force's the turquoise
 /// one: colours JA has no blade of, which the blade takes from the texture
-/// itself (`own_colour`), so orange and cyan.
+/// itself (`own_colour`), so orange and cyan. None of them has a
+/// crossguard's side blades.
 #[cfg(feature = "probes")]
 fn crystal_blades() -> Result<String, String> {
     use sim::probe::check;
@@ -2461,6 +2720,10 @@ fn crystal_blades_in(
             });
             if !hued {
                 wrong.push(format!("{game} {label} {template}: {want:?}"));
+            }
+            // No hilt of the games has a crossguard.
+            if kotor.iter().any(|blade| blade.follows.is_some()) {
+                wrong.push(format!("{game} {label} {template}: side blades"));
             }
             // A JA hilt stands in: a model without KOTOR's blades.
             let ja = Arc::new(JaHilt {

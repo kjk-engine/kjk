@@ -386,7 +386,11 @@ fn photo_camera() {
 /// the same two blades as with its own names. A blade core that a mod
 /// ships with its hilt, with no self-illumination and a decal texture,
 /// glows at full light (the Schematic Lightsaber Mod's cores; proposed
-/// 2026-11-25, awaiting approval). Needs `--features rig`
+/// 2026-11-25, awaiting approval). A made-up crossguard hilt builds its
+/// main blade and a side blade for each of its two side nodes, each side
+/// blade along its own node and as long as its own box, lit with the main
+/// blade (Crazy34's crossguard lightsabers; proposed 2026-11-26, awaiting
+/// approval). Needs `--features rig`
 /// (proposed 2026-11-21, awaiting approval).
 #[test]
 fn double_blades_sharing_a_name() {
@@ -395,7 +399,7 @@ fn double_blades_sharing_a_name() {
         "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
     );
     #[cfg(feature = "rig")]
-    probed("saber blades", &kjk_game::weapons::blade_probes(), 3);
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 4);
 }
 
 /// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).

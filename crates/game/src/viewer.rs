@@ -625,6 +625,10 @@ pub struct BladeSpec {
     /// stretched along the blade so the core ends where the blade does.
     /// 0 for a blade drawn as JA's.
     pub reach: f32,
+    /// For a crossguard's side blade, the main blade it is lit with (its
+    /// index among the hilt's blades); `None` for a main blade
+    /// (`weapons::kotor_blades`).
+    pub follows: Option<usize>,
 }
 
 impl BladeSpec {
@@ -655,6 +659,7 @@ impl BladeSpec {
             own: None,
             meshes: Vec::new(),
             reach: 0.0,
+            follows: None,
         }
     }
 }
