@@ -1143,9 +1143,27 @@ impl Engine<'_> {
     }
 
     /// How `from` regards `to` by their factions (a trap's as its script
-    /// asks, `k_trp_generic`'s `GetIsNeutral`).
+    /// asks, `k_trp_generic`'s `GetIsNeutral`), as `module::relation` has
+    /// it: two members of the party are friends, and a member of the party
+    /// (a TSL puppet that joined too) stands as the player's faction.
     fn regard(&self, from: ObjectId, to: ObjectId) -> Option<Regard> {
-        let (from, to) = (self.faction(from)?, self.faction(to)?);
+        let side = |id: ObjectId| {
+            let puppet =
+                (self.state.party.puppet_creatures()).any(|(_, creature)| creature == id.0);
+            Some(crate::module::Side {
+                id: id.0,
+                faction: self.faction(id)?,
+                party: puppet || super::in_party(self.view, self.state, id),
+            })
+        };
+        let (from, to) = (side(from)?, side(to)?);
+        if from.party && to.party {
+            return Some(Regard::Friend);
+        }
+        let (from, to) = (
+            crate::module::party_faction(from),
+            crate::module::party_faction(to),
+        );
         let repute = self.view.module.repute.with(&self.state.reputation);
         Some(if repute.hostile(from, to) {
             Regard::Enemy
@@ -1873,7 +1891,9 @@ impl Engine<'_> {
         let catalog = self.library.items();
         let feats = self.character(who).map(|c| c.feats);
         let worn = self.state.in_slot(who.0, slot);
-        let carried = self.state.carried(items::holder(self.view, who));
+        let carried = self
+            .state
+            .carried(items::holder(self.view, &self.state.party, who));
         let weapons: Vec<(ObjectId, crate::combat::Weapon)> = worn
             .into_iter()
             .chain(carried)
@@ -1918,7 +1938,7 @@ impl Engine<'_> {
         let worn = self.state.in_slot(who.0, slots::BODY);
         let bar = worn.and_then(&class).map_or(0, |(_, class)| class);
         self.state
-            .carried(items::holder(self.view, who))
+            .carried(items::holder(self.view, &self.state.party, who))
             .into_iter()
             .filter_map(|id| {
                 let (facts, class) = class(id)?;
@@ -4910,7 +4930,7 @@ impl Engine<'_> {
                     .flatten();
                 if let Some(best) = best {
                     let best = self.state.one_of(best);
-                    let back = items::holder(view, caller);
+                    let back = items::holder(view, &self.state.party, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (best.0, slot));
                 }
@@ -4923,7 +4943,7 @@ impl Engine<'_> {
                 use crate::inventory::slots;
                 if let Some(best) = self.most_effective_armour(caller) {
                     let best = self.state.one_of(best);
-                    let back = items::holder(view, caller);
+                    let back = items::holder(view, &self.state.party, caller);
                     self.state
                         .equip(self.out, best, caller.0, slots::BODY, back);
                     super::forfeit_equip(
@@ -5398,7 +5418,11 @@ impl Engine<'_> {
                     forced,
                     cancel: int(args, 3) != 0,
                 });
-                let roster = self.state.party.roster(None, &self.state.items);
+                let good_evil = |id| {
+                    super::influence::sheet(self.view, self.out, ObjectId(id))
+                        .map(|sheet| sheet.good_evil)
+                };
+                let roster = self.state.party.roster(None, &self.state.items, &good_evil);
                 self.tell(None, Notice::Show(Screen::PartySelection(roster)))
             }
             // For the party, one player at the table (I30 P20, R9); its end
@@ -5807,7 +5831,7 @@ impl Engine<'_> {
         let purse = |who: ObjectId| {
             view.thing(who)
                 .and_then(|thing| thing.character)
-                .map(|_| items::holder(view, who))
+                .map(|_| items::holder(view, &self.state.party, who))
         };
         match bound {
             // A component or chemical made on a creature is a count, no
@@ -5821,7 +5845,7 @@ impl Engine<'_> {
                 if !self.exists(on) {
                     return Value::Object(ObjectId::INVALID);
                 }
-                let holder = items::holder(view, on);
+                let holder = items::holder(view, &self.state.party, on);
                 let stack = int(args, 2).clamp(1, i32::from(u16::MAX)) as u16;
                 let mut made =
                     self.state
@@ -5862,14 +5886,16 @@ impl Engine<'_> {
                     .unwrap_or(ObjectId::INVALID),
             ),
             GetFirstItemInInventory => {
-                let carried = self.state.carried(items::holder(view, item));
+                let carried = self
+                    .state
+                    .carried(items::holder(view, &self.state.party, item));
                 self.first(caller, walk::INVENTORY, carried)
             }
             GetNextItemInInventory => self.next(caller, walk::INVENTORY),
             GetItemPossessedBy => {
                 let who = item;
                 let tag = key(text(args, 1));
-                let holder = items::holder(view, who);
+                let holder = items::holder(view, &self.state.party, who);
                 let tagged = |(_, held): &(u32, &inventory::Item)| {
                     self.state
                         .item_facts(catalog, &held.template)
@@ -5996,7 +6022,7 @@ impl Engine<'_> {
                     .filter(|&slot| !(in_hand(slot) && super::grappled(view, caller)));
                 if let Some(slot) = slot {
                     let item = self.state.one_of(item);
-                    let back = items::holder(view, caller);
+                    let back = items::holder(view, &self.state.party, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (item.0, slot));
                     // A weapon a script puts in the hand of a party member
@@ -6035,14 +6061,14 @@ impl Engine<'_> {
                     .and_then(|held| held.slot)
                     .is_some_and(in_hand);
                 if !(worn_in_hand && super::grappled(view, caller)) {
-                    let to = items::holder(view, caller);
+                    let to = items::holder(view, &self.state.party, caller);
                     self.state.carry(self.out, item, to);
                 }
                 Value::Int(0)
             }
             // Taken from a player's character: items lost.
             ActionTakeItem => {
-                let to = items::holder(view, caller);
+                let to = items::holder(view, &self.state.party, caller);
                 let from = self.state.items.get(&item.0).map(|held| held.holder);
                 let lost = self.pc_holds(item) && !self.is_pc(caller);
                 self.state.carry(self.out, item, to);
@@ -6060,7 +6086,7 @@ impl Engine<'_> {
             ActionGiveItem | GiveItem => {
                 let receiver = object(args, 1);
                 let had = self.pc_holds(item);
-                let to = items::holder(view, receiver);
+                let to = items::holder(view, &self.state.party, receiver);
                 self.state.carry(self.out, item, to);
                 if self.is_creature(receiver) {
                     self.pool(to);

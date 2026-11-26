@@ -903,8 +903,10 @@ fn placeable_light_sets() {
 /// changes with a mod's texture and not with a voice line. An install
 /// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
 /// replaces the last install whole, is left alone by the store's gc, and
-/// refuses a zip with a file outside the areas' folders. Needs `--features
-/// rig`; no installs (approved 2026-11-23).
+/// refuses a zip with a file outside the areas' folders. A refusal names
+/// the mods that replace the room files of the areas that differ. Needs
+/// `--features rig`; no installs (approved 2026-11-23; the fifth probe,
+/// `a_refusal_names_the_mods_that_differ`, proposed 2026-11-26).
 #[test]
 fn lighting_downloads() {
     #[cfg(not(feature = "rig"))]
@@ -913,7 +915,7 @@ fn lighting_downloads() {
     probed(
         "lighting downloads",
         &kjk_game::lighting_bakes::probes::probes(),
-        4,
+        5,
     );
 }
 
@@ -3363,6 +3365,52 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
+/// A texture whose TXI says `wateralpha` below 1 and names a bump map and an
+/// env map is drawn as water (`kjk_game::material::water`), blended,
+/// whatever its own alpha and the mesh's. The TXI of Dantooine's river
+/// (`dan_water03n`, a DXT1 without alpha) is the example. Without
+/// `wateralpha`, or with it at 1, the texture is drawn as before. Needs
+/// `--features rig`; no installs (proposed 2026-11-26, not yet approved).
+#[test]
+fn water_textures_drawn_as_water() {
+    #[cfg(not(feature = "rig"))]
+    println!("water_textures_drawn_as_water skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureFacts;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, water};
+
+        let river = "wateralpha 0.75\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n";
+        for (txi, expected, drawn) in [
+            (river, Some((0.75, "dan_water03nb")), Surface::Blend),
+            (
+                "wateralpha 1\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "bumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "wateralpha 0.75\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+        ] {
+            let facts = TextureFacts::from_txi(&Txi::parse(txi.as_bytes()), false);
+            assert_eq!(water(Some(&facts)), expected, "{txi:?}");
+            assert_eq!(
+                surface((0, false), 1.0, (Some(&facts), &[&facts])),
+                drawn,
+                "{txi:?}"
+            );
+        }
+    }
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a
@@ -4127,6 +4175,18 @@ fn crosshair_into_cages() {
     probed("crosshair cage", &sim::target::cage_probes(), 5);
 }
 
+/// The crosshair on placeables' drawn meshes (proposed 2026-11-26, the
+/// Yavin IV shuttle of the mod Echoes of the Republic, usable only from its
+/// top): on a floor, a ship whose middle stands under its raised hull is
+/// picked on its hull, also from where its middle is out of range, and
+/// neither is picked without its drawn meshes. A creature before the hull
+/// is picked over the ship, and one behind it is not. A camera inside the
+/// hull looks out past it. The sim alone.
+#[test]
+fn crosshair_drawn_meshes() {
+    probed("crosshair drawn", &sim::target::drawn_probes(), 5);
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
@@ -4865,13 +4925,16 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// So does the check that a conversation's end scripts begin no
+/// conversation again (`ending_begins_nothing`, TSLRCM's HK-50s and
+/// sisters).
 /// The nineteen checks of shared conversations (`shared_*`: free players
 /// near the main character's player joining its conversations, and the
 /// reply a player takes shown to the others before it runs; issues 636 and
 /// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 166);
+    probed("coop talk", &sim::coop_talk::probes(), 167);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4918,10 +4981,13 @@ fn scene_mode() {
 /// a break's freeze and the ready check, and what enters a trigger; the sim
 /// alone. The check that the view and the shots agree on whom a player's
 /// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
-/// the other player only with friendly fire full) awaits approval.
+/// the other player only with friendly fire full) awaits approval. So
+/// does the check that a member of the party stands as the player's
+/// faction (`party_stands_as_the_player`: Bao-Dur's Remote against the
+/// storm beasts on Malachor).
 #[test]
 fn party_calls() {
-    probed("party", &sim::party::probes(), 20);
+    probed("party", &sim::party::probes(), 21);
 }
 
 /// Which companions a player may choose (`sim::script::party_choice`),
@@ -5448,7 +5514,10 @@ fn net_checks(probes: net::probes::Probes) -> Vec<(String, Result<String, String
 /// packets with no panic. The check "handshake: a timeout says whether the
 /// host answered" was added and approved on 2026-11-12 (issue 340). A join
 /// no host answers times out with the host never heard. A join whose host
-/// challenges and never accepts times out with the host heard.
+/// challenges and never accepts times out with the host heard. The check
+/// "actions: held until the host hears the player loaded" was added on
+/// 2026-11-26. A real client holds an action made before the host heard it
+/// loaded the world the action names, and sends it right after.
 #[test]
 fn net_core() {
     for (name, run) in net::probes::groups() {

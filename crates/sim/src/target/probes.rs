@@ -43,6 +43,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         height,
         ahead: false,
         points: [None; 2],
+        drawn: None,
     };
     let door = thing(0, ObjectKind::Door, 0.0, 0.0, DOOR_RADIUS, DOOR_HEIGHT);
     let pick_at = |from: Vec3, forward: Vec3, who: Looker, candidates: &[Candidate]| {
@@ -75,7 +76,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 eye(-6.0, 0.0),
                 forward_x,
                 looker(-5.0, 0.0, 1.0, 0.0),
-                &[door],
+                std::slice::from_ref(&door),
             ),
         ),
         (
@@ -84,7 +85,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 eye(-6.0, 0.0),
                 forward_x,
                 looker(-5.0, 0.0, 1.0, 0.0),
-                &[door, creature],
+                &[door.clone(), creature.clone()],
             ),
         ),
         (
@@ -137,14 +138,14 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     // it and the camera, or inside its body, the look passes it.
     let companion = Candidate {
         ahead: true,
-        ..creature
+        ..creature.clone()
     };
     let companion_picks = [(-5.0, Some(5)), (-2.0, None), (-3.1, None)].map(|(x, want)| {
         let got = pick_at(
             eye(-6.0, 0.0),
             forward_x,
             looker(x, 0.0, 1.0, 0.0),
-            &[companion],
+            std::slice::from_ref(&companion),
         );
         (got == want, got)
     });
@@ -479,7 +480,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 feet: [from[0], from[1], console.feet[2]],
                 facing: [forward[0], forward[1]],
             };
-            pick_at(*from, forward, who, &[*console])
+            pick_at(*from, forward, who, std::slice::from_ref(console))
         })
         .collect();
     checks.push((
@@ -519,6 +520,7 @@ pub fn action_point_probes() -> Vec<(&'static str, Result<String, String>)> {
         height: PLACEABLE_HEIGHT,
         ahead: false,
         points: [point.map(|[x, y]| ground_point(x, y, 0.0)), None],
+        drawn: None,
     };
     let feet = ground_point(-0.6, 3.0, 0.0);
     let from = ground_point(-1.5, 3.0, 1.6);
@@ -560,8 +562,15 @@ fn both_ways(level: &Level, from: Vec3, looker: &Looker, candidate: Candidate) -
         straight[0] * sin + straight[1] * cos,
         straight[2],
     ];
-    [straight, aside]
-        .map(|forward| pick(level, None, &Look { from, forward }, looker, &[candidate]))
+    [straight, aside].map(|forward| {
+        pick(
+            level,
+            None,
+            &Look { from, forward },
+            looker,
+            std::slice::from_ref(&candidate),
+        )
+    })
 }
 
 /// A check that `got` is `want` both ways (`both_ways`).
@@ -665,6 +674,7 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         height: CREATURE_HEIGHT,
         ahead: false,
         points: [None; 2],
+        drawn: None,
     };
     let terminal = Candidate {
         index: TERMINAL,
@@ -674,6 +684,7 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         height: 0.8,
         ahead: false,
         points: [None; 2],
+        drawn: None,
     };
     // The player 4 m east of each, looking west.
     let picks = |candidate: Candidate| {
@@ -696,7 +707,11 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
             Some(BYSTANDER),
         ),
         ("crosshair_level_wall_hides", creature(HIDDEN, -5.0), None),
-        ("crosshair_terminal_in_a_wall", terminal, Some(TERMINAL)),
+        (
+            "crosshair_terminal_in_a_wall",
+            terminal.clone(),
+            Some(TERMINAL),
+        ),
     ]
     .into_iter()
     .map(|(name, candidate, want)| (name, wanted_both_ways(picks(candidate), want)))
@@ -706,6 +721,148 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         if seen { Ok(what) } else { Err(what) }
     })])
     .collect()
+}
+
+/// The crosshair on placeables' drawn meshes (`Drawn`), for the approved
+/// test `crosshair_drawn_meshes`. A floor carries a ship turned 90 degrees:
+/// its hull is one box 12 m long, 3 m wide and from 1 m to 4 m up, and its
+/// middle stands under the hull, as the Yavin IV shuttle of the mod Echoes
+/// of the Republic does. The player stands 6 m off the hull's side. The
+/// crosshair picks the ship on its hull 4 m from its middle, and on its
+/// hull from 10 m beyond its middle, where its middle is out of range and
+/// the hull is not. A creature standing between the player and the hull is
+/// picked over the ship, and one behind the hull is not. A camera inside
+/// the hull's box looks out past the hull and picks the creature before it.
+/// Each check also asks the same look without drawn meshes, which picks
+/// what the crosshair picked before them: nothing on the hull, and the
+/// creature behind the hull through it.
+pub fn drawn_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::module::{Bulk, ModuleData, ObjectData, Placement};
+    use collision::{Contents, LevelBuilder, Tag};
+    const SHIP: u32 = 0;
+    const CREATURE: u32 = 1;
+    let mut builder = LevelBuilder::new();
+    builder.aabb(
+        [-20.0, -20.0, -0.2],
+        [20.0, 20.0, 0.0],
+        Tag::level(Contents::SOLID, 1),
+    );
+    let ground = crate::determinism::proving_ground();
+    let Some(module) = ground.module() else {
+        return vec![(
+            "drawn_ground",
+            Err("the proving ground has no module".into()),
+        )];
+    };
+    let placements = [
+        (ObjectKind::Placeable, "ship"),
+        (ObjectKind::Creature, "creature"),
+    ]
+    .map(|(kind, tag)| Placement::Own(ObjectData::bare(kind, tag, [0.0; 3])))
+    .to_vec();
+    let level = Level::new(
+        "drawn",
+        std::sync::Arc::new(builder.build()),
+        std::sync::Arc::new(crate::motion::AnimTable::stand_in()),
+    )
+    .with_module(ModuleData {
+        placements,
+        ..(**module).clone()
+    });
+    let ship = Candidate {
+        index: SHIP,
+        kind: ObjectKind::Placeable,
+        feet: [0.0; 3],
+        radius: PLACEABLE_RADIUS,
+        height: PLACEABLE_HEIGHT,
+        ahead: false,
+        points: [None; 2],
+        drawn: Some(Drawn {
+            boxes: std::sync::Arc::new([Bulk {
+                min: [-6.0, -1.5, 1.0],
+                max: [6.0, 1.5, 4.0],
+            }]),
+            at: [0.0; 3],
+            yaw: 90.0,
+        }),
+    };
+    let creature = |x: f32| Candidate {
+        index: CREATURE,
+        kind: ObjectKind::Creature,
+        feet: [x, 4.0, 0.0],
+        radius: CREATURE_RADIUS,
+        height: CREATURE_HEIGHT,
+        ahead: false,
+        points: [None; 2],
+        drawn: None,
+    };
+    // What a look from `from` at `to`, by a player with its feet at `feet`,
+    // picks among `candidates`: with the drawn meshes, and without.
+    let picks = |feet: Vec3, from: Vec3, to: Vec3, candidates: &[Candidate]| {
+        let mut forward = math::sub(to, from);
+        math::normalize(&mut forward);
+        let (dx, dy) = (to[0] - feet[0], to[1] - feet[1]);
+        let across = math::length([dx, dy, 0.0]).max(1e-6);
+        let looker = Looker {
+            feet,
+            facing: [dx / across, dy / across],
+        };
+        let without: Vec<Candidate> = candidates
+            .iter()
+            .map(|candidate| Candidate {
+                drawn: None,
+                ..candidate.clone()
+            })
+            .collect();
+        [candidates, &without[..]]
+            .map(|among| pick(&level, None, &Look { from, forward }, &looker, among))
+    };
+    let side = |y: f32| ([6.0, y, 0.0], [6.0, y, 1.6]);
+    let looks = [
+        (
+            "crosshair_on_a_raised_hull",
+            side(4.0),
+            [0.0, 4.0, 2.5],
+            vec![ship.clone()],
+            [Some(SHIP), None],
+        ),
+        (
+            "crosshair_on_a_hull_far_from_its_middle",
+            side(10.0),
+            [0.0, 5.5, 2.5],
+            vec![ship.clone()],
+            [Some(SHIP), None],
+        ),
+        (
+            "crosshair_creature_before_a_hull",
+            side(4.0),
+            [0.0, 4.0, 1.5],
+            vec![ship.clone(), creature(3.0)],
+            [Some(CREATURE), Some(CREATURE)],
+        ),
+        (
+            "crosshair_creature_behind_a_hull",
+            side(4.0),
+            [0.0, 4.0, 1.5],
+            vec![ship.clone(), creature(-3.0)],
+            [Some(SHIP), Some(CREATURE)],
+        ),
+        (
+            "crosshair_from_inside_a_hull",
+            ([-0.5, 4.0, 0.0], [0.0, 4.0, 2.5]),
+            [3.0, 4.0, 1.0],
+            vec![ship, creature(3.0)],
+            [Some(CREATURE), Some(CREATURE)],
+        ),
+    ];
+    looks
+        .into_iter()
+        .map(|(name, (feet, from), to, candidates, want)| {
+            let got = picks(feet, from, to, &candidates);
+            let what = format!("{got:?} with and without drawn meshes, wanted {want:?}");
+            (name, if got == want { Ok(what) } else { Err(what) })
+        })
+        .collect()
 }
 
 /// A way out of the proving ground: the strip of the ground from `from` to

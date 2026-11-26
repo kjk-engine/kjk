@@ -55,6 +55,11 @@ pub struct TextureFacts {
     /// Sampled clamped to its edges rather than repeated: a JA shader's
     /// `clampmap` or `clampAnimMap` (`GL_CLAMP`).
     pub clamp: bool,
+    /// `wateralpha` below 1: the texture is drawn as water. Both games'
+    /// executables then draw its env map alone, as its bump map turns it,
+    /// at full light and blended by this alpha (`material::Surface`'s
+    /// `water`). The diffuse texture itself is not drawn.
+    pub water_alpha: Option<f32>,
 }
 
 /// An animated map's frames, stacked top to bottom in one texture: how
@@ -117,6 +122,7 @@ impl TextureFacts {
                 .and_then(|(x, y)| Some((x.checked_mul(y)?, txi.number("fps")?))),
             strip: None,
             clamp: false,
+            water_alpha: txi.number("wateralpha").filter(|alpha| *alpha < 1.0),
         }
     }
 }

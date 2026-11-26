@@ -104,10 +104,7 @@ impl<'a> Tables<'a> {
         if let Some(known) = self.bulks.get(name) {
             return *known;
         }
-        let bulk = self.standing(name, false).map(|b| Bulk {
-            min: [b[0], b[1], b[2]],
-            max: [b[3], b[4], b[5]],
-        });
+        let bulk = self.standing(name, false).map(Bulk::from);
         self.bulks.insert(name.to_string(), bulk);
         bulk
     }
@@ -904,6 +901,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         geometry: Vec::new(),
         use_points: Vec::new(),
         transitions: Vec::new(),
+        drawn: Default::default(),
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
@@ -950,6 +948,8 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
     let locked = root.int("Locked").is_some_and(|locked| locked != 0);
     let talk = tables.source.talk();
     let tsl = tables.tsl();
+    let model = placeable_model(tables, root.int("Appearance"));
+    let source = tables.source;
     Some(ObjectData {
         kind: ObjectKind::Placeable,
         tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -960,14 +960,15 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         yaw: 0.0,
         link: None,
         geometry: walkmesh_footprint(tables, root.int("Appearance")),
-        use_points: placeable_model(tables, root.int("Appearance"))
-            .map_or_else(Vec::new, |model| {
-                crate::doors::use_points(tables.source, &model)
-            }),
-        transitions: placeable_model(tables, root.int("Appearance"))
-            .map_or_else(Vec::new, |model| {
-                crate::doors::transitions(tables.source, &model)
-            }),
+        use_points: model
+            .as_deref()
+            .map_or_else(Vec::new, |model| crate::doors::use_points(source, model)),
+        transitions: model
+            .as_deref()
+            .map_or_else(Vec::new, |model| crate::doors::transitions(source, model)),
+        drawn: model.as_deref().map_or_else(Default::default, |model| {
+            crate::doors::drawn_boxes(source, model)
+        }),
         opens: if locked { Opens::Locked } else { Opens::Never },
         // The look its `AnimationState` places it in, as KOTOR's template
         // load reads it: a "Sitting" body lies dead.
@@ -1053,6 +1054,7 @@ fn marker(kind: ObjectKind, template: &str, root: &GffStruct) -> ObjectData {
         state: 0,
         ways: sim::module::Ways::One,
         transitions: Vec::new(),
+        drawn: Default::default(),
         scripts: Vec::new(),
         sheet: None,
         senses: None,

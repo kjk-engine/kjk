@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fb173f0c62f440a2`.
+Edition `43e05cf3603dbd82`.
 
 ## Contents
 
@@ -5079,6 +5079,24 @@ A falling lightsaber speeds up by 20.3 meters per second every second.
 
 <sub>Source: JA: gravity. Code: `sim::combat::saber::throw::GRAVITY`.</sub>
 
+<a id="saber-throw-down-bounce"></a>**Bounce** = **×0.65** · `saber_throw.down.bounce`
+
+A falling lightsaber bounces off walls and floors. After each bounce, it moves at 0.65 times the speed it had before.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
+<a id="saber-throw-down-rest-speed"></a>**Rest Speed** = **1 meter per second** (`40 units/s`) · `saber_throw.down.rest_speed`
+
+A falling lightsaber that hits a floor at less than 1 meter per second stops bouncing and lies there.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
+<a id="saber-throw-down-floor"></a>**Floor Slope** = **0.2** · `saber_throw.down.floor`
+
+Surfaces are rated from 0 for a wall to 1 for a level floor. A falling lightsaber can come to rest on a surface rated above 0.2. It always bounces off a steeper surface, so a lightsaber knocked into a wall drops to the floor below.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
 <a id="saber-throw-down-retrieve-ms"></a>**Recall Delay** = **3 seconds** (`3000 ms`) · `saber_throw.down.retrieve_ms`
 
 The owner cannot call back a lightsaber on the ground for the first 3 seconds.
@@ -5087,7 +5105,7 @@ The owner cannot call back a lightsaber on the ground for the first 3 seconds.
 
 <a id="saber-throw-down-auto-return-ms"></a>**Automatic Return** = **20 seconds** (`20000 ms`) · `saber_throw.down.auto_return_ms`
 
-A lightsaber on the ground returns to its owner by itself after 20 seconds.
+A lightsaber on the ground returns to its owner by itself after 20 seconds. A knocked lightsaber that is still falling after 20 seconds also returns by itself.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::AUTO_RETURN_MS`.</sub>
 
@@ -11110,7 +11128,10 @@ An object counts as in sight if nothing blocks the line to its middle or its top
 
 Each kind of object can be targeted anywhere inside an upright cylinder
 that stands on the object's base. A door can also be targeted anywhere on
-its own surfaces.
+its own surfaces. A usable object can also be targeted anywhere on its
+drawn model, as in the original games. For such an object, the targeting
+range is measured to the nearest part of its model. A large object, such
+as a ship, can therefore be targeted anywhere on its hull.
 
 <a id="targeting-volumes-creature-radius"></a>**Creature Radius** = **0.4 m** · `targeting.volumes.creature_radius`
 

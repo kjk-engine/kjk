@@ -484,7 +484,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 62] = [
     (
         Action::Break,
         "break",
-        "Take a break",
+        "Pause",
         Some(Input::Key(KeyCode::KeyZ)),
         false,
     ),
