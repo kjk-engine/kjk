@@ -2408,7 +2408,13 @@ pub fn module_scene(
             dry_rooms: area.rooms.iter().map(|room| room.disable_weather).collect(),
             model: weather_model(resolver, &area.weather)
                 .or_else(|| {
-                    lent_weather().and_then(|tsl| weather_model(tsl.base().ok()?, &area.weather))
+                    // KOTOR 1 alone borrows, and only for an area with a
+                    // chance of rain or snow. Asked for every area, this
+                    // opened KOTOR 2's install at each dry area of both
+                    // games, and warned at each one where it is missing.
+                    let falls = area.weather.rain != 0 || area.weather.snow != 0;
+                    let tsl = (game == Game::Kotor1 && falls).then(lent_weather)??;
+                    weather_model(tsl.base().ok()?, &area.weather)
                 })
                 .map(Arc::new),
             lightning: weather_lightning(resolver, game, &area.weather).map(Arc::new),
