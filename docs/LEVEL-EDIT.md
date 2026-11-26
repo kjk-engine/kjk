@@ -2269,9 +2269,9 @@ as the editor does. Building t1_sour's hangar took 0.6 seconds.
 `kjk-mod-<project>.toml` lists, and then that file.
 
 **Two mods together.** kjk reads the list of every mod at its start, and
-says what follows. The commands that read no game data skip this, so they
-start at once: `kjk installs`, `kjk games`, `kjk store`, `kjk report show`
-and `kjk movie check`.
+says what follows. The commands that need no mod skip this, so they start
+at once: `kjk installs`, `kjk games`, `kjk store`, `kjk report show`, and
+every `kjk movie` and `kjk lighting` command.
 
 - which mods it found, each with its version and how many files and
   quests it brings;
@@ -2299,6 +2299,11 @@ at the top of each game's `override/`, and every bake under `kjk-bake/`.
 The levels they name then get their boxes, props, lights, lamps and bake,
 as a project's levels do. kjk says at its start which levels it found.
 With `--project`, kjk plays that project and reads no mod's own files.
+
+kjk looks for these files in the game's own `override/` alone. It does not
+look in the items of the Steam Workshop. A mod for kjk that is installed
+as a Workshop item plays with its ordinary game files, and without its
+boxes, props, lights, lamps, bake and quests.
 
 What to know:
 

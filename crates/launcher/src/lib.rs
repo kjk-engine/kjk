@@ -801,9 +801,14 @@ fn linux_environment() {
 /// the games' override folders (`cli_project::activate_mods`). Reading them
 /// lists each override folder, digests the mods' files and builds their
 /// Jedi Academy rooms. The commands that only find the installs, look at
-/// the store or open a report need none of that, so they start without
-/// it. `kjk installs` is one of them, and the launcher runs it at every
-/// start.
+/// the store, open a report, or work on movies or on the lighting download
+/// need none of that, so they start without it. `kjk installs` is one of
+/// them, and the launcher runs it at every start.
+///
+/// The list names the commands that skip the mods, and not the ones that
+/// read them. A command forgotten here starts a little slower. A command
+/// forgotten on a list of the ones that read them would play without its
+/// mods and say nothing.
 fn reads_mods(command: Option<&Command>) -> bool {
     !matches!(
         command,
@@ -814,9 +819,8 @@ fn reads_mods(command: Option<&Command>) -> bool {
                 | Command::Report {
                     verb: ReportVerb::Show { .. }
                 }
-                | Command::Movie {
-                    verb: MovieVerb::Check
-                }
+                | Command::Movie { .. }
+                | Command::Lighting { .. }
         )
     )
 }
