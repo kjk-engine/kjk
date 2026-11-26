@@ -1657,10 +1657,10 @@ impl NavMesh {
         let mut links = Vec::new();
         if !input.0.is_empty() {
             for _ in 0..input.len(36)? {
-                let kind = if input.u32()? == 1 {
-                    LinkKind::Drop
-                } else {
-                    LinkKind::Jump
+                let kind = match input.u32()? {
+                    0 => LinkKind::Jump,
+                    1 => LinkKind::Drop,
+                    _ => return Err(crate::pack::Bad("a link of no known kind")),
                 };
                 links.push(Link {
                     kind,
