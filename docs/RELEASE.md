@@ -56,10 +56,11 @@ and a `.tar.gz` on macOS and Linux, in `target/packages/` too. It holds:
 
 - `kjk-level-editor` (`kjk Level Editor.app` on macOS).
 - A `kjk` for the editor to start (`kjk.app` on macOS). The editor runs
-  the `kjk` that lies beside it for Play, for its Audit button and for its
-  Bake buttons. This `kjk` is built as the player's is, with one feature
-  added, `editor_tools`. That feature holds the two verbs the editor runs:
-  `detail-bake` and `collision audit`. The player's `kjk` has neither.
+  the `kjk` that lies beside it for Play and for its Audit, Bake and Try
+  buttons. This `kjk` is built as the player's is, with one feature
+  added, `editor_tools`. That feature holds the four verbs the editor
+  runs: `detail-bake`, `collision audit`, `try-script` and
+  `try-conversation`. The player's `kjk` has none of them.
 - `data/lights`, the light rule data the editor's bake reads.
 - `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`
   for its `kjk` and `THIRD-PARTY-LICENSES-level-editor.html` for the editor.
@@ -216,7 +217,8 @@ The level editor's package ("The level editor's package" above) is built
 in a job of its own on each OS, beside the player's package. The workflow
 checks that it holds its readme, its licence texts and `data/lights`, that
 the editor and its `kjk` start with `--help`, and that this `kjk` has
-`detail-bake` and `collision audit`. The draft takes each package that
+`detail-bake`, `collision audit`, `try-script` and `try-conversation`.
+The draft takes each package that
 built. It names an OS whose level editor package is missing.
 
 The sim determinism test runs on each OS in a job of its own, beside the

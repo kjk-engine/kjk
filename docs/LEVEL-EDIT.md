@@ -78,9 +78,10 @@ A release has the level editor in a package of its own,
 --level-editor`, `docs/RELEASE.md`). The player's package does not hold
 the editor. The level editor's package holds `kjk-level-editor` and a
 `kjk` beside it for the editor to start. That `kjk` is a player's build,
-without the verbs that check and measure, except the two the editor runs:
-`detail-bake` for its Bake buttons and `collision audit` for its Audit
-button (the `editor_tools` feature). So the editor of a release does all
+without the verbs that check and measure, except the four the editor runs
+(the `editor_tools` feature): `detail-bake` for its Bake buttons,
+`collision audit` for its Audit button, and `try-script` and
+`try-conversation` for its Try buttons. So the editor of a release does all
 that the editor of a build from source does, Bake, Audit and Try
 included. The package also holds the light rule data, `data/lights`,
 beside the programs, which the bake reads. A bake made without a kjk
@@ -980,8 +981,9 @@ the editor.
 - **Save** writes the scripts changed to the project's folder, and
   **Compile** writes and compiles them all.
 - **Try for** saves the project, compiles, and runs the script once in the
-  module installed without a window (`kjk try-script`, in every build of
-  kjk), for the selected object (as `OBJECT_SELF`, by its tag) or, with
+  module installed without a window (`kjk try-script`, in the `kjk` of
+  the level editor's package and in a build from source), for the
+  selected object (as `OBJECT_SELF`, by its tag) or, with
   nothing selected, for the player. It then steps on 3 s, for what the
   script delays. The Try tab shows what the script did from the run on:
   each routine called with its arguments and what it gave, what was said

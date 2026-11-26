@@ -259,10 +259,12 @@ jobs:
             file "$program" || true
             "$program" --help
           done
-          # This kjk has the two commands the editor runs, which the
+          # This kjk has the four commands the editor runs, which the
           # player's kjk does not have.
           "$program" detail-bake --help > /dev/null
           "$program" collision audit --help > /dev/null
+          "$program" try-script --help > /dev/null
+          "$program" try-conversation --help > /dev/null
 
       - uses: actions/attest-build-provenance@v2
         # Not main's cache-saving builds, which nobody downloads.

@@ -25,9 +25,10 @@
 //! (`kjk-level-editor`, `crates/level_editor`, docs/LEVEL-EDIT.md), a `kjk`
 //! for the editor to start, and the light rule data the editor's bake reads
 //! (`data/lights`, `LIGHT_DATA`). That `kjk` is built as the player's is,
-//! with the two verbs the editor runs added (`editor_tools`: `detail-bake`
-//! and `collision audit`), so a release's editor plays, bakes and audits
-//! as a build from source does. Both programs are built in
+//! with the four verbs the editor runs added (`editor_tools`:
+//! `detail-bake`, `collision audit`, `try-script` and `try-conversation`),
+//! so a release's editor plays, bakes, audits and tries as a build from
+//! source does. Both programs are built in
 //! `target/level-editor`, one after the other. The editor links all of
 //! Bevy as kjk does, and two such builds at once need more memory than a
 //! CI runner has. The option takes neither `--dlss` nor `--pgo`.
@@ -125,8 +126,9 @@ comes with it.
 This package is separate from kjk's own package. It holds three things:
   - kjk-level-editor, the editor (kjk Level Editor.app on macOS).
   - kjk, a copy of the game that the editor starts when you press Play,
-    Audit or Bake. This copy has two commands that the kjk of the player's
-    package does not have: detail-bake and collision audit.
+    Audit, Bake or Try. This copy has four commands that the kjk of the
+    player's package does not have: detail-bake, collision audit,
+    try-script and try-conversation.
   - data/lights, the light rules that a bake reads.
 Keep the three together. Unpack the package into a folder of its own, not
 into the folder of kjk's own package.

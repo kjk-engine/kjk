@@ -29,8 +29,10 @@ mod resources;
 pub mod rig_measure;
 mod rules_page;
 mod run_folder;
+#[cfg(feature = "editor_tools")]
 mod script_try;
 mod show;
+#[cfg(feature = "editor_tools")]
 mod talk_run;
 mod texture_export;
 
@@ -527,6 +529,7 @@ enum Command {
     /// --project, the project's own script, as the level editor's Try does)
     /// for an object or the player, then step on: the trace of what it and
     /// the scripts it started called, the conversation lines, and faults
+    #[cfg(feature = "editor_tools")]
     TryScript {
         /// k1 or tsl
         game: String,
@@ -554,6 +557,7 @@ enum Command {
     /// own, as the level editor's conversation window does): the player
     /// talks to the object tagged --on, answers each offer by --picks, and
     /// the transcript is printed
+    #[cfg(feature = "editor_tools")]
     TryConversation {
         /// k1 or tsl
         game: String,
@@ -1041,6 +1045,7 @@ pub fn run() -> ExitCode {
             module,
             out,
         }) => texture_export::run(&discover(), &game, &resref, module.as_deref(), out),
+        #[cfg(feature = "editor_tools")]
         Some(Command::TryScript {
             game,
             module,
@@ -1056,6 +1061,7 @@ pub fn run() -> ExitCode {
             seconds,
             (debug.as_deref(), all),
         ),
+        #[cfg(feature = "editor_tools")]
         Some(Command::TryConversation {
             game,
             module,

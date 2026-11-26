@@ -72,10 +72,11 @@ default = ["probes", "steam"]
 # the game's and the layers' (`game/probes`). `--no-default-features`
 # builds the game alone.
 probes = ["editor_tools", "game/probes", "dep:original_hook", "dep:sha2"]
-# The two checking verbs the level editor runs: `detail-bake` (its Bake
-# buttons) and `collision audit` (its Audit button). The kjk in a release's
-# level editor package is built with it alone, so that editor bakes and
-# audits (`src/editor_tools.rs`). The player's kjk is built without it.
+# The four verbs the level editor runs: `detail-bake` (its Bake buttons),
+# `collision audit` (its Audit button), and `try-script` and
+# `try-conversation` (its Try buttons). The kjk in a release's level editor
+# package is built with it alone, so that editor bakes, audits and tries
+# (`src/editor_tools.rs`). The player's kjk is built without it.
 editor_tools = ["collision/audit"]
 # Hosting and joining through Steam (`game/steam`); off, by address only.
 steam = ["game/steam"]

@@ -83,7 +83,9 @@ the games' own compiled scripts; nothing of them is in the repo.
 - The level editor compiles a project's scripts when it saves
   (`LEVEL-EDIT.md`).
 - `kjk [--project P] try-script <game> <module> SCRIPT [--on TAG]
-  [--seconds N] [--all]` runs one compiled script once in the module
+  [--seconds N] [--all]` (in a build from source and in the `kjk` of the
+  level editor's package, not in the player's) runs one compiled script
+  once in the module
   installed headless, for the object tagged TAG (else the player), then
   steps on N seconds (2 by default). The script is read through the
   module's layers, as the game would read it: the module's own archives,

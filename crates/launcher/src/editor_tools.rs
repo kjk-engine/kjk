@@ -4,8 +4,13 @@
 //! `editor_tools` feature. A release builds the `kjk` of the level editor's
 //! package with it, so that the editor of a release bakes and audits as a
 //! build from source does (`xtask dist --level-editor`). The player's
-//! `kjk` is built without it. The `probes` feature, which builds every checking verb,
-//! takes them in too, and then `verbs` lists them among the others.
+//! `kjk` is built without it. The `probes` feature, which builds every
+//! checking verb, takes them in too, and then `verbs` lists them among the
+//! others.
+//!
+//! The feature also builds the two commands the editor's Try buttons run,
+//! `kjk try-script` (`script_try`) and `kjk try-conversation`
+//! (`talk_run`).
 
 use std::process::ExitCode;
 
