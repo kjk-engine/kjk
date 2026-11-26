@@ -12,7 +12,7 @@ makes a successful Reflex save takes half damage.
 """
 detail = """
 A roll of 20 on the save always succeeds, and a roll of 1 always fails. A
-stun, paralysis or entanglement lasts at most {force.crowd.hold_ms:s}. After
+stun, paralysis or entanglement lasts at most {force.crowd.longest_ms:s}. After
 it ends, the character is immune to these effects for
 {force.crowd.immune_ms:s}. Enemies sometimes throw grenades at targets
 between 4 and 12 meters away.
@@ -195,7 +195,7 @@ see = "sim::combat::grenades::effect"
 
 [stun]
 title = "Concussion Grenade"
-summary = "Deals no damage. Stuns targets on a failed Reflex save (DC {grenades.blast.dc}) for up to {force.crowd.hold_ms:s}."
+summary = "Deals no damage. Stuns targets on a failed Reflex save (DC {grenades.blast.dc}) for up to {grenades.stun.hold_ms:s}."
 applies = ["spell:ITEM_ABILITY_GRENADE_STUN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_STUN"]
 
 [stun.hold_ms]
@@ -204,7 +204,7 @@ type = "u64"
 value = 9000
 unit = "ms"
 range = [0, 60000]
-summary = "Stuns for {grenades.stun.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
+summary = "Stuns for {grenades.stun.hold_ms:s} (capped at {force.crowd.longest_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -304,7 +304,7 @@ see = "sim::combat::grenades::effect"
 
 [adhesive]
 title = "Adhesive Grenade"
-summary = "Deals no damage. Entangles everyone in the blast for up to {force.crowd.hold_ms:s} (no save)."
+summary = "Deals no damage. Entangles everyone in the blast for up to {grenades.adhesive.hold_ms:s} (no save)."
 applies = ["spell:ITEM_ABILITY_GRENADE_ADHESIVE", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE"]
 
 [adhesive.hold_ms]
@@ -313,13 +313,13 @@ type = "u64"
 value = 15_000
 unit = "ms"
 range = [0, 60000]
-summary = "Entangles for {grenades.adhesive.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
+summary = "Entangles for {grenades.adhesive.hold_ms:s} (capped at {force.crowd.longest_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [cryoban]
 title = "CryoBan Grenade"
-summary = "Deals {grenades.cryoban.points:bare} cold damage and paralyzes for up to {force.crowd.hold_ms:s} (Reflex save DC {grenades.blast.dc} for half damage and no paralysis)."
+summary = "Deals {grenades.cryoban.points:bare} cold damage and paralyzes for up to {grenades.cryoban.hold_ms:s} (Reflex save DC {grenades.blast.dc} for half damage and no paralysis)."
 applies = ["spell:ITEM_ABILITY_GRENADE_CRYOBAN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN"]
 
 [cryoban.points]
@@ -338,7 +338,7 @@ type = "u64"
 value = 6000
 unit = "ms"
 range = [0, 60000]
-summary = "Paralyzes for {grenades.cryoban.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
+summary = "Paralyzes for {grenades.cryoban.hold_ms:s} (capped at {force.crowd.longest_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 

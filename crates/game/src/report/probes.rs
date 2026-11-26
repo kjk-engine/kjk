@@ -50,7 +50,9 @@ fn filled_in() -> Result<String, String> {
         "template=bug.md",
         "&title=Sword%20shows%20as%20a%20pistol%20%26%20more&",
         "%2A%2Akjk%20version%3A%2A%2A%200.1.0%20%28abc%29",
-        "-%20%5Bx%5D%20Report%20zip%20attached",
+        "%3E%20%5B%21WARNING%5D",
+        "NO%20ZIP%20YET",
+        "-%20%5B%20%5D%20I%20dragged%20and%20dropped%20the%20report%20zip",
     ];
     let long = issue_url(&"é".repeat(9000), "v", &me);
     let empty = issue_url("", "v", &me);

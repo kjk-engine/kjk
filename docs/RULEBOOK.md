@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `6dc18b2408490ab4`.
 
 ## Contents
 
@@ -2863,7 +2863,7 @@ included. Each grenade also has its own secondary effect. A character who
 makes a successful Reflex save takes half damage.
 
 A roll of 20 on the save always succeeds, and a roll of 1 always fails. A
-stun, paralysis or entanglement lasts at most 3 seconds. After
+stun, paralysis or entanglement lasts at most 30 seconds. After
 it ends, the character is immune to these effects for
 1 second. Enemies sometimes throw grenades at targets
 between 4 and 12 meters away.
@@ -2991,11 +2991,11 @@ Deals 20 piercing damage.
 
 ### <a id="grenades-stun"></a>Concussion Grenade
 
-Deals no damage. Stuns targets on a failed Reflex save (DC 15) for up to 3 seconds.
+Deals no damage. Stuns targets on a failed Reflex save (DC 15) for up to 9 seconds.
 
 <a id="grenades-stun-hold-ms"></a>**Stun Duration** = **9 seconds** (`9000 ms`) · `grenades.stun.hold_ms`
 
-Stuns for 9 seconds (capped at 3 seconds).
+Stuns for 9 seconds (capped at 30 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
@@ -3061,17 +3061,17 @@ Dexterity loss lasts 30 seconds.
 
 ### <a id="grenades-adhesive"></a>Adhesive Grenade
 
-Deals no damage. Entangles everyone in the blast for up to 3 seconds (no save).
+Deals no damage. Entangles everyone in the blast for up to 15 seconds (no save).
 
 <a id="grenades-adhesive-hold-ms"></a>**Entangle Duration** = **15 seconds** (`15000 ms`) · `grenades.adhesive.hold_ms`
 
-Entangles for 15 seconds (capped at 3 seconds).
+Entangles for 15 seconds (capped at 30 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-cryoban"></a>CryoBan Grenade
 
-Deals 20 cold damage and paralyzes for up to 3 seconds (Reflex save DC 15 for half damage and no paralysis).
+Deals 20 cold damage and paralyzes for up to 6 seconds (Reflex save DC 15 for half damage and no paralysis).
 
 <a id="grenades-cryoban-points"></a>**Damage** = **20 points** · `grenades.cryoban.points`
 
@@ -3081,7 +3081,7 @@ Deals 20 cold damage.
 
 <a id="grenades-cryoban-hold-ms"></a>**Paralysis Duration** = **6 seconds** (`6000 ms`) · `grenades.cryoban.hold_ms`
 
-Paralyzes for 6 seconds (capped at 3 seconds).
+Paralyzes for 6 seconds (capped at 30 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 

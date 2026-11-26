@@ -86,7 +86,7 @@ fn flat(text: &str) -> String {
 /// `text` in the talk table's encoding (Windows-1252), which the game's
 /// fonts draw: the book's own signs as theirs where it has them, a minus
 /// as a hyphen, anything else it lacks as `?`.
-fn game_bytes(text: &str) -> Vec<u8> {
+pub(crate) fn game_bytes(text: &str) -> Vec<u8> {
     text.chars()
         .map(|c| match c {
             c if c.is_ascii() => c as u8,

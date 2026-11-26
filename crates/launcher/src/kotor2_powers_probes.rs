@@ -200,7 +200,10 @@ fn effect_icons(data: &Data) -> Result<String, String> {
 /// The rulebook's paragraphs a row's description goes on with (its
 /// `applies`), the same in both games since they follow the row's label:
 /// none of Affect Mind's and Dominate Mind's reaches Mind Trick or Force
-/// Confusion, and each Force Scream row tells of the ear covering.
+/// Confusion, and each Force Scream row tells of the ear covering (its
+/// paragraph `force.crowd.ears_ms` gives both the time and the immunity
+/// after it; the immunity's own rule no longer applies to the rows since
+/// the in-game descriptions were shortened, PR 688).
 fn rule_notes(data: &Data) -> Result<String, String> {
     let Some(spells) = data.tsl.two_da("spells") else {
         return Err("no spells.2da".into());
@@ -225,10 +228,9 @@ fn rule_notes(data: &Data) -> Result<String, String> {
         sim::combat::spells::FORCE_POWER_IMPROVED_FORCE_SCREAM,
         sim::combat::spells::FORCE_POWER_MASTER_FORCE_SCREAM,
     ];
-    let ears = ["force.crowd.ears_ms", "force.crowd.ears_immune_ms"];
     let deaf: Vec<u16> = screams
         .into_iter()
-        .filter(|&row| !ears.iter().all(|ear| paths(&label(row)).contains(ear)))
+        .filter(|&row| !paths(&label(row)).contains(&"force.crowd.ears_ms"))
         .collect();
     check(
         wrong.is_empty() && deaf.is_empty(),

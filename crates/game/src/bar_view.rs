@@ -1011,10 +1011,11 @@ pub mod probes {
     }
 
     /// The bar setup screen's description of Stun and of Stasis goes on
-    /// with the rulebook's lines, as the abilities page's does. The line on
-    /// the longest a stun lasts is among them, so the player reads the time
-    /// the game plays by beside the time KOTOR's own description gives
-    /// (Discord report, 2026-11-17). Needs KOTOR's install.
+    /// with the rulebook's lines, as the abilities page's does. The
+    /// paragraph on stuns and holds (`force.crowd`), which says the longest a
+    /// hold lasts, is among them, so the player reads the time the game plays
+    /// by beside the time KOTOR's own description gives (Discord report,
+    /// 2026-11-17). Needs KOTOR's install.
     fn rulebook_in_descriptions() -> Result<String, String> {
         use sim::combat::spells::{FORCE_POWER_STASIS as STASIS, FORCE_POWER_STUN as STUN};
         let discovery = crate::discover();
@@ -1022,7 +1023,7 @@ pub mod probes {
             return check(true, "k1: no install".into());
         };
         let longest = rules::applying("spell:FORCE_POWER_STUN")
-            .find(|entry| entry.path == "force.crowd.hold_ms")
+            .find(|entry| entry.path == "force.crowd")
             .map(|entry| {
                 entry
                     .summary
@@ -1030,7 +1031,7 @@ pub mod probes {
                     .collect::<Vec<_>>()
                     .join(" ")
             })
-            .ok_or("the rulebook has no maximum stun time for Stun")?;
+            .ok_or("the rulebook has no paragraph on how long Stun holds")?;
         let stack = ui::screen::Stack::new(ui::screens::open);
         let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
         let (sheet, _) = soldier();
@@ -1040,10 +1041,12 @@ pub mod probes {
             mine: None,
             devices: &[],
         };
+        // The description is in the talk table's encoding, as the game's
+        // fonts draw it (the paragraph's "90°" one byte there).
+        let quoted = crate::rulebook_text::game_bytes(&longest);
         let quotes = [STUN, STASIS].map(|row| {
             let told = crate::hud::bar_description(&mut gui, Content::Power(row), &sheet, stock);
-            told.windows(longest.len())
-                .any(|part| part == longest.as_bytes())
+            told.windows(quoted.len()).any(|part| part == quoted)
         });
         check(
             quotes == [true, true],
