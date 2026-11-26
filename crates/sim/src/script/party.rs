@@ -322,11 +322,15 @@ impl Party {
     /// screen (`self.selection`), else the one a player opened in play,
     /// which `refusal` keeps from changing the party (none: it may); what
     /// each companion wears on its body among `items`, held by its creature
-    /// (in the party) or the one the table kept it from.
+    /// (in the party) or the one the table kept it from. Each companion's
+    /// alignment is its creature's as `good_evil` reads it now, else the
+    /// one the table kept, as KOTOR 2's screen shows the companion's own
+    /// value and not its template's.
     pub fn roster(
         &self,
         refusal: Option<crate::notice::Refusal>,
         items: &crate::inventory::Items,
+        good_evil: &dyn Fn(u32) -> Option<u8>,
     ) -> crate::notice::Roster {
         use crate::notice::Roster;
         let in_play = Selection::in_play();
@@ -349,6 +353,10 @@ impl Party {
                     .find(|(_, item)| item.slot == Some(crate::inventory::slots::BODY))
                     .map(|(_, item)| item.template.clone());
                 roster.worn.insert(*npc, armour);
+                let kept = slot.kept.map(|kept| kept.sheet.good_evil);
+                if let Some(alignment) = good_evil(creature).or(kept) {
+                    roster.good_evil.insert(*npc, alignment);
+                }
             }
         }
         roster

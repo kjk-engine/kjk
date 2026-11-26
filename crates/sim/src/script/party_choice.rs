@@ -188,7 +188,7 @@ mod probes {
 
     /// The party selection screen's table of `party`, as the host sends it.
     fn roster(party: &Party) -> Roster {
-        party.roster(None, &crate::inventory::Items::default())
+        party.roster(None, &crate::inventory::Items::default(), &|_| None)
     }
 
     /// The checks (`kjk sim probes --only "party choice"`). Each case runs
@@ -196,7 +196,7 @@ mod probes {
     /// uses. The two must agree wherever the area is not locked and no
     /// character is fixed, since the screen sees neither.
     pub fn probes() -> Checks {
-        cases()
+        let mut checks: Checks = cases()
             .into_iter()
             .map(|(name, party, locked, want)| {
                 let got = choices(&party, locked);
@@ -210,6 +210,46 @@ mod probes {
                     ),
                 )
             })
-            .collect()
+            .collect();
+        checks.push(("alignment_shown", alignment_shown()));
+        checks
+    }
+
+    /// The screen's table tells each companion's own alignment, not its
+    /// template's (issue 778). Companion 0 is away and its creature is gone,
+    /// so the table's kept sheet (12) is told. Companion 1's creature stands
+    /// in the module at 90, though the table kept it at 40 earlier, so 90 is
+    /// told. Companion 2 was never made, so nothing is told and the screen
+    /// falls back on its template. The table reads back from its bytes.
+    fn alignment_shown() -> Result<String, String> {
+        const STANDING: u32 = 500;
+        let kept = |from, good_evil| crate::script::party::Kept {
+            from,
+            sheet: crate::combat::Sheet {
+                good_evil,
+                ..crate::combat::Sheet::commoner()
+            },
+            hp: 0,
+            fp: 0,
+            worn: None,
+            look: crate::combat::Look::default(),
+        };
+        let mut party = party(&[0, 1, 2], &[1], &[]);
+        for (npc, object, from, good_evil) in
+            [(0, None, 400, 12), (1, Some(STANDING), STANDING, 40)]
+        {
+            let slot = party.available.get_mut(&npc).ok_or("a companion")?;
+            slot.object = object;
+            slot.kept = Some(kept(from, good_evil));
+        }
+        let standing = |id| (id == STANDING).then_some(90);
+        let roster = party.roster(None, &crate::inventory::Items::default(), &standing);
+        let told: Vec<Option<u8>> = (0..3).map(|npc| roster.good_evil(npc)).collect();
+        let screen = crate::notice::Screen::PartySelection(roster);
+        let again = crate::notice::Screen::from_bytes(&screen.to_bytes()) == Ok(screen);
+        check(
+            told == [Some(12), Some(90), None] && again,
+            format!("told {told:?}, read back from its bytes: {again}"),
+        )
     }
 }
