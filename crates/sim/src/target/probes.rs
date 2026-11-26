@@ -76,7 +76,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 eye(-6.0, 0.0),
                 forward_x,
                 looker(-5.0, 0.0, 1.0, 0.0),
-                &[door.clone()],
+                std::slice::from_ref(&door),
             ),
         ),
         (
@@ -145,7 +145,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             eye(-6.0, 0.0),
             forward_x,
             looker(x, 0.0, 1.0, 0.0),
-            &[companion.clone()],
+            std::slice::from_ref(&companion),
         );
         (got == want, got)
     });
@@ -802,7 +802,7 @@ pub fn drawn_probes() -> Vec<(&'static str, Result<String, String>)> {
         let mut forward = math::sub(to, from);
         math::normalize(&mut forward);
         let (dx, dy) = (to[0] - feet[0], to[1] - feet[1]);
-        let across = dx.hypot(dy).max(1e-6);
+        let across = math::length([dx, dy, 0.0]).max(1e-6);
         let looker = Looker {
             feet,
             facing: [dx / across, dy / across],
