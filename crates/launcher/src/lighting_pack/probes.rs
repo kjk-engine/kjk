@@ -53,6 +53,7 @@ fn set(
             format,
             rooms: "1".repeat(64),
             placeables: "2".repeat(64),
+            exact: None,
         };
         std::fs::write(
             folder.join(bake_fingerprint::FILE),

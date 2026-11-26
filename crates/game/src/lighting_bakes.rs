@@ -11,13 +11,24 @@
 //!   `fingerprint.txt`. It names the game, the bake's format, the patch the
 //!   bake needs, the zip with its size and its BLAKE3, and one line for each
 //!   area with the fingerprint of the files the area was baked from.
+//! - The second manifest (`MANIFEST_2`, read by `Manifest::parse_exact`)
+//!   holds the same lines and, after each area's line, the area's exact
+//!   lines (`bake_fingerprint::Exact`). kjk v0.21.0 does not read it, so the
+//!   first manifest stays beside it unchanged.
 //! - `check` compares the manifest's fingerprints with the player's files
-//!   (`bake_fingerprint`). The install is allowed when at least `MATCH_SHARE`
-//!   of the areas match. An area whose rooms match but whose placeables do
-//!   not counts as a match, as the game then shows its lightmaps. The answer
-//!   is kept in the store, keyed by the names, sizes and times of the files
-//!   a bake reads (`files_key`) and the manifest, so a second check is
-//!   instant.
+//!   (`bake_fingerprint`). An area with exact lines is judged lightmap by
+//!   lightmap. It matches fully when every baked lightmap matches, partly
+//!   when some do, and not at all when none do. An area without them
+//!   matches when its rooms match. The install is allowed when at least one
+//!   area matches fully or partly (`allowed`). An area whose rooms match but
+//!   whose placeables do not counts as a match, as the game then shows its
+//!   lightmaps. The answer is kept in the store, keyed by the names, sizes
+//!   and times of the files a bake reads (`files_key`) and the manifest, so
+//!   a second check is instant.
+//! - `refresh` adds the exact lines of a second manifest to an installed
+//!   download of the same zip, without the zip.
+//! - `restamp` makes the second manifest of a published download from its
+//!   zip and the files on this machine (`kjk lighting restamp`).
 //! - For an area whose rooms differ, the check notes the mods whose files
 //!   replace the game's own among its room models and stored lightmaps: a
 //!   Steam Workshop item, the override folder or a `.mod` in the modules
@@ -36,7 +47,7 @@
 //! `kjk lighting pack`, which makes the zip and the manifest, is a
 //! developer's command (`crates/launcher/src/lighting_pack.rs`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -45,22 +56,25 @@ use serde::{Deserialize, Serialize};
 use store::Store;
 use vfs::Game;
 
-use crate::bake_fingerprint::{self, Fingerprint, Verdict};
+use crate::bake_fingerprint::{self, Exact, Fingerprint, Fit, Verdict};
 
-/// The file in a game's installed folder that holds its manifest.
+/// The file in a game's installed folder that holds its manifest, in the
+/// form kjk v0.21.0 reads.
 pub const MANIFEST: &str = "manifest.txt";
 
-/// The least share of a manifest's areas that must match the player's files
-/// for the download to be installed. Below it the player most likely runs
-/// the game without the patch the bakes were made for.
-pub const MATCH_SHARE: f64 = 0.9;
+/// The file in a game's installed folder that holds its second manifest,
+/// with the exact lines of each area (`Manifest::exact_text`).
+pub const MANIFEST_2: &str = "manifest-2.txt";
+
+/// The first line of a second manifest that is not a comment.
+const SECOND: &str = "manifest 2";
 
 /// The value of `display.lighting` that turns the baked lightmaps on.
 pub const SETTING_VALUE: &str = "baked";
 
 /// The store's kind for the answers of `check`. Raise its number when the
 /// answer for the same files and manifest would change.
-const CHECKS: &str = "lighting-check-v3";
+const CHECKS: &str = "lighting-check-v4";
 
 /// The files of a bake's set that the game loads, and so the files a
 /// download holds: the lightmaps (PNG), `fill.txt`, `floor.txt`,
@@ -100,6 +114,9 @@ pub struct Area {
     pub module: String,
     pub rooms: String,
     pub placeables: String,
+    /// The area's exact lines, from a second manifest. `None` for an area
+    /// that is judged by `rooms` and `placeables` alone.
+    pub exact: Option<Exact>,
 }
 
 /// A download's manifest.
@@ -165,10 +182,13 @@ pub enum Kind {
     ZipMismatch,
     /// The zip does not unpack, or holds files the manifest does not list.
     ZipDamaged,
-    /// Too few areas of the player's files match the download.
+    /// No area of the player's files matches the download.
     FilesDiffer,
     /// The download is of another bake format than this kjk reads.
     BakeFormat,
+    /// No download of the zip the manifest names is installed, or an area
+    /// folder of it is missing (`kjk lighting refresh`).
+    NotInstalled,
     /// Anything else. `why` says what.
     Other,
 }
@@ -243,67 +263,155 @@ impl Area {
             format,
             rooms: self.rooms.clone(),
             placeables: self.placeables.clone(),
+            exact: self.exact.clone(),
         }
     }
 }
 
-impl Manifest {
-    /// The manifest in `text`, or why it does not read.
-    pub fn parse(text: &str) -> Result<Manifest, String> {
-        let (mut game, mut format, mut needs, mut archive) = (None, None, None, None);
-        let mut areas = Vec::new();
-        for (number, line) in text.lines().enumerate() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
+/// The lines of a manifest that are not comments, each with its number
+/// from 1, its text and its words.
+fn manifest_lines(text: &str) -> impl Iterator<Item = (usize, &str, Vec<&str>)> {
+    (text.lines().enumerate())
+        .map(|(number, line)| (number + 1, line.trim()))
+        .filter(|(_, line)| !line.is_empty() && !line.starts_with('#'))
+        .map(|(number, line)| (number, line, line.split_whitespace().collect()))
+}
+
+/// Why line `number` of a manifest does not read.
+fn bad_line(number: usize, line: &str) -> String {
+    format!("line {number} of the manifest does not read: {line}")
+}
+
+/// The lines of a manifest read so far.
+#[derive(Default)]
+struct Read {
+    game: Option<Game>,
+    format: Option<u32>,
+    needs: Option<String>,
+    archive: Option<Archive>,
+    areas: Vec<Area>,
+}
+
+impl Read {
+    /// Takes one line of the first manifest's form, split into `words`.
+    /// `Ok(false)` when it is no such line, and an error when it is one
+    /// that does not read.
+    fn take(&mut self, words: &[&str], line: &str) -> Result<bool, ()> {
+        match words {
+            ["game", key] => {
+                self.game = Some(
+                    Game::from_key(key)
+                        .filter(|game| *game != Game::JediAcademy)
+                        .ok_or(())?,
+                );
             }
-            let bad = || format!("line {} of the manifest does not read: {line}", number + 1);
-            let words: Vec<&str> = line.split_whitespace().collect();
-            match words.as_slice() {
-                ["game", key] => {
-                    game = Some(
-                        Game::from_key(key)
-                            .filter(|game| *game != Game::JediAcademy)
-                            .ok_or_else(bad)?,
-                    );
-                }
-                ["format", number] => format = Some(number.parse().map_err(|_| bad())?),
-                ["needs", _, ..] => needs = Some(line["needs".len()..].trim().to_string()),
-                ["archive", file, "blake3", hex, "bytes", bytes] => {
-                    archive = Some(Archive {
-                        file: (*file).to_string(),
-                        blake3: hex.to_ascii_lowercase(),
-                        bytes: bytes.parse().map_err(|_| bad())?,
-                    });
-                }
-                [
-                    "area",
-                    area,
-                    "module",
-                    module,
-                    "rooms",
-                    rooms,
-                    "placeables",
-                    placeables,
-                ] => {
-                    areas.push(Area {
-                        area: area.to_ascii_lowercase(),
-                        module: module.to_ascii_lowercase(),
-                        rooms: (*rooms).to_string(),
-                        placeables: (*placeables).to_string(),
-                    });
-                }
-                _ => return Err(bad()),
+            ["format", number] => self.format = Some(number.parse().map_err(|_| ())?),
+            ["needs", _, ..] => self.needs = Some(line["needs".len()..].trim().to_string()),
+            ["archive", file, "blake3", hex, "bytes", bytes] => {
+                self.archive = Some(Archive {
+                    file: (*file).to_string(),
+                    blake3: hex.to_ascii_lowercase(),
+                    bytes: bytes.parse().map_err(|_| ())?,
+                });
             }
+            [
+                "area",
+                area,
+                "module",
+                module,
+                "rooms",
+                rooms,
+                "placeables",
+                placeables,
+            ] => {
+                self.areas.push(Area {
+                    area: area.to_ascii_lowercase(),
+                    module: module.to_ascii_lowercase(),
+                    rooms: (*rooms).to_string(),
+                    placeables: (*placeables).to_string(),
+                    exact: None,
+                });
+            }
+            _ => return Ok(false),
         }
+        Ok(true)
+    }
+
+    /// The manifest, or the first line it lacks.
+    fn finished(self) -> Result<Manifest, String> {
         let missing = |what: &str| format!("the manifest has no {what} line");
         Ok(Manifest {
-            game: game.ok_or_else(|| missing("game"))?,
-            format: format.ok_or_else(|| missing("format"))?,
-            needs: needs.ok_or_else(|| missing("needs"))?,
-            archive: archive.ok_or_else(|| missing("archive"))?,
-            areas,
+            game: self.game.ok_or_else(|| missing("game"))?,
+            format: self.format.ok_or_else(|| missing("format"))?,
+            needs: self.needs.ok_or_else(|| missing("needs"))?,
+            archive: self.archive.ok_or_else(|| missing("archive"))?,
+            areas: self.areas,
         })
+    }
+}
+
+impl Manifest {
+    /// The manifest in `text`, or why it does not read. This is the form
+    /// kjk v0.21.0 reads, and every line must be one of its lines.
+    pub fn parse(text: &str) -> Result<Manifest, String> {
+        let mut read = Read::default();
+        for (number, line, words) in manifest_lines(text) {
+            if read.take(&words, line) != Ok(true) {
+                return Err(bad_line(number, line));
+            }
+        }
+        read.finished()
+    }
+
+    /// The second manifest in `text` (`MANIFEST_2`), or why it does not
+    /// read. Its first line is `manifest 2`. Each area's line may be
+    /// followed by its exact lines, from an `exact` line that gives their
+    /// version (`bake_fingerprint::Exact::lines`). The exact lines of an
+    /// area whose version is not `bake_fingerprint::EXACT` are skipped, and
+    /// that area is judged by `rooms` and `placeables` alone.
+    pub fn parse_exact(text: &str) -> Result<Manifest, String> {
+        let mut lines = manifest_lines(text);
+        if lines.next().map(|(_, line, _)| line) != Some(SECOND) {
+            return Err(format!(
+                "the second manifest does not start with \"{SECOND}\""
+            ));
+        }
+        let mut read = Read::default();
+        // The exact lines of the last area, and whether their version is
+        // the one this kjk reads.
+        let mut exact: Option<(Exact, bool)> = None;
+        let close = |read: &mut Read, exact: &mut Option<(Exact, bool)>| {
+            if let (Some(area), Some((lines, true))) = (read.areas.last_mut(), exact.take()) {
+                area.exact = Some(lines);
+            }
+        };
+        for (number, line, words) in lines {
+            let bad = || bad_line(number, line);
+            if let ["exact", version] = words.as_slice() {
+                if read.areas.is_empty() || exact.is_some() {
+                    return Err(bad());
+                }
+                let version: u32 = version.parse().map_err(|_| bad())?;
+                exact = Some((Exact::default(), version == bake_fingerprint::EXACT));
+                continue;
+            }
+            if let Some((lines, known)) = exact.as_mut()
+                && words.first() != Some(&"area")
+            {
+                match lines.read_line(&words) {
+                    Some(Ok(())) => {}
+                    _ if !*known => {}
+                    _ => return Err(bad()),
+                }
+                continue;
+            }
+            close(&mut read, &mut exact);
+            if read.take(&words, line) != Ok(true) {
+                return Err(bad());
+            }
+        }
+        close(&mut read, &mut exact);
+        read.finished()
     }
 
     /// The manifest in the file at `path`.
@@ -311,9 +419,10 @@ impl Manifest {
         Manifest::load(path).map_err(String::from)
     }
 
-    /// The manifest in the file at `path`, or what went wrong: the file
-    /// does not read (`ListUnreadable`), or its text is not a manifest
-    /// (`ListInvalid`).
+    /// The manifest in the file at `path`, of either form, or what went
+    /// wrong: the file does not read (`ListUnreadable`), or its text is not
+    /// a manifest (`ListInvalid`). A file whose first line is `manifest 2`
+    /// is read as a second manifest (`parse_exact`).
     pub fn load(path: &Path) -> Result<Manifest, Failure> {
         let text = std::fs::read_to_string(path).map_err(|error| {
             let kind = if error.kind() == std::io::ErrorKind::InvalidData {
@@ -323,19 +432,23 @@ impl Manifest {
             };
             Failure::new(kind, format!("{}: {error}", path.display()))
         })?;
-        Manifest::parse(&text)
-            .map_err(|why| Failure::new(Kind::ListInvalid, format!("{}: {why}", path.display())))
+        let second = manifest_lines(&text).next().map(|(_, line, _)| line) == Some(SECOND);
+        let parsed = if second {
+            Manifest::parse_exact(&text)
+        } else {
+            Manifest::parse(&text)
+        };
+        parsed.map_err(|why| Failure::new(Kind::ListInvalid, format!("{}: {why}", path.display())))
     }
 
-    /// The manifest's text, which `parse` reads back.
-    pub fn text(&self) -> String {
-        let mut text = String::from(
-            "# kjk's lighting download (crates/game/src/lighting_bakes.rs).\n\
-             # game is the game the bakes are for, and format the meaning of their files.\n\
-             # needs is the patch the bakes were made with. archive is the zip, its BLAKE3 and its size.\n\
-             # Each area line gives the area's module and the fingerprint of the files it was baked\n\
-             # from (bake_fingerprint.rs). kjk lighting check compares them with the player's files.\n",
-        );
+    /// Whether any area has exact lines, as in a second manifest.
+    pub fn is_exact(&self) -> bool {
+        self.areas.iter().any(|area| area.exact.is_some())
+    }
+
+    /// The lines before the areas, after the comment `about`.
+    fn head(&self, about: &str) -> String {
+        let mut text = about.to_string();
         let _ = writeln!(text, "game {}", self.game.key());
         let _ = writeln!(text, "format {}", self.format);
         let _ = writeln!(text, "needs {}", self.needs);
@@ -344,12 +457,50 @@ impl Manifest {
             "archive {} blake3 {} bytes {}",
             self.archive.file, self.archive.blake3, self.archive.bytes
         );
+        text
+    }
+
+    /// An area's line.
+    fn area_line(text: &mut String, area: &Area) {
+        let _ = writeln!(
+            text,
+            "area {} module {} rooms {} placeables {}",
+            area.area, area.module, area.rooms, area.placeables
+        );
+    }
+
+    /// The manifest's text in the first form, which `parse` and kjk v0.21.0
+    /// read back. The exact lines are left out.
+    pub fn text(&self) -> String {
+        let mut text = self.head(
+            "# kjk's lighting download (crates/game/src/lighting_bakes.rs).\n\
+             # game is the game the bakes are for, and format the meaning of their files.\n\
+             # needs is the patch the bakes were made with. archive is the zip, its BLAKE3 and its size.\n\
+             # Each area line gives the area's module and the fingerprint of the files it was baked\n\
+             # from (bake_fingerprint.rs). kjk lighting check compares them with the player's files.\n",
+        );
         for area in &self.areas {
-            let _ = writeln!(
-                text,
-                "area {} module {} rooms {} placeables {}",
-                area.area, area.module, area.rooms, area.placeables
-            );
+            Manifest::area_line(&mut text, area);
+        }
+        text
+    }
+
+    /// The manifest's text as a second manifest, which `parse_exact` reads
+    /// back: the first form's lines, each area's line followed by its exact
+    /// lines.
+    pub fn exact_text(&self) -> String {
+        let mut text = self.head(
+            "# kjk's lighting download, second manifest (crates/game/src/lighting_bakes.rs).\n\
+             # It holds the lines of the first manifest. After each area's line come its exact lines,\n\
+             # which judge each baked lightmap and each lit placeable by itself (bake_fingerprint.rs).\n\
+             # An area with no exact lines is judged by its rooms and placeables digests.\n\
+             manifest 2\n",
+        );
+        for area in &self.areas {
+            Manifest::area_line(&mut text, area);
+            if let Some(exact) = &area.exact {
+                text.push_str(&exact.lines());
+            }
         }
         text
     }
@@ -381,6 +532,12 @@ pub fn place(name: &str) -> String {
     }
 }
 
+/// `count` followed by `one` when it is 1 and by `many` otherwise, as in
+/// "1 area" and "2 areas".
+fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 /// A list of areas for a sentence: the first three by name, then how many
 /// more there are.
 fn some_areas(areas: &[&str]) -> String {
@@ -401,6 +558,36 @@ fn some_areas(areas: &[&str]) -> String {
     }
 }
 
+/// A baked lightmap of a partly matching area whose rooms differ in the
+/// player's files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Differs {
+    pub lightmap: String,
+    /// The room models of the player's files that draw it. None when no
+    /// room draws it any more.
+    pub rooms: Vec<String>,
+}
+
+/// An area of a check where some of the baked lightmaps match and the
+/// others are drawn with the game's own lighting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Partial {
+    pub area: String,
+    /// How many of its baked lightmaps match.
+    pub matching: usize,
+    /// How many baked lightmaps it has.
+    pub lightmaps: usize,
+    /// The baked lightmaps that do not match.
+    pub differ: Vec<Differs>,
+    /// Whether some of its lit placeables differ, so that they keep their
+    /// usual light.
+    pub placeables_differ: bool,
+    /// The mods whose files replace the game's own among the area's room
+    /// models and stored lightmaps (`bake_fingerprint::room_mods`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mods: Vec<String>,
+}
+
 /// What `check` found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Report {
@@ -413,8 +600,13 @@ pub struct Report {
     /// The areas whose files all match: the game shows the whole bake.
     pub matched: Vec<String>,
     /// The areas whose rooms match and whose placeables do not: the game
-    /// shows the lightmaps, and the placeables take the light probes.
+    /// shows all the lightmaps, and the placeables that differ take the
+    /// light probes.
     pub placeables_differ: Vec<String>,
+    /// The areas where some baked lightmaps match and others do not: the
+    /// game shows the ones that match.
+    #[serde(default)]
+    pub partial: Vec<Partial>,
     /// The areas the game draws with its own lighting.
     pub fall_back: Vec<FallBack>,
     /// Whether the download may be installed (`allowed`).
@@ -424,20 +616,27 @@ pub struct Report {
     pub cached: bool,
 }
 
-/// Whether a download of `total` areas, of which `matching` match the
-/// player's files, may be installed.
-pub fn allowed(matching: usize, total: usize) -> bool {
-    total > 0 && matching as f64 >= MATCH_SHARE * total as f64
+/// Whether a download may be installed, when `showing` of its areas show
+/// some of the new lighting over the player's files. One area is enough.
+/// The player then sees the new lighting where the files match, and the
+/// game's own lighting elsewhere.
+pub fn allowed(showing: usize) -> bool {
+    showing > 0
 }
 
 impl Report {
-    /// The areas whose lightmaps the game shows.
+    /// The areas whose lightmaps the game shows in full.
     pub fn matching(&self) -> usize {
         self.matched.len() + self.placeables_differ.len()
     }
 
+    /// The areas whose lightmaps the game shows in full or in part.
+    pub fn showing(&self) -> usize {
+        self.matching() + self.partial.len()
+    }
+
     /// What the player is told when the download may not be installed:
-    /// how many areas match, then which mods replace the rooms of the areas
+    /// that no area matches, then which mods replace the rooms of the areas
     /// that do not (`mod_sentences`).
     pub fn refusal(&self) -> Option<String> {
         if self.allowed {
@@ -445,27 +644,31 @@ impl Report {
         }
         let game = Game::from_key(&self.game).map_or("the game", game_name);
         let mut lines = vec![format!(
-            "The new lighting needs {game} with {} installed. Only {} of the {} areas in this game's files match the files the lighting was made from, and at least {}% must match.",
-            self.needs,
-            self.matching(),
-            self.areas,
-            (MATCH_SHARE * 100.0).round()
+            "None of the {} areas of the new lighting can be shown, because your game's files differ from the files the lighting was made from. The new lighting was made for {game} with {}.",
+            self.areas, self.needs,
         )];
         lines.extend(self.mod_sentences());
         Some(lines.join(" "))
     }
 
     /// Which mods replace the room models or stored lightmaps of the areas
-    /// that fall back, one sentence for each mod, the mod that replaces
-    /// the most areas first. TSLRCM's Workshop item is left out, since the
-    /// KOTOR II lighting was made with it. Nothing when no other mod's
-    /// files are among them.
+    /// that fall back in full or in part, one sentence for each mod, the
+    /// mod that replaces the most areas first. TSLRCM's Workshop item is
+    /// left out, since the KOTOR II lighting was made with it. Nothing when
+    /// no other mod's files are among them.
     pub fn mod_sentences(&self) -> Vec<String> {
         let tslrcm = format!("workshop/{TSLRCM_WORKSHOP_ITEM}");
+        let differing = (self.fall_back.iter())
+            .map(|fall| (fall.area.as_str(), &fall.mods))
+            .chain(
+                self.partial
+                    .iter()
+                    .map(|part| (part.area.as_str(), &part.mods)),
+            );
         let mut by_mod: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        for fall in &self.fall_back {
-            for name in fall.mods.iter().filter(|name| **name != tslrcm) {
-                by_mod.entry(name).or_default().push(&fall.area);
+        for (area, mods) in differing {
+            for name in mods.iter().filter(|name| **name != tslrcm) {
+                by_mod.entry(name).or_default().push(area);
             }
         }
         if by_mod.is_empty() {
@@ -474,8 +677,8 @@ impl Report {
         let mut by_mod: Vec<(&str, Vec<&str>)> = by_mod.into_iter().collect();
         by_mod.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
         let mut lines = vec![format!(
-            "In {} areas the rooms or their lightmaps differ from the ones the lighting was made from.",
-            self.fall_back.len()
+            "In {} the rooms or their lightmaps differ from the ones the lighting was made from.",
+            counted(self.fall_back.len() + self.partial.len(), "area", "areas")
         )];
         for (name, areas) in by_mod {
             lines.push(format!(
@@ -489,8 +692,8 @@ impl Report {
     }
 
     /// Why the download may not be installed, when it may not: the
-    /// manifest's bake format is not the one this kjk reads, or too few
-    /// areas match.
+    /// manifest's bake format is not the one this kjk reads, or no area
+    /// matches.
     pub fn refusal_kind(&self, format: u32) -> Option<Kind> {
         if self.allowed {
             None
@@ -507,28 +710,35 @@ impl Report {
             return vec![refusal];
         }
         let mut lines = vec![format!(
-            "The new lighting fits this game's files. {} of the {} areas match.",
-            self.matching(),
-            self.areas
+            "The new lighting can be installed. Of the {}, {} it in full, {} it in part, and {} the game's own lighting.",
+            counted(self.areas, "area", "areas"),
+            counted(self.matching(), "shows", "show"),
+            counted(self.partial.len(), "shows", "show"),
+            counted(self.fall_back.len(), "keeps", "keep")
         )];
+        let names = |areas: &mut dyn Iterator<Item = &str>| areas.collect::<Vec<_>>().join(", ");
+        if !self.partial.is_empty() {
+            lines.push(format!(
+                "In {} some rooms keep the game's own lighting, because your game's files differ there from the files the lighting was made from: {}.",
+                counted(self.partial.len(), "area", "areas"),
+                names(&mut self.partial.iter().map(|part| part.area.as_str()))
+            ));
+        }
         if !self.placeables_differ.is_empty() {
             lines.push(format!(
-                "In {} of them the objects in the room differ from the ones the lighting was made with, so those objects keep their usual light: {}.",
-                self.placeables_differ.len(),
+                "In {} the objects in the room differ from the ones the lighting was made with, so those objects keep their usual light: {}.",
+                counted(self.placeables_differ.len(), "area", "areas"),
                 self.placeables_differ.join(", ")
             ));
         }
         if !self.fall_back.is_empty() {
             lines.push(format!(
-                "{} areas keep the game's own lighting, because their rooms differ from the ones the lighting was made from: {}.",
-                self.fall_back.len(),
-                (self.fall_back.iter())
-                    .map(|fall| fall.area.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "{} the game's own lighting, because your game's files differ from the files the lighting was made from: {}.",
+                counted(self.fall_back.len(), "area keeps", "areas keep"),
+                names(&mut self.fall_back.iter().map(|fall| fall.area.as_str()))
             ));
-            lines.extend(self.mod_sentences().into_iter().skip(1));
         }
+        lines.extend(self.mod_sentences().into_iter().skip(1));
         lines
     }
 }
@@ -598,6 +808,22 @@ pub fn files_key(game: Game, index: &vfs::DirIndex) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+/// The install of `game` that `discovery` finds, opened, or why it does
+/// not open.
+fn open_install(
+    discovery: &vfs::Discovery,
+    game: Game,
+) -> Result<std::sync::Arc<crate::installs::Install>, Failure> {
+    crate::installs::open(discovery, game).map_err(|why| {
+        let kind = if discovery.get(game).is_some() {
+            Kind::GameUnreadable
+        } else {
+            Kind::GameNotFound
+        };
+        Failure::new(kind, why)
+    })
+}
+
 /// Compares `manifest` with the files of the player's install of its game,
 /// as the game reads them. `store` keeps the answer, keyed by the names,
 /// sizes and times of the files a bake reads (`files_key`) and the
@@ -609,15 +835,7 @@ pub fn check(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Report, Failure> {
     let game = manifest.game;
-    let discovery = crate::discover();
-    let install = crate::installs::open(&discovery, game).map_err(|why| {
-        let kind = if discovery.get(game).is_some() {
-            Kind::GameUnreadable
-        } else {
-            Kind::GameNotFound
-        };
-        Failure::new(kind, why)
-    })?;
+    let install = open_install(&crate::discover(), game)?;
     let files = files_key(game, &install.index);
     let key = store::Key::of(
         CHECKS,
@@ -625,7 +843,7 @@ pub fn check(
             game.key().as_bytes(),
             files.as_bytes(),
             &bake_fingerprint::FORMAT.to_le_bytes(),
-            manifest.text().as_bytes(),
+            manifest.exact_text().as_bytes(),
         ],
     );
     if let Some(bytes) = store.and_then(|store| store.get(CHECKS, &key))
@@ -643,13 +861,25 @@ pub fn check(
     Ok(report)
 }
 
-/// The verdict on each area of `manifest` over `install`'s files, made on a
-/// few threads, one module at a time on each.
-fn compare(
+/// An area as its module holds it in the player's files, with the module's
+/// resolver, or why the module does not open or has no such area.
+type Found<'a> = Result<
+    (
+        &'a vfs::resolver::Resolver,
+        &'a asset_odyssey::module::AreaIr,
+    ),
+    String,
+>;
+
+/// `judge` on each area of `manifest` over `install`'s files, run on a few
+/// threads, one module at a time on each. The answers are by area name.
+/// `progress` hears each area as it is judged.
+fn each_area<T: Send>(
     install: &crate::installs::Install,
     manifest: &Manifest,
     progress: &mut dyn FnMut(Progress),
-) -> Report {
+    judge: &(dyn Fn(Found, &Area) -> T + Sync),
+) -> BTreeMap<String, T> {
     // The areas by module, in the manifest's order.
     let mut modules: Vec<(&str, Vec<&Area>)> = Vec::new();
     for area in &manifest.areas {
@@ -665,8 +895,8 @@ fn compare(
     let threads = std::thread::available_parallelism()
         .map_or(1, std::num::NonZeroUsize::get)
         .clamp(1, 8);
-    let (send, receive) = std::sync::mpsc::channel::<(String, Verdict, Vec<String>)>();
-    let mut verdicts: BTreeMap<String, (Verdict, Vec<String>)> = BTreeMap::new();
+    let (send, receive) = std::sync::mpsc::channel::<(String, T)>();
+    let mut answers: BTreeMap<String, T> = BTreeMap::new();
     std::thread::scope(|scope| {
         for _ in 0..threads {
             let send = send.clone();
@@ -675,21 +905,60 @@ fn compare(
                 while let Some((module, areas)) =
                     modules.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
                 {
-                    for found in module_verdicts(install, module, areas, manifest.format) {
-                        let _ = send.send(found);
+                    let built = install.resolver(Some(module)).and_then(|resolver| {
+                        asset_odyssey::module::ModuleIr::build(
+                            module,
+                            &crate::modules::ResolverSource(&resolver),
+                        )
+                        .map(|ir| (resolver, ir))
+                        .map_err(|error| format!("{error:?}"))
+                    });
+                    for area in areas {
+                        let found = match &built {
+                            Err(why) => {
+                                Err(format!("the game's module {module} does not open ({why})"))
+                            }
+                            Ok((resolver, ir)) => (ir.areas.iter())
+                                .find(|found| found.resref.eq_ignore_ascii_case(&area.area))
+                                .map(|found| (resolver, found))
+                                .ok_or_else(|| {
+                                    format!("the game's module {module} has no area {}", area.area)
+                                }),
+                        };
+                        let _ = send.send((area.area.clone(), judge(found, area)));
                     }
                 }
             });
         }
         drop(send);
-        for (area, verdict, mods) in receive {
-            verdicts.insert(area.clone(), (verdict, mods));
+        for (area, answer) in receive {
+            answers.insert(area.clone(), answer);
             progress(Progress {
-                done: verdicts.len(),
+                done: answers.len(),
                 total: manifest.areas.len(),
                 area: &area,
             });
         }
+    });
+    answers
+}
+
+/// What the check finds for one area.
+enum Outcome {
+    Matched,
+    PlaceablesDiffer,
+    Partial(Partial),
+    FallBack(FallBack),
+}
+
+/// The check of each area of `manifest` over `install`'s files.
+fn compare(
+    install: &crate::installs::Install,
+    manifest: &Manifest,
+    progress: &mut dyn FnMut(Progress),
+) -> Report {
+    let mut outcomes = each_area(install, manifest, progress, &|found, area| {
+        outcome(found, area, manifest.format)
     });
     let mut report = Report {
         game: manifest.game.key().to_string(),
@@ -697,82 +966,250 @@ fn compare(
         areas: manifest.areas.len(),
         matched: Vec::new(),
         placeables_differ: Vec::new(),
+        partial: Vec::new(),
         fall_back: Vec::new(),
         allowed: false,
         cached: false,
     };
     for area in &manifest.areas {
-        match verdicts.remove(&area.area) {
-            Some((Verdict::Whole, _)) => report.matched.push(area.area.clone()),
-            Some((Verdict::LightmapsOnly, _)) => report.placeables_differ.push(area.area.clone()),
-            Some((Verdict::Refused(why), mods)) => report.fall_back.push(FallBack {
-                area: area.area.clone(),
-                why,
-                mods,
-            }),
-            None => report.fall_back.push(FallBack {
-                area: area.area.clone(),
-                why: "the area was not compared".to_string(),
-                mods: Vec::new(),
-            }),
+        let outcome = outcomes.remove(&area.area).unwrap_or_else(|| {
+            falls_back(area, "the area was not compared".to_string(), Vec::new())
+        });
+        match outcome {
+            Outcome::Matched => report.matched.push(area.area.clone()),
+            Outcome::PlaceablesDiffer => report.placeables_differ.push(area.area.clone()),
+            Outcome::Partial(partial) => report.partial.push(partial),
+            Outcome::FallBack(fall) => report.fall_back.push(fall),
         }
     }
-    report.allowed = allowed(report.matching(), report.areas);
+    report.allowed = allowed(report.showing());
     report
 }
 
-/// The verdict on each of `areas` of module `module` over `install`'s files,
-/// with the mods that replace the room files of an area whose rooms differ
-/// (`bake_fingerprint::room_mods`).
-fn module_verdicts(
-    install: &crate::installs::Install,
-    module: &str,
-    areas: &[&Area],
-    format: u32,
-) -> Vec<(String, Verdict, Vec<String>)> {
-    let built = install.resolver(Some(module)).and_then(|resolver| {
-        asset_odyssey::module::ModuleIr::build(module, &crate::modules::ResolverSource(&resolver))
-            .map(|ir| (resolver, ir))
-            .map_err(|error| format!("{error:?}"))
-    });
-    (areas.iter())
+fn falls_back(area: &Area, why: String, mods: Vec<String>) -> Outcome {
+    Outcome::FallBack(FallBack {
+        area: area.area.clone(),
+        why,
+        mods,
+    })
+}
+
+/// What the check finds for `area` of the manifest, of bake format
+/// `format`, over the area as the player's files hold it. An area with
+/// exact lines is judged lightmap by lightmap (`bake_fingerprint::fit`),
+/// any other by its `rooms` and `placeables` digests
+/// (`bake_fingerprint::verdict`). Where rooms differ, the outcome names the
+/// mods that replace the area's room files (`bake_fingerprint::room_mods`).
+fn outcome(found: Found, area: &Area, format: u32) -> Outcome {
+    let (resolver, found) = match found {
+        Ok(found) => found,
+        Err(why) => return falls_back(area, why, Vec::new()),
+    };
+    let stamp = area.stamp(format);
+    let mods = || {
+        bake_fingerprint::room_mods(resolver, found)
+            .into_iter()
+            .collect()
+    };
+    let current = bake_fingerprint::current(resolver, found);
+    match bake_fingerprint::fit(&stamp, &current) {
+        Some(Err(why)) => falls_back(area, why, Vec::new()),
+        Some(Ok(fit)) => fit_outcome(area, &fit, mods),
+        None => match bake_fingerprint::verdict(&stamp, &current.print) {
+            Verdict::Whole => Outcome::Matched,
+            Verdict::LightmapsOnly => Outcome::PlaceablesDiffer,
+            Verdict::Refused(why) => {
+                let rooms_differ = stamp.format == current.print.format;
+                falls_back(area, why, if rooms_differ { mods() } else { Vec::new() })
+            }
+        },
+    }
+}
+
+/// What the check finds for `area` whose baked lightmaps and lit
+/// placeables fit the player's files as `fit` says.
+fn fit_outcome(area: &Area, fit: &Fit, mods: impl Fn() -> Vec<String>) -> Outcome {
+    let total = fit.matching.len() + fit.differing.len();
+    if !fit.baked() {
+        let why =
+            format!("none of the area's {total} baked lightmaps fit the rooms in the game's files");
+        return falls_back(area, why, mods());
+    }
+    if fit.differing.is_empty() {
+        return if fit.placeables_differ {
+            Outcome::PlaceablesDiffer
+        } else {
+            Outcome::Matched
+        };
+    }
+    Outcome::Partial(Partial {
+        area: area.area.clone(),
+        matching: fit.matching.len(),
+        lightmaps: total,
+        differ: (fit.differing.iter())
+            .map(|(lightmap, rooms)| Differs {
+                lightmap: lightmap.clone(),
+                rooms: rooms.iter().cloned().collect(),
+            })
+            .collect(),
+        placeables_differ: fit.placeables_differ,
+        mods: mods(),
+    })
+}
+
+/// A published download's second manifest, made by `restamp`.
+pub struct Restamped {
+    /// The manifest with the exact lines of each area that was stamped.
+    pub manifest: Manifest,
+    /// The areas left without exact lines, each with the reason.
+    pub skipped: Vec<(String, String)>,
+    /// The areas with lightmaps that no room mesh draws, such as a lightmap
+    /// baked only for the grass under a walkmesh, each with those
+    /// lightmaps.
+    pub undrawn: Vec<(String, Vec<String>)>,
+    /// Whether the files were read with their Steam Workshop items.
+    pub workshop: bool,
+}
+
+/// What the zip of a download holds for one area: the lightmaps it has a
+/// PNG of, without those its `stored.txt` names, and its fingerprint.
+type Zipped = (BTreeSet<String>, Option<Fingerprint>);
+
+/// What the zip of a download holds for each area (`Zipped`).
+fn zipped_areas(zip: &Path) -> Result<BTreeMap<String, Zipped>, Failure> {
+    let damaged = |error: &dyn std::fmt::Display| {
+        Failure::new(Kind::ZipDamaged, format!("{}: {error}", zip.display()))
+    };
+    let file = std::fs::File::open(zip).map_err(|error| {
+        Failure::new(Kind::ZipUnreadable, format!("{}: {error}", zip.display()))
+    })?;
+    let mut archive = ::zip::ZipArchive::new(file).map_err(|error| damaged(&error))?;
+    let mut pngs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut stored: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut prints: BTreeMap<String, Fingerprint> = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| damaged(&error))?;
+        let name = entry
+            .name()
+            .map_err(|error| damaged(&error))?
+            .to_ascii_lowercase();
+        let Some((area, file)) = name.split_once('/') else {
+            continue;
+        };
+        let area = area.to_string();
+        if let Some(stem) = file.strip_suffix(".png") {
+            pngs.entry(area).or_default().insert(stem.to_string());
+            continue;
+        }
+        let mut text = String::new();
+        if file == crate::stored_fill::STORED_FILE || file == bake_fingerprint::FILE {
+            std::io::Read::read_to_string(&mut entry, &mut text)
+                .map_err(|error| damaged(&format!("{name}: {error}")))?;
+        }
+        if file == crate::stored_fill::STORED_FILE {
+            let names = (text.lines().map(str::trim))
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(str::to_ascii_lowercase);
+            stored.entry(area).or_default().extend(names);
+        } else if file == bake_fingerprint::FILE
+            && let Some(print) = bake_fingerprint::parse(&text)
+        {
+            prints.insert(area, print);
+        }
+    }
+    let areas = (pngs.keys().chain(prints.keys()))
+        .cloned()
+        .collect::<BTreeSet<String>>();
+    Ok((areas.into_iter())
         .map(|area| {
-            let (verdict, mods) = match &built {
-                Err(why) => (
-                    Verdict::Refused(format!("the game's module {module} does not open ({why})")),
-                    Vec::new(),
-                ),
-                Ok((resolver, ir)) => {
-                    match (ir.areas.iter())
-                        .find(|found| found.resref.eq_ignore_ascii_case(&area.area))
-                    {
-                        Some(found) => {
-                            let stamp = area.stamp(format);
-                            let current = bake_fingerprint::of_area(resolver, found);
-                            let rooms_differ =
-                                stamp.format == current.format && stamp.rooms != current.rooms;
-                            let mods = if rooms_differ {
-                                bake_fingerprint::room_mods(resolver, found)
-                                    .into_iter()
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            };
-                            (bake_fingerprint::verdict(&stamp, &current), mods)
-                        }
-                        None => (
-                            Verdict::Refused(format!(
-                                "the game's module {module} has no area {}",
-                                area.area
-                            )),
-                            Vec::new(),
-                        ),
-                    }
-                }
-            };
-            (area.area.clone(), verdict, mods)
+            let stored = stored.remove(&area).unwrap_or(BTreeSet::new());
+            let lightmaps = (pngs.remove(&area).unwrap_or(BTreeSet::new()).into_iter())
+                .filter(|name| !stored.contains(name))
+                .collect();
+            let print = prints.remove(&area);
+            (area, (lightmaps, print))
         })
-        .collect()
+        .collect())
+}
+
+/// The second manifest of the download that `manifest` and the zip at `zip`
+/// make, stamped over this machine's files of its game. Each area's
+/// lightmaps are the PNGs the zip holds for it. An area is stamped only when
+/// this machine's files still give the `rooms` and `placeables` digests of
+/// the area's fingerprint in the zip, which are the files it was baked
+/// from. Any other area keeps only its old lines, and the game judges it by
+/// the old rules. The files are read as a player's build reads them, with
+/// the Steam Workshop items unless `KJK_WORKSHOP=off` is set
+/// (`discover_as_player`). `progress` hears each area.
+pub fn restamp(
+    manifest: &Manifest,
+    zip: &Path,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Restamped, Failure> {
+    let (blake3, bytes) = digest_of(zip).map_err(|why| Failure::new(Kind::ZipUnreadable, why))?;
+    if bytes != manifest.archive.bytes || blake3 != manifest.archive.blake3 {
+        return Err(Failure::new(
+            Kind::ZipMismatch,
+            format!(
+                "{} is not the zip the manifest names: it has {bytes} bytes and the BLAKE3 {blake3}",
+                zip.display()
+            ),
+        ));
+    }
+    let zipped = zipped_areas(zip)?;
+    // A build with the probes leaves the Steam Workshop items out by
+    // default. The stamp must be made over the files a player's game reads,
+    // so it reads them as a player's build does.
+    let discovery = crate::discover_as_player();
+    let workshop = (discovery.get(manifest.game)).is_some_and(|found| found.workshop);
+    let install = open_install(&discovery, manifest.game)?;
+    let mut stamped = each_area(&install, manifest, progress, &|found, area| {
+        let (resolver, found) = found?;
+        let (pngs, print) = zipped
+            .get(&area.area)
+            .ok_or_else(|| "the zip has no folder for it".to_string())?;
+        let print = print
+            .as_ref()
+            .ok_or_else(|| format!("the zip has no {} for it", bake_fingerprint::FILE))?;
+        let current = bake_fingerprint::current(resolver, found);
+        let old = area.stamp(manifest.format);
+        if !print.same_digests(&old) {
+            return Err("the zip's fingerprint is not the one the manifest gives".to_string());
+        }
+        if !current.print.same_digests(&old) {
+            return Err(
+                "the files on this machine are not the ones the area was baked from".to_string(),
+            );
+        }
+        Ok(bake_fingerprint::stamp(&current, pngs))
+    });
+    let mut restamped = Restamped {
+        manifest: manifest.clone(),
+        skipped: Vec::new(),
+        undrawn: Vec::new(),
+        workshop,
+    };
+    for area in &mut restamped.manifest.areas {
+        match stamped.remove(&area.area) {
+            Some(Ok((print, undrawn))) => {
+                area.exact = print.exact;
+                if !undrawn.is_empty() {
+                    restamped.undrawn.push((area.area.clone(), undrawn));
+                }
+            }
+            Some(Err(why)) => {
+                area.exact = None;
+                restamped.skipped.push((area.area.clone(), why));
+            }
+            None => {
+                area.exact = None;
+                restamped
+                    .skipped
+                    .push((area.area.clone(), "the area was not compared".to_string()));
+            }
+        }
+    }
+    Ok(restamped)
 }
 
 /// The folder of `game`'s installed download in `store`.
@@ -834,8 +1271,7 @@ pub fn install(
         let _ = std::fs::remove_dir_all(&partial);
         return Err(why);
     }
-    std::fs::write(partial.join(MANIFEST), manifest.text())
-        .map_err(|error| Failure::write(&partial.join(MANIFEST), &error))?;
+    write_manifests(manifest, &partial)?;
     // The older install goes aside, the new one into its place, and the
     // older one is removed. A rename that fails puts the older one back.
     if old.exists() {
@@ -913,12 +1349,64 @@ fn unpack(
     Ok(())
 }
 
+/// Writes into the download's folder `folder` the manifest in the form
+/// kjk v0.21.0 reads (`MANIFEST`), and for a manifest with exact lines the
+/// second manifest (`MANIFEST_2`) and each area's fingerprint with its
+/// exact lines. The `rooms` and `placeables` lines of each fingerprint stay
+/// as they were.
+fn write_manifests(manifest: &Manifest, folder: &Path) -> Result<(), Failure> {
+    let written = |path: PathBuf, text: String| {
+        std::fs::write(&path, text).map_err(|error| Failure::write(&path, &error))
+    };
+    written(folder.join(MANIFEST), manifest.text())?;
+    if !manifest.is_exact() {
+        return Ok(());
+    }
+    for area in &manifest.areas {
+        let set = folder.join(&area.area);
+        bake_fingerprint::write(&set, &area.stamp(manifest.format))
+            .map_err(|why| Failure::new(Kind::Other, why))?;
+    }
+    written(folder.join(MANIFEST_2), manifest.exact_text())
+}
+
+/// Adds the exact lines of the second manifest `manifest` to the download
+/// of its game installed in `store`, without its zip. The installed
+/// download must be of the zip `manifest` names, by its BLAKE3 and size,
+/// and must hold every area folder of `manifest` with the fingerprint the
+/// manifest gives. The installed `MANIFEST` stays as it is, so kjk v0.21.0
+/// reads the download as before. The result is the installed folder.
+pub fn refresh(store: &Store, manifest: &Manifest) -> Result<PathBuf, Failure> {
+    let target = folder(store, manifest.game);
+    let not_installed = |why: String| Failure::new(Kind::NotInstalled, why);
+    let installed = Manifest::read(&target.join(MANIFEST)).map_err(|why| {
+        not_installed(format!(
+            "No lighting download for {} is installed that reads: {why}",
+            game_name(manifest.game)
+        ))
+    })?;
+    if installed.archive.blake3 != manifest.archive.blake3
+        || installed.archive.bytes != manifest.archive.bytes
+    {
+        return Err(not_installed(format!(
+            "The lighting download installed for {} is {}, not {}. Install the new one in full.",
+            game_name(manifest.game),
+            installed.archive.file,
+            manifest.archive.file
+        )));
+    }
+    check_unpacked(manifest, &target).map_err(|failure| not_installed(failure.why))?;
+    write_manifests(manifest, &target)?;
+    Ok(target)
+}
+
 /// Whether every area of `manifest` was unpacked into `folder` with the
-/// manifest's fingerprint.
+/// manifest's fingerprint. Only the `rooms` and `placeables` digests are
+/// compared, since a zip's fingerprints may lack the exact lines.
 fn check_unpacked(manifest: &Manifest, folder: &Path) -> Result<(), Failure> {
     for area in &manifest.areas {
         match bake_fingerprint::read(&folder.join(&area.area)) {
-            Some(Ok(print)) if print == area.stamp(manifest.format) => {}
+            Some(Ok(print)) if print.same_digests(&area.stamp(manifest.format)) => {}
             _ => {
                 return Err(Failure::new(
                     Kind::ZipDamaged,

@@ -4,7 +4,9 @@
 //!
 //! - `check <manifest>` compares the manifest with the player's files.
 //! - `install <manifest> <zip>` checks, then installs the zip into the
-//!   store when enough areas match.
+//!   store when at least one area matches.
+//! - `refresh <manifest>` adds the exact lines of a second manifest to the
+//!   installed download of the same zip, without the zip.
 //! - `status` says what is installed for each game.
 //! - `remove <game>` removes a game's download.
 //!
@@ -15,9 +17,21 @@
 //! check, and `{"games": [...], "check": {...}}` for an install. Without
 //! `--json` they print plain sentences.
 //!
+//! Each command that takes a manifest takes either form: the manifest that
+//! kjk v0.21.0 reads, or the second manifest with the exact lines
+//! (`lighting_bakes::MANIFEST_2`).
+//!
 //! The check gives `bake_format`, the format of the download's bakes, and
 //! `reads_format`, the format this kjk reads. When they differ, every area
 //! keeps the game's own lighting and the install is refused.
+//!
+//! The check's `matched` and `placeables_differ` areas show all of their
+//! baked lightmaps, and `matching` counts them. The `partial` areas show
+//! some of them. Each one gives `matching`, the number of its baked
+//! lightmaps that match, `lightmaps`, the number it has, `differ`, each
+//! lightmap that differs with the room models that draw it, and
+//! `placeables_differ`. The `fall_back` areas show none. An older kjk gives
+//! no `partial`.
 //!
 //! A game's line with the status `failed` or `refused`, and a refused
 //! check, give `kind` beside the sentence `why`, for the launcher to act
@@ -39,8 +53,10 @@
 //!   a damaged or incomplete download.
 //! - `zip_damaged`: the zip does not unpack, or holds files the manifest
 //!   does not list.
-//! - `files_differ`: too few areas of the player's files match (refused).
+//! - `files_differ`: no area of the player's files matches (refused).
 //! - `bake_format`: the download is of another bake format (refused).
+//! - `not_installed`: `refresh` found no installed download of the zip
+//!   the manifest names, or an area folder of it is missing.
 //! - `other`: anything else.
 //!
 //! A failed line of the kinds `store_not_writable`, `disk_full` and
@@ -126,6 +142,7 @@ fn report_json(report: &Report, manifest: &Manifest) -> Value {
         "matching": report.matching(),
         "matched": report.matched,
         "placeables_differ": report.placeables_differ,
+        "partial": report.partial,
         "fall_back": report.fall_back,
         "cached": report.cached,
         "why": report.refusal(),
@@ -258,6 +275,49 @@ pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
                 outln!(
                     "The new lighting for {} is installed, with {} areas. Choose Lighting: Enhanced Lightmaps in the advanced graphics options to use it.",
                     lighting_bakes::game_name(game),
+                    manifest.areas.len()
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(failure) => failed(json, Some(game), &failure),
+    }
+}
+
+/// `kjk lighting refresh <manifest> [--json]`: the exact lines of the
+/// second manifest at `path` added to the installed download of the same
+/// zip.
+pub(crate) fn refresh(path: &Path, json: bool) -> ExitCode {
+    let manifest = match Manifest::load(path) {
+        Ok(manifest) => manifest,
+        Err(failure) => return failed(json, None, &failure),
+    };
+    let game = manifest.game;
+    let store = match opened() {
+        Ok(store) => store,
+        Err(failure) => return failed(json, Some(game), &failure),
+    };
+    match lighting_bakes::refresh(&store, &manifest) {
+        Ok(folder) => {
+            let exact = (manifest.areas.iter())
+                .filter(|area| area.exact.is_some())
+                .count();
+            if json {
+                outln!(
+                    "{}",
+                    json!({"games": [{
+                        "game": game.key(),
+                        "status": "installed",
+                        "path": folder,
+                        "areas": manifest.areas.len(),
+                        "exact": exact,
+                    }]})
+                );
+            } else {
+                outln!(
+                    "The lighting download for {} in {} is refreshed. {exact} of its {} areas are now checked lightmap by lightmap.",
+                    lighting_bakes::game_name(game),
+                    folder.display(),
                     manifest.areas.len()
                 );
             }
