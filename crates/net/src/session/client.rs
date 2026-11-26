@@ -1356,6 +1356,10 @@ impl Client {
 
     /// Hands over the level asked for (`NeedLevel`, `Installing`), or why
     /// it could not be built (the session then ends: `Refusal::Plan`).
+    /// Levels are answered in the order they were asked for. A player
+    /// still building the level it joined in when the host starts an
+    /// install hands that level over first, then the install's. The host
+    /// waits for it as for any player still loading.
     pub fn provide_level(&mut self, now: NetTime, level: Result<Level, String>) {
         self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
@@ -1368,10 +1372,11 @@ impl Client {
                 return;
             }
         };
+        let joining = session.wanted.is_some();
         if let Some(install) = session
             .install
             .as_mut()
-            .filter(|install| install.level.is_none())
+            .filter(|install| install.level.is_none() && !joining)
         {
             install.level = Some(level);
             self.try_commit(now);
