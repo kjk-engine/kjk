@@ -79,9 +79,9 @@ pub fn show(module: &str) -> ExitCode {
             if let Some(error) = &story.error {
                 outln!("    error: {error}");
             }
-            for (input, capture) in [("mouse", &story.capture), ("pad", &story.pad_capture)] {
-                if let Some(capture) = capture {
-                    outln!("    capture for the {input}: {capture}");
+            for (input, captures) in [("mouse", &story.capture), ("pad", &story.pad_capture)] {
+                for (game, capture) in captures {
+                    outln!("    capture on {game} for the {input}: {capture}");
                 }
             }
         }
@@ -133,8 +133,8 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
 
                 for size in &sizes {
                     for input in &inputs {
-                        let Some(capture) = story.capture_for(*input) else {
-                            outln!("{}: no capture for the pad, drawn with the mouse alone", story.name);
+                        let Some(capture) = story.capture_for(game, *input) else {
+                            outln!("{}: no capture on {game} with the {}", story.name, input.name());
                             continue;
                         };
 

@@ -164,7 +164,7 @@
     "character": null,
     "chargen": null,
     "combat_log": [
-      "Sith Trooper hit Someone: 0 damage"
+      "Sith Trooper hit Someone: 1 damage"
     ],
     "computer": null,
     "credits": [],
@@ -175,19 +175,19 @@
     "feedback": [],
     "floaties": [
       {
-        "alpha": 0.9893333315849304,
+        "alpha": 0.9733333587646484,
         "color": [
           0.7400000095367432,
           0.10999999940395355,
           0.0
         ],
         "over": [
-          0.5062441229820251,
-          0.6521324515342712
+          0.504045307636261,
+          0.6553803086280823
         ],
         "stacked": 0,
         "text": [
-          48
+          49
         ]
       }
     ],
@@ -304,7 +304,7 @@
         380
       ],
       "hp": [
-        200,
+        199,
         200
       ],
       "lit": [],
@@ -1641,7 +1641,7 @@
           380
         ],
         "hp": [
-          199,
+          198,
           200
         ],
         "id": 0,

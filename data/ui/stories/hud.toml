@@ -1,33 +1,16 @@
 # The stories of the screens in crates/ui/src/screens/hud.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures)."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: the Taris lower city in KOTOR 1 and Nar Shaddaa in KOTOR 2."
 
 [[story]]
-name = "Nar Shaddaa, a hostile target held"
+name = "A hostile target held"
 screen = "play"
-games = ["tsl"]
-capture = "nar-shaddaa-target"
-pad_capture = "nar-shaddaa-target-pad"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
 
 [[story]]
 name = "Target block floating over the target"
 screen = "play"
-games = ["tsl"]
-capture = "nar-shaddaa-target"
-pad_capture = "nar-shaddaa-target-pad"
-steps = ["set display.target_top false"]
-
-[[story]]
-name = "Taris lower city, a hostile target held"
-screen = "play"
-games = ["k1"]
-capture = "taris-lower-city-target"
-pad_capture = "taris-lower-city-target-pad"
-
-[[story]]
-name = "Taris lower city, target block floating"
-screen = "play"
-games = ["k1"]
-capture = "taris-lower-city-target"
-pad_capture = "taris-lower-city-target-pad"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
 steps = ["set display.target_top false"]

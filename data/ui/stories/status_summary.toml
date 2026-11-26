@@ -1,18 +1,16 @@
 # The stories of the screens in crates/ui/src/screens/status_summary.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures), taken after `ui status xp 50`, `ui status journal` and `ui status credits 100`."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game, taken after `ui status xp 50`, `ui status journal` and `ui status credits 100`."
 
 [[story]]
 name = "Experience, journal and credits"
 screen = "play"
-games = ["k1"]
-capture = "taris-status-summaries"
-pad_capture = "taris-status-summaries-pad"
+capture = { k1 = "taris-status-summaries", tsl = "nar-shaddaa-status-summaries" }
+pad_capture = { k1 = "taris-status-summaries-pad", tsl = "nar-shaddaa-status-summaries-pad" }
 
 [[story]]
 name = "In the corner"
 screen = "play"
-games = ["k1"]
-capture = "taris-status-summaries"
-pad_capture = "taris-status-summaries-pad"
+capture = { k1 = "taris-status-summaries", tsl = "nar-shaddaa-status-summaries" }
+pad_capture = { k1 = "taris-status-summaries-pad", tsl = "nar-shaddaa-status-summaries-pad" }
 steps = ["set display.corner_notices true"]

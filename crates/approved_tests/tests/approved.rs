@@ -3871,9 +3871,10 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// view-model or on its capture, or names the screen over play
 /// (`ui::catalogue::PLAY`). Each
 /// capture of play a story names is in `data/ui/captures`, reads, reads the
-/// same once written again, was taken in each game the story is drawn on,
-/// and was taken with its input: the mouse for `capture`, a pad for
-/// `pad_capture`. It needs no game data: the lines of
+/// same once written again, was taken in the game it is named for, and was
+/// taken with its input: the mouse for `capture`, a pad for `pad_capture`.
+/// A story with captures has one for each game it is drawn on (both by
+/// default), with each input. It needs no game data: the lines of
 /// the talk table a capture names are read as stand-in words.
 #[test]
 fn ui_catalogue() {
@@ -3905,7 +3906,7 @@ fn ui_catalogue() {
     let mut unopened = Vec::new();
     for file in &files {
         for story in &file.stories {
-            let captured = (story.capture.as_deref())
+            let captured = (story.capture.values().next())
                 .and_then(|name| {
                     ui::catalogue::read_capture(
                         &ui::catalogue::captures(),
@@ -3933,32 +3934,40 @@ fn ui_catalogue() {
     let mut bad_captures = Vec::new();
     for file in &files {
         for story in &file.stories {
-            let named = [(&story.capture, false), (&story.pad_capture, true)];
-            for (name, pad) in named
-                .into_iter()
-                .filter_map(|(name, pad)| Some((name.as_ref()?, pad)))
-            {
-                let folder = ui::catalogue::captures();
-                let talk = ui::catalogue::StandInTalk;
-                let why = match ui::catalogue::read_capture(&folder, name, &talk) {
-                    Err(why) => Some(why),
-                    Ok(capture) if story.games.iter().any(|game| *game != capture.game) => Some(
-                        format!("taken in {}, drawn on {:?}", capture.game, story.games),
-                    ),
-                    Ok(capture) if capture.view.pad_playing != pad => Some(format!(
-                        "taken with the {}",
-                        if pad { "mouse" } else { "pad" }
-                    )),
-                    Ok(capture) => {
-                        let again = capture
-                            .text(&talk)
-                            .and_then(|text| ui::catalogue::Capture::read(&text, &talk));
-                        (again.as_ref() != Ok(&capture))
-                            .then(|| "reads otherwise once written".to_string())
+            let captured = !story.capture.is_empty() || !story.pad_capture.is_empty();
+            for game in story.games.iter().filter(|_| captured) {
+                for (captures, pad) in [(&story.capture, false), (&story.pad_capture, true)] {
+                    let input = if pad { "a pad" } else { "the mouse" };
+                    let Some(name) = captures.get(game) else {
+                        bad_captures.push(format!(
+                            "{}: {}: no capture on {game} with {input}",
+                            file.module, story.name
+                        ));
+                        continue;
+                    };
+                    let folder = ui::catalogue::captures();
+                    let talk = ui::catalogue::StandInTalk;
+                    let why = match ui::catalogue::read_capture(&folder, name, &talk) {
+                        Err(why) => Some(why),
+                        Ok(capture) if capture.game != *game => {
+                            Some(format!("taken in {}, named for {game}", capture.game))
+                        }
+                        Ok(capture) if capture.view.pad_playing != pad => Some(format!(
+                            "taken with the {}",
+                            if pad { "mouse" } else { "pad" }
+                        )),
+                        Ok(capture) => {
+                            let again = capture
+                                .text(&talk)
+                                .and_then(|text| ui::catalogue::Capture::read(&text, &talk));
+                            (again.as_ref() != Ok(&capture))
+                                .then(|| "reads otherwise once written".to_string())
+                        }
+                    };
+                    if let Some(why) = why {
+                        bad_captures
+                            .push(format!("{}: {}: {name}: {why}", file.module, story.name));
                     }
-                };
-                if let Some(why) = why {
-                    bad_captures.push(format!("{}: {}: {name}: {why}", file.module, story.name));
                 }
             }
         }

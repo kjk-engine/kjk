@@ -145,27 +145,31 @@ pub struct Story {
     pub games: Vec<String>,
     /// Why a session did not start, for the message screen.
     pub error: Option<String>,
-    /// The capture of play it starts from with the mouse (`Capture`), by
-    /// its name in `data/ui/captures`. Without one, the story starts from
-    /// stand-ins.
-    pub capture: Option<String>,
-    /// The capture it starts from with a controller: the same moment
+    /// The captures of play it starts from with the mouse (`Capture`), by
+    /// game (`k1`, `tsl`) and by name in `data/ui/captures`. A story is one
+    /// situation, such as a hostile target held, and each game has its own
+    /// capture of it. Without captures, the story starts from stand-ins.
+    pub capture: std::collections::BTreeMap<String, String>,
+    /// The captures it starts from with a controller: the same moments
     /// captured while a pad played. The game fills the action bar and the
     /// key hints for the input in use, so each input needs its own capture.
-    pub pad_capture: Option<String>,
+    pub pad_capture: std::collections::BTreeMap<String, String>,
 }
 
 impl Story {
-    /// The capture it starts from with `input`, by name, and whether it is
-    /// drawn with that input at all: a story with a capture and no capture
-    /// for the pad is drawn with the mouse alone.
-    pub fn capture_for(&self, input: Input) -> Option<Option<&str>> {
-        match (input, &self.capture, &self.pad_capture) {
-            (Input::Mouse, capture, _) => Some(capture.as_deref()),
-            (Input::Pad, _, Some(pad)) => Some(Some(pad)),
-            (Input::Pad, Some(_), None) => None,
-            (Input::Pad, None, None) => Some(None),
+    /// The capture it starts from on `game` with `input`, by name, and
+    /// whether it is drawn so at all. A story without captures starts from
+    /// stand-ins everywhere. A story with captures is drawn only where it
+    /// has one.
+    pub fn capture_for(&self, game: &str, input: Input) -> Option<Option<&str>> {
+        if self.capture.is_empty() && self.pad_capture.is_empty() {
+            return Some(None);
         }
+        let captures = match input {
+            Input::Mouse => &self.capture,
+            Input::Pad => &self.pad_capture,
+        };
+        captures.get(game).map(|name| Some(name.as_str()))
     }
 }
 
@@ -203,6 +207,25 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
             .collect::<Result<Vec<String>, String>>()
             .map(Some)
     };
+    let by_game = |item: Option<&Item>,
+                   field: &str|
+     -> Result<std::collections::BTreeMap<String, String>, String> {
+        let Some(item) = item else {
+            return Ok(Default::default());
+        };
+        let table = item.as_table_like().ok_or(why(&format!(
+            "{field} is not a table of games, as {{ k1 = \"…\", tsl = \"…\" }}"
+        )))?;
+        table
+            .iter()
+            .map(|(game, name)| {
+                let name = name
+                    .as_str()
+                    .ok_or(why(&format!("{field}.{game} is not text")))?;
+                Ok((game.to_string(), name.to_string()))
+            })
+            .collect()
+    };
     let status = words(document.get("status"), "status")?.ok_or(why("no status"))?;
     if !STATUSES.contains(&status.as_str()) {
         return Err(why(&format!(
@@ -233,8 +256,8 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
             stories.push(Story {
                 steps: list(table.get("steps"), "steps")?.unwrap_or_else(Vec::new),
                 error: words(table.get("error"), "error")?,
-                capture: words(table.get("capture"), "capture")?,
-                pad_capture: words(table.get("pad_capture"), "pad_capture")?,
+                capture: by_game(table.get("capture"), "capture")?,
+                pad_capture: by_game(table.get("pad_capture"), "pad_capture")?,
                 name,
                 screen,
                 games,

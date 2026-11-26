@@ -1,10 +1,9 @@
 # The stories of the screens in crates/ui/src/screens/transition.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures): the main character faces the South Apartments' door out to Upper City South on Taris."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: the main character faces the South Apartments' door to Upper City South on Taris, and the docks' way back to the Refugee Landing Pad on Nar Shaddaa."
 
 [[story]]
-name = "The door to Upper City South"
+name = "Facing an exit"
 screen = "play"
-games = ["k1"]
-capture = "taris-apartment-exit"
-pad_capture = "taris-apartment-exit-pad"
+capture = { k1 = "taris-apartment-exit", tsl = "nar-shaddaa-docks-exit" }
+pad_capture = { k1 = "taris-apartment-exit-pad", tsl = "nar-shaddaa-docks-exit-pad" }

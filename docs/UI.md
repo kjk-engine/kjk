@@ -805,9 +805,13 @@ Running and checking:
     powerwheel hold; wait 30f; ui capture nar-shaddaa-low-force; quit'`,
     and again with `ui pad xbox` after `wait world` and the name
     `nar-shaddaa-low-force-pad`.
-  - **A story from a capture.** A story names its captures by their names,
-    `capture` for the mouse and `pad_capture` for a pad. A capture records
-    the game it was taken in, and a story draws it on that game alone. Its view model is
+  - **A story from a capture.** A story is one situation, such as a
+    hostile target held, and names a capture of it in each game it is
+    drawn on: `capture = { k1 = "taris-lower-city-target", tsl =
+    "nar-shaddaa-target" }` for the mouse, and `pad_capture` the same way
+    for a pad. A story with captures is drawn on both games unless its
+    `games` says otherwise, so the catalogue shows the situation in each
+    game's own look. A capture records the game it was taken in. Its view model is
     then the capture's, and none of the stand-ins is added. A story with a
     `capture` and no `pad_capture` is drawn with the mouse alone. The
     `pad KIND` step renames the pad glyphs a capture holds
@@ -837,8 +841,9 @@ Running and checking:
   - **The check.** The approved test `ui_catalogue` fails when a capture a
     story names is missing, does not read, reads otherwise once written
     again, was taken in another game than the story is drawn on, or was
-    taken with the wrong input. A story with a capture must open its
-    screen on that capture. It needs no game data, so it
+    taken with the wrong input. A story with captures must name one for each
+    game it is drawn on, with each input, and must open its screen on its
+    capture. It needs no game data, so it
     reads each line of the talk table as stand-in words (`talk 1234`,
     `ui::catalogue::StandInTalk`).
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format

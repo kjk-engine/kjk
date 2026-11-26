@@ -1,26 +1,23 @@
 # The stories of the screens in crates/ui/src/screens/wheel.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures) taken with the wheel open."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game, taken with the wheel open: a Jedi with 3 Force points holds a hostile target, so the costlier powers are greyed."
 
 [[story]]
 name = "Open, nothing highlighted"
 screen = "play"
-games = ["tsl"]
-capture = "nar-shaddaa-low-force"
-pad_capture = "nar-shaddaa-low-force-pad"
+capture = { k1 = "taris-low-force", tsl = "nar-shaddaa-low-force" }
+pad_capture = { k1 = "taris-low-force-pad", tsl = "nar-shaddaa-low-force-pad" }
 
 [[story]]
 name = "A power the character cannot pay for"
 screen = "play"
-games = ["tsl"]
-capture = "nar-shaddaa-low-force"
-pad_capture = "nar-shaddaa-low-force-pad"
+capture = { k1 = "taris-low-force", tsl = "nar-shaddaa-low-force" }
+pad_capture = { k1 = "taris-low-force-pad", tsl = "nar-shaddaa-low-force-pad" }
 steps = ["wheel pick Stun"]
 
 [[story]]
 name = "An item highlighted"
 screen = "play"
-games = ["tsl"]
-capture = "nar-shaddaa-low-force"
-pad_capture = "nar-shaddaa-low-force-pad"
+capture = { k1 = "taris-low-force", tsl = "nar-shaddaa-low-force" }
+pad_capture = { k1 = "taris-low-force-pad", tsl = "nar-shaddaa-low-force-pad" }
 steps = ["wheel pick Medpac"]

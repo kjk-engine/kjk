@@ -1,18 +1,16 @@
 # The stories of the screens in crates/ui/src/screens/galaxy_map.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "Its stories start from a capture of play: a script opened the map on Nar Shaddaa with seven planets, five of them selectable (`ui script galaxy 3 1,2,3,4,5,6,7 1,2,3,4,5`). The 3D views of the planets are not drawn."
+notes = "Its stories start from captures of play: a script opened the map on Taris in KOTOR 1 and on Nar Shaddaa in KOTOR 2, with seven planets, five of them selectable (`ui script galaxy PLANET 1,2,3,4,5,6,7 1,2,3,4,5`). The 3D views of the planets are not drawn."
 
 [[story]]
-name = "Korriban chosen"
+name = "The current planet"
 screen = "galaxymap"
-games = ["tsl"]
-capture = "galaxy-map-nar-shaddaa"
-pad_capture = "galaxy-map-nar-shaddaa-pad"
+capture = { k1 = "galaxy-map-taris", tsl = "galaxy-map-nar-shaddaa" }
+pad_capture = { k1 = "galaxy-map-taris-pad", tsl = "galaxy-map-nar-shaddaa-pad" }
 
 [[story]]
-name = "Dxun chosen"
+name = "Another planet chosen"
 screen = "galaxymap"
-games = ["tsl"]
-capture = "galaxy-map-nar-shaddaa"
-pad_capture = "galaxy-map-nar-shaddaa-pad"
-steps = ["press LBL_Planet_Dxun"]
+capture = { k1 = "galaxy-map-taris", tsl = "galaxy-map-nar-shaddaa" }
+pad_capture = { k1 = "galaxy-map-taris-pad", tsl = "galaxy-map-nar-shaddaa-pad" }
+steps = ["key Left", "key Activate"]

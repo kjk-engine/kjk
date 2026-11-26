@@ -1,17 +1,15 @@
 # The stories of the screens in crates/ui/src/screens/arena_panel.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures) on the stage `arena@tar_m03ae`."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game on the stages `arena@tar_m03ae` and `arena@301nar`."
 
 [[story]]
-name = "The Taris arena"
+name = "The arena at rest"
 screen = "play"
-games = ["k1"]
-capture = "taris-arena"
-pad_capture = "taris-arena-pad"
+capture = { k1 = "taris-arena", tsl = "nar-shaddaa-arena" }
+pad_capture = { k1 = "taris-arena-pad", tsl = "nar-shaddaa-arena-pad" }
 
 [[story]]
 name = "During a fight"
 screen = "play"
-games = ["k1"]
-capture = "taris-arena-fight"
-pad_capture = "taris-arena-fight-pad"
+capture = { k1 = "taris-arena-fight", tsl = "nar-shaddaa-arena-fight" }
+pad_capture = { k1 = "taris-arena-fight-pad", tsl = "nar-shaddaa-arena-fight-pad" }

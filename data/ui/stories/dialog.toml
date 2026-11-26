@@ -1,10 +1,9 @@
 # The stories of the screens in crates/ui/src/screens/dialog.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on a capture of play (data/ui/captures)."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: the first conversation of the Endar Spire in KOTOR 1 and of Telos (Grenn) in KOTOR 2."
 
 [[story]]
-name = "The Endar Spire's first conversation"
+name = "An opening conversation"
 screen = "play"
-games = ["k1"]
-capture = "endar-spire-conversation"
-pad_capture = "endar-spire-conversation-pad"
+capture = { k1 = "endar-spire-conversation", tsl = "telos-conversation" }
+pad_capture = { k1 = "endar-spire-conversation-pad", tsl = "telos-conversation-pad" }
