@@ -355,20 +355,34 @@ pub fn baked_line(prop: &Prop, name: &str) -> String {
     )
 }
 
+/// A folder of baked lightmaps and the text of its `BAKED_PROPS`.
+struct BakedProps {
+    folder: std::path::PathBuf,
+    text: String,
+}
+
+/// Each folder of baked lightmaps that lists props, with its list read
+/// once for all the props of a level. The last folder comes first, as the
+/// rooms' lightmaps are taken (`viewer::detail_baked`): a project's bake
+/// wins over an earlier one.
+fn baked_props() -> Vec<BakedProps> {
+    (crate::viewer::bake_folders().into_iter().rev())
+        .filter_map(|folder| {
+            let text = std::fs::read_to_string(folder.join(BAKED_PROPS)).ok()?;
+            Some(BakedProps { folder, text })
+        })
+        .collect()
+}
+
 /// The lightmap a bake gives `prop`, when a folder of baked lightmaps
 /// holds one for it as the prop stands now: its line of `BAKED_PROPS`
 /// matches the prop's line (`baked_line`), and its picture reads. A prop
 /// moved, turned, scaled or given another model since the bake takes none,
 /// and is lit by the probes (`lit_by_probes`).
-fn baked_lightmap(prop: &Prop) -> Option<TextureIr> {
+fn baked_lightmap(prop: &Prop, bakes: &[BakedProps]) -> Option<TextureIr> {
     let name = baked_name(prop);
     let line = baked_line(prop, &name);
-    // The last folder first, as the rooms' lightmaps are taken
-    // (`viewer::detail_baked`): a project's bake wins over an earlier one.
-    for folder in crate::viewer::bake_folders().into_iter().rev() {
-        let Ok(text) = std::fs::read_to_string(folder.join(BAKED_PROPS)) else {
-            continue;
-        };
+    for BakedProps { folder, text } in bakes {
         if !text.lines().any(|listed| listed.trim() == line) {
             continue;
         }
@@ -548,6 +562,12 @@ pub fn add(
     // the download's, and a prop there kept its level's light grid.
     let under_bake =
         crate::fitted_lights::mode_of_area(scene.baked) == crate::fitted_lights::Mode::Baked;
+    // The bakes' lists of props, read once here and not once for each prop.
+    let bakes = if under_bake && !props.is_empty() {
+        baked_props()
+    } else {
+        Vec::new()
+    };
     for prop in props {
         if !cache.contains_key(&prop.model) {
             let read = match files {
@@ -580,7 +600,7 @@ pub fn add(
                     .and_then(|(room, _)| scene.rooms.get(room))
                     .and_then(|room| crate::ja_made::grid_light(&room.name, prop.position));
                 // Under a bake that holds the prop, its own baked lightmap.
-                let from_bake = under_bake.then(|| baked_lightmap(prop)).flatten();
+                let from_bake = under_bake.then(|| baked_lightmap(prop, &bakes)).flatten();
                 // Under a bake that does not, the probes' light from each
                 // side, which holds the bake's light: at the prop's own
                 // place, and at each corner's (`lit_by_probes`).
