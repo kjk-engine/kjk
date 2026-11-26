@@ -499,5 +499,5 @@ impl Step<'_> {
 /// (`combat::idle::LOOPED_ROWS` and above).
 fn looping(animation: u16) -> bool {
     use crate::combat::idle::{FIRE_AND_FORGET, LOOPED_ROWS};
-    animation < FIRE_AND_FORGET || animation >= LOOPED_ROWS
+    !(FIRE_AND_FORGET..LOOPED_ROWS).contains(&animation)
 }
