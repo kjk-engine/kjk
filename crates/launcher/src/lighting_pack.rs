@@ -34,10 +34,19 @@
 //! files are deflated. The manifest gives each area's module and
 //! fingerprint, the zip's BLAKE3 and size, and the patch the bakes need.
 //!
-//! The pack also writes `SHA256SUMS` beside the zip and the manifest, with
-//! the SHA-256 of both, as the launcher reads it (`write_sums`). It keeps
+//! When every packed set has exact lines (`bake_fingerprint::Exact`), the
+//! pack also writes the second manifest, `<name>.manifest-2.txt`, which
+//! holds them (`Manifest::exact_text`).
+//!
+//! The pack also writes `SHA256SUMS` beside the zip and the manifests, with
+//! the SHA-256 of each, as the launcher reads it (`write_sums`). It keeps
 //! the lines of the other files there, so both games can be packed into one
 //! folder.
+//!
+//! `kjk lighting restamp <manifest> <zip> --out <file>` writes the second
+//! manifest of a download packed before the exact lines, from its zip and
+//! the files on this machine (`lighting_bakes::restamp`). The zip stays as
+//! it is.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -295,12 +304,23 @@ fn pack(
                 module: set.module.clone(),
                 rooms: set.print.rooms.clone(),
                 placeables: set.print.placeables.clone(),
+                exact: set.print.exact.clone(),
             })
             .collect(),
     };
     let manifest_path = out.join(format!("{name}.txt"));
     std::fs::write(&manifest_path, manifest.text())
         .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let mut written = vec![zip_path.clone(), manifest_path.clone()];
+    if manifest.areas.iter().all(|area| area.exact.is_some()) {
+        let second = out.join(second_manifest(&name));
+        std::fs::write(&second, manifest.exact_text())
+            .map_err(|error| format!("{}: {error}", second.display()))?;
+        outln!("wrote {}", second.display());
+        written.push(second);
+    } else {
+        outln!("no second manifest: some sets have no exact lines. Stamp them again with kjk detail-bake --stamp.");
+    }
     outln!(
         "packed {} areas, {files} files of {:.1} MB, into {} ({:.1} MB)",
         sets.len(),
@@ -309,9 +329,54 @@ fn pack(
         bytes as f64 / 1e6
     );
     outln!("wrote {}", manifest_path.display());
-    let sums = write_sums(out, &[&zip_path, &manifest_path])?;
+    let written: Vec<&Path> = written.iter().map(PathBuf::as_path).collect();
+    let sums = write_sums(out, &written)?;
     outln!("wrote {}", sums.display());
     Ok(())
+}
+
+/// The file name of the second manifest of the download `name`.
+fn second_manifest(name: &str) -> String {
+    format!("{name}.manifest-2.txt")
+}
+
+/// `kjk lighting restamp <manifest> <zip> --out <file>`: the second
+/// manifest of a download packed before the exact lines, stamped over this
+/// machine's files. It lists the areas it left without exact lines, and the
+/// lightmaps that no room mesh draws.
+pub(crate) fn restamp(manifest: &Path, zip: &Path, out: &Path) -> ExitCode {
+    let result = Manifest::read(manifest).and_then(|manifest| {
+        let started = std::time::Instant::now();
+        let restamped = lighting_bakes::restamp(&manifest, zip, &mut |_| {}).map_err(String::from)?;
+        std::fs::write(out, restamped.manifest.exact_text()).map_err(|error| format!("{}: {error}", out.display()))?;
+        let stamped = manifest.areas.len() - restamped.skipped.len();
+        outln!(
+            "stamped {stamped} of {} areas in {:.1} seconds, into {}",
+            manifest.areas.len(),
+            started.elapsed().as_secs_f64(),
+            out.display()
+        );
+        if !restamped.skipped.is_empty() {
+            outln!("left with their old lines only, checked by the old rules:");
+            for (area, why) in &restamped.skipped {
+                outln!("  {area}: {why}");
+            }
+        }
+        if !restamped.undrawn.is_empty() {
+            outln!("lightmaps with a PNG that no room mesh draws, stamped as drawn by no triangles:");
+            for (area, names) in &restamped.undrawn {
+                outln!("  {area}: {}", names.join(", "));
+            }
+        }
+        Ok(())
+    });
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(why) => {
+            eprintln!("lighting restamp: {why}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// The file of SHA-256 checksums beside the downloads, which the launcher

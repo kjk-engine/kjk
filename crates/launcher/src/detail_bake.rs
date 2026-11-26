@@ -168,16 +168,33 @@ fn bake_module(
         std::fs::write(folder.join("detail-bake.txt"), &report)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
         // Each set the bake wrote gets the fingerprint of the files it was
-        // made from, so that the game shows it only over those files.
-        let print = kjk_game::bake_fingerprint::of_area(&resolver, area);
+        // made from, so that the game shows it only over those files. Each
+        // set's exact lines name the lightmaps of its own PNGs.
+        let current = kjk_game::bake_fingerprint::current(&resolver, area);
         for set in [folder.clone(), folder.join("a"), folder.join("b")] {
             if holds_lightmaps(&set) {
-                kjk_game::bake_fingerprint::write(&set, &print)?;
+                stamp_set(&set, &current)?;
             }
         }
         outln!("wrote into {}", folder.display());
     }
     Ok(())
+}
+
+/// Writes into the set `set` its fingerprint over the files `current`,
+/// with the exact lines of its own PNGs. Names the PNGs that no room mesh
+/// draws, such as a lightmap baked only for the grass under a walkmesh.
+fn stamp_set(set: &Path, current: &kjk_game::bake_fingerprint::Current) -> Result<(), String> {
+    let pngs = kjk_game::bake_fingerprint::set_lightmaps(set);
+    let (print, undrawn) = kjk_game::bake_fingerprint::stamp(current, &pngs);
+    if !undrawn.is_empty() {
+        outln!(
+            "{}: no room mesh draws these lightmaps, so they are stamped as drawn by no triangles: {}",
+            set.display(),
+            undrawn.join(", ")
+        );
+    }
+    kjk_game::bake_fingerprint::write(set, &print)
 }
 
 /// Whether folder `set` holds a PNG, as a set of baked lightmaps does.
@@ -232,9 +249,9 @@ fn print_or_stamp(discovery: &Discovery, module: &str, game: Option<&str>, stamp
     let base = Resolver::base(game, &index, TextureQuality::High).map_err(|e| e.to_string())?;
     let resolver = base.with_module(&index, module).map_err(|error| error.to_string())?;
     let built = ModuleIr::build(module, &ResolverSource(&resolver)).map_err(|error| format!("{error:?}"))?;
-    let prints: Vec<kjk_game::bake_fingerprint::Fingerprint> =
-        (built.areas.iter()).map(|area| kjk_game::bake_fingerprint::of_area(&resolver, area)).collect();
-    for print in &prints {
+    let prints: Vec<kjk_game::bake_fingerprint::Current> =
+        (built.areas.iter()).map(|area| kjk_game::bake_fingerprint::current(&resolver, area)).collect();
+    for kjk_game::bake_fingerprint::Current { print, .. } in &prints {
         outln!("area {} format {} rooms {} placeables {}", print.area, print.format, print.rooms, print.placeables);
     }
     let Some(set) = stamp else {
@@ -245,7 +262,7 @@ fn print_or_stamp(discovery: &Discovery, module: &str, game: Option<&str>, stamp
     }
     let named = |path: Option<&Path>| {
         let name = path?.file_name()?.to_str()?.to_ascii_lowercase();
-        prints.iter().find(|print| print.area == name)
+        prints.iter().find(|current| current.print.area == name)
     };
     let print = match prints.as_slice() {
         [only] => only,
@@ -253,7 +270,7 @@ fn print_or_stamp(discovery: &Discovery, module: &str, game: Option<&str>, stamp
             .or_else(|| named(set.parent()))
             .ok_or_else(|| format!("{} is not named after one of the module's areas", set.display()))?,
     };
-    kjk_game::bake_fingerprint::write(set, print)?;
+    stamp_set(set, print)?;
     outln!("wrote {}", set.join(kjk_game::bake_fingerprint::FILE).display());
     Ok(())
 }

@@ -856,6 +856,32 @@ fn lighting_fingerprints() {
     );
 }
 
+/// A lighting bake's exact lines (`kjk_game::bake_fingerprint::probes`,
+/// `exact_probes`), on rooms, models and fingerprints made here. A
+/// fingerprint with exact lines reads back the same, and kjk v0.21.0's
+/// reader reads the same area, format and digests from it. A lightmap's
+/// digest stays the same when its mesh is split, reordered, renamed, moved
+/// to another node at the same places, or joined by meshes without a baked
+/// lightmap. It changes when a corner or the room moves by 1 cm or a
+/// lightmap coordinate by 1/1000. Each lightmap falls back by itself, a sky
+/// model replaced leaves the bake whole, and an area where no lightmap
+/// matches is not baked. A placeable added before the others leaves their
+/// baked light under their old numbers, and one turned in place loses its
+/// own. Needs `--features rig`; no installs (proposed 2026-11-26).
+#[test]
+fn lighting_fingerprints_by_lightmap() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_fingerprints_by_lightmap skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting fingerprints by lightmap",
+        &kjk_game::bake_fingerprint::probes::exact_probes(),
+        4,
+    );
+}
+
 /// The stored fill's files and numbers (`kjk_game::stored_fill::probes`).
 /// A word `@<map>:<texel>` and a lightmap's line read back, and the texel
 /// 513 of a map 512 texels wide is the middle of the second texel of the
@@ -899,14 +925,18 @@ fn placeable_light_sets() {
 /// The lighting download (`kjk_game::lighting_bakes::probes`), on
 /// manifests, game folders and zips made here. A KOTOR 1 and a KOTOR 2
 /// manifest read back, and malformed ones do not. A download installs when
-/// at least 9 areas in 10 match the player's files. The check's key
-/// changes with a mod's texture and not with a voice line. An install
-/// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
-/// replaces the last install whole, is left alone by the store's gc, and
-/// refuses a zip with a file outside the areas' folders. A refusal names
-/// the mods that replace the room files of the areas that differ. Needs
-/// `--features rig`; no installs (approved 2026-11-23; the fifth probe,
-/// `a_refusal_names_the_mods_that_differ`, proposed 2026-11-26).
+/// at least one area matches the player's files fully or partly. The
+/// check's key changes with a mod's texture and not with a voice line. An
+/// install refuses a zip of the wrong size or BLAKE3, unpacks into the
+/// store, replaces the last install whole, is left alone by the store's
+/// gc, and refuses a zip with a file outside the areas' folders. A refusal
+/// names the mods that replace the room files of the areas that differ.
+/// The second manifest reads back. A refresh adds the exact lines and
+/// keeps every byte of `manifest.txt` and what kjk v0.21.0 reads in each
+/// `fingerprint.txt`. Needs `--features rig`; no installs (approved
+/// 2026-11-23; the fifth probe, `a_refusal_names_the_mods_that_differ`,
+/// proposed 2026-11-26; the gate of one area, the second manifest and the
+/// refresh proposed 2026-11-26).
 #[test]
 fn lighting_downloads() {
     #[cfg(not(feature = "rig"))]
@@ -915,7 +945,7 @@ fn lighting_downloads() {
     probed(
         "lighting downloads",
         &kjk_game::lighting_bakes::probes::probes(),
-        5,
+        7,
     );
 }
 
