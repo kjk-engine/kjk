@@ -124,6 +124,7 @@ const GROUPS: &[Group] = &[
     ("duelling", sim::trace::duelling_probes::probes),
     ("targeted", sim::trace::duelling_probes::targeted::probes),
     ("deflection", sim::trace::deflection_probes::probes),
+    ("saber falls", sim::trace::saber_fall_probes::probes),
     ("stance sets", sim::trace::stance_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),

@@ -172,7 +172,13 @@ run only through `kjk sim probes`. The crash probe `native_crash_told`
 crash that is no panic, such as an access violation inside a graphics
 driver, is written to the crash file with the exception's code, its name,
 the address and the module that holds the address. It runs only through
-`kjk sim probes --only crash`. `old_saves_load` gained the
+`kjk sim probes --only crash`. The probe group "saber falls" was proposed
+2026-11-26 and awaits approval. Its probe
+`knocked_into_a_wall_falls_to_the_floor` knocks a falling lightsaber into
+the arena's wall and checks that it bounces off the wall and comes to rest
+on the floor, as low as a lightsaber that fell in the open. It is not an
+approved test, and it runs only through `kjk sim probes --only "saber falls"`.
+`old_saves_load` gained the
 fixture `prerelease/v0.18.1-6b2ea2a.kjkv` on 2026-11-17, and the change
 awaits approval. The pace probes `rolling_droid_stays_down`,
 `floating_droid_stays_down` and `walking_droid_jumps` were proposed
