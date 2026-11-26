@@ -45,6 +45,7 @@ use ui::edit::EditBox;
 
 use crate::sim_host::{Loading, OwnSeat, PresentedSnapshot, SceneSwap};
 
+#[cfg(feature = "probes")]
 pub mod probes;
 
 /// The most lines the console's log keeps.
