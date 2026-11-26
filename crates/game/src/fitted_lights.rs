@@ -1010,12 +1010,15 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String, bool)> {
 /// trial (`Mode::Live`) whatever the mode is now. The level editor bakes
 /// from its own scene this way, with no game launched.
 pub fn dump_lights(loaded: &LoadedScene, path: &str) {
-    let before = mode();
-    if !matches!(before, Mode::Live) {
+    // The mode a program set, which may be none. It is put back as it was,
+    // so a run without one still takes the variable's, the project's or
+    // the options' afterwards (`chosen`).
+    let before = read_mode(&SET);
+    if mode() != Mode::Live {
         set_mode(Mode::Live);
     }
     explain(loaded, Some(path));
-    set_mode(before);
+    write_mode(&SET, before);
 }
 
 fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, bool)> {
