@@ -6,14 +6,17 @@
 //! encodings through their decoders (nothing panics); and `end_m01aa` when
 //! KOTOR is installed: two clients running through the door to `end_m01ab`
 //! and back, twice, while the module's creatures fight; `end_m01aa_late`,
-//! a third client joining the module planned for three.
+//! a third client joining the module planned for three; and
+//! `end_m01aa_companions`, the second client driving Trask until the story
+//! takes him away, then flying a remote droid.
 //!
 //! Each prints its checks and measures and the restore and re-step cost of
 //! prediction (release timings), and writes `facts.json`.
 
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use net::session::clock::Margins;
@@ -35,16 +38,20 @@ const MUTATIONS: u64 = 1_000_000;
 
 pub fn session(discovery: &vfs::Discovery, only: Option<&str>, soak_minutes: u64) -> ExitCode {
     let mut played = sessions::determinism(soak_minutes);
-    match kotor_sessions(discovery) {
-        Ok(kotor) if kotor.is_empty() => {
-            outln!("KOTOR not found: the end_m01aa sessions are skipped")
+    let watched = match kotor_sessions(discovery) {
+        Ok((kotor, _)) if kotor.is_empty() => {
+            outln!("KOTOR not found: the end_m01aa sessions are skipped");
+            Vec::new()
         }
-        Ok(kotor) => played.extend(kotor),
+        Ok((kotor, watched)) => {
+            played.extend(kotor);
+            watched
+        }
         Err(error) => {
             eprintln!("net session: end_m01aa: {error}");
             return ExitCode::FAILURE;
         }
-    }
+    };
     played.retain(|played| only.is_none_or(|only| played.setup.name.contains(only)));
     let started = Instant::now();
     let runs: Vec<(String, Option<Report>, f64, Expect)> = std::thread::scope(|scope| {
@@ -76,7 +83,9 @@ pub fn session(discovery: &vfs::Discovery, only: Option<&str>, soak_minutes: u64
         match report {
             Some(report) => {
                 let (fails, fact) = print(report, *seconds, *expect);
-                failed += fails + usize::from(!crossed(report));
+                failed += fails
+                    + usize::from(!crossed(report))
+                    + usize::from(!guests_played(report, &watched));
                 facts.push(fact);
             }
             None => {
@@ -338,15 +347,29 @@ static EPOCH: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::n
 /// The modules the players run between, and how many times each crosses.
 const MODULES: [&str; 2] = ["end_m01aa", "end_m01ab"];
 const CROSSINGS: u32 = 4;
+/// The story's count of Trask's talks, set so his opening has been had.
+/// The opening's first line sends Trask to the player, and at `wp_player01`
+/// the player stands past the corridor door only Trask opens later. Trask
+/// waits at that door for as long as the player stays out of reach, as the
+/// original does (`ActionMoveToObject` goes on until it arrives), so the
+/// opening would hold the party for the whole session. With the count at 1,
+/// Trask gives his footlocker lesson instead, which the players click
+/// through.
+const OPENING_HAD: (&str, i32) = ("End_TraskTalk", 1);
 
-/// Two players arriving at `wp_player01` in `end_m01aa`, answering
-/// Trask's opening, then running through the door to `end_m01ab`, back,
+/// Two players arriving at `wp_player01` in `end_m01aa`, clicking through
+/// Trask's lesson, then running through the door to `end_m01ab`, back,
 /// and on for as long as the session lasts, every crossing an install
 /// through the D13 flow (the ready check, P16: both walk in). The module's
 /// creatures fight as their factions have them (bolts fly).
 struct Kotor {
     installer: Arc<crate::lifecycle::Installer>,
     seats: u8,
+    /// What the guests play: an avatar each, or the party's companions
+    /// (Trask, who follows the first player from the start).
+    guests: sim::Guests,
+    /// Per guest seat, each module it was in and what it played there.
+    bodies: Bodies,
     /// The players `end_m01aa` is first planned for: 1 for a new game, more
     /// as a save made with more has it (I30 P21).
     players: u8,
@@ -363,6 +386,21 @@ struct Kotor {
 
 /// A line shown: its conversation, entry and when it was shown (sim ms).
 type Line = (u32, u32, u64);
+
+/// Per guest seat, the modules it was in, in order (`Kotor::bodies`).
+type Bodies = Arc<Mutex<BTreeMap<u8, Vec<Visit>>>>;
+
+/// A guest's stay in a module: whether it drove a body there, and whether
+/// it flew a remote droid there.
+#[derive(Default)]
+struct Visit {
+    module: String,
+    drove: bool,
+    flew: bool,
+}
+
+/// The companion the guests of the companions session drive.
+const TRASK: &str = "end_trask";
 
 impl Kotor {
     /// `request`'s module, its encounters for its players (I30 P21).
@@ -384,7 +422,7 @@ impl Kotor {
     }
 
     /// `seat`'s answer byte (`dialogue::answer`): in a conversation, each
-    /// line answered once, as a player clicks through (Trask's opening
+    /// line answered once, as a player clicks through (Trask's lesson
     /// holds the party at `wp_player01` until it is): its first reply, or,
     /// with none offered, skipped once a skip may end it. A line skipped
     /// that plays out instead (Trask's opening may not be skipped) is still
@@ -424,7 +462,7 @@ impl Scenario for Kotor {
             spawn: [0.0; 3],
             yaw: 0.0,
             sheet: sim::combat::Sheet::dev_soldier(),
-            guests: sim::Guests::Avatars,
+            guests: self.guests,
         };
         let mut world = SimWorld::new(config, Level::arena()).expect("seats in the arena");
         let request = self
@@ -435,6 +473,11 @@ impl Scenario for Kotor {
         let after = world
             .install(level.clone(), Some("wp_player01"))
             .expect("end_m01aa installs");
+        crate::by_hand::set_globals(&mut world, &[(OPENING_HAD.0.into(), OPENING_HAD.1)]);
+        if self.guests == sim::Guests::Companions {
+            world = crate::stage::with_followers(world, &[TRASK.into()], Some(&self.installer))
+                .expect("Trask follows");
+        }
         let announcement =
             sim::Announcement::new(&level, Some("wp_player01"), &after).expect("a module");
         (world, level, LevelRequest::Module(announcement))
@@ -443,11 +486,32 @@ impl Scenario for Kotor {
     /// Runs through the door to the other module, as `lifecycle-walk`
     /// does: east in `end_m01aa`, west (back) in `end_m01ab`, holding use;
     /// after `CROSSINGS` module changes it stands (and watches the fight).
+    /// A guest with no body yet stands too, so the host gives it one.
     fn command(&mut self, seat: Seat, _tick: u64, view: Option<&Snapshot>) -> Option<Command> {
         let view = view?;
         let here = &view.place.as_ref()?.module;
-        let me = view.own(seat)?.player?;
+        let body = view.body(seat).and_then(|body| body.player);
+        if seat != Seat(0) {
+            let mut bodies = self.bodies.lock().expect("bodies");
+            let visits = bodies.entry(seat.0).or_default();
+            if visits.last().is_none_or(|visit| visit.module != *here) {
+                visits.push(Visit {
+                    module: here.clone(),
+                    ..Visit::default()
+                });
+            }
+            if let Some(visit) = visits.last_mut() {
+                visit.drove |= body.is_some();
+                visit.flew |= view.remotes.iter().any(|remote| remote.seat == seat);
+            }
+        }
         let reply = self.answer(seat, view);
+        let Some(me) = body else {
+            return Some(Command {
+                reply,
+                ..Command::default()
+            });
+        };
         let seen = self.seen.entry(seat.0).or_insert((here.clone(), 0));
         if seen.0 != *here {
             *seen = (here.clone(), seen.1 + 1);
@@ -497,9 +561,9 @@ impl Scenario for Kotor {
 /// plans it as announced (I30 P21; planned for one, it is refused). Their
 /// plans open the playtest links: KOTOR seals the door back to
 /// `end_m01aa`, which the players run back through. None without KOTOR.
-fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
+fn kotor_sessions(discovery: &vfs::Discovery) -> Result<(Vec<Session>, Vec<(String, Bodies)>), String> {
     if discovery.get(Game::Kotor1).is_none() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
     let (anims, _) = crate::stage::anims(discovery);
     let installer = Arc::new(
@@ -560,21 +624,75 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
         },
         ..setup.clone()
     };
-    let session = |setup: Setup, seats: u8, players: u8| Session {
-        setup,
-        scenario: Box::new(Kotor {
-            installer: installer.clone(),
-            seats,
-            players,
-            plans: Vec::new(),
-            seen: std::collections::BTreeMap::new(),
-            answers: std::collections::BTreeMap::new(),
-        }),
-        expect: Expect::Lossy,
+    // The second player drives Trask, through every install there and back.
+    let companions = Setup {
+        name: "end_m01aa_companions".into(),
+        seed: 7,
+        ..setup.clone()
     };
-    Ok(vec![
-        session(setup, 2, 1),
-        session(late, 3, 3),
-        session(threaded, 2, 1),
-    ])
+    let mut watched = Vec::new();
+    let mut session = |setup: Setup, seats: u8, players: u8, guests: sim::Guests| {
+        let bodies = Bodies::default();
+        if guests == sim::Guests::Companions {
+            watched.push((setup.name.clone(), bodies.clone()));
+        }
+        Session {
+            setup,
+            scenario: Box::new(Kotor {
+                installer: installer.clone(),
+                seats,
+                guests,
+                bodies,
+                players,
+                plans: Vec::new(),
+                seen: BTreeMap::new(),
+                answers: BTreeMap::new(),
+            }),
+            expect: Expect::Lossy,
+        }
+    };
+    let sessions = vec![
+        session(setup, 2, 1, sim::Guests::Avatars),
+        session(late, 3, 3, sim::Guests::Avatars),
+        session(threaded, 2, 1, sim::Guests::Avatars),
+        session(companions, 2, 1, sim::Guests::Companions),
+    ];
+    Ok((sessions, watched))
+}
+
+/// Whether every guest of a session that plays companions played in every
+/// module it was in, printed; any other session passes. A guest drives
+/// Trask from the start. In `end_m01ab` the game's own module load
+/// (`k_pend_modab`) takes Trask out of the party, as the story leaves him
+/// behind, so the guest flies a remote droid from then on, the party
+/// having fewer characters than seats.
+fn guests_played(report: &Report, watched: &[(String, Bodies)]) -> bool {
+    let Some((_, bodies)) = watched.iter().find(|(name, _)| *name == report.name) else {
+        return true;
+    };
+    let bodies = bodies.lock().expect("bodies");
+    let mut pass = !bodies.is_empty();
+    for (seat, visits) in bodies.iter() {
+        let played = visits.first().is_some_and(|visit| visit.drove)
+            && visits.iter().all(|visit| visit.drove || visit.flew);
+        pass &= played;
+        let stays: Vec<String> = visits
+            .iter()
+            .map(|visit| {
+                let played = match (visit.drove, visit.flew) {
+                    (true, true) => "a companion and a droid",
+                    (true, false) => "a companion",
+                    (false, true) => "a droid",
+                    (false, false) => "nothing",
+                };
+                format!("{} {played}", visit.module)
+            })
+            .collect();
+        outln!(
+            "  {} guest bodies: seat {seat} played {}",
+            if played { "ok  " } else { "FAIL" },
+            stays.join(", then ")
+        );
+    }
+    pass
 }
