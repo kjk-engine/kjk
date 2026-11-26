@@ -150,7 +150,7 @@ use kjk_game::{
 use kjk_game::{
     acting, alignment_look, cast, character, dangly, fight_rooms, grass, light_probes, material,
     minigame_bot, model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound,
-    stage, transcript, weapons, weather, workbench_view,
+    stage, transcript, weapons, weather,
 };
 
 // What the verbs share with `kjk play` (they take the root's names).

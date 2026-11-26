@@ -203,6 +203,7 @@ mod stealth_view;
 mod steam_join;
 pub mod store_verbs;
 pub mod stored_fill;
+pub mod story_stage;
 mod swallow;
 pub mod target_view;
 pub mod temporal;
