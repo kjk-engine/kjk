@@ -5418,7 +5418,11 @@ impl Engine<'_> {
                     forced,
                     cancel: int(args, 3) != 0,
                 });
-                let roster = self.state.party.roster(None, &self.state.items);
+                let good_evil = |id| {
+                    super::influence::sheet(self.view, self.out, ObjectId(id))
+                        .map(|sheet| sheet.good_evil)
+                };
+                let roster = self.state.party.roster(None, &self.state.items, &good_evil);
                 self.tell(None, Notice::Show(Screen::PartySelection(roster)))
             }
             // For the party, one player at the table (I30 P20, R9); its end
