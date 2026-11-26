@@ -17,7 +17,8 @@ use ui::input::{Key, UiInput};
 
 /// A stick past this counts as a press.
 const STICK: f32 = 0.5;
-/// A held direction repeats after this long, then this often (seconds).
+/// A held direction, on the D-pad or the left stick, repeats after this
+/// long, then this often (seconds).
 const FIRST_REPEAT: f32 = 0.35;
 const REPEAT: f32 = 0.12;
 
@@ -75,6 +76,14 @@ fn key_of(code: KeyCode, shift: bool) -> Option<Key> {
         _ => return None,
     })
 }
+
+/// The D-pad's directions and the moves they make on a screen.
+const DPAD: [(GamepadButton, Key); 4] = [
+    (GamepadButton::DPadUp, Key::Up),
+    (GamepadButton::DPadDown, Key::Down),
+    (GamepadButton::DPadLeft, Key::Left),
+    (GamepadButton::DPadRight, Key::Right),
+];
 
 fn stick_key(stick: Vec2) -> Option<Key> {
     if stick.length() < STICK {
@@ -164,13 +173,17 @@ pub(crate) fn gather(
         Some((gamepads, open)) => (Some(gamepads), open),
         None => (None, false),
     };
+    // A held D-pad direction moves the focus as the held left stick does,
+    // and wins over the stick while both are held.
+    let mut dpad = None;
     for (gamepad, sticks) in gamepads.into_iter().flatten() {
         let shift = gamepad.pressed(crate::pad::SHIFT);
+        dpad = dpad.or_else(|| {
+            (DPAD.iter())
+                .find(|(button, _)| gamepad.pressed(*button))
+                .map(|(_, key)| *key)
+        });
         for (button, key) in [
-            (GamepadButton::DPadUp, Key::Up),
-            (GamepadButton::DPadDown, Key::Down),
-            (GamepadButton::DPadLeft, Key::Left),
-            (GamepadButton::DPadRight, Key::Right),
             (GamepadButton::South, Key::Activate),
             (GamepadButton::East, Key::Back),
             (GamepadButton::West, Key::Primary),
@@ -225,7 +238,8 @@ pub(crate) fn gather(
             scroll = right.y;
         }
     }
-    held.moves.hold(stick_key(stick), dt, &mut input.keys);
+    held.moves
+        .hold(dpad.or_else(|| stick_key(stick)), dt, &mut input.keys);
     let scrolling = (scroll.abs() > STICK).then_some(if scroll > 0.0 {
         Key::ScrollUp
     } else {

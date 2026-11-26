@@ -10,8 +10,8 @@
 //!   hostile (`keepers`); or, with friendly fire on, a party member struck
 //!   another within `COMBAT_MS` (a duel is a fight) (`in_combat`).
 //! - **A break** (`breaks`, the step's first system): any seat calls one
-//!   (`Action::Break`) unless the party is in combat or one holds (a break
-//!   called during another is dropped); its caller or seat 0 ends it
+//!   (`Action::Break`), in combat too, unless one holds (a break called
+//!   during another is dropped); its caller or seat 0 ends it
 //!   (`Resume`). While it holds, a step moves its tick and nothing else
 //!   (`running` gates the rest).
 //! - **The ready check** (`ready`, after `interact`): a walk into an exit
@@ -307,8 +307,8 @@ pub(super) fn running(party: Res<PartyState>) -> bool {
     party.paused_by.is_none() || party.through
 }
 
-/// Breaks called and ended (the authority's actions, in seat order), as
-/// the previous step left the fight. While one holds, the step's clock
+/// Breaks called and ended (the authority's actions, in seat order), in
+/// combat or out of it. While one holds, the step's clock
 /// stands still and the rest of the step does not run (`running`): a
 /// paused step changes its tick and nothing else, but that the module it
 /// asked for last step is asked no more (an ask lasts one step). A break
@@ -317,7 +317,6 @@ pub(super) fn running(party: Res<PartyState>) -> bool {
 pub(super) fn breaks(
     mut clock: ResMut<Clock>,
     inputs: Res<super::Inputs>,
-    fight: Res<InCombat>,
     mut party: ResMut<PartyState>,
     mut module: ResMut<super::Module>,
     mut notices: ResMut<crate::notice::Notices>,
@@ -329,7 +328,6 @@ pub(super) fn breaks(
             let seat = *seat;
             match (action, party.paused_by) {
                 (Action::Break, _) if held => {}
-                (Action::Break, None) if fight.0 => notices.0.push((seat, Notice::InCombat)),
                 (Action::Break, None) => party.paused_by = Some(seat),
                 (Action::Resume, Some(by)) if may_resume(by, seat) => party.paused_by = None,
                 (Action::Resume, Some(_)) => notices.0.push((seat, Notice::NotYourBreak)),

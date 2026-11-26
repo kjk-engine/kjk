@@ -273,6 +273,13 @@ pub struct ObjectData {
     /// `ActionPlayAnimation` of that constant keeps the placeable's action
     /// queue waiting for this long, as KOTOR's does. Empty for the rest.
     pub transitions: Vec<(u16, u32)>,
+    /// A placeable's drawn meshes, each as the box round it in the
+    /// placeable's own frame (metres, Z up from its origin), as its model
+    /// stands at rest. The crosshair meets the placeable where these boxes
+    /// are (`target::pick`), as KOTOR's executables pick an object by its
+    /// drawn meshes. Empty for other kinds and for a model that does not
+    /// read.
+    pub drawn: std::sync::Arc<[Bulk]>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
     /// A door's state at load (`AnimationState`: 0 closed, 1 and 2 open);
@@ -409,11 +416,22 @@ pub struct Body {
 /// where it towers, a hovering droid where it floats. reone picks a
 /// creature by the same box (its model's meshes in their nodes' rest
 /// places); the MDL header's own box is a placeholder in every creature
-/// model of both games.
+/// model of both games. Each drawn mesh of a placeable is kept as such a
+/// box too (`ObjectData::drawn`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bulk {
     pub min: [f32; 3],
     pub max: [f32; 3],
+}
+
+impl From<[f32; 6]> for Bulk {
+    /// A box written as its least corner, then its greatest.
+    fn from(b: [f32; 6]) -> Bulk {
+        Bulk {
+            min: [b[0], b[1], b[2]],
+            max: [b[3], b[4], b[5]],
+        }
+    }
 }
 
 impl Bulk {
@@ -811,6 +829,11 @@ impl ObjectData {
                 out.u32(*ms);
             }
         }
+        if !self.drawn.is_empty() {
+            out.string("drawn");
+            out.u32(self.drawn.len() as u32);
+            self.drawn.iter().for_each(|drawn| drawn.encode(out));
+        }
     }
 }
 
@@ -862,6 +885,7 @@ impl ObjectData {
             geometry: Vec::new(),
             use_points: Vec::new(),
             transitions: Vec::new(),
+            drawn: Default::default(),
             opens: Opens::Never,
             state: 0,
             ways: Ways::One,
@@ -1535,24 +1559,43 @@ pub struct Side {
 
 /// How `a` stands to `b`, the one rule every system asks (the damage
 /// pipeline, shots, blades, powers, minds, the party's fight): the same
-/// character; hostile by faction (KOTOR's `GetIsEnemy`, `repute.2da` as
-/// scripts adjusted it); one side, both in the party or friends by faction
-/// (`GetIsFriend`); else an outsider (`aimed` false: the caller knows whom
-/// an attack was made at). Without a module's table only the same
-/// character and the party are known. What a side's own attacks may do to
-/// it is the friendly-fire mode's (`FriendlyFire::spares`).
+/// character; one side when both are in the party; hostile by faction
+/// (KOTOR's `GetIsEnemy`, `repute.2da` as scripts adjusted it); one side
+/// when friends by faction (`GetIsFriend`); else an outsider (`aimed`
+/// false: the caller knows whom an attack was made at). Without a module's
+/// table only the same character and the party are known. What a side's own
+/// attacks may do to it is the friendly-fire mode's
+/// (`FriendlyFire::spares`).
+///
+/// A character in the party stands as the player's faction, whatever its
+/// own faction is (`party_faction`). KOTOR 2's executable reads a party
+/// member's reputation this way. This matters for TSL's puppets: Bao-Dur's
+/// Remote keeps the puppets' faction, which `repute.2da` leaves neutral to
+/// the hostile factions, so without the rule the Remote could not harm the
+/// storm beasts on Malachor while the beasts could harm it.
 pub fn relation(standing: Option<Standing<'_>>, a: Side, b: Side) -> crate::combat::Relation {
     use crate::combat::Relation;
+    let (from, to) = (party_faction(a), party_faction(b));
     if a.id == b.id {
         Relation::Itself
-    } else if standing.is_some_and(|standing| standing.hostile(a.faction, b.faction)) {
+    } else if a.party && b.party {
+        Relation::Party
+    } else if standing.is_some_and(|standing| standing.hostile(from, to)) {
         Relation::Hostile
-    } else if (a.party && b.party)
-        || standing.is_some_and(|standing| standing.friendly(a.faction, b.faction))
-    {
+    } else if standing.is_some_and(|standing| standing.friendly(from, to)) {
         Relation::Party
     } else {
         Relation::Outsider { aimed: false }
+    }
+}
+
+/// The faction `side` stands as in `relation`: the player's for a member of
+/// the party, else its own.
+pub fn party_faction(side: Side) -> u8 {
+    if side.party {
+        crate::combat::sheet::factions::PLAYER
+    } else {
+        side.faction
     }
 }
 

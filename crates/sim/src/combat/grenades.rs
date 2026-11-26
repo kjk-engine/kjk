@@ -334,11 +334,13 @@ pub fn reflex(target: &Sheet, dc: u8, d20: i32) -> bool {
 /// The velocity after a bounce off a surface with `normal`: reflected,
 /// keeping `BOUNCE` of it; `None` when it comes to rest there.
 pub fn bounce(velocity: [f32; 3], normal: [f32; 3]) -> Option<[f32; 3]> {
-    let dot: f32 = (0..3).map(|axis| velocity[axis] * normal[axis]).sum();
-    let out: [f32; 3] =
-        std::array::from_fn(|axis| (velocity[axis] - 2.0 * dot * normal[axis]) * BOUNCE);
-    let speed = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
-    (normal[2] <= rules::grenades::flight::FLOOR || speed >= REST_SPEED).then_some(out)
+    crate::math::bounce(
+        velocity,
+        normal,
+        BOUNCE,
+        REST_SPEED,
+        rules::grenades::flight::FLOOR,
+    )
 }
 
 /// A grenade in flight (a `Missile` carries one): its row, and whether it

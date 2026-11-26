@@ -75,7 +75,10 @@ title = "Target Size"
 summary = """
 Each kind of object can be targeted anywhere inside an upright cylinder
 that stands on the object's base. A door can also be targeted anywhere on
-its own surfaces.
+its own surfaces. A usable object can also be targeted anywhere on its
+drawn model, as in the original games. For such an object, the targeting
+range is measured to the nearest part of its model. A large object, such
+as a ship, can therefore be targeted anywhere on its hull.
 """
 
 [volumes.creature_radius]

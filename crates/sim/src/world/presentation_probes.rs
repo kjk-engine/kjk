@@ -17,6 +17,8 @@
 //! - `ShowTutorialWindow`: once, not in a conversation, kept in a save;
 //! - `DisableMap`, `SetDisableTransit`, `SetReturnStrref` in the snapshot,
 //!   the map kept in a save;
+//! - an unescapable area's barred return kept by a world made from its
+//!   snapshot alone, as a guest's is;
 //! - bodies: `ChangeObjectAppearance` (and refused under a disguise),
 //!   `DuplicateHeadAppearance`, `PlayOverlayAnimation`;
 //! - `YavinHackDoorClose`, `SoundObjectSetPosition`,
@@ -473,6 +475,7 @@ pub fn probes() -> Checks {
         ("feedback_text", feedback_check()),
         ("tutorial_window", tutorial_check()),
         ("map_and_transit", map_check()),
+        ("unescapable_rebuilt", unescapable_rebuilt_check()),
         ("bodies", bodies_check()),
         ("appearance_refused_disguised", disguised_check()),
         ("door_sound_datapad", objects_check()),
@@ -735,6 +738,33 @@ fn map_check() -> Result<String, String> {
         format!(
             "jammed {}, kept {kept}, transit {:?}, freed {}",
             jammed.screens.map_disabled, screens.transit, !freed.screens.map_disabled
+        ),
+    )
+}
+
+/// A world made from a snapshot alone, as a guest's is, in an area made
+/// unescapable snapshots as the world it came from: the return to the Ebon
+/// Hawk refused as barred in both, so a guest installs the next module as
+/// the host does (`end_m01aa`'s ARE makes it unescapable).
+fn unescapable_rebuilt_check() -> Result<String, String> {
+    let (mut world, level) = world()?;
+    let module = level.module().ok_or("the ground has no module")?;
+    let mut state = world.script_state().clone();
+    state.unescapable.insert(crate::script::key(&module.name));
+    world.set_script_state(state);
+    let (host, _) = step(&mut world);
+    let rebuilt = SimWorld::from_snapshot(&host, level.clone())
+        .map_err(|error| error.to_string())?
+        .snapshot();
+    let (here, there) = (
+        host.screens.transit.refused,
+        rebuilt.screens.transit.refused,
+    );
+    check(
+        here == crate::snapshot::transit::BARRED && rebuilt.hash() == host.hash(),
+        format!(
+            "refused here {here}, rebuilt {there}; same hash {}",
+            rebuilt.hash() == host.hash()
         ),
     )
 }

@@ -1521,6 +1521,19 @@ impl<'t> Spawner<'t> {
             )
         };
         let surface = surface_at(part.alpha);
+        // Water draws its bump map where the diffuse would be
+        // (`OdysseyMaterial::water`), when its env map is a cube that loaded.
+        let water = material::water(diffuse)
+            .filter(|_| {
+                let envmap = diffuse.and_then(|facts| facts.envmap.as_deref());
+                envmap
+                    .and_then(|name| self.irs.get(name))
+                    .is_some_and(|texture| texture.faces.len() == 6)
+            })
+            .map(|(alpha, bump)| {
+                let bump = textures.get_key_value(bump).map(|(name, _)| *name);
+                (alpha, bump)
+            });
         // A mesh blended by its own alpha alone is drawn with this surface
         // once a clip keys its alpha up to 1 (`OdysseyMaterial::whole_as`).
         let whole = (part.alpha < 1.0)
@@ -1623,6 +1636,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
+                    .water_if(water.map(|(alpha, bump)| (handle(bump), alpha)))
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())
                     .culled(culled)
@@ -1641,7 +1655,11 @@ impl<'t> Spawner<'t> {
                 stores.materials.add(material)
             })
             .clone();
-        if let Some((handles, fps)) = texture.and_then(|name| self.frames.get(name))
+        let shown = match water {
+            Some((_, bump)) => bump,
+            None => texture,
+        };
+        if let Some((handles, fps)) = shown.and_then(|name| self.frames.get(name))
             && !self
                 .flipbooks
                 .iter()

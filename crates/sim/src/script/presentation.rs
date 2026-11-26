@@ -130,11 +130,12 @@ impl State {
 
     /// Takes back into a state made with nothing what `snapshot` tells of
     /// the scripts' state in `module`: its screens (`screens`, all but
-    /// Bao-Dur met, TSL's influence, which it does not carry), the party
-    /// table's solo and the standings. A world made from a snapshot alone,
-    /// as a guest's is, then snapshots, and installs the next module, as
-    /// the authority's did (`end_m01aa`'s scripts label the return button,
-    /// `SetReturnStrref`, before the party leaves for `end_m01ab`).
+    /// Bao-Dur met, TSL's influence, which it does not carry), whether the
+    /// area is unescapable, the party table's solo and the standings. A
+    /// world made from a snapshot alone, as a guest's is, then snapshots,
+    /// and installs the next module, as the authority's did (`end_m01aa`'s
+    /// scripts label the return button, `SetReturnStrref`, before the party
+    /// leaves for `end_m01ab`, and its ARE makes it unescapable).
     pub(crate) fn take_told(&mut self, snapshot: &Snapshot, module: Option<&ModuleData>) {
         let screens = snapshot.screens;
         let Transit {
@@ -142,11 +143,20 @@ impl State {
             label,
             query,
             disabled,
-            ..
+            refused,
         } = screens.transit;
         self.return_button = (show, label, query);
         if let Some(module) = module.filter(|module| module.disable_transit != disabled) {
             self.transit.insert(key(&module.name), disabled);
+        }
+        // The step refuses the return as barred when the area's transit is
+        // disabled or the area is unescapable (`transit_barred`). A return
+        // barred with the transit open says the area is unescapable.
+        if let Some(module) = module
+            && refused == crate::snapshot::transit::BARRED
+            && !disabled
+        {
+            self.unescapable.insert(key(&module.name));
         }
         self.party.no_map = screens.map_disabled;
         self.party.solo = snapshot.solo;

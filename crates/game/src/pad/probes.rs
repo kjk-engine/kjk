@@ -22,6 +22,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("stick after the wheel", stick_after_wheel()),
         ("control tokens", control_tokens()),
         ("keys held through a screen", held_through_screen()),
+        ("D-pad repeats in menus", dpad_repeats()),
     ]
 }
 
@@ -338,23 +339,110 @@ impl PadWorld {
         self.0.update();
     }
 
-    /// Moves `pad`'s right stick across to `x` for a frame; the right stick
-    /// play then takes.
-    fn across(&mut self, pad: Entity, x: f32) -> f32 {
+    /// Moves `axis` of `pad` to `value` for a frame.
+    fn axis(&mut self, pad: Entity, axis: GamepadAxis, value: f32) {
         use bevy::input::gamepad::{RawGamepadAxisChangedEvent, RawGamepadEvent};
         self.0
             .world_mut()
             .write_message(RawGamepadEvent::Axis(RawGamepadAxisChangedEvent::new(
-                pad,
-                GamepadAxis::RightStickX,
-                x,
+                pad, axis, value,
             )));
         self.0.update();
+    }
+
+    /// Moves `pad`'s right stick across to `x` for a frame; the right stick
+    /// play then takes.
+    fn across(&mut self, pad: Entity, x: f32) -> f32 {
+        self.axis(pad, GamepadAxis::RightStickX, x);
         self.0
             .world()
             .get::<Sticks>(pad)
             .map_or(f32::NAN, |sticks| sticks.right.x)
     }
+
+    /// A pad's world whose screens read the pads each frame
+    /// (`ui_input::gather`), as if a screen were open, with one pad plugged
+    /// in. Each frame lasts `SCREEN_FRAME` seconds. The moves the screens
+    /// are sent pile up in `ScreenKeys`.
+    fn screens() -> (PadWorld, Entity) {
+        fn read(
+            mut typed: MessageReader<bevy::input::keyboard::KeyboardInput>,
+            mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+            pads: Pads,
+            mut held: Local<crate::ui_input::Held>,
+            mut seen: ResMut<ScreenKeys>,
+        ) {
+            let input = crate::ui_input::gather(
+                None,
+                None,
+                &mut typed,
+                &mut wheel,
+                Some((&pads, true)),
+                None,
+                Vec2::ZERO,
+                SCREEN_FRAME,
+                &mut held,
+                &mut None,
+            );
+            seen.0.extend(input.keys);
+        }
+        let mut world = PadWorld::new();
+        world
+            .0
+            .init_resource::<ScreenKeys>()
+            .add_systems(Update, read);
+        let pad = world.0.world_mut().spawn_empty().id();
+        world.plug(pad, true);
+        (world, pad)
+    }
+
+    /// Runs `frames` more frames and returns the moves the screens were
+    /// sent since this was last asked.
+    fn screen_keys(&mut self, frames: usize) -> Vec<ui::input::Key> {
+        for _ in 0..frames {
+            self.0.update();
+        }
+        std::mem::take(&mut self.0.world_mut().resource_mut::<ScreenKeys>().0)
+    }
+}
+
+/// The moves the screens were sent (`PadWorld::screens`).
+#[derive(Resource, Default)]
+struct ScreenKeys(Vec<ui::input::Key>);
+
+/// How long each frame of `PadWorld::screens` lasts (seconds).
+const SCREEN_FRAME: f32 = 1.0 / 60.0;
+
+/// How many frames a direction is held in `dpad_repeats`: two seconds.
+const HELD_FRAMES: usize = 120;
+
+/// Through bevy's own pad messages and the screens' reading of them
+/// (`ui_input::gather`): the D-pad's down held for two seconds moves the
+/// focus down as often as the left stick held down for two seconds, and
+/// more than once. Let go, neither moves it again.
+fn dpad_repeats() -> Result<String, String> {
+    use GamepadButton::DPadDown;
+    use ui::input::Key;
+    let (mut world, pad) = PadWorld::screens();
+    let downs = |keys: Vec<Key>| keys.iter().filter(|key| **key == Key::Down).count();
+    // Each press or push below is a frame of its own.
+    world.button(pad, DPadDown, true);
+    let dpad = downs(world.screen_keys(HELD_FRAMES - 1));
+    world.button(pad, DPadDown, false);
+    let after_dpad = downs(world.screen_keys(HELD_FRAMES));
+    // A stick's first change small counts at once (`Settle`), and this
+    // one is too small to move the focus.
+    world.axis(pad, GamepadAxis::LeftStickY, -0.1);
+    world.axis(pad, GamepadAxis::LeftStickY, -1.0);
+    let stick = downs(world.screen_keys(HELD_FRAMES - 1));
+    world.axis(pad, GamepadAxis::LeftStickY, 0.0);
+    let after_stick = downs(world.screen_keys(HELD_FRAMES));
+    check(
+        dpad > 1 && dpad == stick && after_dpad == 0 && after_stick == 0,
+        format!(
+            "moves down over {HELD_FRAMES} frames: D-pad {dpad}, left stick {stick}; after letting go: {after_dpad} and {after_stick}"
+        ),
+    )
 }
 
 /// Through bevy's own pad messages: a throttle parked hard back from the

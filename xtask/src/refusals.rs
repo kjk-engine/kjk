@@ -25,7 +25,7 @@ use crate::repo_root;
 
 /// What a refused player must say, by case.
 const FULL: &str = "seats are all taken";
-const OVERRIDE: &str = "k1 override folder differs from the host's";
+const OVERRIDE: &str = "Your KOTOR files do not match the host's. The override folder differs.";
 const BUILD: &str = "the host runs build";
 
 /// The file the copy's `override/` gets.

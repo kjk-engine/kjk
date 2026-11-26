@@ -73,7 +73,12 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   as before (50 ms half-life, a snap past 64 units).
 - Installs: clients plan in parallel, commit locally, `check_after`;
   the world resumes when all loaded or after 30 s (a late loader catches
-  up). Each `Installer` keeps built areas (`session::AreaCache`).
+  up). Each `Installer` keeps built areas (`session::AreaCache`). A
+  player still building the level it joined in when an install starts
+  hands that level over first, then the install's (`provide_level`). A
+  world made from a snapshot alone, as a guest's is, takes back what the
+  snapshot tells of the scripts' state (`State::take_told`), so it
+  installs as the host's world does.
 - Ending: a disconnect goes in three packets (`HostQuit`, `Left`). A
   player whose session ends (the host quit or removed it, refused the
   world built here) goes back to the main menu, which says why
@@ -131,6 +136,18 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.
+- A player's client holds the actions its game makes before the host has
+  heard that it loaded the world they name, and sends them right after its
+  `Loaded` (`Client::act`). A guest's game makes such actions after its
+  client committed an install, while the client holds its `Loaded` back
+  until the new area can be drawn. The host's own player's game makes them
+  in its first frames, before its client has joined. Before, the host
+  dropped them, and a game that sent a request once never got it. A guest's
+  "Join nearby conversations" option and its open screen were lost after
+  every area change that way. So was any action the host's own game made
+  in the first frame of a session, such as the saved stance set pick. An
+  action made while an install comes in names
+  the world being left, and is still dropped.
 
 ## Processes (`launcher`, `game`)
 - Solo (`kjk play`, `kjk sim view`): the server and its own client over
@@ -226,8 +243,8 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`launcher/build.rs`); `--no-default-features --features probes` builds
   without it, and so does the release (`cargo xtask dist`, docs/RELEASE.md),
   which ships no Valve code.
-- Refused players are told why: another build, "your k1 override folder
-  differs from the host's", "the host's 3 seats are all taken". The data
+- Refused players are told why: another build, "Your KOTOR files do not match
+  the host's. The override folder differs.", "the host's 3 seats are all taken". The data
   compared is each game's world groups alone
   (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
   three games, not the 34,000 files and 9 GB of the voices, sounds and

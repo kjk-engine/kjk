@@ -1755,6 +1755,16 @@ pub(crate) fn textures<'m>(
     for name in &envmaps {
         load(name, &mut textures);
     }
+    // The bump maps water draws (`material::water`).
+    let bumps: Vec<String> = textures
+        .values()
+        .filter_map(|texture: &TextureIr| {
+            crate::material::water(Some(&texture.facts)).map(|(_, bump)| bump.to_string())
+        })
+        .collect();
+    for name in &bumps {
+        load(name, &mut textures);
+    }
     (textures, missing)
 }
 

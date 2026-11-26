@@ -20,7 +20,7 @@ pub const DEFAULT_NAME: &str = "Player";
 pub const OK: &str = "OK";
 pub const QUIT_TO_MENU: &str = "Quit to the main menu";
 pub const QUIT_TO_DESKTOP: &str = "Quit to the desktop";
-pub const BREAK: &str = "Take a break";
+pub const BREAK: &str = "Pause";
 pub const RESUME: &str = "Resume";
 pub const INVERT_CAMERA: &str = "Invert camera";
 /// The main menu options' way into the combat sandbox.

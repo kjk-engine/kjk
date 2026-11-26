@@ -148,6 +148,10 @@ const PROBES: &[Probe] = &[
     ("looping_row_plays_on", looping_row_plays_on),
     ("loop_outlives_a_clear", loop_outlives_a_clear),
     ("wait_for_gestures", wait_for_gestures),
+    (
+        "looping_gesture_holds_its_entry",
+        looping_gesture_holds_its_entry,
+    ),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
     (
         "player_scripted_walk_at_its_row",
@@ -5056,6 +5060,41 @@ fn wait_for_gestures() -> Found {
     stage.gestures = vec![Some(BOW)];
     stage.clips = [((0, BOW), 2000)].into();
     lasts(stage, 2000)
+}
+
+/// A looping `AnimList` gesture, the owner lying dead
+/// (`ANIMATION_LOOPING_DEAD`), loops for as long as its entry is shown. It
+/// goes on past the line's length while the replies wait for the player,
+/// and it ends with the conversation. Brotherhood of Shadow's last scene on
+/// the Orion pauses its conversation between lines that lay the player down,
+/// and the player stood up in each pause.
+fn looping_gesture_holds_its_entry() -> Found {
+    const DEAD: u16 = 26;
+    let mut stage = line("Hi.", None, 0, None);
+    stage.talk.entries[0].anims = vec![("OWNER".into(), 10_000)];
+    stage.gestures = vec![Some(DEAD)];
+    let mut ground = Ground::staged(1, stage)?;
+    ground.cutscene()?;
+    let talker = ground.object(TALKER)?;
+    let c = (ground.last.talk.conversations.first()).ok_or("no conversation under way")?;
+    let line_ms = c.until_ms - c.shown_ms;
+    for _ in 0..steps(3000) {
+        ground.step();
+    }
+    let lying = |ground: &Ground| {
+        (ground.entity(talker).and_then(|e| e.fighter?.acting))
+            .is_some_and(|acting| acting.animation == DEAD && acting.playing(ground.last.time_ms))
+    };
+    let held = lying(&ground);
+    ground.goodbye()?;
+    ground.step();
+    let after = lying(&ground);
+    check(
+        line_ms < 3000 && held && !after,
+        format!(
+            "a line of {line_ms} ms: the talker lies 3 s after it began {held}, after the conversation {after}"
+        ),
+    )
 }
 
 impl Ground {

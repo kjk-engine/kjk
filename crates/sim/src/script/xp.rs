@@ -167,7 +167,7 @@ pub fn holder(view: &View, state: &State, who: ObjectId) -> u32 {
     if available {
         PARTY
     } else {
-        items::holder(view, who)
+        items::holder(view, &state.party, who)
     }
 }
 

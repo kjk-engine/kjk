@@ -1585,8 +1585,9 @@ fn drive(
                 })
                 .map_err(at)?;
             }
-            // `away WHO FLIGHT LEVEL`: its saber away from the hand, thrown
-            // at LEVEL (a creature's too).
+            // `away WHO FLIGHT LEVEL [VX VY VZ]`: its saber away from the
+            // hand, thrown at LEVEL (a creature's too). The three numbers
+            // after the level are the saber's velocity in units per second.
             "away" => {
                 let who = word(0)?.to_string();
                 let flight = match word(1)? {
@@ -1598,12 +1599,19 @@ fn drive(
                     other => return Err(at(format!("no flight {other}"))),
                 };
                 let level: u8 = int(word(2)?)?;
+                let mut velocity = [0.0; 3];
+                if a.len() > 3 {
+                    for (axis, speed) in velocity.iter_mut().enumerate() {
+                        *speed = float(word(3 + axis)?)?;
+                    }
+                }
                 let now = duel.snapshot().map_err(at)?.time_ms;
                 duel.change_who(&who, |e| {
                     let f = e.fighter.as_mut().ok_or("no fighter")?;
                     let hand = e.player.map_or([0.0; 3], |ps| ps.origin);
                     f.saber.thrown = Some(Thrown {
                         flight,
+                        velocity,
                         at: [hand[0], hand[1], hand[2] + 16.0],
                         ..Thrown::leaving(level, now)
                     });
