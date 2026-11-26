@@ -91,7 +91,7 @@ const B_MOST: f32 = 6.0;
 const B_FILL_SHARE: f32 = 0.4;
 
 /// A light this near a prop's box (metres) is held by the prop, which then
-/// casts no shadow of it (`LIGHT_ON_BOX` in `odyssey.wgsl`).
+/// casts no shadow of it.
 const LIGHT_ON_PROP: f32 = 0.5;
 /// How many groups the props that hold a light are put in, each with its
 /// own bit of the acceleration structure's instance mask, from
@@ -768,9 +768,7 @@ pub(super) fn bake_lights(
     // brazier. Such a prop casts no shadow of its own light, and the light
     // lights the floor round it (`LIGHT_ON_PROP`). Each holding prop is in
     // one of `HOLDER_GROUPS` groups of the acceleration structure, and a
-    // light's shadow rays leave its prop's group out. The game's live
-    // shadows do the same with a placeable's box (`LIGHT_ON_BOX` in
-    // `odyssey.wgsl`).
+    // light's shadow rays leave its prop's group out.
     let holder_of: Vec<Option<usize>> = (lights.iter())
         .map(|light| {
             (props.iter()).position(|(_, low, high)| {
