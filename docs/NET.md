@@ -131,6 +131,18 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.
+- A player's client holds the actions its game makes before the host has
+  heard that it loaded the world they name, and sends them right after its
+  `Loaded` (`Client::act`). A guest's game makes such actions after its
+  client committed an install, while the client holds its `Loaded` back
+  until the new area can be drawn. The host's own player's game makes them
+  in its first frames, before its client has joined. Before, the host
+  dropped them, and a game that sent a request once never got it. A guest's
+  "Join nearby conversations" option and its open screen were lost after
+  every area change that way. So was any action the host's own game made
+  in the first frame of a session, such as the saved stance set pick. An
+  action made while an install comes in names
+  the world being left, and is still dropped.
 
 ## Processes (`launcher`, `game`)
 - Solo (`kjk play`, `kjk sim view`): the server and its own client over

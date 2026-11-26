@@ -1690,6 +1690,96 @@ fn unanswered(server: &mut Server, now: NetTime, at: Peer, token: Option<u64>) -
         .any(|connection| connection.peer == at)
 }
 
+/// Moves datagrams between `server` and the real client at `at` for
+/// `steps` steps of 10 ms of virtual time. The client is given `start` when
+/// it asks for the host's level, and `next` when it hears of an install.
+fn exchange(
+    (server, client, at): (&mut Server, &mut Client, Peer),
+    now: &mut NetTime,
+    (start, next): (&Level, &Level),
+    steps: usize,
+) {
+    for _ in 0..steps {
+        *now = now.plus(10_000);
+        while let Some((_, bytes)) = client.poll_transmit(*now) {
+            server.receive(*now, at, &bytes);
+        }
+        while let Some((to, bytes)) = server.poll_transmit(*now) {
+            if to == at {
+                client.receive(*now, HOST, &bytes);
+            }
+        }
+        while let Some(event) = client.poll_event() {
+            let level = match event {
+                ClientEvent::NeedLevel(_) => start,
+                ClientEvent::Installing(_) => next,
+                _ => continue,
+            };
+            client.provide_level(*now, Ok(level.clone()));
+        }
+    }
+}
+
+/// The actions a real client makes before the host hears it loaded the
+/// world they name (`Client::act`). The host's own player acts before its
+/// client has even joined, and the host takes that action once the client
+/// loaded. An action made while an install comes in is dropped. One made
+/// after the client committed the install, while it holds back telling the
+/// host (`hold_loaded`), does not reach the host then, and the host takes it
+/// once the client tells it.
+fn held_actions(probes: &mut crate::probes::Probes) {
+    let ground = pinned::proving_ground();
+    let arena = Level::arena();
+    let take = |container| vec![sim::action::Action::TakeAll(container)];
+    let at = Peer::Local(1);
+    let (mut server, snapshot) = one_seat();
+    server.in_process(at);
+    let mut now = NetTime(0);
+    let client = Client::connect(credentials("own"), HOST, 5, now, ClientConfig::default());
+    let seen = client.ok().and_then(|mut client| {
+        client.in_process();
+        let taken = |server: &mut Server| {
+            (server.actions().into_iter())
+                .map(|(_, action)| action)
+                .collect::<Vec<_>>()
+        };
+        client.act(sim::action::Action::TakeAll(1));
+        let levels = (&arena, &ground);
+        exchange((&mut server, &mut client, at), &mut now, levels, 20);
+        let early = taken(&mut server);
+        server.installing(InstallRequest {
+            game: "kjk".into(),
+            module: GROUND.into(),
+            arrival: String::new(),
+            seats: 1,
+            players: 1,
+        });
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(2));
+        client.hold_loaded(true);
+        let mut world = SimWorld::from_snapshot(&snapshot, arena.clone()).ok()?;
+        let after = world.install(ground.clone(), None).ok()?;
+        let announcement = sim::Announcement::new(&ground, None, &after)?;
+        server.installed(now, announcement, &after);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(3));
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let withheld = taken(&mut server);
+        client.hold_loaded(false);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let told = taken(&mut server);
+        Some((early, withheld, told))
+    });
+    probes.check(
+        "actions: held until the host hears the player loaded",
+        "the host's own player's action from before its client joined is taken once it loaded; one made while an install comes in is dropped; one made while the client holds back that it loaded the install is taken once it tells the host",
+        seen.as_ref().is_some_and(|(early, withheld, told)| {
+            *early == take(1) && withheld.is_empty() && *told == take(3)
+        }),
+        format!("{seen:?}"),
+    );
+}
+
 /// A host of one seat, its world stepped once.
 fn one_seat() -> (Server, Snapshot) {
     host_of(1)
@@ -1972,6 +2062,7 @@ pub fn seat_probes() -> crate::probes::Probes {
         }),
         format!("{taken:?}"),
     );
+    held_actions(&mut probes);
 
     // The host's own player, in this process, joins after a guest.
     let (mut server, _) = host_of(2);

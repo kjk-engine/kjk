@@ -5448,7 +5448,10 @@ fn net_checks(probes: net::probes::Probes) -> Vec<(String, Result<String, String
 /// packets with no panic. The check "handshake: a timeout says whether the
 /// host answered" was added and approved on 2026-11-12 (issue 340). A join
 /// no host answers times out with the host never heard. A join whose host
-/// challenges and never accepts times out with the host heard.
+/// challenges and never accepts times out with the host heard. The check
+/// "actions: held until the host hears the player loaded" was added on
+/// 2026-11-26. A real client holds an action made before the host heard it
+/// loaded the world the action names, and sends it right after.
 #[test]
 fn net_core() {
     for (name, run) in net::probes::groups() {
