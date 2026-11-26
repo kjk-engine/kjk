@@ -1,5 +1,5 @@
-// The upscaler's sharpening (`upscale.rs`), run on the resolved frame at the
-// window's size. It is contrast adaptive. A pixel is sharpened against its
+// The sharpening after a temporal resolve (`sharpen.rs`), run on the resolved
+// frame at the window's size. It is contrast adaptive. A pixel is sharpened against its
 // four neighbours by less where they already differ a lot, so an edge is not
 // overshot into a halo.
 

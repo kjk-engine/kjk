@@ -1225,12 +1225,32 @@ pub(crate) fn grab_cursor(
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     replies: Option<Res<crate::dialogue_view::ReplyInput>>,
     mut swallowed: ResMut<crate::swallow::Swallowed>,
-    (mut was_open, mut was_photo): (Local<Option<bool>>, Local<bool>),
+    (mut was_open, mut was_photo, mut was_overlay): (Local<Option<bool>>, Local<bool>, Local<bool>),
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
-    photo: Option<Res<crate::photo_mode::PhotoMode>>,
+    (photo, overlay): (
+        Option<Res<crate::photo_mode::PhotoMode>>,
+        Option<Res<crate::reshade::Overlay>>,
+    ),
 ) {
     if headless.0 {
         return;
+    }
+    // ReShade's overlay takes the mouse while it is open: the cursor is free
+    // and shown. As it closes, play decides the cursor again from scratch,
+    // so a screen or a conversation that opened meanwhile keeps it free.
+    let overlay = overlay.is_some_and(|overlay| overlay.0);
+    match crate::reshade::overlay_cursor(overlay, &mut was_overlay) {
+        crate::reshade::OverlayCursor::Free => {
+            for mut cursor in &mut windows {
+                if cursor.grab_mode != CursorGrabMode::None || !cursor.visible {
+                    cursor.grab_mode = CursorGrabMode::None;
+                    cursor.visible = true;
+                }
+            }
+            return;
+        }
+        crate::reshade::OverlayCursor::Decide => *was_open = None,
+        crate::reshade::OverlayCursor::Leave => {}
     }
     // Photo mode holds the cursor, so the mouse looks with no button held,
     // in a conversation too; one left in a conversation frees it again.

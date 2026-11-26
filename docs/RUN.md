@@ -11,7 +11,7 @@ kjk --reset-display                   # opens in a window: the settings' screen 
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
 KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
-KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
+KJK_SHARPEN=0.5 kjk …                 # the sharpening after TAA, the upscaler and DLSS for the run, from 0 (off) to 1, over the Sharpening option, for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_DEPTH_PREPASS=none kjk …          # sets the depth prepass's coverage for the run (none or full) in place of the GPU load check. The old value rooms now gives full. TAA, the upscalers and ambient occlusion still get the full one (`game::prepasses`, docs/PREPASSES.md)
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
@@ -38,6 +38,8 @@ KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening und
 KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
+KJK_RESHADE_DEPTH=1 kjk …             # the cameras that draw over the world keep its depth in the window's depth texture, as they do when ReShade is loaded, for ReShade's depth effects (`0` turns it off even with ReShade; `game::reshade`)
+KJK_RESHADE_FAKE_OVERLAY=1 kjk …      # the run acts as if ReShade's overlay were open the whole time: the mouse is ignored and the cursor is free, to try this without ReShade
 KJK_REPLAY_STAGE=arena@302nar kjk sim replay run.kjkr   # replays a recording made on an arena stage in the level that stage makes. The module alone does not make the stage's level
 KJK_REPLAY_HOSTILE=GandThug,TranThug kjk sim replay …   # with KJK_REPLAY_STAGE, the creatures that `--hostile` turned against the player when the recording was made, separated by commas
 KJK_REPLAY_TIMES=times.txt kjk sim replay run.kjkr      # also writes each tick's number and the microseconds since the tick before it, one tick a line. A tick after a checkpoint also counts the time to hash the checkpoint
@@ -315,9 +317,10 @@ window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
 `taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
 and a third of the window's side. `dlss-performance` sets DLSS at a half
 of the side, and falls back to `taa-performance` on a card or a build
-without DLSS. Under the upscaler, a line under each scene gives the GPU
-time of its resolve (`taa_upscale`) and of its sharpening
-(`taa_upscale_sharpen`).
+without DLSS. Under a temporal choice, a line under each scene gives the
+GPU time of the upscaler's resolve (`taa_upscale`) and of the sharpening
+(`sharpen`). `taa-sharpen-off` is `taa` with the options' Sharpening off,
+to compare with `taa`, where it is at Medium.
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps

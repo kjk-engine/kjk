@@ -177,6 +177,11 @@ pub fn run(options: RunOptions) -> AppExit {
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
+    // After Bevy's render plugin, which makes the render device that loads
+    // ReShade's Vulkan layer.
+    app.add_plugins(crate::reshade::ReshadePlugin {
+        window: !options.headless,
+    });
     app.add_plugins((
         ScenePlugin,
         crate::executors::ExecutorsPlugin,

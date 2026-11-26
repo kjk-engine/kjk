@@ -2322,10 +2322,11 @@ fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
 
 /// kjk's Interface page: the graphics page opens it from its framed button
 /// in the unused force speed box's place. It is a list on the Feedback
-/// page's layout under its own title. Its eight rows are the menu width,
+/// page's layout under its own title. Its nine rows are the menu width,
 /// the image aspect ratio, the text size, the text scale, the notifications
-/// in the corner, the target block at the top centre, the frame rate limit
-/// and "Join nearby conversations", which is ticked while unset. A stepped
+/// in the corner, the target block at the top centre, the frame rate limit,
+/// the sharpening and "Join nearby conversations", which is ticked while
+/// unset. A stepped
 /// row shows its name and its value and has no check box.
 /// Activating each row sets its setting. Left and Right step the cursor's
 /// stepped row back and on, and wrap. The frame rate limit's row shows a
@@ -2340,7 +2341,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
         kjk_option,
     };
-    use crate::screens::options::{FRAME_LIMIT, JOIN_TALKS};
+    use crate::screens::options::{FRAME_LIMIT, JOIN_TALKS, SHARPENING};
     let mut assets = Fake::new();
     assets.layouts.insert(
         "optgraphics",
@@ -2360,6 +2361,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         (SmallFonts::SETTING, "auto"),
         (CORNER_NOTICES, "false"),
         (TARGET_TOP, "true"),
+        (SHARPENING, "0.35"),
     ]);
     let mut graphics = opened("options_graphics", &mut assets, &vm);
     press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
@@ -2386,6 +2388,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         ("Notifications in the corner", false, false),
         ("Target block at the top centre", true, false),
         ("Frame rate limit: Off", false, true),
+        ("Sharpening: Medium", false, true),
         ("Join nearby conversations", true, false),
     ]
     .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
@@ -2399,6 +2402,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         (CORNER_NOTICES, "true"),
         (TARGET_TOP, "false"),
         (FRAME_LIMIT, "30"),
+        (SHARPENING, "0.6"),
         (JOIN_TALKS, "false"),
     ]
     .map(|(key, value)| (key.to_string(), value.to_string()));
@@ -2436,7 +2440,8 @@ pub(super) fn interface_options() -> Vec<Check> {
     // Left and Right on the text scale's row, in the middle and at each end
     // of its values, then on the frame rate limit's row, unset and at 240.
     // Then the frame rate limit at rates the list does not have, written in
-    // the settings file by hand: 75, " 60 " and 300.
+    // the settings file by hand: 75, " 60 " and 300. Then the sharpening's
+    // row from Medium down to Low and Off, and from High on to Off.
     let arrows = [
         arrow(TextScale::SETTING, None, 3, Key::Left),
         arrow(TextScale::SETTING, None, 3, Key::Right),
@@ -2449,6 +2454,10 @@ pub(super) fn interface_options() -> Vec<Check> {
         arrow(FRAME_LIMIT, Some(" 60 "), 6, Key::Right),
         arrow(FRAME_LIMIT, Some("300"), 6, Key::Left),
         arrow(FRAME_LIMIT, Some("300"), 6, Key::Right),
+        arrow(SHARPENING, Some("0.35"), 7, Key::Left),
+        arrow(SHARPENING, Some("0.2"), 7, Key::Left),
+        arrow(SHARPENING, Some("0"), 7, Key::Right),
+        arrow(SHARPENING, Some("0.6"), 7, Key::Right),
     ];
     // The frame rate limit's row with the setting at each of these, as the
     // game reads them.
@@ -2483,7 +2492,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("the eight rows, their boxes ticked or left out: {shown:?}"),
+                &format!("the nine rows, their boxes ticked or left out: {shown:?}"),
                 shown == rows,
             )
         })
@@ -2513,10 +2522,11 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("Left and Right step the text scale and the frame rate limit, and wrap: {arrows:?}"),
+                &format!("Left and Right step the text scale, the frame rate limit and the sharpening, and wrap: {arrows:?}"),
                 arrows
                     == [
-                        "90", "110", "80", "150", "240", "0", "60", "90", "90", "240", "0",
+                        "90", "110", "80", "150", "240", "0", "60", "90", "90", "240", "0", "0.2",
+                        "0", "0.2", "0",
                     ]
                     .map(|value| Some(value.to_string())),
             )
@@ -2540,7 +2550,7 @@ pub(super) fn interface_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, eight rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+            "title, nine rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
         })
     })]
 }
