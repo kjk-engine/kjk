@@ -343,12 +343,19 @@ fn attempt_through_lobby(
                     seat = welcome.seat;
                     seats = welcome.seats;
                     stances = welcome.stances;
+                    session::set_host_dismemberment(welcome.dismemberment);
                     let collision =
                         session::Collision::from_code(welcome.collision).ok_or_else(|| {
                             "the host builds its levels with a collision this build does not know"
                                 .to_string()
                         })?;
                     session::set_collision(collision);
+                }
+                // The host may say how often its view cuts a part off
+                // between the welcome and the level. The guest cuts as
+                // often from then on.
+                ClientEvent::Dismemberment(percent) => {
+                    session::set_host_dismemberment(Some(percent));
                 }
                 ClientEvent::NeedLevel(request) => {
                     let recv_buffer = socket.inner().recv_buffer();
@@ -662,6 +669,11 @@ pub(crate) fn advance(
                     told.0.push(text);
                 }
             }
+            // The host changed how often its view cuts a part off: this
+            // one cuts as often.
+            ClientEvent::Dismemberment(percent) => {
+                session::set_host_dismemberment(Some(percent));
+            }
             ClientEvent::Screen(screen) => {
                 if let Some(shown) = shown.as_deref_mut() {
                     shown.0.push(screen);
@@ -740,6 +752,7 @@ pub(crate) fn advance(
                 joined.ended = Some(why);
             }
             ClientEvent::Welcome(welcome) => {
+                session::set_host_dismemberment(welcome.dismemberment);
                 info!(target: "net", seat = welcome.seat.0, "joined again");
                 if let Some(again) = talk_again.as_deref_mut() {
                     again.0 = true;

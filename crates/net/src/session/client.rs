@@ -216,6 +216,9 @@ pub enum ClientEvent {
     Starting,
     /// The host closed the lobby, with the reason a player reads.
     Closed(String),
+    /// The host changed the share of killing blows its view cuts a part off
+    /// with, in percent (the welcome names it when joining).
+    Dismemberment(u8),
 }
 
 /// Why this seat's predicted avatar differed from the host's.
@@ -1214,6 +1217,7 @@ impl Client {
                 | Message::Lobby { .. }
                 | Message::Start
                 | Message::Closed(_)
+                | Message::Dismemberment(_)
         );
         if !told {
             self.land_rebuild(true);
@@ -1325,6 +1329,9 @@ impl Client {
                 .push_back(ClientEvent::LobbyState { slot, lobby }),
             Message::Start => self.events.push_back(ClientEvent::Starting),
             Message::Closed(reason) => self.events.push_back(ClientEvent::Closed(reason)),
+            Message::Dismemberment(percent) => {
+                self.events.push_back(ClientEvent::Dismemberment(percent));
+            }
             Message::Loaded { .. }
             | Message::Resync
             | Message::Action(_)

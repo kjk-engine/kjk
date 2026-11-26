@@ -778,6 +778,9 @@ struct Authority {
     /// world a save makes in play is set to it again, so it stays the same
     /// for the whole session.
     show_replies: Option<bool>,
+    /// The share of killing blows this view cuts a part off with, as the
+    /// last told to the players (`duel`), so a change is said once.
+    told_cuts: Option<u8>,
     slowed: Slowed,
 }
 
@@ -862,6 +865,12 @@ fn duel(
     let alone = here.is_some_and(|here| here.alone);
     let seat = own.map_or(Seat(0), |own| own.0);
     let authority = &mut *authority;
+    // The players see the cuts this view draws: they are told its share, at
+    // once when it changes (`Solo::dismemberment`).
+    if authority.told_cuts != Some(options.cut_percent) {
+        authority.told_cuts = Some(options.cut_percent);
+        authority.solo.dismemberment(options.cut_percent);
+    }
     authority.slowed.follow(
         &authority.last,
         seat,
@@ -1104,6 +1113,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             rules,
             damage_taken,
             show_replies,
+            told_cuts: None,
             slowed: Slowed::default(),
         });
     }

@@ -1345,7 +1345,9 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
             token: 99,
             stances: true,
             collision: 0,
+            dismemberment: Some(75),
         }),
+        Message::Dismemberment(33),
         Message::Level(LevelRequest::Stage(Level::arena().id())),
         Message::Snapshot(&payloads[0]),
         Message::Installing {
@@ -1573,6 +1575,9 @@ struct Hand {
     link: Link,
     seat: Option<Seat>,
     token: Option<u64>,
+    /// The share of cutting blows the host last said (`Welcome::dismemberment`,
+    /// `Message::Dismemberment`).
+    dismemberment: Option<u8>,
 }
 
 impl Hand {
@@ -1619,6 +1624,7 @@ impl Hand {
             link: Link::new(session, now),
             seat: None,
             token: None,
+            dismemberment: None,
         };
         for bytes in early {
             let _ = hand.link.receive(now, &bytes);
@@ -1635,10 +1641,20 @@ impl Hand {
                 let _ = self.link.receive(now, &bytes);
             }
         }
+        self.read();
+    }
+
+    /// Reads the messages its link has taken in.
+    fn read(&mut self) {
         for message in self.link.take_messages() {
-            if let Ok(Message::Welcome(welcome)) = Message::decode(&message) {
-                self.seat = Some(welcome.seat);
-                self.token = Some(welcome.token);
+            match Message::decode(&message) {
+                Ok(Message::Welcome(welcome)) => {
+                    self.seat = Some(welcome.seat);
+                    self.token = Some(welcome.token);
+                    self.dismemberment = welcome.dismemberment;
+                }
+                Ok(Message::Dismemberment(percent)) => self.dismemberment = Some(percent),
+                _ => {}
             }
         }
     }
@@ -2013,6 +2029,57 @@ pub fn seat_probes() -> crate::probes::Probes {
         "the host's own player, in this process, first asks to join 30 s after its attempt began, and the host accepts it",
         matches!(joined, Some(Ok(_))),
         format!("{joined:?}"),
+    );
+
+    // The host's share of cutting blows reaches every player: in the
+    // welcome of one who joins after the host said it, at once to one
+    // already in when it changes, never over 100, and not at all from a
+    // host that named none.
+    let (mut server, _) = host_of(2);
+    let mut silent = Hand::join(&mut server, NetTime(0), Peer::Local(1), None);
+    let heard_none = silent
+        .as_ref()
+        .is_ok_and(|hand| hand.dismemberment.is_none());
+    server.set_dismemberment(50);
+    if let Ok(hand) = &mut silent {
+        hand.pump(&mut server, NetTime(1_000));
+    }
+    let told_in = silent.as_ref().ok().and_then(|hand| hand.dismemberment);
+    // The second joins after: its join reads only its own packets.
+    let mut late = Hand::join(&mut server, NetTime(2_000), Peer::Local(2), None);
+    let welcomed = late.as_ref().ok().and_then(|hand| hand.dismemberment);
+    let mut both = [&mut silent, &mut late];
+    let mut said = |server: &mut Server, now: NetTime| {
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            for hand in both.iter_mut().filter_map(|hand| hand.as_mut().ok()) {
+                if hand.at == to {
+                    let _ = hand.link.receive(now, &bytes);
+                }
+            }
+        }
+        both.iter_mut()
+            .filter_map(|hand| hand.as_mut().ok())
+            .map(|hand| {
+                hand.read();
+                hand.dismemberment
+            })
+            .collect::<Vec<_>>()
+    };
+    server.set_dismemberment(80);
+    let changed = said(&mut server, NetTime(3_000));
+    server.set_dismemberment(250);
+    let capped = said(&mut server, NetTime(4_000));
+    probes.check(
+        "dismemberment: the host's share reaches every player",
+        "a welcome names the share the host last said (none from a host that said none), a change reaches every player already in, and a share over 100 is 100",
+        heard_none
+            && welcomed == Some(50)
+            && told_in == Some(50)
+            && changed == [Some(80), Some(80)]
+            && capped == [Some(100), Some(100)],
+        format!(
+            "silent host {heard_none}; welcome {welcomed:?}; first player told {told_in:?}; changed {changed:?}; capped {capped:?}"
+        ),
     );
     probes
 }

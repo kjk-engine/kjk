@@ -2563,7 +2563,7 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// blocks are switched off, so the page has no row for them.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::screens::options::SABER_RULES_KEY as RULES;
-    use crate::screens::options::{DAMAGE_ENEMIES, DAMAGE_PARTY};
+    use crate::screens::options::{DAMAGE_ENEMIES, DAMAGE_PARTY, DISMEMBERMENT};
     use crate::strings;
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
@@ -2587,7 +2587,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 9]| {
+    let rows = |rows: [(&str, bool, bool, bool); 10]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2640,13 +2640,14 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Movie Duels stances", true, false, false),
         ("Damage taken by party: 100%", false, true, false),
         ("Damage taken by enemies: 100%", false, true, false),
+        ("Dismemberment: 33%", false, true, false),
     ]);
-    // Only the damage rows have minus and plus arrows.
+    // Only the damage and dismemberment rows have minus and plus arrows.
     let arrows: Vec<bool> = option_rows(&page, &with)
         .iter()
         .map(|row| row.arrows)
         .collect();
-    let activated: Vec<_> = (0..9)
+    let activated: Vec<_> = (0..10)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
@@ -2659,6 +2660,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("game.stance_sets", "false"),
         (DAMAGE_PARTY, "150"),
         (DAMAGE_ENEMIES, "150"),
+        (DISMEMBERMENT, "50"),
     ]);
     let back = [
         on_row(&with, 0, Key::Left),
@@ -2681,6 +2683,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Movie Duels stances", false, false, true),
         ("Damage taken by party: 100%", false, true, false),
         ("Damage taken by enemies: 100%", false, true, false),
+        ("Dismemberment: 33%", false, true, false),
     ]);
     let both_offered = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
     let still = on_row(&bare, 6, Key::Activate);
@@ -2754,14 +2757,14 @@ pub(super) fn saber_options() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("the nine rows with Movie Duels: {shown_with:?}"),
+                &format!("the ten rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
             )
         })
         .and_then(|()| {
             expect(
-                &format!("only the two damage rows have arrows: {arrows:?}"),
-                arrows == [[false; 7].as_slice(), &[true; 2]].concat(),
+                &format!("only the damage and dismemberment rows have arrows: {arrows:?}"),
+                arrows == [[false; 7].as_slice(), &[true; 3]].concat(),
             )
         })
         .and_then(|()| {

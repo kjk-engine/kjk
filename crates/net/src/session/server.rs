@@ -448,6 +448,10 @@ pub struct Server {
     /// connects: the first, unless a co-op lobby seated a guest there
     /// (`begin`).
     host_seat: u8,
+    /// The share of killing blows the host's view cuts a part off with, in
+    /// percent, once the host has said it (`set_dismemberment`): the
+    /// welcome carries it, and a change is sent to every player.
+    dismemberment: Option<u8>,
 }
 
 impl Server {
@@ -478,6 +482,27 @@ impl Server {
             next_copy: 0,
             lobby: None,
             host_seat: 0,
+            dismemberment: None,
+        }
+    }
+
+    /// Says that the host's view cuts a part off `percent` of killing blows
+    /// (at most 100). Every player joined takes it at once and a player who
+    /// joins later in its welcome, so every view cuts the same bodies. The
+    /// same value again sends nothing. In the lobby nothing is sent: the
+    /// welcome that follows carries it.
+    pub fn set_dismemberment(&mut self, percent: u8) {
+        let percent = percent.min(100);
+        if self.dismemberment == Some(percent) {
+            return;
+        }
+        self.dismemberment = Some(percent);
+        if self.lobby.is_some() {
+            return;
+        }
+        let message = Message::Dismemberment(percent).to_bytes();
+        for connection in self.connections.values_mut() {
+            let _ = connection.link.send_reliable(&message);
         }
     }
 
@@ -641,6 +666,7 @@ impl Server {
             token,
             stances: !self.config.stances.is_empty(),
             collision: self.config.collision,
+            dismemberment: self.dismemberment,
         })
         .to_bytes()
     }

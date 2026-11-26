@@ -39,9 +39,10 @@ use crate::cast::Rest;
 use crate::material::OdysseyMaterial;
 use crate::ragdolls::Doll;
 
-/// How often a blade's killing blow cuts (in a hundred): tuning, the
-/// owner's choice (KOTOR cuts nothing).
-const CHANCE: u64 = 33;
+/// How often a blade's killing blow cuts (in a hundred) until the
+/// Dismemberment option says otherwise: tuning, the owner's choice (KOTOR
+/// cuts nothing).
+pub const DEFAULT_PERCENT: u8 = 33;
 /// How fast a severed limb leaves its body (m/s) and how hard it tumbles
 /// (rad/s).
 const THROW: f32 = 6.0;
@@ -111,9 +112,10 @@ fn roll(id: SimId, tick: u64, salt: u64) -> u64 {
 }
 
 /// The part a killing `hit` of an edge cuts off `template`'s body, if it
-/// cuts: one time in three (by the character and its killing hit).
-pub fn limb(template: &Template, hit: &Event, id: SimId) -> Option<usize> {
-    if roll(id, hit.tick, 1) % 100 >= CHANCE {
+/// cuts: `percent` times in a hundred (by the character and its killing
+/// hit; the Dismemberment option, `DEFAULT_PERCENT` one time in three).
+pub fn limb(template: &Template, hit: &Event, id: SimId, percent: u8) -> Option<usize> {
+    if roll(id, hit.tick, 1) % 100 >= u64::from(percent) {
         return None;
     }
     let parts = &template.parts;

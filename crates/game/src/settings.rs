@@ -992,7 +992,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 42] = [
+const DEFAULTS: [(&str, &str); 43] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -1026,6 +1026,7 @@ const DEFAULTS: [(&str, &str); 42] = [
     (COLLISION, "limited"),
     (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
     (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
+    (DISMEMBERMENT, ui::screens::options::DISMEMBERMENT_DEFAULT),
     (SABER_RULES, "ja"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
@@ -1067,6 +1068,9 @@ pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
 /// (`sim::combat::damage::Taken`), in percent.
 const DAMAGE_PARTY: &str = ui::screens::options::DAMAGE_PARTY;
 const DAMAGE_ENEMIES: &str = ui::screens::options::DAMAGE_ENEMIES;
+
+/// The key of Dismemberment (`severing`), in percent.
+const DISMEMBERMENT: &str = ui::screens::options::DISMEMBERMENT;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -1134,6 +1138,10 @@ pub struct DuelOptions {
     pub warning: bool,
     /// A perfect block slows the world for a moment (alone only).
     pub slow_motion: bool,
+    /// How often a blade's killing blow cuts a part off, in percent
+    /// (`severing::limb`). The view's alone: the sim never knows. A joined
+    /// player takes the host's (`session::host_dismemberment`).
+    pub cut_percent: u8,
 }
 
 /// Fixes the collision of the session about to start (`session::collision`)
@@ -1141,6 +1149,9 @@ pub struct DuelOptions {
 /// (`net_join`).
 pub fn fix_session_collision() {
     session::set_collision(Settings::read().collision());
+    // A session started here cuts as this machine's options say, not as a
+    // host once joined did.
+    session::set_host_dismemberment(None);
 }
 
 /// Each part of the mix and the setting of its slider.
@@ -1247,6 +1258,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             STANCE_SETS,
             DAMAGE_PARTY,
             DAMAGE_ENEMIES,
+            DISMEMBERMENT,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1635,6 +1647,17 @@ impl Settings {
         settings
     }
 
+    /// How often a blade's killing blow cuts a part off (Dismemberment), in
+    /// percent, at most 100. A value that is not a number counts as the
+    /// default.
+    pub fn cut_percent(&self) -> u8 {
+        self.values
+            .get(DISMEMBERMENT)
+            .and_then(|value| value.trim().parse::<u8>().ok())
+            .unwrap_or(crate::severing::DEFAULT_PERCENT)
+            .min(100)
+    }
+
     /// The duel options (`DuelOptions`).
     pub fn duel(&self) -> DuelOptions {
         DuelOptions {
@@ -1643,6 +1666,7 @@ impl Settings {
             bars: self.on(DUEL_BARS),
             warning: self.on(DUEL_WARNING),
             slow_motion: self.on(DUEL_SLOW_MOTION),
+            cut_percent: self.cut_percent(),
         }
     }
 

@@ -95,6 +95,7 @@ pub const SABERS: &str = "Combat";
 pub const SABER_OPTIONS: &str = "Combat Options";
 pub const DAMAGE_PARTY: &str = "Damage taken by party";
 pub const DAMAGE_ENEMIES: &str = "Damage taken by enemies";
+pub const DISMEMBERMENT: &str = "Dismemberment";
 pub const SABER_RULES: &str = "Combat rules";
 pub const SABER_RULES_JA: &str = "Jedi Academy";
 pub const SABER_RULES_ADVANCED: &str = "Advanced";
@@ -144,6 +145,7 @@ pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
 pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
 pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
+pub const DISMEMBERMENT_HELP: &str = "How often a killing blow from a lightsaber, sword or vibroblade cuts a part off the body, as a percentage of such blows. Characters who are only defeated, and not killed, are never cut.\n\nIt applies at once. In co-op, the host's setting applies.";
 pub const DAMAGE_PARTY_HELP: &str = "The damage you, your companions and other players take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
 pub const DAMAGE_ENEMIES_HELP: &str = "The damage enemies and other characters outside your party take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
 /// The combat page's descriptions. `{block}` and `{attack}` are the keys
