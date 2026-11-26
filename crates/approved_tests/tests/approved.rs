@@ -3363,6 +3363,52 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
+/// A texture whose TXI says `wateralpha` below 1 and names a bump map and an
+/// env map is drawn as water (`kjk_game::material::water`), blended,
+/// whatever its own alpha and the mesh's. The TXI of Dantooine's river
+/// (`dan_water03n`, a DXT1 without alpha) is the example. Without
+/// `wateralpha`, or with it at 1, the texture is drawn as before. Needs
+/// `--features rig`; no installs (proposed 2026-11-26, not yet approved).
+#[test]
+fn water_textures_drawn_as_water() {
+    #[cfg(not(feature = "rig"))]
+    println!("water_textures_drawn_as_water skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureFacts;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, water};
+
+        let river = "wateralpha 0.75\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n";
+        for (txi, expected, drawn) in [
+            (river, Some((0.75, "dan_water03nb")), Surface::Blend),
+            (
+                "wateralpha 1\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "bumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "wateralpha 0.75\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+        ] {
+            let facts = TextureFacts::from_txi(&Txi::parse(txi.as_bytes()), false);
+            assert_eq!(water(Some(&facts)), expected, "{txi:?}");
+            assert_eq!(
+                surface((0, false), 1.0, (Some(&facts), &[&facts])),
+                drawn,
+                "{txi:?}"
+            );
+        }
+    }
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a
