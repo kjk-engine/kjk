@@ -17,7 +17,7 @@ fmt_odyssey.workspace = true
 script_ncs.workspace = true
 store.workspace = true
 vfs.workspace = true
-toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
+toml_edit = { workspace = true, features = ["display"] }
 
 [lints]
 workspace = true

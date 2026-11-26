@@ -42,7 +42,7 @@ net.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # The duel stances' table (`data/duel_stances.toml`).
-toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+toml_edit.workspace = true
 # The rooms' occlusion queries (`room_queries`) need wgpu's query set,
 # which Bevy does not re-export. This is the version Bevy itself uses.
 wgpu = { version = "29.0.3", default-features = false }

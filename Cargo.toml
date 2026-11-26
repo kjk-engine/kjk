@@ -62,6 +62,9 @@ steamworks = "0.13"
 # `kjk original`'s copy of an original game: each file cloned where the
 # disk can (APFS, Btrfs, XFS, ReFS), else copied.
 reflink-copy = "0.1.33"
+# kjk's TOML files read: the rules, the light data, a level editor
+# project's files. A crate that also writes them asks for `display`.
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 # The save editor's window (`crates/save_editor`, its `app` feature alone):
 # OpenGL through glow, X11 and Wayland for Linux and the Steam Deck's
 # desktop; tables that draw only the rows in view. No fonts of egui's own
