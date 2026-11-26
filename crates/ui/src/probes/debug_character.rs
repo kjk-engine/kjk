@@ -1,8 +1,8 @@
 //! The Debug Mode character page's probes (`screens::debug_character`):
 //! each row shows its name and value with KOTOR 2's arrows; a click on a
 //! row's minus arrow steps it down and elsewhere up; Left and Right step the
-//! row last pointed at; Restore shows only while the view offers it, and
-//! Back closes the page.
+//! row last pointed at; a fixed row has no arrows and sends nothing;
+//! Restore shows only while the view offers it, and Back closes the page.
 
 use super::paint::button;
 use super::{Check, check, expect};
@@ -22,11 +22,19 @@ fn page() -> Result<String, String> {
         name: name.to_vec(),
         value: value.to_vec(),
         help: b"Help".to_vec(),
+        fixed: false,
     };
     let vm = |restore| ViewModel {
         debug_character: Some(DebugCharacterView {
             title: b"Edit Character".to_vec(),
-            rows: vec![row(b"Strength", b"16"), row(b"Level", b"20")],
+            rows: vec![
+                row(b"Strength", b"16"),
+                row(b"Level", b"20"),
+                OptionRowView {
+                    fixed: true,
+                    ..row(b"Feats", b"12")
+                },
+            ],
             restore,
         }),
         ..ViewModel::default()
@@ -47,6 +55,7 @@ fn page() -> Result<String, String> {
         rows == [
             (b"Strength: 16".to_vec(), true),
             (b"Level: 20".to_vec(), true),
+            (b"Feats: 12".to_vec(), false),
         ],
     )?;
     let mut out = Vec::new();
@@ -58,6 +67,8 @@ fn page() -> Result<String, String> {
     screen.pointed("LB_OPTIONS", 1, &shown);
     screen.key(Key::Left, &shown, &mut out);
     screen.key(Key::Right, &shown, &mut out);
+    // The fixed row sends nothing.
+    screen.row("LB_OPTIONS", 2, &shown, &mut out);
     screen.press("BTN_DEFAULT", &shown, &mut out);
     screen.press("BTN_BACK", &shown, &mut out);
     let sent = [
@@ -84,5 +95,8 @@ fn page() -> Result<String, String> {
         "Restore shown for a player's character and hidden for a companion",
         !hidden(true) && hidden(false),
     )?;
-    Ok("two rows with arrows; arrows, keys, Restore and Back sent as expected".into())
+    Ok(
+        "two rows with arrows and a fixed row; arrows, keys, Restore and Back sent as expected"
+            .into(),
+    )
 }

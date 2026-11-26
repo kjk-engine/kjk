@@ -296,11 +296,12 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 "arena",
                 order @ (["clear" | "god" | "restore"]
                 | ["down" | "alignment", _]
-                | ["level" | "ability" | "skill", _, _]),
+                | ["level" | "ability" | "skill", _, _]
+                | ["level", _, _, _, _]),
             ) => Command::Arena(order.iter().map(|word| word.to_string()).collect()),
             ("arena", _) => {
                 return Err(error(
-                    "arena takes spawn TEMPLATE, clear, god, down N, level CLASS N, \
+                    "arena takes spawn TEMPLATE, clear, god, down N, level CLASS N [CLASS N], \
                      ability NAME N, skill NAME N, alignment N or restore",
                 ));
             }

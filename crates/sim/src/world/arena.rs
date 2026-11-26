@@ -252,9 +252,15 @@ fn edit(
         ArenaOrder::Ability { ability, score, .. } => edits::ability(&sheet, *ability, *score),
         ArenaOrder::Skill { skill, ranks, .. } => edits::skill(&sheet, *skill, *ranks),
         ArenaOrder::Alignment { good_evil, .. } => Some(edits::alignment(&sheet, *good_evil)),
-        ArenaOrder::Rebuild { class, level, .. } => {
+        ArenaOrder::Rebuild {
+            class,
+            level,
+            second,
+            ..
+        } => {
             let classes = library.classes();
-            let Some((made, career, banked)) = edits::rebuild(classes, &sheet, *class, *level)
+            let Some((made, career, banked)) =
+                edits::rebuild(classes, &sheet, *class, *level, *second)
             else {
                 return true;
             };

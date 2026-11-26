@@ -977,12 +977,13 @@ pub struct DebugCharacterView {
 
 /// A row of an options list whose value is stepped with its arrows: its
 /// name, its value and what the description box says of it, in the game's
-/// code page.
+/// code page. A `fixed` row only shows its value, with no arrows.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OptionRowView {
     pub name: Vec<u8>,
     pub value: Vec<u8>,
     pub help: Vec<u8>,
+    pub fixed: bool,
 }
 
 /// A saved game as the save and load screens list it: its folder's id,

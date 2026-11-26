@@ -285,6 +285,9 @@ pub enum Action {
     Screen(bool),
 }
 
+/// A rebuild's second class byte when it has none (`ArenaOrder::Rebuild`).
+const NO_CLASS: u8 = u8::MAX;
+
 /// What a player orders in a combat arena (`world::arena`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArenaOrder {
@@ -304,11 +307,16 @@ pub enum ArenaOrder {
     /// companion no other seat plays.
     ///
     /// `who` rebuilt as a character of class `class` (`classes.2da` row)
-    /// at level `level`, every level's picks the game's own.
+    /// at total level `level`, every level's picks the game's own. With
+    /// `second`, that many of the levels are in a second class taken on
+    /// top of the first (`levels::Classes::second_classes`): a K1 Jedi
+    /// class on a soldier, scout or scoundrel, or a TSL prestige class on a
+    /// Jedi base class.
     Rebuild {
         who: crate::snapshot::SimId,
         class: u8,
         level: u8,
+        second: Option<(u8, u8)>,
     },
     /// `who`'s ability `ability` (`Ability` order) at `score`.
     Ability {
@@ -844,11 +852,19 @@ impl Action {
                         out.u8(3);
                         out.u8(*n);
                     }
-                    ArenaOrder::Rebuild { who, class, level } => {
+                    ArenaOrder::Rebuild {
+                        who,
+                        class,
+                        level,
+                        second,
+                    } => {
                         out.u8(4);
                         out.u32(who.0);
                         out.u8(*class);
                         out.u8(*level);
+                        let (second, levels) = second.unwrap_or((NO_CLASS, 0));
+                        out.u8(second);
+                        out.u8(levels);
                     }
                     ArenaOrder::Ability {
                         who,
@@ -1078,6 +1094,10 @@ impl Action {
                         who: crate::snapshot::SimId(input.u32()?),
                         class: input.u8()?,
                         level: input.u8()?,
+                        second: match (input.u8()?, input.u8()?) {
+                            (NO_CLASS, _) => None,
+                            second => Some(second),
+                        },
                     },
                     5 => ArenaOrder::Ability {
                         who: crate::snapshot::SimId(input.u32()?),

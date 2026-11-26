@@ -4,6 +4,7 @@
 //! the chosen party member (`ViewModel::debug_character`,
 //! `game::debug_terminal`). A click on an arrow, or Left and Right while the
 //! list has the focus, steps the row's value down or up; held keys repeat.
+//! A row the game marks fixed only shows its value, with no arrows.
 //! The default button is Restore, shown only for a player's own character.
 //! Back and Escape close the page.
 
@@ -42,9 +43,12 @@ fn view(vm: &ViewModel) -> &DebugCharacterView {
     vm.debug_character.as_ref().unwrap_or(&NONE)
 }
 
-/// Row `row` stepped down (`back`) or up.
-fn step(row: usize, back: bool, out: &mut Vec<Intent>) {
-    if let Ok(row) = u8::try_from(row) {
+/// Row `row` stepped down (`back`) or up, unless it only shows its value.
+fn step(vm: &ViewModel, row: usize, back: bool, out: &mut Vec<Intent>) {
+    let fixed = view(vm).rows.get(row).is_some_and(|shown| shown.fixed);
+    if let Ok(row) = u8::try_from(row)
+        && !fixed
+    {
         out.push(Intent::DebugStep { row, back });
     }
 }
@@ -75,7 +79,7 @@ impl Screen for DebugCharacter {
                         .map(|row| Row {
                             text: [row.name.as_slice(), b": ", &row.value].concat(),
                             unmarked: true,
-                            arrows: true,
+                            arrows: !row.fixed,
                             ..Row::default()
                         })
                         .collect(),
@@ -108,9 +112,9 @@ impl Screen for DebugCharacter {
 
     /// A row activated: a click on its minus arrow steps it down, anywhere
     /// else on it up.
-    fn row(&mut self, list: &str, index: usize, _vm: &ViewModel, out: &mut Vec<Intent>) {
+    fn row(&mut self, list: &str, index: usize, vm: &ViewModel, out: &mut Vec<Intent>) {
         if list == LIST {
-            step(index, self.part == ROW_MINUS, out);
+            step(vm, index, self.part == ROW_MINUS, out);
         }
     }
 
@@ -128,7 +132,7 @@ impl Screen for DebugCharacter {
 
     /// Left and Right step the row last pointed at while the list has the
     /// focus; a held key repeats.
-    fn key(&mut self, key: Key, _vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+    fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
         let back = match key {
             Key::Left => true,
             Key::Right => false,
@@ -137,7 +141,7 @@ impl Screen for DebugCharacter {
         if self.focus.as_deref() != Some(LIST) {
             return false;
         }
-        step(self.row, back, out);
+        step(vm, self.row, back, out);
         true
     }
 

@@ -412,7 +412,14 @@ pub mod terminal {
     /// map's starting Jedi).
     pub const NO_CLASS: &str = "Custom";
     pub const CLASS_HELP: &str = "Changing the class rebuilds the character at the same level. The game chooses the feats, Force powers and skills for each level.";
-    pub const LEVEL_HELP: &str = "Changing the level rebuilds the character in the same class. The game chooses the feats, Force powers and skills for each level.";
+    pub const LEVEL_HELP: &str = "The character's total level, both classes together. Changing it rebuilds the character in the same classes. The game chooses the feats, Force powers and skills for each level.";
+    pub const SPECIALIZATION: &str = "Specialization";
+    pub const SPECIALIZATION_HELP: &str = "A second class taken on top of the first, such as a Jedi class on a soldier or a prestige class on a Jedi. Changing it rebuilds the character.";
+    pub const SPECIALIZATION_LEVEL: &str = "Specialization Level";
+    pub const SPECIALIZATION_LEVEL_HELP: &str = "The levels in the second class. They are part of the total level, and the first class keeps the rest.";
+    pub const FEATS: &str = "Feats";
+    pub const POWERS: &str = "Force Powers";
+    pub const NONE: &str = "None";
     pub const ALIGNMENT_HELP: &str = "0 is fully dark side. 100 is fully light side.";
     pub const RESTORE: &str = "Restore";
     /// The panel's row for the terminal.

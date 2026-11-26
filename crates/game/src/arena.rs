@@ -530,7 +530,8 @@ const SKILL_NAMES: [&str; 8] = [
 
 /// The console's arena order `words` (`arena spawn TEMPLATE`, `clear`,
 /// `god`, `down N`), and the Debug Mode terminal's orders for the player's
-/// own body `me`: `level CLASS N`, `ability NAME N`, `skill NAME N`,
+/// own body `me`: `level CLASS N` (total level N, with `CLASS2 N2` that
+/// many levels of a second class), `ability NAME N`, `skill NAME N`,
 /// `alignment N` and `restore` (to `level`'s
 /// starting character). A name may also be its number.
 fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Option<ArenaOrder> {
@@ -546,10 +547,15 @@ fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Opt
         ["clear"] => ArenaOrder::Clear,
         ["god"] => ArenaOrder::God,
         ["down", n] => ArenaOrder::Down(n.parse().ok()?),
-        ["level", class, n] => ArenaOrder::Rebuild {
+        ["level", class, n, second @ ..] => ArenaOrder::Rebuild {
             who: me?,
             class: class.parse().ok()?,
             level: n.parse().ok()?,
+            second: match second {
+                [] => None,
+                [other, levels] => Some((other.parse().ok()?, levels.parse().ok()?)),
+                _ => return None,
+            },
         },
         ["ability", name, n] => ArenaOrder::Ability {
             who: me?,

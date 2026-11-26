@@ -169,6 +169,25 @@ const BASE_FORMS: [[u16; 4]; 3] = [
     [258, 260, 265, 259],
 ];
 
+/// TSL's prestige classes (`classes.2da` rows): Jedi Weapon Master, Jedi
+/// Master, Jedi Watchman, Sith Marauder, Sith Lord and Sith Assassin.
+const PRESTIGE: [u8; 6] = [11, 12, 13, 14, 15, 16];
+
+/// The second classes each first class may take (`classes.2da` rows,
+/// `Classes::second_classes`): the Jedi Guardian, Consular and Sentinel on
+/// a soldier, scout or scoundrel; on the Guardian the Weapon Master and the
+/// Marauder, on the Consular the Jedi Master and the Sith Lord, and on the
+/// Sentinel the Watchman and the Assassin, as TSL's prestige scripts give
+/// each base class its light and its dark prestige class.
+const SECOND_CLASSES: [(u8, &[u8]); 6] = [
+    (0, &[3, 4, 5]),
+    (1, &[3, 4, 5]),
+    (2, &[3, 4, 5]),
+    (3, &[11, 14]),
+    (4, &[12, 15]),
+    (5, &[13, 16]),
+];
+
 /// What each prestige class (Jedi Master, Watchman, Marauder, Sith Lord,
 /// Assassin) is granted at its levels (`spells.2da` rows; TSL's
 /// executable's): (class level, power).
@@ -961,6 +980,29 @@ impl Classes {
                 .map_err(|why| (sheet.level, Some(why)))?;
         }
         Ok((sheet, career, banked))
+    }
+
+    /// The classes (`classes.2da` rows) a character whose first class is
+    /// `first` may take as a second class, as the games' scripts add one
+    /// (`AddMultiClass`): in K1, Dantooine's Jedi classes on a soldier,
+    /// scout or scoundrel; in TSL the same for a companion trained as a
+    /// Jedi, and on a Jedi base class the two prestige classes of its
+    /// line, light and dark (`SECOND_CLASSES`). A row this game's table
+    /// lacks is left out.
+    pub fn second_classes(&self, first: u8) -> Vec<u8> {
+        SECOND_CLASSES
+            .iter()
+            .filter(|(of, _)| *of == first)
+            .flat_map(|(_, seconds)| seconds.iter().copied())
+            .filter(|second| usize::from(*second) < self.classes.len())
+            .collect()
+    }
+
+    /// Whether `class` may be a character's first class: every class but
+    /// TSL's prestige classes, which are only ever taken on top of a Jedi
+    /// base class.
+    pub fn may_start(&self, class: u8) -> bool {
+        !PRESTIGE.contains(&class) && usize::from(class) < self.classes.len()
     }
 
     /// The highest level a character may reach (`exptable.2da`'s rows).

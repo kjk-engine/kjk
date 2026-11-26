@@ -49,26 +49,48 @@ pub fn alignment(sheet: &Sheet, good_evil: u8) -> Sheet {
 /// `sheet`'s character made anew as one of class `class` at total level
 /// `level` (held between 1 and the game's cap). It starts from the class's
 /// recommended scores, takes its first level as character creation does,
-/// and every further level with the game's own picks. It keeps who it is
-/// and what it wears (`kept`). The sheet, the career and the skill points
-/// left unspent, or `None` when the class offers no such character.
+/// and every further level with the game's own picks. With `second`, its
+/// last levels are in that second class (`Classes::second_classes`),
+/// taken after the first class's as the games' `AddMultiClass` adds one;
+/// the first class keeps at least one level. It keeps who it is and what it
+/// wears (`kept`). The sheet, the career and the skill points left unspent,
+/// or `None` when the classes offer no such character.
 pub fn rebuild(
     classes: &Classes,
     sheet: &Sheet,
     class: u8,
     level: u8,
+    second: Option<(u8, u8)>,
 ) -> Option<(Sheet, Career, u8)> {
+    if !classes.may_start(class) {
+        return None;
+    }
     let recommended = classes.classes.get(usize::from(class))?.recommended;
     let first = Choices {
         class,
         ..Choices::default()
     };
+    let level = level.clamp(1, classes.cap().max(1));
+    let second = match second {
+        Some((other, levels)) if classes.second_classes(class).contains(&other) => {
+            Some((other, levels.clamp(1, level.saturating_sub(1).max(1))))
+        }
+        Some(_) => return None,
+        None => None,
+    }
+    .filter(|_| level > 1);
+    let own = level - second.map_or(0, |(_, levels)| levels);
     let (made, career, banked) =
         crate::creation::first_level(classes, recommended, sheet.faction, &first)?;
-    let level = level.clamp(1, classes.cap().max(1));
-    let (made, career, banked) = classes
-        .auto_levels(&made, &career, class, banked, level)
+    let (mut made, mut career, mut banked) = classes
+        .auto_levels(&made, &career, class, banked, own)
         .ok()?;
+    if let Some((other, levels)) = second {
+        career.push((other, 0));
+        (made, career, banked) = classes
+            .auto_levels(&made, &career, other, banked, levels)
+            .ok()?;
+    }
     Some((kept(made, sheet), career, banked))
 }
 

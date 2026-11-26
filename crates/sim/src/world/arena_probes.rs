@@ -23,6 +23,17 @@ const FOE: &str = "probe_foe";
 /// How long a downed player lies in the probes' arena (ms).
 const RESPAWN_MS: u64 = 500;
 
+/// Four classes of twenty levels alike (`coop_items::classes`): rows 0 to
+/// 3, so that row 3, K1's Jedi Guardian, may be taken on top of row 0
+/// (`Classes::second_classes`).
+fn classes() -> crate::levels::Classes {
+    let base = super::coop_items::classes();
+    crate::levels::Classes {
+        classes: vec![base.classes[0].clone(); 4],
+        ..base
+    }
+}
+
 /// The proving ground as an arena for one seat (`arena_for`).
 fn arena() -> Result<(SimWorld, Rules), String> {
     arena_for(1, true, false).map(|(world, rules, _)| (world, rules))
@@ -70,7 +81,7 @@ fn arena_for(seats: u8, rules: bool, mate: bool) -> Result<(SimWorld, Rules, u32
     }
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into())
-        .with_classes(super::coop_items::classes());
+        .with_classes(classes());
     let mut level = ground.with_module(data).with_scripts(library);
     if rules {
         level = level.with_arena(arena.clone());
@@ -153,6 +164,7 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_terminal_sets_one_field", sets_one_field()),
         ("arena_terminal_constitution", constitution()),
         ("arena_terminal_rebuild", rebuild()),
+        ("arena_terminal_second_class", second_class()),
         ("arena_terminal_restore", restore()),
         ("arena_terminal_restore_companion", restore_companion()),
         ("arena_terminal_seats", seats_rule()),
@@ -282,12 +294,13 @@ fn rebuild() -> Result<String, String> {
         who: me,
         class: 1,
         level,
+        second: None,
     };
     let once = run(&mut world, &[order(4)], 3);
     let (_, sheet) = mine(&once, Seat(0))?;
     let hp = once.own(Seat(0)).and_then(|me| me.fighter).map(|f| f.hp);
     let career = world.script_state().careers.get(&me.0).cloned();
-    let classes = super::coop_items::classes();
+    let classes = classes();
     let xp = world.script_state().xp(crate::inventory::PARTY);
     let (_, twice) = mine(&run(&mut world, &[order(4)], 3), Seat(0))?;
     let (_, first) = mine(&run(&mut world, &[order(1)], 3), Seat(0))?;
@@ -330,6 +343,36 @@ fn rebuild() -> Result<String, String> {
     )
 }
 
+/// A rebuild as class 0 at level 6 with two levels of class 3 (a Jedi on a
+/// soldier) is a level-6 character whose career is four levels of class 0
+/// then two of class 3. A second class the first may not take (class 1 on
+/// class 0) changes nothing.
+fn second_class() -> Result<String, String> {
+    let (mut world, _) = arena()?;
+    let (me, _) = mine(&run(&mut world, &[], 2), Seat(0))?;
+    let order = |second| ArenaOrder::Rebuild {
+        who: me,
+        class: 0,
+        level: 6,
+        second: Some(second),
+    };
+    let (_, sheet) = mine(&run(&mut world, &[order((3, 2))], 3), Seat(0))?;
+    let career = world.script_state().careers.get(&me.0).cloned();
+    let (_, refused) = mine(&run(&mut world, &[order((1, 2))], 3), Seat(0))?;
+    let kept = world.script_state().careers.get(&me.0).cloned();
+    check(
+        sheet.level == 6
+            && career == Some(vec![(0, 4), (3, 2)])
+            && refused == sheet
+            && kept == career,
+        format!(
+            "level {}, career {career:?}; a second class not allowed keeps the sheet: {}, career {kept:?}",
+            sheet.level,
+            refused == sheet
+        ),
+    )
+}
+
 /// A restore makes the character the starting one again, at full hit
 /// points.
 fn restore() -> Result<String, String> {
@@ -341,6 +384,7 @@ fn restore() -> Result<String, String> {
             who: me,
             class: 0,
             level: 3,
+            second: None,
         },
         ArenaOrder::Restore {
             who: me,
@@ -528,6 +572,13 @@ fn round_trip() -> Result<String, String> {
             who,
             class: 3,
             level: 12,
+            second: Some((11, 4)),
+        },
+        ArenaOrder::Rebuild {
+            who,
+            class: 0,
+            level: 2,
+            second: None,
         },
         ArenaOrder::Ability {
             who,
