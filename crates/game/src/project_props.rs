@@ -363,7 +363,9 @@ pub fn baked_line(prop: &Prop, name: &str) -> String {
 fn baked_lightmap(prop: &Prop) -> Option<TextureIr> {
     let name = baked_name(prop);
     let line = baked_line(prop, &name);
-    for folder in crate::viewer::bake_folders() {
+    // The last folder first, as the rooms' lightmaps are taken
+    // (`viewer::detail_baked`): a project's bake wins over an earlier one.
+    for folder in crate::viewer::bake_folders().into_iter().rev() {
         let Ok(text) = std::fs::read_to_string(folder.join(BAKED_PROPS)) else {
             continue;
         };
@@ -540,6 +542,12 @@ pub fn add(
 ) -> (Vec<Option<usize>>, Vec<String>) {
     let mut indices = Vec::new();
     let mut notes = Vec::new();
+    // Whether the area is drawn under a bake: a project's own, or the
+    // lighting download's under the options' Enhanced Lightmaps
+    // (`fitted_lights::mode_of_area`). `fitted_lights::baked` alone missed
+    // the download's, and a prop there kept its level's light grid.
+    let under_bake =
+        crate::fitted_lights::mode_of_area(scene.baked) == crate::fitted_lights::Mode::Baked;
     for prop in props {
         if !cache.contains_key(&prop.model) {
             let read = match files {
@@ -566,19 +574,17 @@ pub fn add(
                 // the rooms show their stored light. A bake replaces that
                 // light, so under a bake the prop takes the probes' light,
                 // which the bake gives them.
-                let grid = (!crate::fitted_lights::baked())
+                let grid = (!under_bake)
                     .then(|| floor_for(scene, prop.position))
                     .flatten()
                     .and_then(|(room, _)| scene.rooms.get(room))
                     .and_then(|room| crate::ja_made::grid_light(&room.name, prop.position));
                 // Under a bake that holds the prop, its own baked lightmap.
-                let from_bake = (crate::fitted_lights::baked())
-                    .then(|| baked_lightmap(prop))
-                    .flatten();
+                let from_bake = under_bake.then(|| baked_lightmap(prop)).flatten();
                 // Under a bake that does not, the probes' light from each
                 // side, which holds the bake's light: at the prop's own
                 // place, and at each corner's (`lit_by_probes`).
-                let floor = (crate::fitted_lights::baked() && from_bake.is_none())
+                let floor = (under_bake && from_bake.is_none())
                     .then(|| floor_for(scene, prop.position))
                     .flatten();
                 let baked = floor.and_then(|(room, sample)| {
