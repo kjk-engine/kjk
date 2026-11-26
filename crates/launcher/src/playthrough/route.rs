@@ -27,6 +27,11 @@ pub(super) enum Goal {
     /// where the player stands, tried again until it is gone; recovered
     /// into its kit when the flag says so (`recover X,Y`).
     Disarm([f32; 2], bool),
+    /// The mine the party sees nearest a place shot with a blaster from
+    /// where the player stands, the crosshair on the mine's middle. The
+    /// goal shoots again until no mine the party sees is left within 3 m of
+    /// the place (`shoot X,Y`).
+    Shoot([f32; 2]),
     /// A power (`spells.2da` row) cast on the player from its power list,
     /// again until its effect lasts on it.
     Cast(u16),
@@ -352,6 +357,12 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),
                 "mine" => Goal::Mine(target(a, b)?),
+                "shoot" => match target(a, b)? {
+                    Target::Place(at) => Goal::Shoot(at),
+                    Target::Tag(..) | Target::Holding(_) => {
+                        return Err(format!("{verb}: a place (X,Y), the mine nearest it"));
+                    }
+                },
                 "disarm" | "recover" => match target(a, b)? {
                     Target::Place(at) => Goal::Disarm(at, verb == "recover"),
                     Target::Tag(..) | Target::Holding(_) => {

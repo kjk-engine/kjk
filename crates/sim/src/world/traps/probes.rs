@@ -199,6 +199,34 @@ fn library() -> crate::script::Library {
         })
         .op(Op::Retn);
     scripts.push(("probe_blast".into(), blast.build()));
+    // Run as a mine with no creature entering: deals the creature tagged
+    // "ally" 1 point of universal damage at once, then tells the player
+    // "shot".
+    let mut shot = Asm::default();
+    shot.op(Op::Const(Const::Float(0.0)))
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(b"ally".to_vec())))
+        .op(Op::Action {
+            routine: 6,
+            args: 2,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Int(8)))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Action {
+            routine: 25,
+            args: 3,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Action {
+            routine: 5,
+            args: 4,
+        })
+        .op(Op::Const(Const::String(b"shot".to_vec())))
+        .op(pc.clone())
+        .op(tell.clone())
+        .op(Op::Retn);
+    scripts.push(("probe_shot".into(), shot.build()));
     let talents = crate::script::Talents {
         poisons: courses(),
         ..Default::default()
@@ -2452,6 +2480,320 @@ pub fn walk_probes() -> Vec<(String, Result<String, String>)> {
                 },
             );
             (format!("mine_walk_{name}"), ran)
+        })
+        .collect()
+}
+
+/// Who fires the probe's bolt at the mine.
+#[derive(Clone, Copy, Debug)]
+enum Shooter {
+    /// The player's own character.
+    Player,
+    /// The hostile creature (`ALLY`), standing behind the bolt's start.
+    Enemy,
+    /// A companion in the party that no player controls (`led_world`, with
+    /// the lead given back to the player).
+    Companion,
+}
+
+/// The probe mine as it is before the shot, and the shot itself.
+#[derive(Clone, Copy, Debug)]
+struct Aim {
+    shooter: Shooter,
+    /// The mine's trap bits (`snapshot::trap`).
+    bits: u8,
+    /// The mine has a story script of its own (`probe_sprung`).
+    own_script: bool,
+    /// The player set the mine.
+    laid: bool,
+    /// The mine is set on the gate's lock.
+    on_lock: bool,
+    /// How many bolts fly side by side.
+    bolts: usize,
+    reason: StepReason,
+}
+
+/// A found mine shot once by the player on the authority.
+const FOUND: Aim = Aim {
+    shooter: Shooter::Player,
+    bits: trap::PARTY_SEES,
+    own_script: false,
+    laid: false,
+    on_lock: false,
+    bolts: 1,
+    reason: StepReason::Authority,
+};
+
+/// What a shot at the probe mine did.
+#[derive(Debug, Default, PartialEq)]
+struct Shot {
+    /// The explosions told, each the mine's row at the mine's middle.
+    explosions: Vec<(u8, [f32; 3])>,
+    /// The mine stands after the shot.
+    stands: bool,
+    /// The words the scripts told the player.
+    said: Vec<String>,
+    /// The hit points the hostile creature lost (hundredths), and whether
+    /// its newest event names the player as the attacker.
+    lost: i32,
+    by_player: bool,
+    /// The bolts still flying once they are past the mine (`PAST_MINE`).
+    flying: usize,
+}
+
+/// Where the probe's bolts start (metres): 2.5 m short of the mine, 15 cm
+/// over the floor, flying straight over the mine's middle.
+const SHOT_FROM: [f32; 2] = [-4.5, -2.0];
+const SHOT_LIFT_M: f32 = 0.15;
+/// The bolts' speed (units a second): about 51 m/s, 0.41 m a step.
+const SHOT_SPEED: f32 = 2000.0;
+/// The step by which a bolt that met nothing is 3.25 m on, past the mine
+/// and short of the gate's wall.
+const PAST_MINE: u64 = 8;
+
+/// The world of `aim`, the mine's row running `probe_shot`.
+fn shot_world(aim: Aim) -> Result<crate::world::SimWorld, String> {
+    let story = |data: &mut crate::module::ModuleData| {
+        if let Some(Placement::Own(mine)) = data.placements.get_mut(MINE as usize)
+            && aim.own_script
+        {
+            mine.scripts
+                .push(("OnTrapTriggered".into(), "probe_sprung".into()));
+        }
+        if let Some(Placement::Own(ally)) = data.placements.get_mut(ALLY as usize) {
+            ally.tag = "ally".into();
+        }
+    };
+    if !matches!(aim.shooter, Shooter::Companion) {
+        return world_shaped("probe_shot", Sheet::dev_soldier(), 1, 15, story);
+    }
+    let (mut world, _) = led_world_with(skilled(0, 0), Sheet::dev_soldier(), None)?;
+    let mut state = world.script_state().clone();
+    state.party.leader = None;
+    world.set_script_state(state);
+    Ok(world)
+}
+
+/// Sets the probe mine up as `aim` says, fires its bolts and steps the world
+/// for 20 steps.
+fn shoot(aim: Aim) -> Result<Shot, String> {
+    use crate::world::{Bolt, Id, NextId};
+    let mut world = shot_world(aim)?;
+    mark(&mut world, MINE, aim.bits);
+    let first = world.snapshot();
+    let id_of = |found: &dyn Fn(&crate::Kind) -> bool| {
+        first
+            .entities
+            .iter()
+            .find(|entity| found(&entity.kind))
+            .map(|entity| entity.id)
+            .ok_or_else(|| "a probe body is missing".to_string())
+    };
+    let player = id_of(&|kind| matches!(kind, crate::Kind::Avatar(_)))?;
+    let mine = id_of(&|kind| matches!(kind, crate::Kind::Object(_, MINE)))?;
+    let ally = id_of(&|kind| matches!(kind, crate::Kind::Object(_, ALLY)))?;
+    let gate = id_of(&|kind| matches!(kind, crate::Kind::Object(_, GATE)))?;
+    let owner = match aim.shooter {
+        Shooter::Player => player,
+        Shooter::Enemy => ally,
+        Shooter::Companion => id_of(
+            &|kind| matches!(kind, crate::Kind::Object(ObjectKind::Creature, index) if *index > DEEP),
+        )?,
+    };
+    let mut state = world.script_state().clone();
+    if aim.laid {
+        state.traps.insert(
+            mine.0,
+            crate::script::TrapState {
+                creator: Some(player.0),
+                faction: Some(PLAYER),
+                ..Default::default()
+            },
+        );
+    }
+    if aim.on_lock {
+        state.door_mines.insert(
+            gate.0,
+            crate::script::DoorMine {
+                setter: player.0,
+                mine: mine.0,
+                strength: 0,
+                blast_at: u64::MAX,
+                open_at: None,
+            },
+        );
+    }
+    world.set_script_state(state);
+    let hp = |snapshot: &crate::Snapshot| {
+        snapshot
+            .get(ally)
+            .and_then(|entity| entity.fighter)
+            .map(|fighter| {
+                let by = fighter.newest().next().and_then(|event| event.by);
+                (fighter.hp, by == Some(player))
+            })
+    };
+    let (before, _) = hp(&first).ok_or("the creature has no fighter")?;
+    let floor = floor_at(SHOT_FROM);
+    let base = [floor[0], floor[1], floor[2] + SHOT_LIFT_M].map(|metres| metres / collision::UNIT);
+    // Along the ground's own axes, which are turned (`ground_point`).
+    let mut way = crate::math::sub(floor_at(MINE_AT), floor);
+    crate::math::normalize(&mut way);
+    let velocity = crate::math::scale(way, SHOT_SPEED);
+    let weapon = Sheet::dev_soldier().main_weapon();
+    for _ in 0..aim.bolts {
+        let id = {
+            let mut next = world.world.resource_mut::<NextId>();
+            next.0 += 1;
+            next.0 - 1
+        };
+        world.world.spawn((
+            Id(crate::SimId(id)),
+            Bolt(crate::combat::missiles::Missile {
+                owner,
+                weapon,
+                cadence_ms: 0,
+                share: 1000,
+                base,
+                from_ms: first.time_ms,
+                velocity,
+                half_size: 2.0,
+                blockable: false,
+                until_ms: first.time_ms + crate::combat::weapons::BOLT_LIFE_MS,
+                lob: None,
+                held: None,
+                scripted: false,
+                power: false,
+            }),
+        ));
+    }
+    let missiles = |snapshot: &crate::Snapshot| {
+        (snapshot.entities.iter())
+            .filter(|entity| entity.kind == crate::Kind::Missile)
+            .count()
+    };
+    let mut notices = Vec::new();
+    let mut last = first.clone();
+    let mut flying = 0;
+    for step in 1..=20 {
+        place(&mut world, AWAY, ALLY_AT);
+        let tick = first.tick + step;
+        last = crate::step(&mut world, tick, &TickInput::default(), 8, aim.reason);
+        notices.extend(world.take_notices());
+        if step == PAST_MINE {
+            flying = missiles(&last);
+        }
+    }
+    let (after, by_player) = hp(&last).ok_or("the creature is gone")?;
+    Ok(Shot {
+        explosions: explosions(&notices),
+        stands: trap_bits(&last, MINE).is_some(),
+        said: notices
+            .into_iter()
+            .filter_map(|(_, notice)| match notice {
+                Notice::Said(words) => Some(words),
+                _ => None,
+            })
+            .collect(),
+        lost: before - after,
+        by_player,
+        flying,
+    })
+}
+
+/// A player's blaster bolt sets off a mine the party has found
+/// (`world::traps::shot`). Each case shoots the probe mine as its `Aim`
+/// says and checks what the shot did.
+pub(crate) fn shooting() -> Vec<(&'static str, Result<String, String>)> {
+    let middle = crate::traps::centre(&mine("mine", MINE_AT, "", &[]).geometry, floor_at(MINE_AT));
+    let exploded =
+        |shot: &Shot| shot.explosions == [(3, middle)] && !shot.stands && shot.flying == 0;
+    // The mine stands, nothing ran, and the bolt flew on through it.
+    let stood = |shot: &Shot| {
+        shot.explosions.is_empty() && shot.stands && shot.said.is_empty() && shot.flying == 1
+    };
+    type Case = (
+        &'static str,
+        Aim,
+        fn(&Shot, &dyn Fn(&Shot) -> bool, &dyn Fn(&Shot) -> bool) -> bool,
+    );
+    let cases: [Case; 10] = [
+        ("shot_found_mine_explodes", FOUND, |shot, exploded, _| {
+            exploded(shot) && shot.said == ["shot"] && shot.lost == 100 && !shot.by_player
+        }),
+        (
+            "shot_unfound_mine_stands",
+            Aim { bits: 0, ..FOUND },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_story_mine_stands",
+            Aim {
+                own_script: true,
+                ..FOUND
+            },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_by_enemy_stands",
+            Aim {
+                shooter: Shooter::Enemy,
+                ..FOUND
+            },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_by_unplayed_companion_stands",
+            Aim {
+                shooter: Shooter::Companion,
+                ..FOUND
+            },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_laid_mine_is_players_attack",
+            Aim {
+                laid: true,
+                ..FOUND
+            },
+            |shot, exploded, _| exploded(shot) && shot.lost == 100 && shot.by_player,
+        ),
+        (
+            "shot_disabled_mine_stands",
+            Aim {
+                bits: trap::PARTY_SEES | trap::DISABLED,
+                ..FOUND
+            },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_lock_mine_unchanged",
+            Aim {
+                on_lock: true,
+                ..FOUND
+            },
+            |shot, _, stood| stood(shot),
+        ),
+        (
+            "shot_in_prediction_tells_nothing",
+            Aim {
+                reason: StepReason::Predict,
+                ..FOUND
+            },
+            |shot, _, _| shot.explosions.is_empty() && shot.stands && shot.flying == 0,
+        ),
+        (
+            "shot_twice_in_one_step",
+            Aim { bolts: 2, ..FOUND },
+            |shot, exploded, _| exploded(shot) && shot.said == ["shot"],
+        ),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, aim, want)| {
+            let checked = shoot(aim)
+                .and_then(|shot| check(want(&shot, &exploded, &stood), format!("{shot:?}")));
+            (name, checked)
         })
         .collect()
 }

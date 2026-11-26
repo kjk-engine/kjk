@@ -16,15 +16,8 @@
 //! pixel's centre counts for more. The clamp is what removes trails behind
 //! moving things. A cut (`temporal::TemporalCut`) drops the history.
 //!
-//! A sharpening pass of the upscaler's own (`upscale_sharpen.wgsl`) runs on
-//! the resolved frame, at `SHARPENING`. It is contrast adaptive, as Bevy's
-//! `ContrastAdaptiveSharpening` is. Bevy's pass is not used, for three
-//! reasons. Bevy's pass runs among the post-processing passes with no order
-//! against kjk's grade and the screens' composite (`video_effect`). It
-//! expects values from 0 to 1, where Enhanced lighting's frame goes above 1.
-//! It may also run after bloom and sharpen the glow. The upscaler's pass
-//! runs right after the resolve, before bloom, and reads its range on values
-//! brought into 0 to 1. Bloom, the roll-off, the HUD and the screens all draw
+//! The resolved frame is then sharpened (`sharpen`), as after every other
+//! temporal choice. Bloom, the roll-off, the HUD and the screens all draw
 //! after the resolve and the sharpening, at the window's size.
 
 use std::collections::HashMap;
@@ -55,21 +48,6 @@ use bevy::render::view::{ExtractedView, ViewTarget};
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
 const SHADER: Handle<Shader> = uuid_handle!("d2a46f1e-8b3c-4e57-9c0a-6f1b2e7d4a93");
-const SHARPEN_SHADER: Handle<Shader> = uuid_handle!("7b19c3e5-2f6d-4a80-b4e7-0d5a9c1f8e26");
-
-/// How strongly the sharpening pass sharpens the resolved frame (0 to 1).
-/// Chosen by comparing captures at a half of the window's side.
-pub const SHARPENING: f32 = 0.35;
-
-/// The sharpening this run uses: `KJK_SHARPEN` (0 to 1, 0 turns the pass
-/// off) for tuning, else `SHARPENING`.
-pub fn sharpening() -> f32 {
-    std::env::var("KJK_SHARPEN")
-        .ok()
-        .and_then(|value| value.parse::<f32>().ok())
-        .map_or(SHARPENING, |value| value.clamp(0.0, 1.0))
-}
-
 /// The history keeps a float colour and, in its alpha, how many frames the
 /// pixel has stood still. An 8-bit alpha could not hold that count.
 const HISTORY_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
@@ -87,12 +65,6 @@ pub struct UpscalePlugin;
 impl Plugin for UpscalePlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SHADER, "upscale.wgsl", crate::shader_checks::wgsl);
-        load_internal_asset!(
-            app,
-            SHARPEN_SHADER,
-            "upscale_sharpen.wgsl",
-            crate::shader_checks::wgsl
-        );
         app.add_systems(First, settle_resets);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -252,22 +224,18 @@ struct History {
     write: CachedTexture,
 }
 
-/// The two passes' bindings and their pipelines.
+/// The resolve's bindings and its pipelines.
 #[derive(Resource)]
 struct Pipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     fullscreen: FullscreenShader,
     ids: HashMap<(TextureFormat, bool, bool), CachedRenderPipelineId>,
-    sharpen_layout: BindGroupLayoutDescriptor,
-    sharpen_ids: HashMap<TextureFormat, CachedRenderPipelineId>,
-    /// The sharpening's strength for the run (`sharpening`).
-    sharpening: f32,
 }
 
-/// A view's resolve pipeline and sharpening pipeline.
+/// A view's resolve pipeline.
 #[derive(Component)]
-struct PipelineId(CachedRenderPipelineId, CachedRenderPipelineId);
+struct PipelineId(CachedRenderPipelineId);
 
 fn init(mut commands: Commands, device: Res<RenderDevice>, fullscreen: Res<FullscreenShader>) {
     let layout = BindGroupLayoutDescriptor::new(
@@ -294,24 +262,11 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, fullscreen: Res<Fulls
         min_filter: FilterMode::Linear,
         ..SamplerDescriptor::default()
     });
-    let sharpen_layout = BindGroupLayoutDescriptor::new(
-        "taa_upscale_sharpen",
-        &BindGroupLayoutEntries::sequential(
-            ShaderStages::FRAGMENT,
-            (
-                texture_2d(TextureSampleType::Float { filterable: true }),
-                uniform_buffer_sized(false, None),
-            ),
-        ),
-    );
     commands.insert_resource(Pipeline {
         layout,
         sampler,
         fullscreen: fullscreen.clone(),
         ids: HashMap::new(),
-        sharpen_layout,
-        sharpen_ids: HashMap::new(),
-        sharpening: sharpening(),
     });
 }
 
@@ -396,26 +351,7 @@ fn prepare(
         let id = id_for(key);
         // The pipeline without the reset is needed the frame after a reset.
         id_for((format, camera.hdr, false));
-        let sharpen = *pipeline.sharpen_ids.entry(format).or_insert_with(|| {
-            cache.queue_render_pipeline(RenderPipelineDescriptor {
-                label: Some("taa_upscale_sharpen".into()),
-                layout: vec![pipeline.sharpen_layout.clone()],
-                vertex: pipeline.fullscreen.to_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader: SHARPEN_SHADER,
-                    targets: vec![Some(ColorTargetState {
-                        format,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                ..default()
-            })
-        });
-        commands
-            .entity(entity)
-            .insert((history, PipelineId(id, sharpen)));
+        commands.entity(entity).insert((history, PipelineId(id)));
     }
 }
 
@@ -504,60 +440,6 @@ fn resolve(
                         ops: Operations::default(),
                     }),
                 ],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        pass.set_pipeline(render);
-        pass.set_bind_group(0, &bindings, &[]);
-        pass.draw(0..3, 0..1);
-    }
-    time_span.end(ctx.command_encoder());
-    if pipeline.sharpening > 0.0
-        && let Some(sharpen) = cache.get_render_pipeline(id.1)
-    {
-        sharpen_frame(&mut ctx, target, &pipeline, &cache, &device, sharpen);
-    }
-}
-
-/// The sharpening pass over the resolved frame.
-fn sharpen_frame(
-    ctx: &mut RenderContext,
-    target: &ViewTarget,
-    pipeline: &Pipeline,
-    cache: &PipelineCache,
-    device: &RenderDevice,
-    render: &bevy::render::render_resource::RenderPipeline,
-) {
-    let post = target.post_process_write();
-    let strength = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("taa_upscale_sharpen"),
-        contents: &[pipeline.sharpening, 0.0, 0.0, 0.0]
-            .iter()
-            .flat_map(|value: &f32| value.to_le_bytes())
-            .collect::<Vec<u8>>(),
-        usage: BufferUsages::UNIFORM,
-    });
-    let bindings = device.create_bind_group(
-        "taa_upscale_sharpen",
-        &cache.get_bind_group_layout(&pipeline.sharpen_layout),
-        &BindGroupEntries::sequential((post.source, strength.as_entire_binding())),
-    );
-    let diagnostics = ctx.diagnostic_recorder();
-    let diagnostics = diagnostics.as_deref();
-    let time_span = diagnostics.time_span(ctx.command_encoder(), "taa_upscale_sharpen");
-    {
-        let mut pass = ctx
-            .command_encoder()
-            .begin_render_pass(&RenderPassDescriptor {
-                label: Some("taa_upscale_sharpen"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: post.destination,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations::default(),
-                })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,

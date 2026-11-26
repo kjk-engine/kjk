@@ -58,6 +58,11 @@ static ENCODED: AtomicU64 = AtomicU64::new(0);
 #[derive(Component, ExtractComponent, Clone, Copy)]
 pub struct LinearFrame;
 
+/// The pass that encodes the frame again after the temporal pass. The
+/// sharpening (`sharpen`) runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Encoded;
+
 pub struct LinearFramePlugin;
 
 impl Plugin for LinearFramePlugin {
@@ -78,6 +83,7 @@ impl Plugin for LinearFramePlugin {
                         .after(Core3dSystems::MainPass)
                         .before(Core3dSystems::EarlyPostProcess),
                     encode_pass
+                        .in_set(Encoded)
                         .after(Core3dSystems::EarlyPostProcess)
                         .before(Core3dSystems::PostProcess),
                 ),

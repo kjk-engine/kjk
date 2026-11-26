@@ -369,3 +369,44 @@ add nothing.
 source = "TSL's executable's table"
 see = "sim::traps::blast_strength"
 applies = ["kind:mine", "baseitem:Trap_Kit", "kind:door"]
+
+[shooting]
+title = "Shooting Mines"
+summary = """
+A blaster bolt fired by a player's character sets off a mine that the party
+has found. The mine explodes and harms every creature in its blast, as if a
+creature had walked into it. The party receives no experience and no mine
+for a mine that is shot. A mine that the party has not found cannot be
+shot.
+"""
+detail = """
+One bolt is enough, whatever the blaster. The mine's own trap script decides
+who is hurt. The script hurts every creature in the blast that is not
+neutral toward the mine, so a mine can hurt its own side. A mine that a
+player's character set deals its damage as that character's attack. Bolts
+fired by enemies, and by companions that no player controls, fly through
+mines. A mine with a story script of its own, a disabled mine and a mine set
+on a lock cannot be shot. Neither original game lets a weapon set off a
+mine. KOTOR 2's droid powers set off a found mine in the same way.
+"""
+applies = ["kind:mine", "baseitem:Trap_Kit"]
+
+[shooting.radius_m]
+name = "Mine Width for Bolts"
+value = 0.4
+unit = "m"
+range = [0.05, 1.5]
+summary = "A bolt sets off a mine when it passes within {traps.shooting.radius_m:bare} meters of the mine's center, measured along each floor axis."
+source = "ours (the mine's drawn body is smaller; a box this wide can still be hit from a distance)"
+see = "sim::traps::shot_box"
+applies = ["kind:mine", "baseitem:Trap_Kit"]
+
+[shooting.height_m]
+name = "Mine Height for Bolts"
+value = 0.3
+unit = "m"
+range = [0.05, 1.0]
+summary = "A bolt sets off a mine when it passes no higher than {traps.shooting.height_m:bare} meters above the mine."
+source = "ours"
+see = "sim::traps::shot_box"
+applies = ["kind:mine", "baseitem:Trap_Kit"]
