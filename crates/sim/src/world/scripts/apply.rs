@@ -394,16 +394,35 @@ pub(in crate::world) fn apply(
             } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                     && !fighting.0.dead()
-                    && fighting
-                        .0
-                        .acting
-                        .is_none_or(|acting| acting.animation != animation)
                 {
-                    fighting.0.acting = Some(Acting {
-                        animation,
-                        since: clock.time_ms,
-                        ms,
-                    });
+                    let acting = &mut fighting.0.acting;
+                    match acting {
+                        // Going on with it; one asked to loop until stopped
+                        // now loops so.
+                        Some(going)
+                            if going.animation == animation && going.playing(clock.time_ms) =>
+                        {
+                            if ms == u32::MAX {
+                                going.ms = ms;
+                            }
+                        }
+                        _ => {
+                            *acting = Some(Acting {
+                                animation,
+                                since: clock.time_ms,
+                                ms,
+                            });
+                        }
+                    }
+                }
+            }
+            Change::StopAnimating { who, animation } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && fighting.0.acting.is_some_and(|acting| {
+                        acting.animation == animation && acting.ms == u32::MAX
+                    })
+                {
+                    fighting.0.acting = None;
                 }
             }
             Change::Animate {

@@ -157,6 +157,9 @@ impl Step<'_> {
             .flatten()
             .map(|ms| (clip_from + u64::from(ms)).saturating_sub(now));
         let gestures = self.gestures(dlg, node, (owner, player));
+        // The looping gestures of the entry shown before end, unless this
+        // one plays them again (`held_gestures`).
+        let before = self.held_gestures(at, (owner, player));
         // One waiting on its gestures lasts the longest of their clips,
         // played once (none where the model has no length for its clip
         // [verify]); stunt clips are not measured.
@@ -204,11 +207,32 @@ impl Step<'_> {
         });
         self.progress(node);
         self.node_fade(&node.fade);
+        for (who, animation) in before {
+            if !gestures.contains(&(who, animation)) {
+                self.out
+                    .changes
+                    .push(crate::script::Change::StopAnimating { who, animation });
+            }
+        }
+        // A looping gesture loops for as long as its entry is shown, a
+        // paused conversation's wait included, and goes on unbroken into
+        // the next entry that plays it too. Brotherhood of Shadow's last
+        // scene on the Orion lays the player and Daemon Drexl down with
+        // `ANIMATION_LOOPING_DEAD` on every entry, and its scripts pause the
+        // conversation between the lines. Any other gesture plays for the
+        // line's length.
         for (who, animation) in gestures {
-            self.out.changes.push(crate::script::Change::Animate {
-                who,
-                play: (animation, u32::try_from(length).unwrap_or(u32::MAX)),
-            });
+            let change = match looping(animation) {
+                true => crate::script::Change::KeepAnimating {
+                    who,
+                    play: (animation, u32::MAX),
+                },
+                false => crate::script::Change::Animate {
+                    who,
+                    play: (animation, u32::try_from(length).unwrap_or(u32::MAX)),
+                },
+            };
+            self.out.changes.push(change);
         }
         for call in [&node.script, &node.script2] {
             self.call(call, id, owner, pc);
@@ -282,6 +306,29 @@ impl Step<'_> {
                 Some((who, animation))
             })
             .collect()
+    }
+
+    /// The looping gestures (`looping`) of the entry conversation `at`
+    /// shows, which hold until the next entry or the conversation's end:
+    /// none before its first entry is shown.
+    pub(super) fn held_gestures(
+        &self,
+        at: usize,
+        (owner, player): (ObjectId, ObjectId),
+    ) -> Vec<(ObjectId, u16)> {
+        let c = &self.state.talk.conversations[at];
+        if c.shown_ms == 0 {
+            return Vec::new();
+        }
+        let Some(dlg) = self.library.dialogue(&c.dialog) else {
+            return Vec::new();
+        };
+        let Some(node) = dlg.entries.get(c.entry as usize) else {
+            return Vec::new();
+        };
+        let mut held = self.gestures(dlg, node, (owner, player));
+        held.retain(|&(_, animation)| looping(animation));
+        held
     }
 
     /// What the last node left of its fade goes as the next one plays, at
@@ -445,4 +492,12 @@ impl Step<'_> {
         };
         Some(crate::script::Change::Face { who, yaw })
     }
+}
+
+/// Whether a gesture's animation loops: a looping `ANIMATION_…` constant (the
+/// low range), or an animation by row or cutscene clip that loops
+/// (`combat::idle::LOOPED_ROWS` and above).
+fn looping(animation: u16) -> bool {
+    use crate::combat::idle::{FIRE_AND_FORGET, LOOPED_ROWS};
+    animation < FIRE_AND_FORGET || animation >= LOOPED_ROWS
 }
