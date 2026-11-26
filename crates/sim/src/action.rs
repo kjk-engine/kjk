@@ -331,8 +331,10 @@ pub enum ArenaOrder {
     Credits(i32),
     /// One of every item of a kind put in the party's inventory.
     Items(ItemKind),
-    /// `who` made the Debug Mode map's starting character again (`sheet`),
-    /// with full hit points and Force points.
+    /// `who`, a player's own character, made the Debug Mode map's starting
+    /// character again (`sheet`), with full hit points and Force points. A
+    /// companion is never restored: the terminal keeps no starting state
+    /// of its own.
     Restore {
         who: crate::snapshot::SimId,
         sheet: Box<crate::combat::Sheet>,

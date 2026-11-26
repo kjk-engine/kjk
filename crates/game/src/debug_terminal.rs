@@ -206,7 +206,7 @@ impl Words {
 /// What the pages read: the party (id and name, the player's own first),
 /// the chosen member and its sheet, the party's credits, the classes a
 /// rebuild may take (row and name), the game's level cap, the map's
-/// starting character, and the words.
+/// starting character and whether the member may become it, and the words.
 #[derive(Debug, Clone)]
 pub struct Facts {
     pub party: Vec<(SimId, Vec<u8>)>,
@@ -216,6 +216,9 @@ pub struct Facts {
     pub classes: Vec<(u8, Vec<u8>)>,
     pub cap: u8,
     pub start: Sheet,
+    /// Whether the chosen member is a player's own character, whom Restore
+    /// makes the starting character again. A companion is not.
+    pub restorable: bool,
     pub words: Words,
 }
 
@@ -269,9 +272,13 @@ pub fn page(menu: &Menu, facts: &Facts) -> (Vec<u8>, Vec<Row>) {
                 row(w.alignment.clone(), Does::Go(Page::Alignment)),
                 row(w.credits.clone(), Does::Go(Page::Credits)),
                 row(words::ITEMS, Does::Go(Page::Items)),
-                row(words::RESTORE, Does::Go(Page::Restore)),
             ];
-            return (message, rows);
+            // Only a player's own character has a starting state to go
+            // back to; a companion's is not kept.
+            let restore = facts
+                .restorable
+                .then(|| row(words::RESTORE, Does::Go(Page::Restore)));
+            return (message, rows.into_iter().chain(restore).collect());
         }
         Page::Character => {
             let rows = (facts.party.iter())
@@ -410,7 +417,11 @@ pub fn page(menu: &Menu, facts: &Facts) -> (Vec<u8>, Vec<Row>) {
                 who,
                 sheet: Box::new(facts.start),
             };
-            let rows = vec![row(words::RESTORE, order(restore))];
+            let rows = (facts
+                .restorable
+                .then(|| row(words::RESTORE, order(restore))))
+            .into_iter()
+            .collect();
             (words::RESTORE_HINT.as_bytes().to_vec(), rows)
         }
     };
@@ -503,6 +514,7 @@ fn facts(
         classes,
         cap: library.classes().cap(),
         start: crate::arena::sheet_for(level),
+        restorable: matches!(entity.kind, sim::Kind::Avatar(_)),
         words: Words::read(assets),
     })
 }
@@ -593,7 +605,7 @@ fn pick(
 /// a party of the player and one companion with Strength 16 at level 20,
 /// two classes and placeholder words: every page but the first ends in a
 /// Back row; every row leads to a page that exists, a choice or an order;
-/// Increase on Strength 16 sets 17; the class page rebuilds the class and
+/// a companion is offered no Restore; Increase on Strength 16 sets 17; the class page rebuilds the class and
 /// level chosen on it.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
@@ -609,6 +621,7 @@ pub fn probes() -> sim::probe::Checks {
         classes: vec![(0, b"Soldier".to_vec()), (3, b"Jedi Guardian".to_vec())],
         cap: 20,
         start: Sheet::dev_jedi(),
+        restorable: true,
         words: Words {
             back: b"Back".to_vec(),
             ..Words::default()
@@ -651,6 +664,22 @@ pub fn probes() -> sim::probe::Checks {
             Does::Order(order, _) => Some(order),
             _ => None,
         });
+    let restores = |restorable: bool| {
+        let facts = Facts {
+            restorable,
+            ..facts.clone()
+        };
+        [Page::Main, Page::Restore].into_iter().any(|at| {
+            let rows = page(&on(at), &facts).1;
+            rows.iter().any(|row| {
+                matches!(
+                    row.does,
+                    Does::Go(Page::Restore) | Does::Order(ArenaOrder::Restore { .. }, _)
+                )
+            })
+        })
+    };
+    let (player_restores, companion_restores) = (restores(true), restores(false));
     let wanted = |order| Some(order);
     vec![
         (
@@ -663,6 +692,15 @@ pub fn probes() -> sim::probe::Checks {
         (
             "debug_terminal_rows_lead_somewhere",
             check(astray.is_empty(), format!("rows to no page: {astray:?}")),
+        ),
+        (
+            "debug_terminal_no_companion_restore",
+            check(
+                player_restores && !companion_restores,
+                format!(
+                    "a Restore row for the player: {player_restores}; for a companion: {companion_restores}"
+                ),
+            ),
         ),
         (
             "debug_terminal_increase",

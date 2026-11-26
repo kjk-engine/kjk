@@ -16,6 +16,8 @@ use crate::probe::check;
 use crate::snapshot::{Kind, SimId, Snapshot};
 use crate::{StepReason, WorldConfig};
 
+/// The companion's tag in `restore_companion`.
+const MATE: &str = "probe_mate";
 /// The foe's template, friendly as written: the arena turns it.
 const FOE: &str = "probe_foe";
 /// How long a downed player lies in the probes' arena (ms).
@@ -48,18 +50,27 @@ fn catalog() -> crate::inventory::Catalog {
 
 /// The proving ground as an arena for one seat (`arena_for`).
 fn arena() -> Result<(SimWorld, Rules), String> {
-    arena_for(1, true).map(|(world, rules, _)| (world, rules))
+    arena_for(1, true, false).map(|(world, rules, _)| (world, rules))
 }
 
 /// The proving ground for `seats` players, an arena when `rules`: the
 /// foe's template, the probes' items, two classes and the Debug Mode
 /// terminal's template in its library. The arena's step makes the terminal
-/// 1 m from where the players arrive. The world, its rules and the
-/// terminal's object index (the first one play makes).
-fn arena_for(seats: u8, rules: bool) -> Result<(SimWorld, Rules, u32), String> {
+/// 1 m from where the players arrive. With `mate`, a creature tagged
+/// `MATE` stands 2 m from the arrival (`companion` makes it one). The
+/// world, its rules and the terminal's object index (the first one play
+/// makes).
+fn arena_for(seats: u8, rules: bool, mate: bool) -> Result<(SimWorld, Rules, u32), String> {
     let ground = crate::determinism::proving_ground();
-    let data = ground.module().ok_or("the ground has no module")?;
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let entry = data.entry;
+    if mate {
+        let [x, y, z] = entry.position;
+        let sheet = Sheet::dev_soldier();
+        let creature = ObjectData::creature(MATE, MATE, [x, y + 2.0, z], sheet);
+        data.placements
+            .push(crate::module::Placement::Own(creature));
+    }
     let terminal = data.placements.len() as u32;
     let [x, y, z] = entry.position;
     let arena = Rules {
@@ -86,7 +97,7 @@ fn arena_for(seats: u8, rules: bool) -> Result<(SimWorld, Rules, u32), String> {
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into())
         .with_items(catalog())
         .with_classes(super::coop_items::classes());
-    let mut level = ground.with_scripts(library);
+    let mut level = ground.with_module(data).with_scripts(library);
     if rules {
         level = level.with_arena(arena.clone());
     }
@@ -170,6 +181,7 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_terminal_rebuild", rebuild()),
         ("arena_terminal_party", party_orders()),
         ("arena_terminal_restore", restore()),
+        ("arena_terminal_restore_companion", restore_companion()),
         ("arena_terminal_seats", seats_rule()),
         ("arena_terminal_off_arena", off_arena()),
         ("arena_terminal_made_once", made_once()),
@@ -427,10 +439,74 @@ fn restore() -> Result<String, String> {
     )
 }
 
+/// A companion can be edited at the terminal, but a restore naming it
+/// changes nothing: the order holds the starting player character, and
+/// the terminal keeps no starting state of a companion's.
+fn restore_companion() -> Result<String, String> {
+    let (mut world, ..) = arena_for(1, true, true)?;
+    let start = run(&mut world, &[], 2);
+    let objects = crate::Instances::in_snapshot(world.level(), &start);
+    let mate = (start.entities.iter())
+        .find(|entity| {
+            objects
+                .of_entity(entity)
+                .is_some_and(|data| data.tag == MATE)
+        })
+        .map(|entity| entity.id)
+        .ok_or("no companion")?;
+    // In the party table, following seat 0, as `AddPartyMember` leaves it.
+    let mut state = world.script_state().clone();
+    state.party.available.insert(
+        0,
+        crate::script::party::Npc {
+            template: MATE.into(),
+            object: Some(mate.0),
+            kept: None,
+            template_data: None,
+        },
+    );
+    state.party.members.push(0);
+    world.set_script_state(state);
+    let mut fighters = world.world.query::<(&super::Id, &mut super::Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0 == mate {
+            fighting.0.mind.leader = Some(Seat(0));
+        }
+    }
+    // A sheet nothing changed yet is its template's.
+    let template = (start.get(mate))
+        .and_then(|entity| objects.of_entity(entity))
+        .and_then(|facts| facts.sheet);
+    let sheet_of =
+        |snapshot: &Snapshot| (snapshot.get(mate).and_then(|entity| entity.sheet)).or(template);
+    let before = sheet_of(&run(&mut world, &[], 2)).ok_or("no sheet")?;
+    let orders = [
+        ArenaOrder::Ability {
+            who: mate,
+            ability: 0,
+            score: 30,
+        },
+        ArenaOrder::Restore {
+            who: mate,
+            sheet: Box::new(Sheet::dev_jedi()),
+        },
+    ];
+    let after = sheet_of(&run(&mut world, &orders, 3)).ok_or("no sheet")?;
+    let edited = after.abilities[0] == 30;
+    let restored = after.level != before.level || after.powers != before.powers;
+    check(
+        edited && !restored,
+        format!(
+            "Strength set to {}; made the starting Jedi: {restored}",
+            after.abilities[0]
+        ),
+    )
+}
+
 /// An order from seat 1 that names seat 0's character changes nothing. The
 /// same order naming seat 1's own character changes it.
 fn seats_rule() -> Result<String, String> {
-    let (mut world, ..) = arena_for(2, true)?;
+    let (mut world, ..) = arena_for(2, true, false)?;
     let (start, _) = run_seats(&mut world, 2, &[], 2);
     let (host, host_sheet) = mine(&start, Seat(0))?;
     let (guest, _) = mine(&start, Seat(1))?;
@@ -454,7 +530,7 @@ fn seats_rule() -> Result<String, String> {
 
 /// The terminal's orders on a level without arena rules change nothing.
 fn off_arena() -> Result<String, String> {
-    let (mut world, ..) = arena_for(1, false)?;
+    let (mut world, ..) = arena_for(1, false, false)?;
     let start = run(&mut world, &[], 2);
     let (me, sheet) = mine(&start, Seat(0))?;
     let orders = [
@@ -481,9 +557,9 @@ fn made_once() -> Result<String, String> {
             .filter(|spawned| spawned.template == TERMINAL_TEMPLATE)
             .count()
     };
-    let (mut world, ..) = arena_for(1, true)?;
+    let (mut world, ..) = arena_for(1, true, false)?;
     let arena = made(&run(&mut world, &[], 20));
-    let (mut world, ..) = arena_for(1, false)?;
+    let (mut world, ..) = arena_for(1, false, false)?;
     let other = made(&run(&mut world, &[], 20));
     check(
         arena == 1 && other == 0,
@@ -494,7 +570,7 @@ fn made_once() -> Result<String, String> {
 /// Seat 0 using the terminal opens its screen for seat 0 and no other.
 fn opens() -> Result<String, String> {
     use crate::notice::{Notice, Screen};
-    let (mut world, _, terminal) = arena_for(2, true)?;
+    let (mut world, _, terminal) = arena_for(2, true, false)?;
     run_seats(&mut world, 2, &[], 2);
     let used = Action::Use {
         object: terminal,

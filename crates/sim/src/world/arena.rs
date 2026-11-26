@@ -221,7 +221,8 @@ fn may_change(view: &View, seat: Seat, who: ObjectId) -> bool {
 
 /// The terminal's order `order` from `seat` carried out (`edits`): whether
 /// it was one of the terminal's. An order naming a character the seat may
-/// not change, or numbers no character can have, changes nothing.
+/// not change, or numbers no character can have, changes nothing, and so
+/// does a restore naming anyone but a player's own character.
 fn edit(
     library: &Library,
     view: &View,
@@ -285,6 +286,11 @@ fn edit(
                 state.set_xp(party, needed);
             }
             whole(library, state, out, who, made);
+            return true;
+        }
+        // The starting character is a player's: a companion has none the
+        // terminal keeps, so it is left as it is.
+        ArenaOrder::Restore { .. } if view.thing(who).is_some_and(|thing| thing.kind.is_some()) => {
             return true;
         }
         ArenaOrder::Restore { sheet: start, .. } => {
