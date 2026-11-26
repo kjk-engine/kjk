@@ -8,15 +8,17 @@
 //!
 //! And each placeable's and door's action points (`ObjectData::use_points`):
 //! the two use positions its walkmesh keeps (`<model>.pwk`, a door's closed
-//! `<model>0.dwk`).
+//! `<model>0.dwk`). And each placeable's drawn meshes, as boxes
+//! (`ObjectData::drawn`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use asset_odyssey::module::{AreaIr, Kind, Source};
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
 use fmt_odyssey::mdl::Model;
-use sim::module::{ModuleData, Placement, Ways};
+use sim::module::{Bulk, ModuleData, Placement, Ways};
 
 /// How far off its closed doorway an open walkmesh's middle must stand to
 /// open to a side (metres): a swung leaf's is half its width out.
@@ -32,6 +34,7 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
     let mut points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
     let mut door_points: BTreeMap<&str, Vec<[f32; 3]>> = BTreeMap::new();
     let mut clips: BTreeMap<&str, Vec<(u16, u32)>> = BTreeMap::new();
+    let mut drawn: BTreeMap<&str, Arc<[Bulk]>> = BTreeMap::new();
     for (placement, instance) in data.placements.iter_mut().zip(&area.instances) {
         let (Placement::Own(facts), Some(model)) = (placement, &instance.model) else {
             continue;
@@ -48,6 +51,10 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
                 facts.use_points = points
                     .entry(model)
                     .or_insert_with(|| use_points(source, model))
+                    .clone();
+                facts.drawn = drawn
+                    .entry(model)
+                    .or_insert_with(|| drawn_boxes(source, model))
                     .clone();
                 facts.transitions = clips
                     .entry(model)
@@ -66,6 +73,24 @@ pub(crate) fn fill(source: &dyn Source, data: &mut ModuleData, area: &AreaIr) {
 /// position) [verify in K1's exe].
 pub(crate) fn use_points(source: &dyn Source, model: &str) -> Vec<[f32; 3]> {
     walkmesh_use_points(source, &model.to_ascii_lowercase(), ResType::PWK)
+}
+
+/// A placeable model's drawn meshes, each as the box round it at rest
+/// (`ObjectData::drawn`); none for a model that does not read.
+pub(crate) fn drawn_boxes(source: &dyn Source, model: &str) -> Arc<[Bulk]> {
+    let model = model.to_ascii_lowercase();
+    let Some(mdl) = source.read(&model, ResType::MDL) else {
+        return Arc::from([]);
+    };
+    let mdx = source.read(&model, ResType::MDX).unwrap_or_default();
+    let Ok(parsed) = Model::parse(&mdl, &mdx) else {
+        return Arc::from([]);
+    };
+    asset_odyssey::model::ModelIr::from_model(&parsed)
+        .rest_mesh_bounds()
+        .into_iter()
+        .map(Bulk::from)
+        .collect()
 }
 
 /// The transition clips a placeable model has (`ObjectData::transitions`),

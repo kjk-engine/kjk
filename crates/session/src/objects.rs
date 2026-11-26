@@ -186,6 +186,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
         geometry: instance.geometry.clone(),
         use_points: Vec::new(),
         transitions: Vec::new(),
+        drawn: Default::default(),
         opens,
         state,
         // Read with the module's walkmeshes, after (`crate::doors`).
