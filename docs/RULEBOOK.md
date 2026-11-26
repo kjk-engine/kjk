@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `cb08a5604c9fca32`.
 
 ## Contents
 
@@ -8589,9 +8589,11 @@ can use that skill.
 To enter Stealth Mode, a character needs ranks in the Stealth skill and a
 stealth unit equipped. A character cannot enter Stealth Mode during combat.
 A character in Stealth Mode cannot run, unless the character knows Stealth
-Run. Stealth Mode ends when the
-character attacks, uses a Force power, throws a grenade, enters combat,
-removes the stealth unit or starts a conversation.
+Run. Stealth Mode ends when the character fires a shot, throws a grenade,
+swings a melee weapon or uses a Force power. Charging a Power Blast,
+steadying a Sniper Shot and charging a grenade throw do not end it. Stealth
+Mode also ends when the character enters combat, removes the stealth unit
+or starts a conversation.
 
 Disarming, recovering or setting a mine does not end Stealth Mode. Opening
 doors and using objects do not end it either. Party members under computer
@@ -8600,13 +8602,19 @@ control never enter Stealth Mode.
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
 Mode stays unlit until the character attacks.
 
+A shot ends Stealth Mode on the moment it leaves the gun, and a grenade on
+the moment it leaves the hand. A Sniper Shot let go before it is steady
+fires nothing, so the character stays in Stealth Mode. A Power Blast whose
+charge is dropped by a change of weapons also fires nothing, and the
+character stays in Stealth Mode.
+
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 
-An attack that hits within 1.5 seconds after the character
-leaves Stealth Mode is a sneak attack. This only works against a target
-that has not yet noticed the attacker.
+An attack that hits within 1.5 seconds after the shot is
+fired or the swing begins is a sneak attack. This only works against a
+target that has not yet noticed the attacker.
 
-<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::world::covert::covert`.</sub>
+<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::combat::fighter::Covert::attacked`.</sub>
 
 <a id="stealth-mode-walk-axis"></a>**Stealth Walk** = **64** · `stealth.mode.walk_axis`
 

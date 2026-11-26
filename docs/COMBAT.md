@@ -883,7 +883,15 @@ and a stealth unit worn, out of combat, and ends on an attack, a power, a
 grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
-`docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
+`docs/SCRIPTS.md`); in it the body walks. A melee swing and a Force power
+end Stealth Mode on the step of the key press. A gun's shot ends it on the
+step the shot leaves the gun, and a grenade on the step it leaves the hand
+(`Covert::attacked`). Charging a Power Blast, steadying a Sniper Shot,
+raising a gun and charging a grenade throw keep Stealth Mode on, and the
+Sneak Attack Window opens when the shot or the grenade leaves. A wind-up
+that fires nothing leaves the character in Stealth Mode. This matches the
+originals, which end Stealth Mode when the attack is resolved, not when it
+is queued. Drawing a weapon does not end
 it, and a lightsaber in hand stays unlit until the attack that ends it
 (**Drawn** below). The HUD's stealth toggle
 (`TB_STEALTH`) is lit while it lasts. As stealth mode turns on, the
@@ -949,7 +957,9 @@ stealthed character is seen only past the spot check and heard only past
 the listen check (Awareness against Stealth, rolls held 20 s; walls stop
 listening). `kjk combat stealth k1`: 4 checks against `tar_m09aa`'s Sith
 (seen plain at 10 m, unseen stealthed on the same spot for 5 s, the
-cadence, the opener's sneak attack); `kjk script traps k1`: the traps.
+cadence, the opener's sneak attack), then the armed openers, the unlit
+lightsabers and the gun wind-ups on the proving ground; `kjk script traps
+k1`: the traps.
 
 ## Items (`combat::items`)
 KOTOR's consumables, four kinds carried (`Sheet::items`: creatures from

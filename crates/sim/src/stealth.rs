@@ -8,7 +8,7 @@ mod probes;
 #[cfg(feature = "probes")]
 pub use crate::world::covert::probes::{
     Armed, Hilts, Keys, OpenerRun, Seen, armed_opener, armed_openers, keyed_run, sneak_holding,
-    unlit_sabers,
+    unlit_sabers, wind_up_openers,
 };
 #[cfg(feature = "probes")]
 pub use probes::probes;
