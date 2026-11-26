@@ -201,8 +201,14 @@ fn room(name: &str, at: [f32; 3]) -> RoomIr {
     }
 }
 
+/// Four corners, each with its place and its lightmap coordinate.
+type Corners = [([f32; 3], [f32; 2]); 4];
+
+/// Models by name, as a test builds them.
+type Models<'a> = Vec<(&'a str, ModelIr)>;
+
 /// The four corners of a square of 1 m with its lightmap coordinates.
-const SQUARE: [([f32; 3], [f32; 2]); 4] = [
+const SQUARE: Corners = [
     ([0.0, 0.0, 0.0], [0.0, 0.0]),
     ([1.0, 0.0, 0.0], [0.5, 0.0]),
     ([1.0, 1.0, 0.0], [0.5, 0.5]),
@@ -213,7 +219,7 @@ const SQUARE: [([f32; 3], [f32; 2]); 4] = [
 const NODE_AT: [f32; 3] = [1.0, 2.0, 3.0];
 
 /// The square as one mesh of lightmap `lm0` on a node at `NODE_AT`.
-fn square_mesh(corners: [([f32; 3], [f32; 2]); 4]) -> MeshIr {
+fn square_mesh(corners: Corners) -> MeshIr {
     mesh(0, &corners, &[0, 1, 2, 0, 2, 3], Some("lm0"), "wall01")
 }
 
@@ -224,19 +230,19 @@ fn room_model(meshes: Vec<MeshIr>) -> ModelIr {
 }
 
 /// The models `models` by name, as the exact digests read them.
-fn models_of(models: Vec<(&str, ModelIr)>) -> RoomModels {
+fn models_of(models: Models) -> RoomModels {
     (models.into_iter())
         .map(|(name, ir)| (name.to_string(), Some(ir)))
         .collect()
 }
 
 /// The digest of lightmap `lm0` in the rooms `rooms` of the models `models`.
-fn lm0(rooms: &[RoomIr], models: Vec<(&str, ModelIr)>) -> Option<String> {
+fn lm0(rooms: &[RoomIr], models: Models) -> Option<String> {
     lightmap_digests(rooms, &models_of(models)).0.remove("lm0")
 }
 
 /// The square with corner `at` changed by `change`.
-fn square_with(at: usize, change: impl Fn(&mut ([f32; 3], [f32; 2]))) -> [([f32; 3], [f32; 2]); 4] {
+fn square_with(at: usize, change: impl Fn(&mut ([f32; 3], [f32; 2]))) -> Corners {
     let mut corners = SQUARE;
     change(&mut corners[at]);
     corners
@@ -274,7 +280,7 @@ fn a_lightmap_digest_follows_only_its_triangles() -> Result<String, String> {
     });
     let mut referenced = mesh(0, &[v0, v1, v3], &[0, 1, 2], Some("lm0"), "wall01");
     referenced.referenced = true;
-    let same: Vec<(&str, Vec<(&str, ModelIr)>, &str)> = vec![
+    let same: Vec<(&str, Models, &str)> = vec![
         (
             "split in two, reordered and renamed",
             vec![(
@@ -335,7 +341,7 @@ fn a_lightmap_digest_follows_only_its_triangles() -> Result<String, String> {
         }
     }
     let moved_room = [room("room01", [10.01, 20.0, 0.0])];
-    let differ: Vec<(&str, &[RoomIr], [([f32; 3], [f32; 2]); 4])> = vec![
+    let differ: Vec<(&str, &[RoomIr], Corners)> = vec![
         (
             "a corner moved by 1 cm",
             &at,
@@ -364,7 +370,7 @@ fn a_lightmap_digest_follows_only_its_triangles() -> Result<String, String> {
 /// placeables `placed` of the models `placeable_models`.
 fn current_of(
     rooms: &[RoomIr],
-    models: Vec<(&str, ModelIr)>,
+    models: Models,
     placed: Vec<Placed>,
     placeable_models: &[(&str, &str)],
 ) -> Current {
@@ -521,6 +527,9 @@ fn with_placed(placed: Vec<Placed>, crate_digest: &str) -> Current {
     )
 }
 
+/// Player instance numbers, each with the baked instance number it matched.
+type Pairs = Vec<(usize, usize)>;
+
 /// A placeable a content mod adds shifts the instance numbers of those
 /// after it, and they keep their baked light under their old numbers. A
 /// placeable turned in place, or one whose model's lit meshes differ, loses
@@ -535,7 +544,7 @@ fn placeables_match_one_by_one() -> Result<String, String> {
         "c",
     );
     let (stamped, _) = stamp(&baked, &BTreeSet::new());
-    let cases: Vec<(&str, Current, Vec<(usize, usize)>, bool)> = vec![
+    let cases: Vec<(&str, Current, Pairs, bool)> = vec![
         (
             "the same placeables",
             baked.clone(),

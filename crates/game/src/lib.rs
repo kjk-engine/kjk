@@ -707,6 +707,19 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 /// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
 /// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
+    discover_with(default_var)
+}
+
+/// The installs as a player's build finds them, whatever this build is. The
+/// Steam Workshop items are read unless `KJK_WORKSHOP` says otherwise. The
+/// lighting download is stamped over these files, because they are the
+/// files a player's game reads.
+pub fn discover_as_player() -> vfs::Discovery {
+    discover_with(|_| None)
+}
+
+/// The installs, with `default` for a variable that nothing else sets.
+fn discover_with(default: impl Fn(&str) -> Option<String>) -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));
     vfs::discover(|name| {
@@ -714,7 +727,7 @@ pub fn discover() -> vfs::Discovery {
             .ok()
             .or_else(|| chosen.get(name).cloned())
             .or_else(|| env_file.get(name).cloned())
-            .or_else(|| default_var(name))
+            .or_else(|| default(name))
     })
 }
 

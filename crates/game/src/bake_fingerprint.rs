@@ -353,18 +353,19 @@ pub fn room_mods(resolver: &Resolver, area: &AreaIr) -> BTreeSet<String> {
         .collect()
 }
 
+/// A lit placeable: its number among the area's instances, its model's
+/// name in lower case and the instance.
+type Lit<'a> = (usize, String, &'a Instance);
+
+/// Each lit placeable model, by name in lower case.
+type LitModels = BTreeMap<String, ModelIr>;
+
 /// The placeables the bake lights or lets block its rays, each with its
 /// number among the area's instances and its model's name in lower case,
 /// in the order of the area's instances, as `still_placeables` of the baker
 /// and `module_scene` of the game find them. Beside them, each of their
 /// models, read once.
-fn lit_placeables<'a>(
-    resolver: &Resolver,
-    area: &'a AreaIr,
-) -> (
-    Vec<(usize, String, &'a Instance)>,
-    BTreeMap<String, ModelIr>,
-) {
+fn lit_placeables<'a>(resolver: &Resolver, area: &'a AreaIr) -> (Vec<Lit<'a>>, LitModels) {
     let mut read: BTreeMap<String, Option<ModelIr>> = BTreeMap::new();
     let mut lit = Vec::new();
     for (object, instance) in area.instances.iter().enumerate() {
@@ -392,11 +393,7 @@ fn lit_placeables<'a>(
 }
 
 /// The digest of the lit placeables `lit` and their models `models`.
-fn placeables(
-    resolver: &Resolver,
-    lit: &[(usize, String, &Instance)],
-    models: &BTreeMap<String, ModelIr>,
-) -> String {
+fn placeables(resolver: &Resolver, lit: &[Lit], models: &LitModels) -> String {
     let mut digest = Digest::new("placeables");
     for (object, name, instance) in lit {
         digest.count(*object as u64);
@@ -507,7 +504,7 @@ fn lightmap_triangles(
             };
             let (triangles, rooms) = found.entry(lightmap.to_ascii_lowercase()).or_default();
             rooms.insert(model.clone());
-            triangles.extend(mesh.indices.chunks_exact(3).filter_map(|face| {
+            triangles.extend(mesh.indices.as_chunks::<3>().0.iter().filter_map(|face| {
                 Some(turned([
                     corner(face[0])?,
                     corner(face[1])?,
@@ -742,12 +739,16 @@ pub fn fit(stamp: &Fingerprint, current: &Current) -> Option<Result<Fit, String>
         if *digest == current.lightmap(name) {
             fit.matching.insert(name.clone());
         } else {
-            let rooms = current.rooms_of.get(name).cloned().unwrap_or_default();
+            let rooms = current
+                .rooms_of
+                .get(name)
+                .cloned()
+                .unwrap_or(BTreeSet::new());
             fit.differing.insert(name.clone(), rooms);
         }
     }
     let same_model = |model: &str| {
-        exact.models.get(model).is_some() && exact.models.get(model) == current.models.get(model)
+        exact.models.contains_key(model) && exact.models.get(model) == current.models.get(model)
     };
     let mut taken = vec![false; exact.placed.len()];
     for now in &current.placed {

@@ -226,11 +226,26 @@ fn the_install_needs_one_matching_area() -> Result<String, String> {
         reports[0].1.refusal().is_none(),
         format!("an allowed report refuses: {:?}", reports[0].1.refusal()),
     )?;
-    let sentences = report_of(7, 2, &[("701kor", &[])]).sentences().join(" ");
-    check(
-        sentences.contains("7 show it in full, 2 show it in part, and 1 keep"),
-        sentences,
-    )?;
+    // The counts agree with their words for 1 and for more than 1.
+    let counts = [
+        (
+            report_of(7, 2, &[("701kor", &[])]),
+            "7 show it in full, 2 show it in part, and 1 keeps",
+            "1 area keeps the game's own lighting",
+        ),
+        (
+            report_of(1, 1, &[("701kor", &[]), ("702tel", &[])]),
+            "1 shows it in full, 1 shows it in part, and 2 keep",
+            "2 areas keep the game's own lighting",
+        ),
+    ];
+    for (report, counts, fall_back) in counts {
+        let sentences = report.sentences().join(" ");
+        check(
+            sentences.contains(counts) && sentences.contains(fall_back),
+            sentences,
+        )?;
+    }
     // The kind of a refusal: the files differ, or the bake's format is
     // not the one this kjk reads.
     let format = bake_fingerprint::FORMAT;

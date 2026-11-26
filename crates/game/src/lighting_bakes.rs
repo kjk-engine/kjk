@@ -532,6 +532,12 @@ pub fn place(name: &str) -> String {
     }
 }
 
+/// `count` followed by `one` when it is 1 and by `many` otherwise, as in
+/// "1 area" and "2 areas".
+fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 /// A list of areas for a sentence: the first three by name, then how many
 /// more there are.
 fn some_areas(areas: &[&str]) -> String {
@@ -671,8 +677,8 @@ impl Report {
         let mut by_mod: Vec<(&str, Vec<&str>)> = by_mod.into_iter().collect();
         by_mod.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
         let mut lines = vec![format!(
-            "In {} areas the rooms or their lightmaps differ from the ones the lighting was made from.",
-            self.fall_back.len() + self.partial.len()
+            "In {} the rooms or their lightmaps differ from the ones the lighting was made from.",
+            counted(self.fall_back.len() + self.partial.len(), "area", "areas")
         )];
         for (name, areas) in by_mod {
             lines.push(format!(
@@ -704,31 +710,31 @@ impl Report {
             return vec![refusal];
         }
         let mut lines = vec![format!(
-            "The new lighting can be installed. Of the {} areas, {} show it in full, {} show it in part, and {} keep the game's own lighting.",
-            self.areas,
-            self.matching(),
-            self.partial.len(),
-            self.fall_back.len()
+            "The new lighting can be installed. Of the {}, {} it in full, {} it in part, and {} the game's own lighting.",
+            counted(self.areas, "area", "areas"),
+            counted(self.matching(), "shows", "show"),
+            counted(self.partial.len(), "shows", "show"),
+            counted(self.fall_back.len(), "keeps", "keep")
         )];
         let names = |areas: &mut dyn Iterator<Item = &str>| areas.collect::<Vec<_>>().join(", ");
         if !self.partial.is_empty() {
             lines.push(format!(
-                "In {} areas some rooms keep the game's own lighting, because your game's files differ there from the files the lighting was made from: {}.",
-                self.partial.len(),
+                "In {} some rooms keep the game's own lighting, because your game's files differ there from the files the lighting was made from: {}.",
+                counted(self.partial.len(), "area", "areas"),
                 names(&mut self.partial.iter().map(|part| part.area.as_str()))
             ));
         }
         if !self.placeables_differ.is_empty() {
             lines.push(format!(
-                "In {} areas the objects in the room differ from the ones the lighting was made with, so those objects keep their usual light: {}.",
-                self.placeables_differ.len(),
+                "In {} the objects in the room differ from the ones the lighting was made with, so those objects keep their usual light: {}.",
+                counted(self.placeables_differ.len(), "area", "areas"),
                 self.placeables_differ.join(", ")
             ));
         }
         if !self.fall_back.is_empty() {
             lines.push(format!(
-                "{} areas keep the game's own lighting, because your game's files differ from the files the lighting was made from: {}.",
-                self.fall_back.len(),
+                "{} the game's own lighting, because your game's files differ from the files the lighting was made from: {}.",
+                counted(self.fall_back.len(), "area keeps", "areas keep"),
                 names(&mut self.fall_back.iter().map(|fall| fall.area.as_str()))
             ));
         }
@@ -802,10 +808,13 @@ pub fn files_key(game: Game, index: &vfs::DirIndex) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-/// The player's install of `game`, opened, or why it does not open.
-fn open_install(game: Game) -> Result<std::sync::Arc<crate::installs::Install>, Failure> {
-    let discovery = crate::discover();
-    crate::installs::open(&discovery, game).map_err(|why| {
+/// The install of `game` that `discovery` finds, opened, or why it does
+/// not open.
+fn open_install(
+    discovery: &vfs::Discovery,
+    game: Game,
+) -> Result<std::sync::Arc<crate::installs::Install>, Failure> {
+    crate::installs::open(discovery, game).map_err(|why| {
         let kind = if discovery.get(game).is_some() {
             Kind::GameUnreadable
         } else {
@@ -826,7 +835,7 @@ pub fn check(
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Report, Failure> {
     let game = manifest.game;
-    let install = open_install(game)?;
+    let install = open_install(&crate::discover(), game)?;
     let files = files_key(game, &install.index);
     let key = store::Key::of(
         CHECKS,
@@ -1058,13 +1067,16 @@ pub struct Restamped {
     /// baked only for the grass under a walkmesh, each with those
     /// lightmaps.
     pub undrawn: Vec<(String, Vec<String>)>,
+    /// Whether the files were read with their Steam Workshop items.
+    pub workshop: bool,
 }
 
-/// What the zip of a download holds for each area: the lightmaps it has a
+/// What the zip of a download holds for one area: the lightmaps it has a
 /// PNG of, without those its `stored.txt` names, and its fingerprint.
-fn zipped_areas(
-    zip: &Path,
-) -> Result<BTreeMap<String, (BTreeSet<String>, Option<Fingerprint>)>, Failure> {
+type Zipped = (BTreeSet<String>, Option<Fingerprint>);
+
+/// What the zip of a download holds for each area (`Zipped`).
+fn zipped_areas(zip: &Path) -> Result<BTreeMap<String, Zipped>, Failure> {
     let damaged = |error: &dyn std::fmt::Display| {
         Failure::new(Kind::ZipDamaged, format!("{}: {error}", zip.display()))
     };
@@ -1110,8 +1122,8 @@ fn zipped_areas(
         .collect::<BTreeSet<String>>();
     Ok((areas.into_iter())
         .map(|area| {
-            let stored = stored.remove(&area).unwrap_or_default();
-            let lightmaps = (pngs.remove(&area).unwrap_or_default().into_iter())
+            let stored = stored.remove(&area).unwrap_or(BTreeSet::new());
+            let lightmaps = (pngs.remove(&area).unwrap_or(BTreeSet::new()).into_iter())
                 .filter(|name| !stored.contains(name))
                 .collect();
             let print = prints.remove(&area);
@@ -1126,7 +1138,9 @@ fn zipped_areas(
 /// this machine's files still give the `rooms` and `placeables` digests of
 /// the area's fingerprint in the zip, which are the files it was baked
 /// from. Any other area keeps only its old lines, and the game judges it by
-/// the old rules. `progress` hears each area.
+/// the old rules. The files are read as a player's build reads them, with
+/// the Steam Workshop items unless `KJK_WORKSHOP=off` is set
+/// (`discover_as_player`). `progress` hears each area.
 pub fn restamp(
     manifest: &Manifest,
     zip: &Path,
@@ -1143,7 +1157,12 @@ pub fn restamp(
         ));
     }
     let zipped = zipped_areas(zip)?;
-    let install = open_install(manifest.game)?;
+    // A build with the probes leaves the Steam Workshop items out by
+    // default. The stamp must be made over the files a player's game reads,
+    // so it reads them as a player's build does.
+    let discovery = crate::discover_as_player();
+    let workshop = (discovery.get(manifest.game)).is_some_and(|found| found.workshop);
+    let install = open_install(&discovery, manifest.game)?;
     let mut stamped = each_area(&install, manifest, progress, &|found, area| {
         let (resolver, found) = found?;
         let (pngs, print) = zipped
@@ -1168,6 +1187,7 @@ pub fn restamp(
         manifest: manifest.clone(),
         skipped: Vec::new(),
         undrawn: Vec::new(),
+        workshop,
     };
     for area in &mut restamped.manifest.areas {
         match stamped.remove(&area.area) {

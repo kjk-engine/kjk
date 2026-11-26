@@ -46,7 +46,8 @@
 //! `kjk lighting restamp <manifest> <zip> --out <file>` writes the second
 //! manifest of a download packed before the exact lines, from its zip and
 //! the files on this machine (`lighting_bakes::restamp`). The zip stays as
-//! it is.
+//! it is. It reads the Steam Workshop items as a player's game does, even in
+//! a build with the probes, which leaves them out of every other verb.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -342,16 +343,17 @@ fn second_manifest(name: &str) -> String {
 
 /// `kjk lighting restamp <manifest> <zip> --out <file>`: the second
 /// manifest of a download packed before the exact lines, stamped over this
-/// machine's files. It lists the areas it left without exact lines, and the
-/// lightmaps that no room mesh draws.
+/// machine's files with their Steam Workshop items. It lists the areas it
+/// left without exact lines, and the lightmaps that no room mesh draws.
 pub(crate) fn restamp(manifest: &Path, zip: &Path, out: &Path) -> ExitCode {
     let result = Manifest::read(manifest).and_then(|manifest| {
         let started = std::time::Instant::now();
         let restamped = lighting_bakes::restamp(&manifest, zip, &mut |_| {}).map_err(String::from)?;
         std::fs::write(out, restamped.manifest.exact_text()).map_err(|error| format!("{}: {error}", out.display()))?;
         let stamped = manifest.areas.len() - restamped.skipped.len();
+        let workshop = if restamped.workshop { "with" } else { "without" };
         outln!(
-            "stamped {stamped} of {} areas in {:.1} seconds, into {}",
+            "stamped {stamped} of {} areas over the game's files {workshop} the Steam Workshop items in {:.1} seconds, into {}",
             manifest.areas.len(),
             started.elapsed().as_secs_f64(),
             out.display()
