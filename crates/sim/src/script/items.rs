@@ -1246,6 +1246,12 @@ impl State {
         }
     }
 
+    /// `bare`, a sheet made without its items, dressed by what `who` wears
+    /// now (`world::arena::edits`).
+    pub(crate) fn dressed(&self, catalog: &Catalog, who: u32, bare: Sheet) -> Sheet {
+        self.redress(catalog, bare, &[], &self.worn(who))
+    }
+
     /// `sheet` dressed anew for what was worn `before` now being `after`.
     fn redress(&self, catalog: &Catalog, sheet: Sheet, before: &[Worn], after: &[Worn]) -> Sheet {
         let facts = |worn: &[Worn]| -> Vec<(u8, ItemFacts)> {

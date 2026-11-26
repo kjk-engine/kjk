@@ -56,7 +56,7 @@ impl Editor<'_> {
             .classes
             .ok_or("changing levels needs the game's class tables (an install)")?;
         let keeping = self.keeping(who)?;
-        let mut career = self.career_of(who, &keeping)?;
+        let career = self.career_of(who, &keeping)?;
         let had = career
             .iter()
             .find(|(of, _)| *of == class)
@@ -67,19 +67,14 @@ impl Editor<'_> {
                 "{levels} levels: a level taken cannot be taken away (it has {had})"
             ));
         }
-        let mut sheet = keeping.sheet;
         let unspent = &mut self.save.script.unspent;
-        let mut banked = unspent.get(&keeping.holder).copied().unwrap_or(0);
-        for _ in had..levels {
-            let choices = classes.auto(&sheet, &career, class, banked).ok_or(format!(
-                "class {class} offers no level past {}",
-                sheet.level
-            ))?;
-            let (after, grown, left) = classes
-                .taken(&sheet, &career, &choices, banked)
-                .map_err(|why| format!("level {} refused: {why:?}", sheet.level + 1))?;
-            (sheet, career, banked) = (after, grown, left);
-        }
+        let banked = unspent.get(&keeping.holder).copied().unwrap_or(0);
+        let (sheet, career, banked) = classes
+            .auto_levels(&keeping.sheet, &career, class, banked, levels)
+            .map_err(|(level, why)| match why {
+                None => format!("class {class} offers no level past {level}"),
+                Some(why) => format!("level {} refused: {why:?}", level + 1),
+            })?;
         if banked > 0 {
             unspent.insert(keeping.holder, banked);
         } else {

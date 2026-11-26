@@ -965,6 +965,27 @@ pub struct ComputerView {
     pub leave_key: Vec<u8>,
 }
 
+/// The Debug Mode character page (`screens::debug_character`): its title,
+/// its rows, and whether its Restore button shows (only for a player's own
+/// character).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DebugCharacterView {
+    pub title: Vec<u8>,
+    pub rows: Vec<OptionRowView>,
+    pub restore: bool,
+}
+
+/// A row of an options list whose value is stepped with its arrows: its
+/// name, its value and what the description box says of it, in the game's
+/// code page. A `fixed` row only shows its value, with no arrows.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OptionRowView {
+    pub name: Vec<u8>,
+    pub value: Vec<u8>,
+    pub help: Vec<u8>,
+    pub fixed: bool,
+}
+
 /// A saved game as the save and load screens list it: its folder's id,
 /// the name it was given, whose game it is when it is a copy of a host's
 /// save (shown beside the name, never part of it), the area's name and
@@ -1491,6 +1512,9 @@ pub struct ViewModel {
     /// In play: the HUD's.
     pub hud: Option<HudView>,
     pub computer: Option<ComputerView>,
+    /// The Debug Mode character page, while it is open
+    /// (`screens::debug_character`).
+    pub debug_character: Option<DebugCharacterView>,
     /// A computer's conversation is on a camera feed (`screens::feed`).
     pub camera_feed: bool,
     /// What the player looks at, for the HUD's target block.

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `64b34f8be570f300`.
+Edition `3784a16b29671fc5`.
 
 ## Contents
 
@@ -10007,6 +10007,48 @@ respawn point with full hit points. The player cannot lose in the arena.
 A creature called into the arena appears 5 meters in front of the player.
 
 <sub>Source: ours. Code: `sim::world::arena::orders`.</sub>
+
+#### <a id="world-arena-terminal"></a>Debug Character Page
+
+A computer on the Debug Mode map opens a page that changes a party member's
+class, level, attributes, skills and alignment. An attribute can be set from
+1 to
+50. A skill can be set from 0 to
+50 ranks. Alignment can be set from 0 to
+100. The character on the Debug Mode
+map starts with one of every item that is not a plot item, and
+10 of each grenade, mine, medical item and
+stimulant.
+
+<a id="world-arena-terminal-ability-least"></a>**Lowest Attribute** = **1** · `world.arena.terminal.ability_least`
+
+The Debug character page sets an attribute no lower than 1.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-ability-most"></a>**Highest Attribute** = **50** · `world.arena.terminal.ability_most`
+
+The Debug character page sets an attribute no higher than 50.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-skill-most"></a>**Highest Skill Rank** = **50** · `world.arena.terminal.skill_most`
+
+The Debug character page sets a skill no higher than 50 ranks.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-alignment-most"></a>**Full Light Side** = **100** · `world.arena.terminal.alignment_most`
+
+Alignment runs from 0 (dark) to 100 (light).
+
+<sub>Source: both games' alignment. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-stack"></a>**Items in a Stack** = **10** · `world.arena.terminal.stack`
+
+The character on the Debug Mode map starts with 10 of each grenade, mine, medical item and stimulant.
+
+<sub>Source: ours. Code: `game::arena::gear`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 

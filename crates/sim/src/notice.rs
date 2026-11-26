@@ -74,6 +74,9 @@ pub enum Screen {
     /// TSL's `ShowSwoopUpgradeScreen`: the swoop bike's upgrades (the
     /// executable's `ShowSwoopUpgradeScreen(OBJECT_INVALID)`).
     SwoopUpgrade,
+    /// The Debug Mode map's terminal, used by the seat's body
+    /// (`world::arena`): the page that changes a party member.
+    DebugTerminal,
 }
 
 /// A workbench or lab station a script opened (`Screen::Workbench`): the
@@ -135,6 +138,7 @@ const WORKBENCH: u8 = 12;
 const TUTORIAL: u8 = 13;
 const DATAPAD: u8 = 14;
 const SWOOP_UPGRADE: u8 = 15;
+const DEBUG_TERMINAL: u8 = 16;
 
 /// The most companions a party selection screen shows (KOTOR 2's twelve;
 /// KOTOR 1 has nine).
@@ -490,6 +494,7 @@ impl Screen {
             Screen::Credits => out.u8(CREDITS),
             Screen::Pazaak => out.u8(PAZAAK),
             Screen::SwoopUpgrade => out.u8(SWOOP_UPGRADE),
+            Screen::DebugTerminal => out.u8(DEBUG_TERMINAL),
             Screen::Workbench(ref bench) => {
                 out.u8(WORKBENCH);
                 bench.encode(&mut out);
@@ -536,6 +541,7 @@ impl Screen {
             }
             TUTORIAL => Screen::Tutorial { row: input.u8()? },
             SWOOP_UPGRADE => Screen::SwoopUpgrade,
+            DEBUG_TERMINAL => Screen::DebugTerminal,
             DATAPAD => Screen::Datapad {
                 template: input.string()?,
             },
