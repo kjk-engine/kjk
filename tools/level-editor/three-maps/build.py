@@ -86,6 +86,57 @@ def wait_level(link, module, seconds=180):
     raise SystemExit("the editor did not open the level %s" % module)
 
 
+def stand_for(source, target):
+    """Makes `target` stand for the game's file `source` without changing it.
+
+    A hard link costs no space, but it only works inside one drive. A game
+    on another drive than the run's folder gets a symbolic link, and a copy
+    where the system allows neither.
+    """
+    for make in (os.link, os.symlink):
+        try:
+            make(source, target)
+            return
+        except OSError:
+            pass
+    shutil.copy2(source, target)
+
+
+def put(source, target):
+    """Copies the mod's file `source` to `target` in the stand-in.
+
+    A file of that name in the stand-in is a link to the game's own file
+    (`stand_for`). A copy over it would write through the link into the
+    game's folder, so the link is taken away first.
+    """
+    if os.path.lexists(target):
+        os.remove(target)
+    shutil.copy(source, target)
+
+
+def stop(link, editor):
+    """Stops the editor this run started, and no other program.
+
+    The editor starts itself again for each further map, so the one that
+    runs at the end is not the process this script started. It is asked to
+    quit through its link, which only this run's editor reads. The process
+    this script started is ended if it still runs.
+    """
+    try:
+        fresh = os.path.join(link.folder, "inbox.tmp")
+        with open(fresh, "w", encoding="utf-8", newline="\n") as file:
+            file.write("ui quit\n")
+        os.replace(fresh, os.path.join(link.folder, "inbox.txt"))
+    except OSError:
+        pass
+    try:
+        editor.wait(10)
+    except subprocess.TimeoutExpired:
+        editor.kill()
+    # The editor that took over reads its link a few times a second.
+    time.sleep(3)
+
+
 def stand_in(real, to, mod):
     """A stand-in for the game's folder with the mod installed in it."""
     for folder, dirs, files in os.walk(real):
@@ -97,13 +148,13 @@ def stand_in(real, to, mod):
             dirs[:] = []
             continue
         for name in files:
-            os.link(os.path.join(folder, name), os.path.join(target, name))
+            stand_for(os.path.join(folder, name), os.path.join(target, name))
     for name in os.listdir(to):
         if name.lower() == "override":
             shutil.rmtree(os.path.join(to, name))
     shutil.copytree(os.path.join(mod, "override"), os.path.join(to, "override"))
     for name in os.listdir(os.path.join(mod, "modules")):
-        shutil.copy(os.path.join(mod, "modules", name), os.path.join(to, "modules", name))
+        put(os.path.join(mod, "modules", name), os.path.join(to, "modules", name))
 
 
 def game_folder(kjk):
@@ -138,7 +189,7 @@ def main():
     env = dict(os.environ, KJK_HOME=home, KJK_EDITOR_LINK="1")
     log = open(os.path.join(run, "editor.log"), "w")
     began = time.time()
-    subprocess.Popen(
+    editor = subprocess.Popen(
         [args.editor, "k1", HUB, "--project", PROJECT, "--new-map", "korr_m38ab", "--title", "The Three Halls"],
         env=env, stdout=log, stderr=log, cwd=REPO,
     )
@@ -230,8 +281,7 @@ def main():
             after = sum(len(files) for _, _, files in os.walk(real))
             check("the game's own folder is untouched", before == after, (before, after))
     finally:
-        subprocess.run("taskkill /F /IM kjk-level-editor.exe" if os.name == "nt" else "pkill -f kjk-level-editor",
-                       shell=True, capture_output=True)
+        stop(link, editor)
         log.close()
         if args.keep:
             print("the run's folder is kept: %s" % run)
