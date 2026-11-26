@@ -250,8 +250,7 @@ impl Stage {
     /// The arena's rules and Jedi on a real area (`arena@MODULE`, and the
     /// sandbox): the module's rooms, lightmaps and lights as they are, its
     /// event scripts gone, so fights and their lights can be tried in a lit
-    /// or a dark place, with the Debug Mode terminal beside the arrival in
-    /// either game (`with_debug_terminal`). Its own creatures stay until `arena clear` (F6) takes them; a
+    /// or a dark place. Its own creatures stay until `arena clear` (F6) takes them; a
     /// body falling far below the arrival dies there.
     pub fn module_arena(
         discovery: &Discovery,
@@ -282,7 +281,7 @@ impl Stage {
             plan.level = stage.level.clone();
         }
         stage.sheet = crate::arena::sheet_for(&stage.level);
-        stage.with_debug_terminal(discovery)
+        Ok(stage)
     }
 
     /// `course`, `duel`, or a KOTOR 1 module (e.g. `end_m01aa`), for
@@ -311,7 +310,8 @@ impl Stage {
                 scene,
                 seats,
             )
-            .map(Stage::without_creatures),
+            .map(Stage::without_creatures)
+            .and_then(|stage| stage.with_debug_terminal(discovery)),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }
@@ -352,7 +352,7 @@ impl Stage {
 
     /// The stage with the Debug Mode terminal (`arena::terminal`): KOTOR 1's
     /// Rakatan computer (`sim::arena::TERMINAL_TEMPLATE`), read from the
-    /// KOTOR 1 install whichever game the stage's area is, renamed, with no
+    /// KOTOR 1 install, renamed, with no
     /// scripts, conversation, lock, items or hit points of its own, so that
     /// a use of it opens the character page and nothing else. The arena's
     /// step makes it beside the arrival (`Rules::terminal`).

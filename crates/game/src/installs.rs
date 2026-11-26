@@ -49,15 +49,6 @@ pub fn open(discovery: &Discovery, game: Game) -> Result<Arc<Install>, String> {
     opened(found)
 }
 
-/// `game`'s install, if this process has opened it already (`open`).
-pub fn already_open(game: Game) -> Option<Arc<Install>> {
-    let opened = OPENED.lock().ok()?;
-    opened.values().find_map(|opening| {
-        let install = opening.lock().ok()?.clone()?;
-        (install.game == game).then_some(install)
-    })
-}
-
 /// The campaigns this machine may begin a new game of: the KOTOR games
 /// found, K1's first.
 pub fn campaigns(discovery: &Discovery) -> Vec<Game> {

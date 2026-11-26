@@ -1555,21 +1555,28 @@ fn mind_snipes() -> Result<String, String> {
 }
 
 /// A pistol with Power Blast, its player in stealth mode and wearing a
-/// stealth unit. One step with [Feat attack] alone held ends stealth mode.
-/// One step with nothing pressed leaves it on.
+/// stealth unit. Charging the Power Blast with [Feat attack] held for 2 s,
+/// longer than the Sneak Attack Window, fires nothing and leaves stealth
+/// mode on. Letting go fires the shot, and that step ends stealth mode and
+/// opens the Sneak Attack Window from the moment the shot leaves.
 fn feat_ends_stealth() -> Result<String, String> {
     let mut sheet = blasting();
     sheet.flags |= crate::combat::sheet::flags::STEALTH_UNIT;
-    let stealthy = |command: Command| -> Result<bool, String> {
-        let mut ground = Ground::drawn(sheet)?;
-        ground.poke(|fighter, _| fighter.covert.stealth = true);
-        ground.hold(MSEC, command)?;
-        Ok(ground.fighter.covert.stealth)
-    };
-    let (still, fired) = (stealthy(idle())?, stealthy(feat(0))?);
+    let mut ground = Ground::drawn(sheet)?;
+    ground.poke(|fighter, _| fighter.covert.stealth = true);
+    ground.hold(2000, feat(0))?;
+    let (charging, before) = (ground.fighter.covert.stealth, ground.fired.len());
+    ground.hold(MSEC, idle())?;
+    let covert = ground.fighter.covert;
+    let shot = ground.fired.len() > before;
+    let window = covert.opener_until == ground.now + crate::stealth::OPENER_MS;
     check(
-        still && !fired,
-        format!("in stealth after a step with nothing pressed {still}, with [Feat attack] {fired}"),
+        charging && before == 0 && shot && !covert.stealth && window,
+        format!(
+            "after 2 s of charging: in stealth {charging}, {before} bolts; on letting go: \
+             a shot {shot}, in stealth {}, the window until {} at {}",
+            covert.stealth, covert.opener_until, ground.now
+        ),
     )
 }
 

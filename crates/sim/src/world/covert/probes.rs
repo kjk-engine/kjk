@@ -140,14 +140,58 @@ pub(crate) fn stealth_mode() -> Vec<(&'static str, Result<String, String>)> {
             format!("{told:?}"),
         ))
     });
+    // A swing ends Stealth Mode at the press. Bare hands swing.
     run("attack_ends_stealth", &|| {
-        let mut world = world(sneak(2, true))?;
+        let mut world = world(fist_sneak())?;
         steps(&mut world, 1, 3, press(buttons::STEALTH), 0);
         let (_, last) = steps(&mut world, 4, 1, press(buttons::ATTACK), 0);
         let opener = player(&last).map(|f| f.covert.opener_until);
         Ok((
             !on(&last) && opener == Some(last.time_ms + crate::stealth::OPENER_MS),
             format!("opener {opener:?} at {}", last.time_ms),
+        ))
+    });
+    // A shot ends Stealth Mode when it leaves the gun. The soldier keeps
+    // [Feat attack] pressed for 2 s to charge a Power Blast, which is
+    // longer than the Sneak Attack Window, and then lets go.
+    run("shot_ends_stealth", &|| {
+        let mut gunner = sneak(2, true);
+        gunner.feats = gunner
+            .feats
+            .with(crate::combat::sheet::feats::POWER_BLAST[0]);
+        let mut world = world(gunner)?;
+        steps(&mut world, 1, 3, press(buttons::STEALTH), 0);
+        let (from, let_go) = (4, 4 + 2000 / 8);
+        let charge = Command {
+            holds: crate::input::holds::FEAT,
+            ..Command::default()
+        };
+        let mut hidden = true;
+        let mut shot = None;
+        for tick in from..let_go + 125 {
+            let keys = if tick < let_go {
+                charge
+            } else {
+                Command::default()
+            };
+            let (_, last) = steps(&mut world, tick, 1, keys, 0);
+            let fighter = player(&last).ok_or("no player")?;
+            if fighter.combat_until > last.time_ms {
+                shot = Some((tick, fighter.covert, last.time_ms));
+                break;
+            }
+            hidden &= fighter.covert.stealth;
+        }
+        let ok = shot.is_some_and(|(tick, covert, at)| {
+            tick >= let_go
+                && !covert.stealth
+                && covert.opener_until == at + crate::stealth::OPENER_MS
+        });
+        Ok((
+            hidden && ok,
+            format!(
+                "let go on step {let_go}; in Stealth Mode until the shot {hidden}; the shot (step, stealth, at) {shot:?}"
+            ),
         ))
     });
     // The right mouse button holds both [Aim] and [Alt attack]. With the
@@ -666,18 +710,82 @@ struct Attack {
     eyes: bool,
     /// The player presses the draw or holster key on `DRAW_AT`.
     drawn: bool,
+    /// The key the player keeps pressed from the press on.
+    keyed: Keyed,
 }
 
-/// Runs 900 steps of 8 ms (7.2 s) with the player at `at`, facing the
-/// guard (as `fists_brawl` faces its foe). Stealth is pressed on the first
-/// step, and attack is held from `press_at(attack.drawn)` on. `each` sees
-/// the world and the snapshot after every step, with the step's tick and
-/// whether the step told the player "Sneak Attack!". Returns how many
-/// "Sneak Attack!" lines the player was told.
+/// The key an opener's run keeps pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Key {
+    Attack,
+    /// [Feat attack] (`holds::FEAT`).
+    Feat,
+    Grenade,
+}
+
+/// How an opener's run presses its key: which key, for how long, and
+/// whether the player changes weapons meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Keyed {
+    key: Key,
+    /// How long the key is kept pressed (ms). `None` keeps it pressed to
+    /// the end of the run.
+    held_ms: Option<u64>,
+    /// When the player asks for the weapon in its second slot (ms after
+    /// the press), if it does.
+    change_ms: Option<u64>,
+}
+
+impl Keyed {
+    /// [Attack] kept pressed to the end, as the armed openers press it.
+    const fn attack() -> Keyed {
+        Keyed::of(Key::Attack, None)
+    }
+
+    const fn of(key: Key, held_ms: Option<u64>) -> Keyed {
+        Keyed {
+            key,
+            held_ms,
+            change_ms: None,
+        }
+    }
+
+    /// The command's buttons and holds on a step `ms` after the press.
+    fn keys(self, ms: u64) -> (u16, u8) {
+        if self.held_ms.is_some_and(|held| ms >= held) {
+            return (0, 0);
+        }
+        match self.key {
+            Key::Attack => (buttons::ATTACK, 0),
+            Key::Feat => (0, crate::input::holds::FEAT),
+            Key::Grenade => (buttons::GRENADE, 0),
+        }
+    }
+
+    /// The run's last step: 900 steps (7.2 s), or 2 s after the key is let
+    /// go when that comes later.
+    fn last_tick(self, press: u64) -> u64 {
+        let held = self.held_ms.unwrap_or(0) / u64::from(STEP_MS);
+        900.max(press + held + 2000 / u64::from(STEP_MS))
+    }
+}
+
+/// Runs steps of 8 ms with the player at `at`, facing the guard (as
+/// `fists_brawl` faces its foe), up to `Keyed::last_tick`. Stealth is
+/// pressed on the first step, and the run's key is pressed from
+/// `press_at(attack.drawn)` on. `each` sees the world and the snapshot
+/// after every step, with the step's tick and whether the step told the
+/// player "Sneak Attack!". Returns how many "Sneak Attack!" lines the
+/// player was told.
 fn attack_run(
     world: &mut crate::world::SimWorld,
     at: [f32; 2],
-    Attack { busy, eyes, drawn }: Attack,
+    Attack {
+        busy,
+        eyes,
+        drawn,
+        keyed,
+    }: Attack,
     mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot, bool),
 ) -> usize {
     let (from, to) = (
@@ -691,23 +799,27 @@ fn attack_run(
     };
     let press = press_at(drawn);
     let mut sneaks = 0;
-    for tick in 1..=900 {
+    for tick in 1..=keyed.last_tick(press) {
         stand(world, at);
         if busy {
             busy_guard(world);
         }
         let aim = if eyes { own_eyes(world) } else { [0; 3] };
         let mut input = TickInput::default();
-        let buttons = match tick {
-            STEALTH_AT => buttons::STEALTH,
-            t if t >= press => buttons::ATTACK,
-            _ => 0,
+        let ms = tick.saturating_sub(press) * u64::from(STEP_MS);
+        let (buttons, holds) = match tick {
+            STEALTH_AT => (buttons::STEALTH, 0),
+            t if t >= press => keyed.keys(ms),
+            _ => (0, 0),
         };
+        let changed = tick >= press && keyed.change_ms.is_some_and(|change| ms >= change);
         input.insert(
             Seat(0),
             Command {
                 buttons,
+                holds,
                 aim,
+                weapon: u8::from(changed),
                 ..facing
             },
         );
@@ -754,6 +866,7 @@ fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
             busy: true,
             eyes: false,
             drawn: false,
+            keyed: Keyed::attack(),
         },
         |_, _, snapshot, _| {
             opener = player(snapshot).map(|f| f.covert.opener_until);
@@ -834,6 +947,17 @@ pub struct OpenerRun {
     /// The time from the attack press to the first step on or after it on
     /// which the guard perceived the player.
     pub press_to_perceived_ms: Option<u64>,
+    /// The time from the attack press to the step the player's first shot
+    /// or grenade left (the first step on which the player is in combat).
+    pub press_to_shot_ms: Option<u64>,
+    /// The player was in Stealth Mode on every step from the press to the
+    /// step before its shot left, and out of it on that step.
+    pub stealth_until_shot: bool,
+    /// The player was in Stealth Mode on the run's last step.
+    pub stealth_at_end: bool,
+    /// The stamina the player spent from the step before the press to the
+    /// run's last step.
+    pub stamina_spent: i32,
 }
 
 /// The guard's facing in the armed openers' runs: toward -X, so its back
@@ -846,10 +970,13 @@ enum Scene {
     /// An ordinary guard (Awareness 2, not kept busy) faces away, and the
     /// player stands behind it at `Armed::behind_m`.
     Behind,
-    /// An alert guard (Awareness 20) faces the player, who stands 1 m in
+    /// An alert guard (Awareness 40) faces the player, who stands 1 m in
     /// front of it. The guard is kept fighting the dummy, so it is neither
     /// unaware of a fight nor turned away from the player, and only
-    /// perception decides the sneak attack.
+    /// perception decides the sneak attack. A guard in combat takes the
+    /// spot check's combat penalty (`spot.in_combat`), so with Awareness 20
+    /// it failed every spot check against the sneak's held rolls. With
+    /// Awareness 40 it passes the check whatever the rolls are.
     Watched,
     /// The ordinary guard faces away, and the player stands 4 m behind it,
     /// out of a blade's reach.
@@ -862,7 +989,7 @@ impl Scene {
     fn guard(self) -> (u8, f32, bool) {
         match self {
             Scene::Behind | Scene::OutOfReach => (2, AWAY_YAW, false),
-            Scene::Watched => (20, 0.0, true),
+            Scene::Watched => (40, 0.0, true),
         }
     }
 
@@ -914,11 +1041,23 @@ fn opener_in(
     drawn: bool,
     scene: Scene,
 ) -> Result<OpenerRun, String> {
+    let mut sheet = fist_sneak();
+    sheet.weapons = [weapon.weapon(), None];
+    opener_of(anims, (weapon, sheet), drawn, scene, Keyed::attack())
+}
+
+/// `opener_in` with the sneak's own `sheet` holding `weapon`, pressing the
+/// keys `keyed` gives.
+fn opener_of(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    (weapon, sheet): (Armed, Sheet),
+    drawn: bool,
+    scene: Scene,
+    keyed: Keyed,
+) -> Result<OpenerRun, String> {
     if drawn && weapon == Armed::Fists {
         return Err("bare hands have no weapon to draw".into());
     }
-    let mut sheet = fist_sneak();
-    sheet.weapons = [weapon.weapon(), None];
     let (awareness, yaw, busy) = scene.guard();
     let mut world = guarded_on(
         ja_ground(anims)?,
@@ -932,6 +1071,9 @@ fn opener_in(
     let press = press_at(drawn);
     let ms = |tick: u64| tick.saturating_sub(press) * u64::from(STEP_MS);
     let mut run = OpenerRun::default();
+    let mut stamina = 0;
+    // Stealth Mode held on every step from the press until now.
+    let mut hidden = true;
     let sneaks = attack_run(
         &mut world,
         at,
@@ -939,6 +1081,7 @@ fn opener_in(
             busy,
             eyes: true,
             drawn,
+            keyed,
         },
         |world, tick, snapshot, sneaked| {
             let perceived = crate::world::scripts::perceived(world.script_state(), guard, me);
@@ -947,12 +1090,24 @@ fn opener_in(
             } else if perceived && run.press_to_perceived_ms.is_none() {
                 run.press_to_perceived_ms = Some(ms(tick));
             }
+            let fighter = player(snapshot);
+            let stealth = fighter.is_some_and(|f| f.covert.stealth);
             if tick + 1 == press {
-                let fighter = player(snapshot);
-                run.stealth_before_press = fighter.is_some_and(|f| f.covert.stealth);
+                run.stealth_before_press = stealth;
                 run.in_hand_before_press = fighter
                     .is_some_and(|f| f.sheath == Sheath::Drawn && !f.weapon_away(snapshot.time_ms));
+                stamina = fighter.map_or(0, |f| f.fp);
             }
+            if tick >= press && run.press_to_shot_ms.is_none() {
+                let shot = fighter.is_some_and(|f| f.combat_until > snapshot.time_ms);
+                if shot {
+                    run.press_to_shot_ms = Some(ms(tick));
+                    run.stealth_until_shot = hidden && !stealth;
+                }
+                hidden &= stealth;
+            }
+            run.stealth_at_end = stealth;
+            run.stamina_spent = stamina - fighter.map_or(0, |f| f.fp);
             if tick >= press && run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
                 run.press_to_hit_ms = Some(ms(tick));
                 run.perceived_at_hit = perceived;
@@ -1040,6 +1195,173 @@ pub fn armed_openers(
         ("armed_opener_out_of_reach".into(), missed),
     ]);
     rows
+}
+
+/// One row of `wind_up_openers`.
+struct WindUp {
+    name: &'static str,
+    /// The gun feat line the sneak knows (its first tier), if any.
+    feat: Option<u16>,
+    keyed: Keyed,
+    /// The blaster is drawn in Stealth Mode before the press.
+    drawn: bool,
+    scene: Scene,
+    expect: fn(&OpenerRun) -> bool,
+}
+
+/// The shot left in Stealth Mode, and its first hit was a sneak attack on
+/// a guard that had not perceived the player.
+fn sneak_shot(run: &OpenerRun) -> bool {
+    run.stealth_until_shot && run.first_blow_sneak && !run.perceived_at_hit
+}
+
+/// The shot left `ms` or later after the press, and before `ms` + 100.
+fn shot_near(run: &OpenerRun, ms: u64) -> bool {
+    run.press_to_shot_ms
+        .is_some_and(|shot| (ms..ms + 100).contains(&shot))
+}
+
+/// Nothing left the gun, and the player was still in Stealth Mode at the
+/// end of the run.
+fn cancelled(run: &OpenerRun) -> bool {
+    run.press_to_shot_ms.is_none() && run.stealth_at_end
+}
+
+/// The wind-up openers' rows, on the proving ground with `anims`. A sneak
+/// stands in Stealth Mode with a blaster 6 m behind an ordinary guard
+/// (`Scene::Behind`), charges a Power Blast, steadies a Sniper Shot, fires
+/// a Rapid Shot, raises a blaster that was put away, or charges a grenade
+/// throw. Each row checks that Stealth Mode held until the shot or the
+/// grenade left, and that the first hit was a sneak attack. The rows that
+/// cancel the wind-up check that nothing was fired and that Stealth Mode
+/// stayed on. `wind_up_watched` checks that a guard that perceived the
+/// player during the charge takes no sneak attack.
+pub fn wind_up_openers(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+) -> Vec<(String, Result<String, String>)> {
+    use crate::combat::sheet::feats::{POWER_BLAST, RAPID_SHOT, SNIPER_SHOT};
+    let feat = |held_ms| Keyed::of(Key::Feat, Some(held_ms));
+    let row = |name, feat, keyed, expect| WindUp {
+        name,
+        feat,
+        keyed,
+        drawn: true,
+        scene: Scene::Behind,
+        expect,
+    };
+    let rows = [
+        row(
+            "wind_up_power_blast_full",
+            Some(POWER_BLAST[0]),
+            feat(1000),
+            sneak_shot,
+        ),
+        row(
+            "wind_up_power_blast_long",
+            Some(POWER_BLAST[0]),
+            feat(3000),
+            |run| sneak_shot(run) && shot_near(run, 3000),
+        ),
+        // The guard may look on the step of the hit, after the hit was
+        // judged a sneak attack, so this row does not ask whether it
+        // perceived the player at the hit.
+        row(
+            "wind_up_power_blast_limit",
+            Some(POWER_BLAST[0]),
+            feat(6000),
+            |run| {
+                run.stealth_until_shot
+                    && run.first_blow_sneak
+                    && shot_near(run, crate::combat::specials::CHARGE_LIMIT_MS)
+            },
+        ),
+        row(
+            "wind_up_sniper_shot",
+            Some(SNIPER_SHOT[0]),
+            feat(600),
+            sneak_shot,
+        ),
+        row(
+            "wind_up_sniper_shot_long",
+            Some(SNIPER_SHOT[0]),
+            feat(3000),
+            sneak_shot,
+        ),
+        row(
+            "wind_up_sniper_shot_early",
+            Some(SNIPER_SHOT[0]),
+            feat(200),
+            |run| cancelled(run) && run.stamina_spent <= 0,
+        ),
+        // Every bolt of the burst that hits the unaware guard from behind is
+        // a sneak attack by the from-behind rule, so the row does not count
+        // the "Sneak Attack!" lines.
+        row(
+            "wind_up_rapid_shot",
+            Some(RAPID_SHOT[0]),
+            feat(100),
+            sneak_shot,
+        ),
+        WindUp {
+            drawn: false,
+            ..row(
+                "wind_up_plain_shot_put_away",
+                None,
+                Keyed::attack(),
+                sneak_shot,
+            )
+        },
+        row(
+            "wind_up_charge_dropped",
+            Some(POWER_BLAST[0]),
+            Keyed {
+                change_ms: Some(400),
+                ..feat(600)
+            },
+            cancelled,
+        ),
+        row(
+            "wind_up_grenade",
+            None,
+            Keyed::of(Key::Grenade, Some(1000)),
+            |run| run.stealth_until_shot && run.sneaks == 0,
+        ),
+        WindUp {
+            scene: Scene::Watched,
+            ..row("wind_up_watched", Some(POWER_BLAST[0]), feat(3000), |run| {
+                let perceived = run.perceived_before_press
+                    || run
+                        .press_to_perceived_ms
+                        .zip(run.press_to_shot_ms)
+                        .is_some_and(|(seen, shot)| seen < shot);
+                perceived
+                    && run.stealth_until_shot
+                    && run.press_to_hit_ms.is_some()
+                    && !run.first_blow_sneak
+            })
+        },
+    ];
+    rows.into_iter()
+        .map(|row| {
+            let mut sheet = fist_sneak();
+            // The dev soldier's blaster, and its vibroblade in the second
+            // slot for the row that changes weapons.
+            let [blaster, blade] = Sheet::dev_soldier().weapons;
+            sheet.weapons = [blaster, blade.filter(|_| row.keyed.change_ms.is_some())];
+            if let Some(feat) = row.feat {
+                sheet.feats = sheet.feats.with(feat);
+            }
+            let run = opener_of(
+                anims,
+                (Armed::Blaster, sheet),
+                row.drawn,
+                row.scene,
+                row.keyed,
+            )
+            .and_then(|run| check((row.expect)(&run), format!("{run:?}")));
+            (row.name.to_string(), run)
+        })
+        .collect()
 }
 
 /// The proving ground with `anims` (JA's animations and skeleton, which a
