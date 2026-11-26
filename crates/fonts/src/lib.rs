@@ -1,6 +1,7 @@
-//! The window's fonts: the system's own, read where each OS keeps them. No
-//! font ships with the editor (a font's licence is not kjk's), so none of
-//! its licences is in the package.
+//! A window's fonts: the system's own, read where each OS keeps them. No
+//! font ships with the save editor or the level editor (a font's licence
+//! is not kjk's), so none of its licences is in a package. Both editors
+//! read their fonts here.
 
 use std::path::{Path, PathBuf};
 

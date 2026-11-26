@@ -29,6 +29,7 @@ movie = { path = "crates/movie" }
 bink = { path = "crates/bink" }
 script_ncs = { path = "crates/script_ncs" }
 store = { path = "crates/store" }
+fonts = { path = "crates/fonts" }
 ui = { path = "crates/ui" }
 saves = { path = "crates/saves" }
 edit = { path = "crates/edit" }
@@ -64,7 +65,7 @@ reflink-copy = "0.1.33"
 # The save editor's window (`crates/save_editor`, its `app` feature alone):
 # OpenGL through glow, X11 and Wayland for Linux and the Steam Deck's
 # desktop; tables that draw only the rows in view. No fonts of egui's own
-# (`default_fonts` off): the editor reads the system's (`model::fonts`).
+# (`default_fonts` off): the editor reads the system's (the `fonts` crate).
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
 egui = "0.37"
 egui_extras = { version = "0.37", default-features = false }

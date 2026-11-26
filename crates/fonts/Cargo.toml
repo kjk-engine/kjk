@@ -1,0 +1,11 @@
+[package]
+name = "fonts"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The system's own fonts, found where each OS keeps them, for kjk's two editors."
+
+[lints]
+workspace = true

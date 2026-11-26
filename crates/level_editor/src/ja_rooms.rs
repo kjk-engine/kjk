@@ -777,7 +777,7 @@ fn window(
     let rooms = &mut *rooms;
     if !rooms.fonts_set {
         rooms.fonts_set = true;
-        if let Ok(fonts) = save_editor::model::fonts::system() {
+        if let Ok(fonts) = ::fonts::system() {
             crate::ui::use_fonts(&ctx, fonts);
         }
     }

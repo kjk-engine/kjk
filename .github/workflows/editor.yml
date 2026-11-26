@@ -13,12 +13,14 @@ on:
     paths:
       - "crates/edit/**"
       - "crates/save_editor/**"
+      - "crates/fonts/**"
       - "crates/saves/**"
       - ".github/workflows/editor.yml"
   pull_request:
     paths:
       - "crates/edit/**"
       - "crates/save_editor/**"
+      - "crates/fonts/**"
       - "crates/saves/**"
       - ".github/workflows/editor.yml"
   workflow_dispatch:

@@ -1101,7 +1101,7 @@ fn panels(
     let ui = &mut *ui_state;
     if !ui.fonts_set {
         ui.fonts_set = true;
-        match save_editor::model::fonts::system() {
+        match ::fonts::system() {
             Ok(fonts) => use_fonts(&ctx, fonts),
             Err(why) => state.say(format!("the panels' text has no font: {why}")),
         }
@@ -1209,7 +1209,7 @@ fn panels(
 }
 
 /// The system's fonts for the panels: egui's own are not shipped.
-pub(crate) fn use_fonts(ctx: &egui::Context, fonts: save_editor::model::fonts::Fonts) {
+pub(crate) fn use_fonts(ctx: &egui::Context, fonts: ::fonts::Fonts) {
     let mut definitions = egui::FontDefinitions::empty();
     for (name, font) in [("system", fonts.text), ("system mono", fonts.mono)] {
         definitions.font_data.insert(

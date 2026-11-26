@@ -3151,6 +3151,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fonts"
+version = "0.0.0"
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4165,10 +4169,10 @@ dependencies = [
  "console",
  "fmt_ja",
  "fmt_odyssey",
+ "fonts",
  "game",
  "level_edit",
  "resvg",
- "save_editor",
  "script_ncs",
  "serde_json",
  "sim",
@@ -5882,6 +5886,7 @@ dependencies = [
  "egui 0.37.0",
  "egui_extras",
  "fmt_odyssey",
+ "fonts",
  "image",
  "rfd",
  "saves",

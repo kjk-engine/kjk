@@ -381,7 +381,7 @@ fn window(
     let picker = &mut *picker;
     if !picker.fonts_set {
         picker.fonts_set = true;
-        if let Ok(fonts) = save_editor::model::fonts::system() {
+        if let Ok(fonts) = ::fonts::system() {
             crate::ui::use_fonts(&ctx, fonts);
         }
     }

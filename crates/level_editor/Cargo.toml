@@ -32,7 +32,7 @@ sim.workspace = true
 store.workspace = true
 vfs.workspace = true
 # The system's fonts for the panels, as the save editor reads them.
-save_editor.workspace = true
+fonts.workspace = true
 # The window's panels: egui on Bevy 0.19 (bevy_egui 0.42 is the release for
 # it), without egui's own fonts, whose licences are not kjk's.
 bevy_egui = { version = "0.42.0", default-features = false, features = ["render", "manage_clipboard"] }
