@@ -150,6 +150,14 @@ impl Link {
             None
         }
     }
+
+    /// The islands of the faces under its two ends, its start's first.
+    /// The link keeps those faces from when it was made (`add_links`), so
+    /// no face is looked for. `None` when a face is not of `mesh`.
+    fn islands(&self, mesh: &NavMesh) -> Option<(u32, u32)> {
+        let island_of = |face: u32| mesh.faces.get(face as usize).map(|face| face.island);
+        Some((island_of(self.from_face)?, island_of(self.to_face)?))
+    }
 }
 
 /// How far (metres) under and over a link's end its face is looked for.
@@ -1008,6 +1016,24 @@ impl NavMesh {
         if from == to || self.links.is_empty() {
             return None;
         }
+        // Each way over a link, in the links' order: the island it leaves,
+        // the island it lands on, and where it leaves and lands. A link
+        // is crossed from its start, and a jump from its end too
+        // (`Link::crossed_from`). The islands are read from the faces the
+        // link keeps (`Link::islands`). Looking for the face under each
+        // end again, for every link and every island, gave the same
+        // islands at many times the work.
+        let ways: Vec<(u32, u32, Vec3, Vec3)> = (self.links.iter())
+            .flat_map(|link| {
+                let ends = link.islands(self);
+                let there = ends.map(|(start, end)| (start, end, link.from, link.to));
+                let back = ends
+                    .filter(|_| link.kind == LinkKind::Jump)
+                    .map(|(start, end)| (end, start, link.to, link.from));
+                [there, back]
+            })
+            .flatten()
+            .collect();
         // Back from the goal: the islands that reach `to`, by how many
         // links away, then the first link out of `from` one nearer.
         let mut away: BTreeMap<u32, usize> = BTreeMap::new();
@@ -1017,28 +1043,18 @@ impl NavMesh {
         while !frontier.is_empty() && !away.contains_key(&from) && steps < self.links.len() {
             steps += 1;
             let mut next = Vec::new();
-            for link in &self.links {
-                for island in 0..self.islands as u32 {
-                    if away.contains_key(&island) {
-                        continue;
-                    }
-                    let lands = link
-                        .crossed_from(self, island)
-                        .and_then(|(_, land)| self.island_at(land, LINK_BELOW, LINK_ABOVE));
-                    if lands.is_some_and(|landed| frontier.contains(&landed)) {
-                        away.insert(island, steps);
-                        next.push(island);
-                    }
+            for &(leaves, lands, ..) in &ways {
+                if !away.contains_key(&leaves) && frontier.contains(&lands) {
+                    away.insert(leaves, steps);
+                    next.push(leaves);
                 }
             }
             frontier = next;
         }
         let distance = *away.get(&from)?;
-        self.links.iter().find_map(|link| {
-            let (leave, land) = link.crossed_from(self, from)?;
-            let landed = self.island_at(land, LINK_BELOW, LINK_ABOVE)?;
-            (away.get(&landed) == Some(&(distance - 1))).then_some((leave, land))
-        })
+        (ways.iter())
+            .find(|(leaves, lands, ..)| *leaves == from && away.get(lands) == Some(&(distance - 1)))
+            .map(|&(_, _, leave, land)| (leave, land))
     }
 
     /// The link a walker crosses from `leave` to `land` (metres, as
