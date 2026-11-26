@@ -65,6 +65,24 @@ const STEP_MOST: f32 = 0.1;
 /// the sim lowers the gun. The sim lowers it faster than it raises it
 /// (`OUT_MS` against `IN_MS`), so a step may move it that much further.
 pub(crate) const LOWER_MOST: f32 = STEP_MOST * IN_MS as f32 / OUT_MS as f32;
+/// However short the way, one step of the let-down may move the hand this
+/// far (metres). A rifle's way from the hip to the shoulder is short, 16 to
+/// 20 cm on Carth's body, so `LOWER_MOST` of it is only about 2.2 cm. The
+/// raised pose was approved with a rifle's let-down step of 2.7 cm (PR 590,
+/// which asked for a limit in centimetres once the pose was approved).
+const LOWER_LEAST: f32 = 0.03;
+
+/// The farthest (metres) one step may move the hand on a way `travel`
+/// metres long, where `share` is the step's share of the way
+/// (`STEP_MOST` or `LOWER_MOST`). A step of the let-down may always move
+/// it `LOWER_LEAST`.
+pub(crate) fn step_limit(travel: f32, share: f32) -> f32 {
+    if share >= LOWER_MOST {
+        (travel * share).max(LOWER_LEAST)
+    } else {
+        travel * share
+    }
+}
 /// How far (metres) below the eyes a raised gun's hand stands, at least and
 /// at most. A pistol's sights are then level with the cheek, and a rifle's
 /// stock is at the shoulder.
@@ -321,7 +339,7 @@ fn follows(ja: &Ja) -> Result<String, String> {
             && ended <= END_NEAR
             && back <= DOWN_NEAR
             && up <= travel * STEP_MOST
-            && down <= travel * LOWER_MOST,
+            && down <= step_limit(travel, LOWER_MOST),
         format!(
             "the hand travels {travel:.3} m, rising {:.3} m; {falls} steps lower it; it ends {ended:.3} m from the full raise and, let down, {back:.3} m from where it began; the largest step moves it {up:.3} m up ({:.0}% of the way) and {down:.3} m down ({:.0}%)",
             full.z - start.z,
@@ -930,7 +948,7 @@ impl Swept {
     /// The orders whose worst run moved the gun hand more than their limit.
     fn wrong(&self) -> Vec<String> {
         (self.worst.iter())
-            .filter(|(_, (most, ..), limit)| *most > self.travel * limit)
+            .filter(|(_, (most, ..), limit)| *most > step_limit(self.travel, *limit))
             .map(|(name, ..)| name.clone())
             .collect()
     }

@@ -1371,9 +1371,9 @@ const OWN_STEP_MOST: f32 = HIP_RIFLE_PUSH.1 / 4.0;
 /// own part is the difference of the two. No step of that part moves the
 /// muzzle more than `OWN_STEP_MOST`. Without the firing motion, no step
 /// moves the muzzle further than the aim pose allows a step of the
-/// let-down (`aim_pose_probes::LOWER_MOST` of the way from the hip to the
-/// full raise). Each run's largest step with the firing motion is given
-/// too.
+/// let-down (`aim_pose_probes::step_limit`: `LOWER_MOST` of the way from the
+/// hip to the full raise, and at least 3 cm). Each run's largest step with
+/// the firing motion is given too.
 fn aim_toggles(scene: &Scene) -> Result<String, String> {
     let hip = scene.ja_pose(Wield::Rifle, false)?;
     let full = scene.ja_pose(Wield::Rifle, true)?;
@@ -1385,7 +1385,7 @@ fn aim_toggles(scene: &Scene) -> Result<String, String> {
         at + turn * scene.rifle.muzzle
     };
     let travel = muzzle(&full, &mut shooter).distance(muzzle(&hip, &mut shooter));
-    let most = crate::aim_pose_probes::LOWER_MOST * travel;
+    let most = crate::aim_pose_probes::step_limit(travel, crate::aim_pose_probes::LOWER_MOST);
     let (mut seen, mut worst) = (Vec::new(), [0.0f32; 2]);
     for pressed in [true, false] {
         for moment in TOGGLES {
