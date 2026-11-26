@@ -2292,8 +2292,10 @@ differ from the host's there is refused, and the refusal names the group
 `kjk mods`.
 
 **Saves.** A save made in a level that a mod added does not load once the
-mod is removed. kjk then says that the save's level is not one of the
-game's own, and that the mod must be installed again.
+mod is removed. kjk then says that the save's level is not in the game's
+folder, and that a mod which added the level must be installed again. A
+damaged install can lack one of the game's own levels, so the message
+also says that the game's files may be incomplete.
 
 **kjk reads a mod's own files from `override/` when it runs without
 `--project`.** It takes every `kjk-area-*.toml` and `kjk-lighting-*.toml`

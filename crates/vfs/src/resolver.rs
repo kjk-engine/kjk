@@ -351,13 +351,35 @@ pub enum ResolveError {
     NoSuchModule(String),
 }
 
+/// The words of `ResolveError::NoSuchModule`'s message before the module's
+/// name and after it. The message is written with them and read back with
+/// them (`ResolveError::missing_module`), so the two cannot drift apart.
+const NO_MODULE: &str = "no module ";
+const NO_MODULE_FILES: &str = ": no modules/";
+
+impl ResolveError {
+    /// The module that an error's text says the game's folder lacks: the
+    /// name in a `NoSuchModule` message, also with other text round it.
+    /// The errors of a load are passed on as text, so the game finds the
+    /// reason in the text, to say it for the player
+    /// (`game::session_flow`).
+    pub fn missing_module(text: &str) -> Option<&str> {
+        let (_, rest) = text.split_once(NO_MODULE)?;
+        let (module, _) = rest.split_once(NO_MODULE_FILES)?;
+        Some(module.trim())
+    }
+}
+
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResolveError::NotOdyssey(game) => write!(f, "{} is not a KOTOR game", game.key()),
             ResolveError::Chitin(error) => write!(f, "chitin.key: {error}"),
             ResolveError::NoSuchModule(module) => {
-                write!(f, "no module {module}: no modules/{module}.rim or .mod")
+                write!(
+                    f,
+                    "{NO_MODULE}{module}{NO_MODULE_FILES}{module}.rim or .mod"
+                )
             }
         }
     }

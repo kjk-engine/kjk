@@ -734,19 +734,16 @@ fn finish(world: &mut World) {
 }
 
 /// Why a save did not load, said for the player when its level is not in
-/// the game's folder (`vfs::resolver::ResolveError::NoSuchModule`). The
-/// games' own levels are always there, so such a level was a mod's, and
-/// the mod is not installed now. Any other reason is left as it is.
+/// the game's folder (`vfs::resolver::ResolveError::missing_module`). Most
+/// often a mod added the level and is not installed now. A game's own
+/// level can be missing too, from a damaged install, so the message names
+/// both. Any other reason is left as it is.
 fn mod_gone(why: String) -> String {
-    let level = why
-        .split_once("no module ")
-        .and_then(|(_, rest)| rest.split_once(": no modules/"))
-        .map(|(level, _)| level.trim().to_string());
-    match level {
+    match vfs::resolver::ResolveError::missing_module(&why) {
         Some(level) => format!(
-            "This save was made in the level {level}, which is not one of the game's own levels. \
-             A mod added that level, and the mod is not installed now. \
-             Install the mod again to load this save."
+            "This save was made in the level {level}, which is not in the game's folder. \
+             If a mod added that level, install the mod again to load this save. \
+             Otherwise the game's files are incomplete."
         ),
         None => why,
     }
