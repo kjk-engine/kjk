@@ -616,7 +616,7 @@ fn stage(commands: &mut Commands, target: Option<&console::CaptureTarget>) -> En
         _ => None,
     };
     let mut camera = commands.spawn((
-        Camera3d::default(),
+        crate::reshade::overlay_camera(),
         crate::scene::over_world(20),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::FixedVertical {

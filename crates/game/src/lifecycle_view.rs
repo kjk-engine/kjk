@@ -323,9 +323,10 @@ pub struct OverlayCamera;
 pub type SceneCamera = (With<Camera3d>, Without<OverlayCamera>);
 
 /// Drawn as it is (the texture, or white, times `tint`), blended by the
-/// tint's alpha.
+/// tint's alpha, over whatever its camera's target already shows
+/// (`OdysseyMaterial::on_top`).
 pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMaterial {
-    OdysseyMaterial::new(
+    let mut material = OdysseyMaterial::new(
         tint,
         texture,
         None,
@@ -342,7 +343,9 @@ pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMateri
             fogged: false,
         },
         &AreaLight::ambient([1.0; 3]),
-    )
+    );
+    material.on_top = true;
+    material
 }
 
 /// A quad in the screen's 640 × 480 layout (GUI pixels, top left origin),
@@ -518,7 +521,7 @@ fn loading_screen(
             .next()
             .and_then(|(_, target)| target.cloned());
         let mut camera = commands.spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             scene::over_world(10),
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::FixedVertical {
