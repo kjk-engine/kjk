@@ -514,7 +514,7 @@ fn census_rows(discovery: &Discovery, game: &str) -> Result<Vec<Census>, String>
             .collect();
         for template in templates {
             let Some(utt) = (resolver.find(&template, ResType::UTT))
-                .and_then(|found| read(&found.location))
+                .and_then(|found| read(found.location))
             else {
                 continue;
             };
@@ -523,13 +523,13 @@ fn census_rows(discovery: &Discovery, game: &str) -> Result<Vec<Census>, String>
                 continue;
             }
             let row = root.uint("TrapType").unwrap_or(0);
-            let script = root.resref("OnTrapTriggered").unwrap_or_default().to_ascii_lowercase();
+            let script = root.resref("OnTrapTriggered").unwrap_or_else(String::new).to_ascii_lowercase();
             let trap_row = rows.get(row as usize);
             found.push(Census {
                 module: module.clone(),
                 row,
                 label: trap_row.map_or_else(String::new, |row| row.label.clone()),
-                key: root.resref("KeyName").unwrap_or_default(),
+                key: root.resref("KeyName").unwrap_or_else(String::new),
                 placed: placements.iter().filter(|placed| **placed == template).count(),
                 shootable: sim::traps::shootable(
                     sim::trap::PARTY_SEES,
