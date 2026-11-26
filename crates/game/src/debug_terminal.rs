@@ -170,7 +170,11 @@ const BACK: u32 = 219;
 
 impl Words {
     fn read(assets: &mut ui::assets::GuiAssets) -> Words {
-        let text = |strref| assets.text(Source::Campaign, strref).unwrap_or_default();
+        let text = |strref| {
+            assets
+                .text(Source::Campaign, strref)
+                .unwrap_or_else(Vec::new)
+        };
         let abilities = std::array::from_fn(|at| text(ABILITIES + at as u32));
         let (attributes, skills_title, alignment, credits) = (
             text(ATTRIBUTES),
@@ -185,8 +189,11 @@ impl Words {
             text(DARK_SIDE),
             text(BACK),
         );
-        let skills =
-            std::array::from_fn(|row| assets.cell_text("skills", row, "name").unwrap_or_default());
+        let skills = std::array::from_fn(|row| {
+            assets
+                .cell_text("skills", row, "name")
+                .unwrap_or_else(Vec::new)
+        });
         Words {
             abilities,
             skills,
