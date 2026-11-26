@@ -95,6 +95,22 @@ static SET: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
 /// (`for_module`). `None` for a level whose project does not light it.
 static PROJECT: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
 
+/// The folder of the bake that the level being drawn has in its level
+/// editor project (`for_module`). `None` for a level without one.
+static PROJECT_BAKE: std::sync::RwLock<Option<&'static std::path::Path>> =
+    std::sync::RwLock::new(None);
+
+/// The folder of the bake that the level being drawn has in its level
+/// editor project, when it has one. It is the only project's bake the game
+/// takes for the level (`viewer::used_folders`). Another level's bake can
+/// hold a lightmap of the same name, as two new maps built from one room
+/// do.
+pub(crate) fn project_bake() -> Option<&'static std::path::Path> {
+    *PROJECT_BAKE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn read_mode(lock: &std::sync::RwLock<Option<Mode>>) -> Option<Mode> {
     *lock
         .read()
@@ -144,18 +160,22 @@ pub fn set_mode(mode: Mode) {
 /// one of them forced, the rooms showed half of their light or the bake's
 /// lightmaps with nothing to make up the rest.
 pub fn for_module(module: &str) {
+    let bake = level_edit::active::bake_of(module);
+    *PROJECT_BAKE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = bake;
     let lights = || {
         level_edit::active::map_lights(module).is_some_and(|lights| !lights.is_empty())
             || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty())
     };
-    if (level_edit::active::bake_of(module).is_some() || lights()) && classic() {
+    if (bake.is_some() || lights()) && classic() {
         bevy::log::info!(
             "{module} is lit as the original game lights it: the lighting is Classic, which shows no project's bake or lights"
         );
         write_mode(&PROJECT, None);
         return;
     }
-    let mode = match level_edit::active::bake_of(module) {
+    let mode = match bake {
         Some(bake) => {
             bevy::log::info!(
                 "{module} is lit with its project's bake, {}",

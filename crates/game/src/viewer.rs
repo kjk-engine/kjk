@@ -994,8 +994,9 @@ pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
 }
 
 /// The bakes the active level editor projects keep, read once
-/// (`level_edit::lighting`). The game takes them while the rooms are lit
-/// `Baked` (`fitted_lights::baked`).
+/// (`level_edit::lighting`). While the rooms are lit `Baked`
+/// (`fitted_lights::baked`), the game takes the one of the level being
+/// drawn (`used_folders`).
 static PROJECT_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> =
     std::sync::LazyLock::new(|| {
         (level_edit::active::bake_folders().into_iter())
@@ -1034,10 +1035,11 @@ static FOLDER_USES: std::sync::Mutex<BTreeMap<usize, FolderUse>> =
 /// before its area has loaded.
 ///
 /// The folders a program set (`set_bake_folder`) are the only ones taken
-/// while they are set. The bakes a level editor project keeps come after
-/// the list while the rooms are lit `Baked`, so they win for their own
-/// areas. Both are taken whole, unless their fingerprint does not read:
-/// they are the author's own bakes of the project's levels.
+/// while they are set. The bake a level editor project keeps of the level
+/// being drawn comes after the list while the rooms are lit `Baked`, so it
+/// wins there. The projects' bakes of other levels are left out. Both are
+/// taken whole, unless their fingerprint does not read: they are the
+/// author's own bakes of the project's levels.
 fn used_folders() -> Vec<(Arc<BakeFolder>, FolderUse)> {
     let own = |folders: &[Arc<BakeFolder>]| -> Vec<(Arc<BakeFolder>, FolderUse)> {
         (folders.iter())
@@ -1067,7 +1069,14 @@ fn used_folders() -> Vec<(Arc<BakeFolder>, FolderUse)> {
         .filter(|(_, using)| *using != FolderUse::Nothing)
         .collect();
     if crate::fitted_lights::baked() {
-        used.extend(own(&PROJECT_FOLDERS));
+        // Only the bake of the level being drawn. Two new maps built from
+        // one room have lightmaps of the same names, and with every
+        // project's bake in the list one map showed the other's.
+        let level = crate::fitted_lights::project_bake();
+        used.extend(
+            (own(&PROJECT_FOLDERS).into_iter())
+                .filter(|(folder, _)| Some(folder.path.as_path()) == level),
+        );
     }
     used
 }
