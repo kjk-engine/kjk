@@ -67,7 +67,10 @@ pub(super) fn seat_actions(
             // change the party, if it may not.
             Action::ShowParty => {
                 let refusal = script::party_refusal(view, state, player);
-                let roster = state.party.roster(refusal, &state.items);
+                let good_evil = |id| {
+                    script::influence::sheet(view, out, ObjectId(id)).map(|sheet| sheet.good_evil)
+                };
+                let roster = state.party.roster(refusal, &state.items, &good_evil);
                 let screen = crate::notice::Screen::PartySelection(roster);
                 notices.push((Some(player), crate::notice::Notice::Show(screen)));
                 continue;

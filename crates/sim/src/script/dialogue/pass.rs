@@ -318,6 +318,27 @@ impl Engine<'_> {
                 }
                 truth(false)
             }
+            // Refused while a conversation ends, in the end scripts it runs
+            // (`Runner::end`). TSL's executable begins a conversation from a
+            // script only when the script answers a request to talk (the
+            // owner's `OnDialog` after a click or `ActionStartConversation`),
+            // or when no conversation is on screen. The end scripts run
+            // before the screen closes. TSLRCM gives the Handmaiden's sisters
+            // at the Telos academy and the HK-50s in the HK factory
+            // `k_def_dialogue01` as their end-of-conversation script, and its
+            // `k_ai_master` dialogue branch calls `BeginConversation()`. With
+            // a last speaker to talk to, their conversation began again
+            // after every ending.
+            BeginConversation if self.state.talk.ending.is_some() => {
+                if let Some(dialog) = view.dialog_or_own(text(args, 0), caller) {
+                    self.report.talk.push(Line::Refused {
+                        ms: view.now_ms,
+                        dialog,
+                        why: "a conversation is ending",
+                    });
+                }
+                truth(false)
+            }
             // With no object named, the conversation is with the caller's
             // last speaker (`GetLastSpeaker`): whoever clicked it or spoke
             // the line its dialogue script heard; else with whoever set off

@@ -50,8 +50,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// shown (`Lobby::show_replies`). A seat may say whether it joins nearby
 /// conversations and whether a screen is open (`Action::JoinTalks`,
 /// `Action::Screen`). A seat other than the first may take over a companion
-/// that nobody plays (`Action::Play`, wire tag 69).
-pub const PROTOCOL_VERSION: u16 = 10;
+/// that nobody plays (`Action::Play`, wire tag 69). 11: the party
+/// selection screen's table carries each companion's alignment
+/// (`Roster::good_evil`).
+pub const PROTOCOL_VERSION: u16 = 11;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;
@@ -1066,16 +1068,25 @@ impl fmt::Display for Refusal {
                         None => format!("{group} folder"),
                     })
                     .collect();
-                let Some((last, rest)) = named.split_last() else {
-                    return write!(f, "your {game} data differs from the host's");
+                let name = match game.as_str() {
+                    "k1" => "KOTOR",
+                    "tsl" => "KOTOR 2",
+                    "ja" => "Jedi Academy",
+                    other => other,
                 };
-                let list = if rest.is_empty() {
-                    last.clone()
-                } else {
-                    format!("{} and {last}", rest.join(", "))
-                };
-                let verb = if rest.is_empty() { "differs" } else { "differ" };
-                write!(f, "your {game} {list} {verb} from the host's")
+                write!(f, "Your {name} files do not match the host's.")?;
+                if let Some((last, rest)) = named.split_last() {
+                    let list = if rest.is_empty() {
+                        format!("The {last} differs.")
+                    } else {
+                        format!("The {} and {last} differ.", rest.join(", "))
+                    };
+                    write!(f, " {list}")?;
+                }
+                write!(
+                    f,
+                    " Check that you and the host have the same game files, the same mods and the same Steam Workshop items."
+                )
             }
             Refusal::Full { seats } => write!(f, "the host's {seats} seats are all taken"),
             Refusal::Level(text) => {

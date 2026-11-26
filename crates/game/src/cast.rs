@@ -2687,12 +2687,37 @@ impl PoseTotals {
 
 /// A body some line of a conversation (its `owner`'s, of `dialog`) has had
 /// as speaker or listener, whose DLG hides its item models until the
-/// conversation ends.
+/// conversation ends. Only the weapons it held when it was noted
+/// (`weapons`) stay hidden: TSL's executable hides a creature's weapon
+/// models once, as it joins the conversation, and a weapon a script equips
+/// later in the conversation is drawn (Atris holds the Exile's lightsaber,
+/// equipped by TSLRCM's `a_createpcsaber`, in a conversation that hides
+/// items).
 struct Unequipped {
     owner: ObjectId,
     dialog: String,
     who: SimId,
     hide: Hide,
+    weapons: [Option<sim::combat::sheet::Weapon>; 2],
+}
+
+/// The weapons `who` holds in `snapshot` (`worn_sheet`), its instances read
+/// once into `objects` when needed.
+fn weapons_held(
+    snapshot: &Snapshot,
+    level: &sim::Level,
+    objects: &mut Option<Instances>,
+    who: SimId,
+) -> Option<[Option<sim::combat::sheet::Weapon>; 2]> {
+    let entity = snapshot.get(who)?;
+    let sheet = match entity.sheet {
+        Some(worn) => worn,
+        None => sheet(
+            entity,
+            objects.get_or_insert_with(|| Instances::in_snapshot(level, snapshot)),
+        ),
+    };
+    Some(sheet.weapons)
 }
 
 /// The speaker of a conversation's lines (`Conversation::speaker`, `id`'s)
@@ -3812,6 +3837,7 @@ impl Cast {
         let (Some(snapshot), Some(scripts)) = (snapshot, level.scripts()) else {
             return;
         };
+        let mut objects = None;
         for talk in talks {
             let Some(dlg) = scripts.dialogue(&talk.dialog) else {
                 continue;
@@ -3822,7 +3848,6 @@ impl Cast {
             if !dlg.unequip_items {
                 continue;
             }
-            let hide = Hide::All;
             let LinePair {
                 speaker, listener, ..
             } = line_pair(snapshot, talk);
@@ -3831,14 +3856,25 @@ impl Cast {
                     kept.who == who && kept.owner == talk.owner && kept.dialog == talk.dialog
                 });
                 if !noted {
+                    let weapons =
+                        weapons_held(snapshot, level, &mut objects, who).unwrap_or([None, None]);
                     self.unequipped.push(Unequipped {
                         owner: talk.owner,
                         dialog: talk.dialog.clone(),
                         who,
-                        hide,
+                        hide: Hide::All,
+                        weapons,
                     });
                 }
             }
+        }
+        // A weapon equipped since a body was noted is drawn.
+        for kept in &mut self.unequipped {
+            let now = weapons_held(snapshot, level, &mut objects, kept.who);
+            kept.hide = match now.is_none_or(|now| now == kept.weapons) {
+                true => Hide::All,
+                false => Hide::None,
+            };
         }
     }
 
