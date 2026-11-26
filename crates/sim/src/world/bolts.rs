@@ -13,7 +13,10 @@ use super::*;
 /// blocker's), on its holder's body by state or on the blade itself. A bolt
 /// a remote player could block meets its body and is held there for its
 /// grace (`missiles::Held`, C19): turned by a late block, or landing when
-/// the hold ends.
+/// the hold ends. A bolt of a body a player controls also meets the
+/// bashable placeables and the mines the party has found
+/// (`traps::shootable`). A mine it meets stops it, and the authority
+/// records the mine in `traps::Shot` for the scripts' step.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(super) fn fly(
     clock: Res<Clock>,
@@ -26,11 +29,16 @@ pub(super) fn fly(
         Res<super::Talking>,
     ),
     mut streams: ResMut<Streams>,
-    (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
+    (mut hits, mut battering, mut shot): (
+        ResMut<Hits>,
+        ResMut<objects::Battering>,
+        ResMut<traps::Shot>,
+    ),
     mut scripts: ResMut<scripts::Scripts>,
     mut casts: ResMut<scripts::Casts>,
     objects: Query<&Object>,
     placed: Query<(&Id, &Object)>,
+    mines: Query<(&Id, &Object, &Placed)>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -98,6 +106,27 @@ pub(super) fn fly(
             .filter(|(_, object)| object.kind == ObjectKind::Placeable),
         objects::Regard::of(&level.0, &scripts.state),
     );
+    // The mines a player's own bolt sets off (`traps::shootable`): their
+    // boxes (`traps::shot_box`) by id, in id order. Other bolts fly through.
+    let table = level.0.module().map_or(&[][..], |module| &module.traps[..]);
+    let mut mines: Vec<Body> = mines
+        .iter()
+        .filter(|(_, object, _)| object.kind == ObjectKind::Trigger)
+        .filter_map(|(id, object, placed)| {
+            let facts = object.facts.as_deref()?;
+            traps::shootable(table, &scripts.state, id.0.0, facts, object.state.trap)
+                .then_some(())?;
+            let (min, max) =
+                crate::traps::shot_box(crate::traps::centre(&facts.geometry, placed.0));
+            Some(Body {
+                entity: id.0.0 | BODY,
+                min,
+                max,
+                contents: Contents::BODY,
+            })
+        })
+        .collect();
+    mines.sort_by_key(|body| body.entity);
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
     for (entity, _, mut bolt) in bolts {
@@ -234,6 +263,9 @@ pub(super) fn fly(
         let player = find(bolt.owner).is_some_and(|at| played[at]);
         if player {
             bodies.extend(bashable.iter().cloned());
+            if !bolt.scripted {
+                bodies.extend(mines.iter().copied());
+            }
         }
         bodies.sort_by_key(|body| body.entity);
         let trace = |to: [f32; 3]| {
@@ -269,6 +301,18 @@ pub(super) fn fly(
                     crate::script::effects::blows::struck(&mut actors[at_target].5.0, row, now);
                 }
                 hits.0.push(hit);
+            }
+            commands.entity(entity).despawn();
+            continue;
+        }
+        // A mine met: the authority records it, and the mine goes off in the
+        // scripts' step (`traps::shot`). The bolt is spent either way.
+        if let Some(mine) = met
+            .entity
+            .filter(|entity| mines.iter().any(|body| body.entity == *entity))
+        {
+            if authority {
+                shot.0.push(SimId(mine & !BODY));
             }
             commands.entity(entity).despawn();
             continue;

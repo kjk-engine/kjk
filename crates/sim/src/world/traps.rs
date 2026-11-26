@@ -43,7 +43,13 @@
 //! a placeable is unlocked then, a door unlocked and opened
 //! `traps::OPEN_AFTER_MS` after that.
 //!
-//! A trap taken away in a step (sprung, disarmed, recovered) is spent for
+//! Shooting: a blaster bolt fired by a character that a player controls
+//! sets off a mine the party has found (`shootable`; `bolts::fly` records
+//! it in `Shot`). The mine's row script runs as the mine with no creature
+//! entering, and the mine explodes and is taken away (`shot`). A story
+//! mine, a disabled mine and a mine on a lock are left alone.
+//!
+//! A trap taken away in a step (sprung, disarmed, recovered, shot) is spent for
 //! the rest of it: no second spring, no use resolved on it.
 //!
 //! A seat's use is its body's, the companion leading the party's for the
@@ -266,6 +272,64 @@ pub(crate) fn spring(
             .push((Some(creature.id), Notice::Line(lines::MINE_TRIGGERED)));
     }
     if found.one_shot {
+        gone(out, trap.id);
+    }
+}
+
+/// The mines that players' bolts met this step (`bolts::fly`), in the
+/// order the bolts met them. Only the authority fills it, and the scripts'
+/// step empties it (`shot`).
+#[derive(bevy_ecs::prelude::Resource, Default)]
+pub(crate) struct Shot(pub(crate) Vec<crate::SimId>);
+
+/// Whether a player's bolt sets off the object `id` now
+/// (`traps::shootable`): a mine (a trigger of `facts`, its snapshot bits
+/// `bits`) that the party sees, armed, not set on a lock, with its row's
+/// own script. `traps` is the module's `traps.2da`.
+pub(crate) fn shootable(
+    traps: &[crate::traps::TrapRow],
+    state: &State,
+    id: u32,
+    facts: &ObjectData,
+    bits: u8,
+) -> bool {
+    use crate::module::ObjectKind;
+    use crate::script::{Holder, Hook};
+    let Some(found) = facts
+        .trap
+        .as_ref()
+        .filter(|_| facts.kind == ObjectKind::Trigger)
+    else {
+        return false;
+    };
+    let on_lock = state.door_mines.values().any(|mine| mine.mine == id);
+    let own = Hook::TrapTriggered.in_scripts(Holder::Object(facts.kind), &facts.scripts);
+    crate::traps::shootable(bits, on_lock, own, traps.get(usize::from(found.row)))
+}
+
+/// The mines that players' bolts met this step go off (`Shot`), as
+/// KOTOR 2's droid powers set off a found mine. The row's script runs as
+/// the mine, with no creature entering it, and decides who is hurt. Then
+/// the mine explodes (`explode`) and is taken away. Nobody is told "You
+/// triggered a Mine!", and nobody receives experience or a kit. A mine
+/// already taken away this step, or one that no longer qualifies
+/// (`shootable`), is left alone, so two bolts on one mine set it off once.
+pub(crate) fn shot(view: &View, state: &mut State, out: &mut Out, shot: &[crate::SimId]) {
+    let traps = &view.module.traps;
+    for id in shot {
+        let Some((trap, facts)) = view
+            .thing(ObjectId(id.0))
+            .filter(|trap| armed(trap) && !spent(out, trap.id))
+            .and_then(|trap| Some((trap, trap.facts.as_deref()?)))
+            .filter(|(trap, facts)| shootable(traps, state, id.0, facts, trap.trap))
+        else {
+            continue;
+        };
+        let row = (facts.trap.as_ref()).and_then(|found| traps.get(usize::from(found.row)));
+        if let Some(row) = row {
+            state.pending.push(Pending::new(&row.script, trap.id));
+        }
+        explode(view, out, trap);
         gone(out, trap.id);
     }
 }

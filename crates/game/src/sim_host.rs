@@ -2994,6 +2994,20 @@ fn advance(
                 if recorded_hash.is_some_and(|hash| hash != snapshot.hash()) {
                     error!(target: "sim", tick = snapshot.tick, "the replay left its recording");
                 }
+                // What the replayed ticks make seen and heard: the sounds
+                // scripts play and the mines that go off. Without this a
+                // replay showed no mine's blast and left its notices piling
+                // up in the world. Nothing else is acted on again (no
+                // screens, no autosave, no text).
+                for (seat, notice) in authority.world.take_notices() {
+                    match notice {
+                        sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                        sim::notice::Notice::Explosion(explosion) => {
+                            authority.solo.explosion(seat, explosion)
+                        }
+                        _ => {}
+                    }
+                }
                 (recorded.input.clone(), snapshot)
             }
         };

@@ -943,6 +943,20 @@ A mine keeps the Demolitions its setter had as it set it (TSL's
 `OwnerDemolitionsSkill`, the total rank then: `TrapState::owner_demolitions`):
 its trap script reads it (`GetOwnerDemolitionsSkill`), and a mine set on a
 door blasts by it, whatever the setter has since.
+**Shooting a mine** (`world::traps::shot`). A blaster bolt fired by a
+character that a player controls sets off a mine that the party has found.
+One bolt is enough. The bolt meets a box over the mine's middle that is
+0.8 m wide and 0.3 m high (`traps.shooting`). The mine's `traps.2da` script
+then runs as the mine with no creature entering it, as it does when one of
+KOTOR 2's droid powers is used on a mine. The mine explodes and is removed.
+`k_trp_generic` in both games hurts every creature in its blast that is not
+neutral toward the mine, so a mine can hurt its own side, and the shooter
+too when the shooter stands close. The party receives no experience and no
+kit for a mine that is shot. A mine that the party has not found, a
+disabled mine, a mine set on a lock and a mine with a story script of its
+own cannot be shot. Bolts fired by enemies, by companions that no player
+controls and by scripts fly through mines. `kjk script mines k1|tsl` lists
+every trap trigger with whether a bolt can set it off.
 **Perception** runs at KOTOR's cadence (each creature looks every 300 to
 699 ms while its AI runs, every 4 s while a conversation holds it); a
 stealthed character is seen only past the spot check and heard only past
