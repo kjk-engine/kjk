@@ -405,6 +405,38 @@ pub fn leave(key: &[u8]) -> Vec<u8> {
     [b"Leave (", key, b")"].concat()
 }
 
+/// The Debug Mode character page's own words (`game::debug_terminal`).
+/// The names of the attributes, skills, classes and alignment come from
+/// the game's talk table and tables.
+pub mod terminal {
+    pub const TITLE: &str = "Edit Character";
+    pub const MEMBER: &str = "Party Member";
+    pub const MEMBER_HELP: &str = "The party member to edit.";
+    /// A party member with no name (a player who made no character).
+    pub const UNNAMED: &str = "Player";
+    /// The class of a character the game made without one (the Debug Mode
+    /// map's starting Jedi).
+    pub const NO_CLASS: &str = "Custom";
+    pub const CLASS_HELP: &str = "Changing the class rebuilds the character at the same level. The game chooses the feats, Force powers and skills for each level.";
+    pub const LEVEL_HELP: &str = "The character's total level, both classes together. Changing it rebuilds the character in the same classes. The game chooses the feats, Force powers and skills for each level.";
+    pub const SPECIALIZATION: &str = "Specialization";
+    pub const SPECIALIZATION_HELP: &str = "A second class taken on top of the first, such as a Jedi class on a soldier or a prestige class on a Jedi. Changing it rebuilds the character.";
+    pub const SPECIALIZATION_LEVEL: &str = "Specialization Level";
+    pub const SPECIALIZATION_LEVEL_HELP: &str = "The levels in the second class. They are part of the total level, and the first class keeps the rest.";
+    pub const FEATS: &str = "Feats";
+    pub const POWERS: &str = "Force Powers";
+    pub const NONE: &str = "None";
+    pub const ALIGNMENT_HELP: &str = "0 is fully dark side. 100 is fully light side.";
+    pub const RESTORE: &str = "Restore";
+    /// The panel's row for the terminal.
+    pub const PANEL: &str = "Edit character";
+
+    /// "Ranges from 1 to 50."
+    pub fn range(least: u8, most: u8) -> String {
+        format!("Ranges from {least} to {most}.")
+    }
+}
+
 /// The title over another player's pazaak table (R9a): "Watching Carth".
 pub fn watching(name: &[u8]) -> Vec<u8> {
     [b"Watching ", name].concat()

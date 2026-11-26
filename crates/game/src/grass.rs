@@ -81,6 +81,12 @@ const FAR_M: f32 = 30.0;
 /// `GrassParams::shape.w` flags.
 const FOGGED: u32 = 1;
 const LIGHTMAPPED: u32 = 2;
+/// The area is drawn under the bake of Enhanced Lightmaps
+/// (`LoadedScene::baked`). Its room lightmaps are stored at half their
+/// level, and the rooms' shader doubles them (`BAKED_GAIN` in
+/// `odyssey.wgsl`). The grass's shader doubles its lightmap too, so that
+/// grass is as bright as the ground it grows on.
+const BAKED: u32 = 4;
 /// How far the bounds stand out round the tufts, in quad sizes, at the
 /// least: a top edge 1.2 quads tall.
 const REACH_QUADS: f32 = 1.2;
@@ -365,6 +371,9 @@ fn params(grass: &SceneGrass, scene: &LoadedScene, lightmapped: bool) -> GrassPa
     }
     if lightmapped {
         flags |= LIGHTMAPPED;
+    }
+    if scene.baked {
+        flags |= BAKED;
     }
     let wind = Vec2::ONE.normalize() * grass.wind;
     GrassParams {

@@ -43,6 +43,10 @@ struct GrassParams {
 // `GrassParams::shape.w`: see `grass.rs`.
 const FOGGED: u32 = 1u;
 const LIGHTMAPPED: u32 = 2u;
+const BAKED: u32 = 4u;
+// A baked area's room lightmaps are stored at 1 / `BAKED_GAIN` of their
+// level, as in `odyssey.wgsl`.
+const BAKED_GAIN: f32 = 2.0;
 const ALPHA_TEST: f32 = 0.4;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> grass: GrassParams;
@@ -241,7 +245,8 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
         discard;
     }
     let flags = u32(grass.shape.w);
-    let lightmap = select(vec3<f32>(1.0), mapped, (flags & LIGHTMAPPED) != 0u);
+    let gain = select(1.0, BAKED_GAIN, (flags & BAKED) != 0u);
+    let lightmap = select(vec3<f32>(1.0), mapped * gain, (flags & LIGHTMAPPED) != 0u);
     // A lightning flash adds its light, as on the scene's surfaces.
     let lit = flash(in.world_position, grass.flash_at, grass.flash_colour.rgb);
     var colour = texel.rgb * min(lightmap + lit, vec3<f32>(1.0));

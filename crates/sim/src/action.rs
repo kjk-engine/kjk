@@ -285,6 +285,9 @@ pub enum Action {
     Screen(bool),
 }
 
+/// A rebuild's second class byte when it has none (`ArenaOrder::Rebuild`).
+const NO_CLASS: u8 = u8::MAX;
+
 /// What a player orders in a combat arena (`world::arena`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArenaOrder {
@@ -298,6 +301,48 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
+    /// The Debug Mode character page's orders (`world::arena::edits`). Each sets a
+    /// value and never adds to one, so an order sent twice does no harm.
+    /// `who` is the party member changed: the seat's own character, or a
+    /// companion no other seat plays.
+    ///
+    /// `who` rebuilt as a character of class `class` (`classes.2da` row)
+    /// at total level `level`, every level's picks the game's own. With
+    /// `second`, that many of the levels are in a second class taken on
+    /// top of the first (`levels::Classes::second_classes`): a K1 Jedi
+    /// class on a soldier, scout or scoundrel, or a TSL prestige class on a
+    /// Jedi base class.
+    Rebuild {
+        who: crate::snapshot::SimId,
+        class: u8,
+        level: u8,
+        second: Option<(u8, u8)>,
+    },
+    /// `who`'s ability `ability` (`Ability` order) at `score`.
+    Ability {
+        who: crate::snapshot::SimId,
+        ability: u8,
+        score: u8,
+    },
+    /// `who`'s ranks in skill `skill` (`skills.2da` row).
+    Skill {
+        who: crate::snapshot::SimId,
+        skill: u8,
+        ranks: u8,
+    },
+    /// `who`'s alignment, 0 (dark) to 100 (light).
+    Alignment {
+        who: crate::snapshot::SimId,
+        good_evil: u8,
+    },
+    /// `who`, a player's own character, made the Debug Mode map's starting
+    /// character again (`sheet`), with full hit points and Force points. A
+    /// companion is never restored: the terminal keeps no starting state
+    /// of its own.
+    Restore {
+        who: crate::snapshot::SimId,
+        sheet: Box<crate::combat::Sheet>,
+    },
 }
 
 /// What a seat asks of its body's readied grenade (`Action::Grenade`).
@@ -807,6 +852,46 @@ impl Action {
                         out.u8(3);
                         out.u8(*n);
                     }
+                    ArenaOrder::Rebuild {
+                        who,
+                        class,
+                        level,
+                        second,
+                    } => {
+                        out.u8(4);
+                        out.u32(who.0);
+                        out.u8(*class);
+                        out.u8(*level);
+                        let (second, levels) = second.unwrap_or((NO_CLASS, 0));
+                        out.u8(second);
+                        out.u8(levels);
+                    }
+                    ArenaOrder::Ability {
+                        who,
+                        ability,
+                        score,
+                    } => {
+                        out.u8(5);
+                        out.u32(who.0);
+                        out.u8(*ability);
+                        out.u8(*score);
+                    }
+                    ArenaOrder::Skill { who, skill, ranks } => {
+                        out.u8(6);
+                        out.u32(who.0);
+                        out.u8(*skill);
+                        out.u8(*ranks);
+                    }
+                    ArenaOrder::Alignment { who, good_evil } => {
+                        out.u8(7);
+                        out.u32(who.0);
+                        out.u8(*good_evil);
+                    }
+                    ArenaOrder::Restore { who, sheet } => {
+                        out.u8(8);
+                        out.u32(who.0);
+                        sheet.encode(out);
+                    }
                 }
             }
         }
@@ -1005,6 +1090,33 @@ impl Action {
                     1 => ArenaOrder::Clear,
                     2 => ArenaOrder::God,
                     3 => ArenaOrder::Down(input.u8()?),
+                    4 => ArenaOrder::Rebuild {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        class: input.u8()?,
+                        level: input.u8()?,
+                        second: match (input.u8()?, input.u8()?) {
+                            (NO_CLASS, _) => None,
+                            second => Some(second),
+                        },
+                    },
+                    5 => ArenaOrder::Ability {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        ability: input.u8()?,
+                        score: input.u8()?,
+                    },
+                    6 => ArenaOrder::Skill {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        skill: input.u8()?,
+                        ranks: input.u8()?,
+                    },
+                    7 => ArenaOrder::Alignment {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        good_evil: input.u8()?,
+                    },
+                    8 => ArenaOrder::Restore {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        sheet: Box::new(crate::combat::Sheet::decode(input)?),
+                    },
                     _ => return Err(input.invalid("arena order", at)),
                 })
             }

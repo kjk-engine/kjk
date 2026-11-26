@@ -114,20 +114,33 @@ pub fn sheet(
     if !makeable(&creation.abilities, &recommended) {
         return Err(Refused::Scores);
     }
-    let class = creation.choices.class;
-    let unmade = unmade_of(classes, class, creation.abilities, faction);
+    first_level(classes, creation.abilities, faction, &creation.choices).ok_or(Refused::Level)
+}
+
+/// The first level of `choices.class` taken by a character of `abilities`
+/// and `faction` made from nothing: the level's picks are `choices`, and
+/// the game's own for those left unpicked, with no powers. The sheet, the
+/// career and the skill points left unspent, or `None` when the level is
+/// not the class's to take. Character creation and the Debug Mode
+/// terminal's rebuild (`world::arena::edits`) both make a first level so.
+pub fn first_level(
+    classes: &Classes,
+    abilities: [u8; 6],
+    faction: u8,
+    choices: &Choices,
+) -> Option<(Sheet, Career, u8)> {
+    let class = choices.class;
+    let unmade = unmade_of(classes, class, abilities, faction);
     let none = Career::new();
     let choices = Choices {
         powers: Vec::new(),
-        ..classes.complete(&unmade, &none, &creation.choices)
+        ..classes.complete(&unmade, &none, choices)
     };
-    let (mut sheet, career, unspent) = classes
-        .take(&unmade, &none, &choices, 0)
-        .ok_or(Refused::Level)?;
+    let (mut sheet, career, unspent) = classes.take(&unmade, &none, &choices, 0)?;
     for &feat in pc_granted(classes, class) {
         crate::combat::passive::learn(&mut sheet, feat, 0);
     }
-    Ok((sheet, career, unspent))
+    Some((sheet, career, unspent))
 }
 
 /// The feats TSL's creation grants a player of `class` besides its class's
