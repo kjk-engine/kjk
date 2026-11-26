@@ -109,20 +109,30 @@ pub fn standing_title(sets: Option<&StanceSets>, fighter: &sim::combat::Fighter)
     Some(set_title(&name))
 }
 
+/// How long, in the sim's milliseconds, a pick that was asked for may go
+/// without the character waiting for its set or standing in it before the
+/// pick is asked for again. The host drops an action that reaches it while
+/// an area is coming in, or before this player's game holds the world. A
+/// pick made at the start of a game, a load or an area change can be dropped
+/// that way, and it is then asked for again.
+const ASK_AGAIN_MS: u64 = 250;
+
 /// The picks this player's game still owes the host. For each character in
 /// `snapshot` that `seat` may pick for (`may_pick`), whose saved pick names
 /// another set than the one it stands in or waits for, it gives one
 /// `Action::PickStance`. No pick, or a pick of a set the level lacks, asks
 /// for the character's table row's set. `sent` keeps the set last asked for
-/// each character. A set is asked for once, and again only after the
-/// character stood in it and left it. Under JA's rules, or in a level
-/// without sets, it gives nothing.
+/// each character and the sim time it was asked at. A set is asked for
+/// once. It is asked for again after the character stood in it and left it,
+/// or when `ASK_AGAIN_MS` passed and the character neither waits for it nor
+/// stands in it. Under JA's rules, or in a level without sets, it gives
+/// nothing.
 pub fn wishes(
     snapshot: &sim::Snapshot,
     level: &sim::Level,
     seat: sim::Seat,
     picks: &BTreeMap<String, String>,
-    sent: &mut BTreeMap<sim::SimId, u8>,
+    sent: &mut BTreeMap<sim::SimId, (u8, u64)>,
 ) -> Vec<sim::action::Action> {
     let Some(sets) = level
         .anims()
@@ -149,7 +159,10 @@ pub fn wishes(
             sent.remove(&entity.id);
             continue;
         }
-        if sent.insert(entity.id, wanted) != Some(wanted) {
+        let now = snapshot.time_ms;
+        let waited = |(set, at): &(u8, u64)| *set == wanted && now.abs_diff(*at) < ASK_AGAIN_MS;
+        if !sent.get(&entity.id).is_some_and(waited) {
+            sent.insert(entity.id, (wanted, now));
             asked.push(sim::action::Action::PickStance {
                 whom: entity.id,
                 set: pick,
@@ -1364,8 +1377,9 @@ fn off_switch() -> Result<String, String> {
 /// `wishes` over a world of one seat in a level with the made-up sets. The
 /// first seat's character stands in its row's set, and its saved pick is
 /// Obi-Wan's. Each row is a step in order: the snapshot's rules, the set
-/// the character stands in, the seat that asks, the saved pick, and the
-/// sets asked for.
+/// the character stands in, the snapshot's sim time, the seat that asks, the
+/// saved pick, and the sets asked for. The third step is a pick the host
+/// dropped, asked for again once `ASK_AGAIN_MS` passed.
 #[cfg(feature = "probes")]
 fn wishes_once() -> Result<String, String> {
     use sim::combat::saber::SaberRules::{DuelAdvanced, Ja};
@@ -1394,18 +1408,21 @@ fn wishes_once() -> Result<String, String> {
         .map(|entity| sim::row_set(DuelAdvanced, &level, &instances, entity))
         .unwrap_or(0);
     let mut sent = BTreeMap::new();
+    let late = ASK_AGAIN_MS;
     let steps = [
-        (DuelAdvanced, row, 0, true, vec![obi]),
-        (DuelAdvanced, row, 0, true, vec![]),
-        (DuelAdvanced, obi, 0, true, vec![]),
-        (DuelAdvanced, row, 0, true, vec![obi]),
-        (DuelAdvanced, obi, 1, false, vec![]),
-        (DuelAdvanced, obi, 0, false, vec![0]),
-        (Ja, row, 0, true, vec![]),
+        (DuelAdvanced, row, 0, 0, true, vec![obi]),
+        (DuelAdvanced, row, late - 1, 0, true, vec![]),
+        (DuelAdvanced, row, late, 0, true, vec![obi]),
+        (DuelAdvanced, obi, late, 0, true, vec![]),
+        (DuelAdvanced, row, late, 0, true, vec![obi]),
+        (DuelAdvanced, obi, late, 1, false, vec![]),
+        (DuelAdvanced, obi, late, 0, false, vec![0]),
+        (Ja, row, late, 0, true, vec![]),
     ];
     let mut wrong = Vec::new();
-    for (at, (rules, stands, seat, pick, wanted)) in steps.into_iter().enumerate() {
+    for (at, (rules, stands, time_ms, seat, pick, wanted)) in steps.into_iter().enumerate() {
         snapshot.saber_rules = rules;
+        snapshot.time_ms = time_ms;
         if let Some(fighter) = snapshot
             .entities
             .iter_mut()
@@ -1435,7 +1452,7 @@ fn wishes_once() -> Result<String, String> {
         row != obi && wrong.is_empty(),
         if wrong.is_empty() {
             format!(
-                "The row's set is {row} and Obi-Wan's is {obi}. A pick is sent once, again after the set changed back, never by another seat, and never under JA's rules. No pick asks for the row's set."
+                "The row's set is {row} and Obi-Wan's is {obi}. A pick is sent once, again when it was not taken in time or after the set changed back, never by another seat, and never under JA's rules. No pick asks for the row's set."
             )
         } else {
             wrong.join(" ")

@@ -243,7 +243,7 @@ fn stance_picks(
     ui: Option<ResMut<crate::ui_view::Ui>>,
     own: Option<Res<crate::sim_host::OwnSeat>>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
-    mut sent: Local<std::collections::BTreeMap<sim::SimId, u8>>,
+    mut sent: Local<std::collections::BTreeMap<sim::SimId, (u8, u64)>>,
 ) {
     let Some(snapshot) = view.history.last() else {
         return;
