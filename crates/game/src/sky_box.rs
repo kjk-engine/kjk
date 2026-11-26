@@ -1,10 +1,14 @@
 //! A Jedi Academy level's sky box (`asset_ja::sky`) kept round the camera.
 //!
-//! A model whose name ends in `asset_ja::sky::SUFFIX` is moved to the
-//! camera every frame, so its sides stay as far away whatever the camera
-//! does. Its meshes are never left out for being past the camera's far
-//! plane, which only culls: the box is larger than the level, and may be
-//! larger than that plane's distance.
+//! A model whose name ends in `asset_ja::sky::SUFFIX` is marked `SkyBox`
+//! when it is spawned (`scene`). A marked model is moved to the camera
+//! every frame, so its sides stay as far away whatever the camera does.
+//! Its meshes are never left out for being past the camera's far plane,
+//! which only culls: the box is larger than the level, and may be larger
+//! than that plane's distance.
+//!
+//! A level without a sky box has no marked model, so the frame's step
+//! looks at nothing there.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
@@ -12,6 +16,16 @@ use bevy::prelude::*;
 use crate::scene::{SceneRoot, game_to_bevy};
 
 pub struct SkyBoxPlugin;
+
+/// Marks the root of a sky box's model. `scene` adds it to a model whose
+/// name ends in `asset_ja::sky::SUFFIX`.
+#[derive(Component)]
+pub struct SkyBox;
+
+/// Whether a model of this name is a sky box.
+pub fn is_sky(model: &str) -> bool {
+    model.ends_with(asset_ja::sky::SUFFIX)
+}
 
 impl Plugin for SkyBoxPlugin {
     fn build(&self, app: &mut App) {
@@ -26,12 +40,16 @@ impl Plugin for SkyBoxPlugin {
 type Cameras<'w, 's> =
     Query<'w, 's, (&'static Camera, &'static Transform), (With<Camera3d>, Without<SceneRoot>)>;
 
+/// The roots of the sky boxes' models.
+type Skies<'w, 's> =
+    Query<'w, 's, (Entity, &'static mut Transform), (With<SkyBox>, Without<Camera3d>)>;
+
 /// Moves each sky model to the camera that draws the world, and keeps its
 /// meshes from being culled.
 fn follow_camera(
     mut commands: Commands,
     cameras: Cameras,
-    mut skies: Query<(Entity, &Name, &mut Transform), Without<Camera3d>>,
+    mut skies: Skies,
     children: Query<&Children>,
     meshes: Query<(), (With<Mesh3d>, Without<NoFrustumCulling>)>,
 ) {
@@ -43,10 +61,7 @@ fn follow_camera(
         return;
     };
     let in_game = game_to_bevy().inverse() * eye.translation;
-    for (sky, name, mut transform) in &mut skies {
-        if !name.as_str().ends_with(asset_ja::sky::SUFFIX) {
-            continue;
-        }
+    for (sky, mut transform) in &mut skies {
         if transform.translation != in_game {
             transform.translation = in_game;
         }

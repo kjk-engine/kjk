@@ -1395,6 +1395,10 @@ impl<'t> Spawner<'t> {
                 Name::new(placed.ir.name.clone()),
             ))
             .id();
+        // A sky box follows the camera (`sky_box`).
+        if crate::sky_box::is_sky(&placed.ir.name) {
+            commands.entity(model_root).insert(crate::sky_box::SkyBox);
+        }
         commands.entity(parent).add_child(model_root);
         // Spawned first and parented after: a GLA may list a bone before
         // its parent.
