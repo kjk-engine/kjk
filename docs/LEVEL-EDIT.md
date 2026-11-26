@@ -73,9 +73,12 @@ takes `--cmds`, `--headless` and `--size`, as `kjk` does (`docs/RUN.md`).
 The Play and Audit buttons start the `kjk` program that lies beside
 `kjk-level-editor`, so both are built into the same folder.
 
-A release package (`cargo xtask dist`, `docs/RELEASE.md`) holds
-`kjk-level-editor` beside `kjk`. Its `kjk` is a player's build, without the
-verbs that check and measure, except the two the editor runs:
+A release has the level editor in a package of its own,
+`kjk-level-editor-<version>-<os>-<arch>` (`cargo xtask dist
+--level-editor`, `docs/RELEASE.md`). The player's package does not hold
+the editor. The level editor's package holds `kjk-level-editor` and a
+`kjk` beside it for the editor to start. That `kjk` is a player's build,
+without the verbs that check and measure, except the two the editor runs:
 `detail-bake` for its Bake buttons and `collision audit` for its Audit
 button (the `editor_tools` feature). So the editor of a release does all
 that the editor of a build from source does, Bake, Audit and Try
@@ -409,17 +412,13 @@ lit as the game stores it. `KJK_FITTED_LIGHTS` still chooses the lighting
 when it is set.
 
 **Shadows under a bake.** The characters' shadows are not baked. They
-are drawn every frame and move with the characters. A character's shadow
-from a lamp takes out only that lamp's light, weighed against all the
-light the bake holds at that place. So under a weak lamp in a sunlit
-snowfield, a character's shadow from the lamp is faint, and the sunlight
-stays. Before, such a shadow took out 70% of all the baked light up to
-the edge of the lamp's reach, and it showed as a dark fan with a hard
-edge. A placeable does not shadow a light that stands inside it or
-within half a metre of it, such as a lamp set on a heater or on a
-crate. The bake does the same for a Jedi Academy prop and the light that
-stands on it. A placeable's box still shadows a lightsaber's or a
-blaster bolt's light.
+are drawn every frame and move with the characters, as they are under
+Enhanced Lightmaps in the games' own levels. Under a character's shadow,
+a baked room keeps between 30% and 100% of its light. The share depends
+on how much of the lamps' light the character blocks at that place. A
+placeable does not shadow a light that stands inside it. In a bake, a
+Jedi Academy prop does not shadow a light that stands on it or within
+half a metre of it, such as a lamp set on a heater or in a brazier.
 
 A kept bake does not follow the lights. A bake the editor makes notes
 what it was made from: the level's lights and lamps placed by hand, its
@@ -435,9 +434,16 @@ bake kept before this version has no note and is never marked.
   other level is lit as the game stores it. `KJK_FITTED_LIGHTS` still
   chooses the lighting when it is set, and a bake `KJK_DETAIL_BAKE` names
   is still used in place of the project's.
+- **Classic lighting shows no bake.** With the options' Lighting at
+  Classic, or with `kjk --lighting classic`, a project's bake and its
+  live lights are not shown. The level is then lit as the game stores it.
+  A bake and the live lights are made for Enhanced lighting, and under
+  Classic the rooms showed half of their light or a bake that was too
+  dark.
 - **It travels with the project.** A copy of the project's folder has
-  the bake, so a player with a release package sees it. Such a player can
-  also make a bake, because a release's `kjk` has `detail-bake`.
+  the bake, so a player with a release package sees it. A player with the
+  level editor's package can also make a bake, because that package's
+  `kjk` has `detail-bake`.
 - **It is kept at once**, not at the next save, as a bake itself is made
   at once. It is not part of undo.
 - **The editor offers it first.** The Baked view of a level whose project
