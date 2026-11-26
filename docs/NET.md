@@ -73,7 +73,12 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   as before (50 ms half-life, a snap past 64 units).
 - Installs: clients plan in parallel, commit locally, `check_after`;
   the world resumes when all loaded or after 30 s (a late loader catches
-  up). Each `Installer` keeps built areas (`session::AreaCache`).
+  up). Each `Installer` keeps built areas (`session::AreaCache`). A
+  player still building the level it joined in when an install starts
+  hands that level over first, then the install's (`provide_level`). A
+  world made from a snapshot alone, as a guest's is, takes back what the
+  snapshot tells of the scripts' state (`State::take_told`), so it
+  installs as the host's world does.
 - Ending: a disconnect goes in three packets (`HostQuit`, `Left`). A
   player whose session ends (the host quit or removed it, refused the
   world built here) goes back to the main menu, which says why
