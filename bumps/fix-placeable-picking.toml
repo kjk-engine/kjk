@@ -1,3 +1,0 @@
-# Each placeable's facts now hold the boxes round its drawn meshes, which the
-# crosshair picks it by, so every module with placeables has a new digest.
-sim = "a placeable's facts hold the boxes round its drawn meshes (`ObjectData::drawn`)"
