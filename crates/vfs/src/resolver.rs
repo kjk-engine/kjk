@@ -385,11 +385,14 @@ pub enum Origin {
     ModFile,
     /// The active level editor project's own file (`crate::project`).
     Project,
+    /// Made in memory by this run, in no file (`crate::made`): a room of a
+    /// new map built from a Jedi Academy level, or one of its textures.
+    Made,
 }
 
 impl Origin {
-    /// Whether the resource is another mod's: not the game's and not the
-    /// project's.
+    /// Whether the resource is another mod's: not the game's, not the
+    /// project's and not made by this run.
     pub fn is_mod(self) -> bool {
         matches!(self, Origin::Override | Origin::ModFile)
     }
@@ -401,7 +404,9 @@ impl Resolved<'_> {
         let own = self.layer.name == crate::project::LAYER
             || crate::project::active()
                 .is_some_and(|(_, folder)| self.location.path.starts_with(folder));
-        if own {
+        if self.layer.name == crate::made::LAYER {
+            Origin::Made
+        } else if own {
             Origin::Project
         } else if self.is_mod() {
             Origin::Override

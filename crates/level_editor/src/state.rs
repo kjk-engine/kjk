@@ -2131,14 +2131,14 @@ pub(crate) fn light_digest(state: &EditorState) -> String {
 
 /// The tag of a file that another mod brings: `override` when the game
 /// reads it from an override folder, `mod` when it reads it from the
-/// level's mod file. None for the game's own files, for the project's and
-/// for a file the edited level does not have.
+/// level's mod file. None for the game's own files, for the project's, for
+/// a room kjk made in memory and for a file the edited level does not have.
 pub(crate) fn mod_tag(state: &EditorState, name: &str, restype: ResType) -> Option<&'static str> {
     use vfs::resolver::Origin;
     match state.setup.resolver.find(name, restype)?.origin() {
         Origin::Override => Some("override"),
         Origin::ModFile => Some("mod"),
-        Origin::Game | Origin::Project => None,
+        Origin::Game | Origin::Project | Origin::Made => None,
     }
 }
 
