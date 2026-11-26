@@ -1110,7 +1110,7 @@ pub fn handshake() -> Probes {
         "handshake: a Workshop item in words",
         "a refusal names the Steam Workshop item that differs, and the items past the groups a handshake carries",
         workshop
-            == "your tsl override folder, Steam Workshop item 485537937 and later Steam Workshop items differ from the host's",
+            == "Your KOTOR 2 files do not match the host's. The override folder, Steam Workshop item 485537937 and later Steam Workshop items differ. Check that you and the host have the same game files, the same mods and the same Steam Workshop items.",
         workshop.clone(),
     );
 

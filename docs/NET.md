@@ -226,8 +226,8 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`launcher/build.rs`); `--no-default-features --features probes` builds
   without it, and so does the release (`cargo xtask dist`, docs/RELEASE.md),
   which ships no Valve code.
-- Refused players are told why: another build, "your k1 override folder
-  differs from the host's", "the host's 3 seats are all taken". The data
+- Refused players are told why: another build, "Your KOTOR files do not match
+  the host's. The override folder differs.", "the host's 3 seats are all taken". The data
   compared is each game's world groups alone
   (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
   three games, not the 34,000 files and 9 GB of the voices, sounds and
