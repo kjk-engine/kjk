@@ -794,7 +794,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             GuiVerb::Story {
                 module,
                 story,
-                size,
+                at,
                 input,
                 game,
                 out,
@@ -803,7 +803,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 &gui_catalogue::Choice {
                     module: &module,
                     story: story.as_deref(),
-                    size: size.as_deref(),
+                    size: at.as_deref(),
                     input: input.as_deref(),
                     game: game.as_deref(),
                 },
@@ -1376,9 +1376,10 @@ pub(crate) enum GuiVerb {
         /// One story, by name or slug; all by default
         story: Option<String>,
         /// One size (`deck`, `1080p`, `4k-tv`, `4k-monitor`, `4x3`,
-        /// `ultrawide`); all six by default
-        #[arg(long = "at")]
-        size: Option<String>,
+        /// `ultrawide`); all six by default. It is not called `size`, which
+        /// is the headless frame size every verb takes.
+        #[arg(long)]
+        at: Option<String>,
         /// `pad` or `mouse`; both by default
         #[arg(long)]
         input: Option<String>,

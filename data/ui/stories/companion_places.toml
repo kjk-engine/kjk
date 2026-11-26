@@ -1,3 +1,13 @@
 # The stories of the screens in crates/ui/src/screens/companion_places.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is a part that other screens draw, not a screen of its own. Their stories show it."
+notes = "It is a part that the lobby and the party selection screen draw, not a screen of its own. Its stories open those screens."
+
+[[story]]
+name = "In the lobby, every companion offered"
+screen = "lobby"
+steps = ["lobby all"]
+
+[[story]]
+name = "In the party selection, everyone available"
+screen = "party"
+steps = ["party all"]

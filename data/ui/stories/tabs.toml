@@ -1,3 +1,11 @@
 # The stories of the screens in crates/ui/src/screens/tabs.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is a part that other screens draw, not a screen of its own. Their stories show it."
+notes = "It is the in-game menu bar, which every in-game screen draws at its top. Its stories open such screens."
+
+[[story]]
+name = "Over the inventory"
+screen = "inventory"
+
+[[story]]
+name = "Over the journal"
+screen = "journal"

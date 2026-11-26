@@ -3868,7 +3868,8 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// 2026-11-26. Every module of `ui::screens` has a story file in
 /// `data/ui/stories`, and every story file is a module's. Each file reads,
 /// with a known status, and each story opens its screen on an empty
-/// view-model, or names the screen over play (`ui::catalogue::PLAY`). Each
+/// view-model or on its capture, or names the screen over play
+/// (`ui::catalogue::PLAY`). Each
 /// capture of play a story names is in `data/ui/captures`, reads, reads the
 /// same once written again, and was taken with its input: the mouse for
 /// `capture`, a pad for `pad_capture`. It needs no game data: the lines of
@@ -3903,8 +3904,19 @@ fn ui_catalogue() {
     let mut unopened = Vec::new();
     for file in &files {
         for story in &file.stories {
+            let captured = (story.capture.as_deref())
+                .and_then(|name| {
+                    ui::catalogue::read_capture(
+                        &ui::catalogue::captures(),
+                        name,
+                        &ui::catalogue::StandInTalk,
+                    )
+                    .ok()
+                })
+                .map(|capture| capture.view);
+            let view = captured.as_ref().unwrap_or(&empty);
             if story.screen != ui::catalogue::PLAY
-                && ui::screens::open(&story.screen, &empty).is_none()
+                && ui::screens::open(&story.screen, view).is_none()
             {
                 unopened.push(format!(
                     "{}: {} ({})",
