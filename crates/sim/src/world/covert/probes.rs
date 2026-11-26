@@ -970,10 +970,13 @@ enum Scene {
     /// An ordinary guard (Awareness 2, not kept busy) faces away, and the
     /// player stands behind it at `Armed::behind_m`.
     Behind,
-    /// An alert guard (Awareness 20) faces the player, who stands 1 m in
+    /// An alert guard (Awareness 40) faces the player, who stands 1 m in
     /// front of it. The guard is kept fighting the dummy, so it is neither
     /// unaware of a fight nor turned away from the player, and only
-    /// perception decides the sneak attack.
+    /// perception decides the sneak attack. A guard in combat takes the
+    /// spot check's combat penalty (`spot.in_combat`), so with Awareness 20
+    /// it failed every spot check against the sneak's held rolls. With
+    /// Awareness 40 it passes the check whatever the rolls are.
     Watched,
     /// The ordinary guard faces away, and the player stands 4 m behind it,
     /// out of a blade's reach.
@@ -986,7 +989,7 @@ impl Scene {
     fn guard(self) -> (u8, f32, bool) {
         match self {
             Scene::Behind | Scene::OutOfReach => (2, AWAY_YAW, false),
-            Scene::Watched => (20, 0.0, true),
+            Scene::Watched => (40, 0.0, true),
         }
     }
 
