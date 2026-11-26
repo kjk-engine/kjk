@@ -3868,7 +3868,11 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// 2026-11-26. Every module of `ui::screens` has a story file in
 /// `data/ui/stories`, and every story file is a module's. Each file reads,
 /// with a known status, and each story opens its screen on an empty
-/// view-model. It needs no game data.
+/// view-model, or names the screen over play (`ui::catalogue::PLAY`). Each
+/// capture of play a story names is in `data/ui/captures`, reads, reads the
+/// same once written again, and was taken with its input: the mouse for
+/// `capture`, a pad for `pad_capture`. It needs no game data: the lines of
+/// the talk table a capture names are read as stand-in words.
 #[test]
 fn ui_catalogue() {
     use std::collections::BTreeSet;
@@ -3899,7 +3903,9 @@ fn ui_catalogue() {
     let mut unopened = Vec::new();
     for file in &files {
         for story in &file.stories {
-            if ui::screens::open(&story.screen, &empty).is_none() {
+            if story.screen != ui::catalogue::PLAY
+                && ui::screens::open(&story.screen, &empty).is_none()
+            {
                 unopened.push(format!(
                     "{}: {} ({})",
                     file.module, story.name, story.screen
@@ -3911,6 +3917,37 @@ fn ui_catalogue() {
         unopened.is_empty(),
         "stories whose screen does not open: {unopened:?}"
     );
+    let mut bad_captures = Vec::new();
+    for file in &files {
+        for story in &file.stories {
+            let named = [(&story.capture, false), (&story.pad_capture, true)];
+            for (name, pad) in named
+                .into_iter()
+                .filter_map(|(name, pad)| Some((name.as_ref()?, pad)))
+            {
+                let folder = ui::catalogue::captures();
+                let talk = ui::catalogue::StandInTalk;
+                let why = match ui::catalogue::read_capture(&folder, name, &talk) {
+                    Err(why) => Some(why),
+                    Ok(capture) if capture.view.pad_playing != pad => Some(format!(
+                        "taken with the {}",
+                        if pad { "mouse" } else { "pad" }
+                    )),
+                    Ok(capture) => {
+                        let again = capture
+                            .text(&talk)
+                            .and_then(|text| ui::catalogue::Capture::read(&text, &talk));
+                        (again.as_ref() != Ok(&capture))
+                            .then(|| "reads otherwise once written".to_string())
+                    }
+                };
+                if let Some(why) = why {
+                    bad_captures.push(format!("{}: {}: {name}: {why}", file.module, story.name));
+                }
+            }
+        }
+    }
+    assert!(bad_captures.is_empty(), "captures: {bad_captures:?}");
     println!(
         "{} modules, {} stories",
         files.len(),

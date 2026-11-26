@@ -1,8 +1,24 @@
 //! What screens show, filled by the game from the presented snapshot and
-//! its settings. Screens read it and nothing else.
+//! its settings. Screens read it and nothing else. A capture of play
+//! (docs/UI.md, "UI catalogue") is a view model written as JSON.
+
+use serde::{Deserialize, Serialize};
+
+/// Words kjk keeps in its code, such as a tag of the HUD's status icons.
+/// The fields that hold them name this type rather than `&'static str`.
+/// Serde's derive sees a `'static` lifetime in a field's type and then asks
+/// that the JSON it reads lives for the whole run, which a file read at
+/// run time does not. These fields are read with readers of their own
+/// (`status_icons`, `answer_wait`).
+pub type CodeWords = &'static str;
+
+/// Character creation's class buttons, a table of the code. The type is
+/// named for the same reason as `CodeWords`, although captures skip it.
+pub type Offers = &'static [crate::screens::chargen::Offer];
 
 /// A session starting: what the loading screen says.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SessionView {
     /// What is happening ("Connecting to …", "Loading …").
     pub status: String,
@@ -15,11 +31,13 @@ pub struct SessionView {
     /// The build ("kjk v0.1.0 (ab12cd34)"), in the main menu's corner.
     pub version: String,
     /// The game whose data the screens read (none: no screens).
+    #[serde(with = "some_game")]
     pub campaign: Option<vfs::Game>,
 }
 
 /// An action a key does, and the key it is on.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct KeyRow {
     /// The settings' name (`forward`).
     pub action: String,
@@ -37,7 +55,8 @@ pub struct KeyRow {
 /// An item in an open container: a stack of what is alike (as KOTOR's
 /// containers merge them), by the container's slots it holds and how many
 /// items it is.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LootRow {
     /// The items of the stack (script object ids), and how many each is.
     pub items: Vec<u32>,
@@ -50,7 +69,8 @@ pub struct LootRow {
 }
 
 /// The container this player holds open, as the snapshot has it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LootView {
     /// Its index among the module's objects.
     pub container: u32,
@@ -63,7 +83,7 @@ pub struct LootView {
 }
 
 /// What an item is, as the inventory's and the store's filters sort it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ItemKind {
     Datapad,
     Weapon,
@@ -79,7 +99,8 @@ pub enum ItemKind {
 
 /// A thing listed by name and icon (a skill, a power, an item), with a
 /// count or rank where it has one, and its description; an item its kind.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Entry {
     pub name: Vec<u8>,
     pub icon: Option<String>,
@@ -92,7 +113,8 @@ pub struct Entry {
 /// (after its planet's name, as KOTOR 2 writes it), whether that entry ends
 /// it (a completed quest), and its planet (`planetary.2da` row, -1 for
 /// none).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct QuestView {
     pub name: Vec<u8>,
     pub description: Vec<u8>,
@@ -102,7 +124,8 @@ pub struct QuestView {
 
 /// A party member (the player's own character, or one the bar brings up),
 /// as the in-game screens show it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CharacterView {
     /// Its object id: whom the equip page dresses.
     pub id: u32,
@@ -188,7 +211,8 @@ pub struct CharacterView {
 /// The game's picks for a level: its class, the ability raised, the skill
 /// ranks added, the feats and powers (`classes.2da`, `feat.2da`, `spells.2da`
 /// rows).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AutoLevelView {
     pub class: u8,
     pub ability: Option<u8>,
@@ -202,7 +226,8 @@ pub struct AutoLevelView {
 /// (the inventory's Use Item) and may wear it; and, by weapon set, whether it may
 /// not go in that set's off hand beside what its main hand holds (the
 /// hands' pairing, `sim::inventory::pairs`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Owned {
     pub item: u32,
     pub entry: Entry,
@@ -224,7 +249,8 @@ pub struct Owned {
 
 /// A member's numbers as the equip page shows them (`CharacterView`'s
 /// `attack`, `damage`, `defence`), were an item put on in `slot`.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Preview {
     pub slot: u8,
     pub attack: [Option<i32>; 2],
@@ -233,7 +259,7 @@ pub struct Preview {
 }
 
 /// A 3D view a screen shows in a control, as KOTOR draws a model there.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SceneView {
     /// The campaign's main menu model, animated.
     MainMenu,
@@ -271,14 +297,15 @@ pub enum SceneView {
 
 /// One running effect's icon on a portrait: its `effecticon.2da` row's
 /// `iconresref` and whether the row is a good one.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EffectIcon {
     pub icon: String,
     pub good: bool,
 }
 
 /// A party member as the menu bar and the HUD show it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemberView {
     pub name: Vec<u8>,
     /// Its class's name, when known.
@@ -316,7 +343,7 @@ pub struct MemberView {
 
 /// What a player is in, as the HUD's portraits show it (R10; the sim's
 /// `Busy`): talking, trading, at a pazaak table, asking the host in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Busy {
     Talking,
     Shopping,
@@ -326,7 +353,8 @@ pub enum Busy {
 
 /// The map page: the area's name, its picture and what lies on it, each
 /// place fractions across the part of the picture the map uses and down it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MapView {
     pub area: Vec<u8>,
     /// The area's picture (`lbl_map<area>`), where the area has a map and
@@ -362,21 +390,24 @@ pub struct MapView {
 /// What the party has explored of an area's map: its cells across and
 /// down the part of the picture the map uses, row by row from the top
 /// left, explored or not.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FogView {
     pub cells: [usize; 2],
     pub explored: Vec<bool>,
 }
 
 /// A note on the map: where, and its words.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MapNoteView {
     pub at: [f32; 2],
     pub text: Vec<u8>,
 }
 
 /// A class character creation offers (a `classes.2da` row).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClassView {
     pub name: Vec<u8>,
     pub hit_die: u8,
@@ -400,7 +431,8 @@ pub struct ClassView {
 /// TSL's workbench as its player sees it (`screens::workbench`): the bench,
 /// whether upgrading may be chosen, the party's components (chemicals at
 /// the lab station), what it may make and what it may break down.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WorkbenchView {
     pub bench: crate::intent::BenchDesc,
     pub upgrade: bool,
@@ -413,7 +445,8 @@ pub struct WorkbenchView {
 /// (the table's `group`: armour, ranged, melee, lightsaber, other), its
 /// price, whether the maker's skill reaches it, the skill and the maker's
 /// total in it ("Repair: 5"), how many the party carries.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RecipeView {
     pub row: u16,
     pub entry: Entry,
@@ -426,7 +459,8 @@ pub struct RecipeView {
 
 /// An item the party carries that the workbench breaks down: its id, the
 /// item, and what it yields.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BreakdownView {
     pub item: u32,
     pub entry: Entry,
@@ -434,17 +468,20 @@ pub struct BreakdownView {
 }
 
 /// A portrait a player character may have (a `portraits.2da` row).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PortraitView {
     pub texture: String,
     pub female: bool,
 }
 
 /// What character creation chooses from.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChargenView {
     /// The class buttons (`screens::chargen::offer_of`).
-    pub offer: &'static [crate::screens::chargen::Offer],
+    #[serde(skip)]
+    pub offer: Offers,
     /// Every `classes.2da` row, by row (level-up shows any class).
     pub classes: Vec<ClassView>,
     /// "Male", "Female".
@@ -453,6 +490,7 @@ pub struct ChargenView {
     /// The eight skills' descriptions (strrefs).
     pub skill_text: [u32; 8],
     /// Random's letter tables, when the install has them.
+    #[serde(skip)]
     pub names: Option<NameTables>,
     /// The seed of creation's random draws: Random's names, and the
     /// portrait each class tile shows.
@@ -473,7 +511,8 @@ pub struct NameTables {
 
 /// An item in a trade: its object id, how it shows (its count none when
 /// it never runs out), and its price for one.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Ware {
     pub item: u32,
     pub entry: Entry,
@@ -483,7 +522,8 @@ pub struct Ware {
 /// A trade with a store (`OpenStore`): the store (its object id), what it
 /// sells at its prices, what the party may sell it at what it pays, the
 /// party's credits, and whether it sells and buys at all.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StoreView {
     pub store: u32,
     pub stock: Vec<Ware>,
@@ -494,7 +534,7 @@ pub struct StoreView {
 }
 
 /// What kind of item an upgrade bench takes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UpgradeKind {
     #[default]
     Ranged,
@@ -504,7 +544,8 @@ pub enum UpgradeKind {
 }
 
 /// An item that takes upgrades (by object id), with its slots.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UpgradeItem {
     pub id: u32,
     pub item: Entry,
@@ -520,7 +561,8 @@ pub struct UpgradeItem {
 /// An item's description in parts, as KOTOR 2's upgrade bench writes it
 /// (the item's property description): what a character needs to use it,
 /// the lines that say who may not use it, its stats, then its own text.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ItemText {
     /// What a character needs to use it, under a heading each. A line that
     /// comes with an `upgrade.2da` row counts only while that row's bit is
@@ -610,7 +652,8 @@ impl ItemText {
 /// the slot an upgrade chosen goes into while it is empty. Its name and
 /// the picture an empty slot shows are the game's own for its kind of
 /// upgrade.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UpgradeSlot {
     pub fitted: Option<(Option<u8>, UpgradePart)>,
     pub choices: Vec<UpgradeChoice>,
@@ -627,7 +670,8 @@ pub struct UpgradeSlot {
 /// own stat lines alone. `row` is its `upgrade.2da` row where fitting it
 /// sets a bit of the item (KOTOR 1's upgrades); TSL's upgrades add their
 /// own stats instead.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UpgradePart {
     pub entry: Entry,
     pub stats: Vec<Vec<u8>>,
@@ -640,7 +684,8 @@ pub struct UpgradePart {
 /// An upgrade the party carries that a slot lists: its object id, how it
 /// shows, and whether the item takes it (TSL's bench lists one of an
 /// upgrade level above the item's, greyed).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UpgradeChoice {
     pub id: u32,
     pub part: UpgradePart,
@@ -649,7 +694,8 @@ pub struct UpgradeChoice {
 
 /// A level to take (`ShowLevelUpGUI`): who takes it (its object id), the
 /// class (a `classes.2da` row) and the level reached.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LevelUpView {
     pub who: u32,
     pub class: u8,
@@ -668,7 +714,8 @@ pub struct LevelUpView {
 /// What a level may pick: the feats and powers it may (by `feat.2da` and
 /// `spells.2da` row, recommended first, as the pages show them) and how
 /// many of each.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PicksView {
     pub feats: Vec<(u16, Entry)>,
     pub feat_count: u8,
@@ -696,14 +743,16 @@ pub struct PicksView {
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a
 /// pad plays, its buttons drawn (`icons`) in their place.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct KeyLabel {
     pub words: Vec<u8>,
     pub badge: Option<String>,
 }
 
 /// One thing the power wheel offers, or one item in its arc.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WheelEntry {
     /// The icon of the power, the item or the mode.
     pub icon: String,
@@ -732,7 +781,8 @@ pub struct WheelEntry {
 
 /// The power wheel, drawn while the player holds its key
 /// (`screens::wheel`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WheelView {
     /// Everything the wheel offers, in its order.
     pub entries: Vec<WheelEntry>,
@@ -756,7 +806,8 @@ pub struct WheelView {
 }
 
 /// An action bar slot as the HUD draws it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BarSlot {
     /// The icon of what the slot holds. An empty slot has none, and the HUD
     /// draws only its frame and its key.
@@ -786,7 +837,8 @@ pub struct BarSlot {
 
 /// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
 /// one party member and everything that member can put on it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BarSetupView {
     /// The party member whose bar the screen shows.
     pub who: u32,
@@ -809,7 +861,8 @@ pub struct BarSetupView {
 }
 
 /// What KOTOR's HUD shows of the player in play.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct HudView {
     /// Current and most.
     pub hp: (i32, i32),
@@ -825,7 +878,8 @@ pub struct HudView {
     pub bar_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
-    pub lit: Vec<&'static str>,
+    #[serde(with = "status_icons")]
+    pub lit: Vec<CodeWords>,
     /// The character is in stealth mode (KOTOR's stealth toggle lit).
     pub stealth: bool,
     /// The party is in solo mode (KOTOR's solo toggle lit): the companions
@@ -861,14 +915,16 @@ impl HudView {
 
 /// A fighter's one duel bar, which a player reads as Stamina: how much of
 /// its block points are left.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DuelBars {
     pub points: Bar,
 }
 
 /// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
 /// flashes off.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Bar {
     pub share: f32,
     pub color: [f32; 4],
@@ -877,7 +933,8 @@ pub struct Bar {
 /// The health bar and the Stamina bar over an enemy's head
 /// (`screens::floaty::bars`): the point over it, as shares of the window
 /// across and down, and how faded with distance (1 near, 0 gone).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct OverheadView {
     pub over: [f32; 2],
     pub alpha: f32,
@@ -891,7 +948,8 @@ pub struct OverheadView {
 /// how far the arrow turns from pointing up (radians, clockwise), the
 /// share of the picture's width the map uses, and what of it the party
 /// has explored.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MinimapView {
     pub picture: String,
     pub at: [f32; 2],
@@ -907,7 +965,8 @@ pub struct MinimapView {
 /// `progress` (0 to 1) while a revive is under way, of the downed member
 /// targeted or, on the downed player's own screen, of itself, its
 /// reviver named (I30 P11).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TargetView {
     pub name: Vec<u8>,
     /// A foe: its name and vitality drawn red.
@@ -934,14 +993,16 @@ pub struct TargetView {
 /// any other object. `at` is in shares of the window across and down, and
 /// may lie outside 0 to 1. A point behind the camera is projected through
 /// it, so its `at` comes out mirrored, and `behind` says so.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TargetPoint {
     pub at: [f32; 2],
     pub behind: bool,
 }
 
 /// One thing that may be done to a target: its icon and its words.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TargetAction {
     pub icon: String,
     pub label: Vec<u8>,
@@ -951,7 +1012,8 @@ pub struct TargetAction {
 /// screen shows it: the line, the replies offered (none while the line's
 /// one reply is silent), and the player's Computer Use and Repair ranks
 /// with the spikes and parts the party carries.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ComputerView {
     pub message: Vec<u8>,
     pub replies: Vec<Vec<u8>>,
@@ -969,7 +1031,8 @@ pub struct ComputerView {
 /// the name it was given, whose game it is when it is a copy of a host's
 /// save (shown beside the name, never part of it), the area's name and
 /// module, and when it was saved, as shown.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SaveView {
     pub id: String,
     pub name: String,
@@ -981,7 +1044,8 @@ pub struct SaveView {
 
 /// The whole party down (I30 P13): whether this player hosts, whose Load
 /// loads the latest save for everyone.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LostView {
     pub host: bool,
 }
@@ -990,7 +1054,8 @@ pub struct LostView {
 /// available): its button's tag (`guitag`), name, description and model,
 /// the picture its button shows (`icon`), and whether the party may travel
 /// there.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlanetView {
     pub row: u8,
     pub tag: String,
@@ -1005,7 +1070,8 @@ pub struct PlanetView {
 /// the one it opened on (where the party is, if the script knew), and
 /// whether this player
 /// decides where it goes (the host, I30 P6).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GalaxyView {
     pub planets: Vec<PlanetView>,
     /// Every `planetary.2da` row's button tag (`guitag`), available or not.
@@ -1019,7 +1085,8 @@ pub struct GalaxyView {
 /// The co-op lobby as the lobby screen shows it, made by the game from the
 /// host's lobby state. Game text (names, classes, the area) is in the
 /// game's code page. Player names are shown as their games sent them.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LobbyView {
     /// This player hosts the lobby.
     pub host: bool,
@@ -1048,10 +1115,12 @@ pub struct LobbyView {
 
 /// The save a lobby is about to play: its name, area and game, when it was
 /// saved (a date), and the party's names, the main character's first.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LobbySaveView {
     pub name: Vec<u8>,
     pub area: Vec<u8>,
+    #[serde(with = "some_game")]
     pub game: Option<vfs::Game>,
     pub saved: String,
     pub party: Vec<Vec<u8>>,
@@ -1059,7 +1128,8 @@ pub struct LobbySaveView {
 
 /// The story's character, first in the lobby's Companions row: its name
 /// (game text), its portrait, and the slot and name of its player.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LobbyHeroView {
     pub name: Vec<u8>,
     pub portrait: Option<String>,
@@ -1068,7 +1138,8 @@ pub struct LobbyHeroView {
 }
 
 /// A recruited companion in the lobby's Companions row.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LobbyCompanionView {
     pub npc: u8,
     pub name: Vec<u8>,
@@ -1077,7 +1148,7 @@ pub struct LobbyCompanionView {
 }
 
 /// Who has a companion in the lobby.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LobbyCompanionState {
     /// No player has the companion, and it is not in the party.
     #[default]
@@ -1093,7 +1164,8 @@ pub enum LobbyCompanionState {
 /// A player slot in the lobby: the player's name, the character they play
 /// (its name, class and level, and portrait), their state, and their
 /// connection's delay (guests only).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LobbySlotView {
     pub player: String,
     pub character: Vec<u8>,
@@ -1105,7 +1177,7 @@ pub struct LobbySlotView {
 }
 
 /// A lobby slot's state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LobbySlotState {
     Host,
     #[default]
@@ -1118,7 +1190,8 @@ pub enum LobbySlotState {
 /// A companion the party selection screen offers: its portrait
 /// (`portraits.2da`'s, by its template's `PortraitId`), its name, and
 /// whether the player may pick it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompanionView {
     pub portrait: Option<String>,
     /// Its `appearance.2da` row and what it wears on its body (an item
@@ -1139,7 +1212,8 @@ pub struct CompanionView {
 /// any, else the party), those the screen's script puts in whatever is
 /// picked, whether a script showed it, whether the player may back out of
 /// it, and whether the screen may change the party.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PartySelectionView {
     /// The companion slots the campaign has (its own layout's).
     pub slots: usize,
@@ -1155,7 +1229,7 @@ pub struct PartySelectionView {
 /// always may; the one a player opened in play may (KOTOR 2), shows the
 /// table only (KOTOR 1, or a co-op guest), or is refused for a reason the
 /// player is told in a message box (its talk-table line).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PartyChange {
     #[default]
     May,
@@ -1164,7 +1238,8 @@ pub enum PartyChange {
 }
 
 /// A bark as the bubble shows it (`launcher::bark_view`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BarkView {
     /// The words, in the game's code page.
     pub text: Vec<u8>,
@@ -1175,7 +1250,8 @@ pub struct BarkView {
 
 /// The combat arena's panel (`screens::arena_panel`): its title and a row
 /// per key, in the game's code page.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ArenaPanelView {
     pub title: Vec<u8>,
     pub rows: Vec<ArenaRow>,
@@ -1183,7 +1259,8 @@ pub struct ArenaPanelView {
 
 /// A key of the arena's panel: the key, what it does, and its state (empty
 /// for none), bright when `on`.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ArenaRow {
     pub key: Vec<u8>,
     pub words: Vec<u8>,
@@ -1193,7 +1270,8 @@ pub struct ArenaRow {
 
 /// Words floating over a creature's head (`screens::floaty`,
 /// `launcher::floaty_view`): a kill's XP over its dead.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FloatyView {
     /// The words, in the game's code page.
     pub text: Vec<u8>,
@@ -1211,7 +1289,8 @@ pub struct FloatyView {
 /// (`screens::status_summary`): its rows that apply, each the layout's
 /// row (`Row`) with its words in the game's code page ("Experience Points
 /// (XP) Received: 200"), in the layout's order.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SummaryView {
     pub rows: Vec<(crate::screens::status_summary::Row, Vec<u8>)>,
     /// How far it has faded in (0 not yet shown, 1 fully shown) and how
@@ -1232,7 +1311,8 @@ pub struct SummaryView {
 
 /// A cinematic conversation as its screen shows it (`screens::dialog`,
 /// `launcher::dialogue_view`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DialogView {
     /// The line said, in the game's code page.
     pub said: Vec<u8>,
@@ -1260,17 +1340,20 @@ pub struct DialogView {
 /// came, and the keys that accept and end the first, or why those keys
 /// wait (a ready check up, whose ready key is the accept key by default;
 /// the host down), shown in their place.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RequestsView {
     pub asks: Vec<(Vec<u8>, Vec<u8>)>,
     pub accept: Vec<u8>,
     pub end: Vec<u8>,
-    pub waiting: Option<&'static str>,
+    #[serde(with = "answer_wait")]
+    pub waiting: Option<CodeWords>,
 }
 
 /// A break and a ready check as this player's screens show them
 /// (`launcher::party_calls`).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CallsView {
     /// The line over everything: "Paused by player 2", or the ready check's
     /// prompt; none for neither.
@@ -1280,7 +1363,7 @@ pub struct CallsView {
 }
 
 /// The in-game menu's break button (KOTOR's autopause button).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BreakButton {
     #[default]
     Break,
@@ -1294,7 +1377,8 @@ pub enum BreakButton {
 /// art (a texture); a hand card whose sign is the player's choice has its
 /// face for each choice, by `minus | two << 1` (TSL's ±1/2 alone takes
 /// `two`), and its art turned negative.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PazaakCard {
     pub face: String,
     pub art: String,
@@ -1306,7 +1390,8 @@ pub struct PazaakCard {
 /// One side of the pazaak table: its cards in play, its hand by slot (the
 /// opponent's face down: art only), its total, the sets it won, whether it
 /// stands.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PazaakSide {
     pub table: Vec<PazaakCard>,
     pub hand: [Option<PazaakCard>; 4],
@@ -1316,7 +1401,7 @@ pub struct PazaakSide {
 }
 
 /// Which of pazaak's three screens a match is at.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PazaakStage {
     #[default]
     Wager,
@@ -1326,7 +1411,8 @@ pub enum PazaakStage {
 
 /// A card the side deck may be chosen from: its number (the item's
 /// `ModelVariation`), how many the party has, and how it shows.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PazaakOffer {
     pub card: u8,
     pub count: u8,
@@ -1339,7 +1425,8 @@ pub struct PazaakOffer {
 /// (the watcher sees the table throughout: a wager or a side deck being
 /// chosen is told in words), and why the match is paused, if it is (R39:
 /// told in words too, the table kept).
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PazaakWatch {
     pub name: Vec<u8>,
     pub leave_key: Vec<u8>,
@@ -1349,7 +1436,7 @@ pub struct PazaakWatch {
 
 /// Why a watched match is paused (R39, `sim::pazaak::Match`): its player's
 /// seat dropped (`away`), or its player was hurt and is still in a fight.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PazaakHeld {
     Away,
     Hurt,
@@ -1358,7 +1445,7 @@ pub enum PazaakHeld {
 /// A set's or the match's result over the table: its player's talk-table
 /// line ("You have won the set."), or a watcher's words ("Carth won the
 /// set.").
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PazaakTold {
     Line(u32),
     Said(Vec<u8>),
@@ -1369,7 +1456,8 @@ pub enum PazaakTold {
 /// cards offered, the two sides (the player's first), whose turn, the set's
 /// or match's result shown, and the art of a set won
 /// and of the backs of cards.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PazaakView {
     pub stage: PazaakStage,
     pub watching: Option<PazaakWatch>,
@@ -1396,7 +1484,8 @@ impl PazaakView {
 /// (`window`, `borderless` or `fullscreen`), its size in the screen's
 /// pixels (`1920x1080`; none for borderless, the screen's own), how the
 /// list says it, and whether the window is shown so now.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct DisplayChoice {
     pub mode: String,
     pub size: String,
@@ -1408,7 +1497,8 @@ pub struct DisplayChoice {
 /// `ViewModel::session_rules` holds it (`SaberRules::name`).
 pub const DUEL_RULES: &str = "advanced";
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ViewModel {
     /// The party member the in-game pages show (`viewed`'s).
     pub character: Option<CharacterView>,
@@ -1474,6 +1564,7 @@ pub struct ViewModel {
     pub new_game: SaveView,
     /// The campaigns a new game may begin: the games installed, K1's first
     /// (both: the menu asks which, `screens::campaign`).
+    #[serde(with = "games")]
     pub campaigns: Vec<vfs::Game>,
     /// In play, what a save made now would be (its name the area's, no id
     /// or time yet); none where this player cannot save (a guest).
@@ -1570,7 +1661,7 @@ pub struct ViewModel {
 /// A blaster's crosshair as play shows it: the gun's shape, the spread the
 /// next shot may stray by and the camera's vertical field of view (both
 /// degrees), from which the reticle's gap is drawn (`hud::gap_px`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ReticleView {
     pub family: crate::screens::hud::Family,
     pub cone: f32,
@@ -1579,7 +1670,7 @@ pub struct ReticleView {
 
 /// A side of an enemy as the player sees it: the side a swing comes from,
 /// or the side of the enemy that the crosshair is on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Side {
     Left,
     Right,
@@ -1587,7 +1678,7 @@ pub enum Side {
 }
 
 /// The swing of the threat, the enemy whose blow will arrive first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Swing {
     /// The swing comes from this side.
     Side(Side),
@@ -1597,7 +1688,8 @@ pub enum Swing {
 
 /// What the HUD draws around the centre of the screen while the player
 /// blocks with targeted blocks on (`screens::hud::block_arcs`).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BlockReticleView {
     /// The direction of the player's last camera turn, in degrees clockwise
     /// from straight up, from 0 up to 360. A turn up is 0, to the right 90,
@@ -1616,4 +1708,91 @@ pub struct BlockReticleView {
     /// in the knockaway after a perfect block. The swing arcs are drawn dim,
     /// with no red or green verdict.
     pub unguarded: bool,
+}
+
+/// The HUD's status icons (`HudView::lit`) as their tags, read back as the
+/// HUD's own tags (`screens::hud::STATUS`).
+mod status_icons {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(words: &[&'static str], to: S) -> Result<S::Ok, S::Error> {
+        words.serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Vec<&'static str>, D::Error> {
+        let words = Vec::<String>::deserialize(from)?;
+        (words.iter())
+            .map(|word| {
+                (crate::screens::hud::STATUS.into_iter())
+                    .find(|known| known == word)
+                    .ok_or_else(|| {
+                        serde::de::Error::custom(format!("{word}: not a status icon of the HUD"))
+                    })
+            })
+            .collect()
+    }
+}
+
+/// Why a host's answer waits (`RequestsView::waiting`) as its words, read
+/// back as kjk's own words (`strings::ANSWER_AFTER_READY` and the others).
+mod answer_wait {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    const KNOWN: [&str; 4] = [
+        crate::strings::ANSWER_AFTER_READY,
+        crate::strings::ANSWER_WHEN_UP,
+        crate::strings::ANSWER_AFTER_COMBAT,
+        crate::strings::ANSWER_AFTER_TALK,
+    ];
+
+    pub fn serialize<S: Serializer>(word: &Option<&'static str>, to: S) -> Result<S::Ok, S::Error> {
+        word.serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Option<&'static str>, D::Error> {
+        let Some(word) = Option::<String>::deserialize(from)? else {
+            return Ok(None);
+        };
+        (KNOWN.into_iter())
+            .find(|known| *known == word)
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom(format!("{word:?}: not why an answer waits")))
+    }
+}
+
+/// A game as its key (`k1`, `tsl`, `vfs::Game::key`).
+mod some_game {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(game: &Option<vfs::Game>, to: S) -> Result<S::Ok, S::Error> {
+        game.map(vfs::Game::key).serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Option<vfs::Game>, D::Error> {
+        Option::<String>::deserialize(from)?
+            .map(|key| super::games::game(&key))
+            .transpose()
+    }
+}
+
+/// Games as their keys (`k1`, `tsl`, `vfs::Game::key`).
+mod games {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn game<E: serde::de::Error>(key: &str) -> Result<vfs::Game, E> {
+        vfs::Game::from_key(key).ok_or_else(|| E::custom(format!("{key}: not a game's key")))
+    }
+
+    pub fn serialize<S: Serializer>(games: &[vfs::Game], to: S) -> Result<S::Ok, S::Error> {
+        let keys: Vec<&str> = games.iter().map(|game| game.key()).collect();
+        keys.serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Vec<vfs::Game>, D::Error> {
+        (Vec::<String>::deserialize(from)?.iter())
+            .map(|key| game(key))
+            .collect()
+    }
 }

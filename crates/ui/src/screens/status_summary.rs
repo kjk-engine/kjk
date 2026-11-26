@@ -30,7 +30,7 @@ pub const OK: &str = "BTN_OK";
 
 /// A row of the summary: its icon's and words' controls in the layout,
 /// and the HUD's status icon that is lit with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Row {
     Journal,
     Credits,

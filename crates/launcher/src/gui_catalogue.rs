@@ -35,6 +35,8 @@ pub fn list(json: bool) -> ExitCode {
                                 "slug": slug(&story.name),
                                 "screen": story.screen,
                                 "games": story.games,
+                                "capture": story.capture,
+                                "pad_capture": story.pad_capture,
                             })
                         })
                         .collect();
@@ -76,6 +78,11 @@ pub fn show(module: &str) -> ExitCode {
             }
             if let Some(error) = &story.error {
                 outln!("    error: {error}");
+            }
+            for (input, capture) in [("mouse", &story.capture), ("pad", &story.pad_capture)] {
+                if let Some(capture) = capture {
+                    outln!("    capture for the {input}: {capture}");
+                }
             }
         }
         Ok(())
@@ -123,15 +130,21 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
                     continue;
                 }
                 let key = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
+
                 for size in &sizes {
                     for input in &inputs {
+                        let Some(capture) = story.capture_for(*input) else {
+                            outln!("{}: no capture for the pad, drawn with the mouse alone", story.name);
+                            continue;
+                        };
+
                         let mut steps = input.steps(*size);
                         steps.extend(story.steps.iter().cloned());
                         let path = drawn_path(&out, (game, &file.module, &story.name), *size, *input);
                         crate::gui_verbs::render_screen(
                             discovery,
                             (key, &story.screen),
-                            (&steps, story.error.clone()),
+                            (&steps, story.error.clone(), capture),
                             (size.pixels, size.factor),
                             &path,
                         )?;

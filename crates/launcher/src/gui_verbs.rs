@@ -104,7 +104,7 @@ pub fn screen(
         .and_then(|game| {
             let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
             let path = output(game, out)?.join(file);
-            render_screen(discovery, (game, name), (steps, error), (size, 1.0), &path)
+            render_screen(discovery, (game, name), (steps, error, None), (size, 1.0), &path)
         });
     match result {
         Ok(path) => {
@@ -120,66 +120,60 @@ pub fn screen(
 
 /// The screen `name` of `game` drawn as `screen` draws it, at `size`
 /// physical pixels with `factor` of them to each logical pixel, into the
-/// PNG at `path` with its control tree next to it.
+/// PNG at `path` with its control tree next to it. With `capture`, the
+/// screen shows the capture of play of that name.
 pub(crate) fn render_screen(
     discovery: &Discovery,
     (game, name): (Game, &str),
-    (steps, error): (&[String], Option<String>),
+    (steps, error, capture): (&[String], Option<String>, Option<&str>),
     (size, factor): ((u32, u32), f32),
     path: &Path,
 ) -> Result<PathBuf, String> {
-    {
-        let kjk_game::story_stage::Staged {
-            mut assets,
-            vm,
-            mut stack,
-            quiet,
-            ..
-        } = kjk_game::story_stage::stage(discovery, (game, name), (steps, error), (size, factor))?;
-        let frame = stack.step(&mut assets, &vm, &quiet);
-        for why in &frame.refusals {
-            outln!("refused: {why}");
-        }
-        let mut image = vec![0u8; (size.0 * size.1 * 4) as usize];
-        for layer in &frame.layers {
-            let drawn = raster(layer, &|id| assets.pixels(id), size.0, size.1, [0, 0, 0, 0]);
-            over(&mut image, &drawn);
-        }
-        if let Some(folder) = path.parent() {
-            std::fs::create_dir_all(folder)
-                .map_err(|error| format!("{}: {error}", folder.display()))?;
-        }
-        save(path, &image, size.0, size.1)?;
-        let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
-        let layouts: Vec<String> = stack.layouts().map(str::to_string).collect();
-        let links = stack.focus_links(&vm);
-        let focus = stack.focused().map(str::to_string);
-        let back = back(&mut stack, &mut assets, &vm, &quiet);
-        let layers: Vec<crate::gui_tree::Layer<'_>> = (screens.iter().zip(&layouts))
-            .zip(&frame.layers)
-            .map(|((screen, layout), list)| crate::gui_tree::Layer {
-                screen,
-                layout,
-                list,
-            })
-            .collect();
-        let shown = serde_json::json!({
-            "game": game.key(),
-            "screen": name,
-            "steps": steps,
-            "scale_factor": factor,
-        });
-        let tree = crate::gui_tree::tree(
-            &assets,
-            shown,
-            &layers,
-            size,
-            (&links, focus.as_deref()),
-            back,
-        );
-        write_tree(path, &tree)?;
-        Ok(path.to_path_buf())
+    let mut staged = kjk_game::story_stage::stage(
+        discovery,
+        (game, name),
+        (steps, error, capture),
+        (size, factor),
+    )?;
+    let shown_layers = staged.frame();
+    let kjk_game::story_stage::Staged {
+        assets,
+        vm,
+        stack,
+        quiet,
+        ..
+    } = &mut staged;
+    let mut image = vec![0u8; (size.0 * size.1 * 4) as usize];
+    for layer in &shown_layers {
+        let drawn = raster(&layer.list, &|id| assets.pixels(id), size.0, size.1, [0, 0, 0, 0]);
+        over(&mut image, &drawn);
     }
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    }
+    save(path, &image, size.0, size.1)?;
+    let links = stack.focus_links(vm);
+    let focus = stack.focused().map(str::to_string);
+    let back = back(stack, assets, vm, quiet);
+    let layers: Vec<crate::gui_tree::Layer<'_>> = (shown_layers.iter())
+        .map(|layer| crate::gui_tree::Layer {
+            screen: &layer.screen,
+            layout: &layer.layout,
+            list: &layer.list,
+        })
+        .collect();
+    let mut shown = serde_json::json!({
+        "game": game.key(),
+        "screen": name,
+        "steps": steps,
+        "scale_factor": factor,
+    });
+    if let Some(capture) = capture {
+        shown["capture"] = capture.into();
+    }
+    let tree = crate::gui_tree::tree(assets, shown, &layers, size, (&links, focus.as_deref()), back);
+    write_tree(path, &tree)?;
+    Ok(path.to_path_buf())
 }
 
 /// What Back does on the top screen of `stack`: the screens open after

@@ -177,7 +177,7 @@ fn level_up_control(tag: &str) -> Option<(usize, bool)> {
 }
 
 /// The status icons, each shown while lit (`HudView::lit`).
-const STATUS: [&str; 8] = [
+pub const STATUS: [&str; 8] = [
     "LBL_JOURNAL",
     "LBL_CASH",
     "LBL_PLOTXP",
@@ -766,7 +766,7 @@ pub fn dot_at(middle: [f32; 2], tall: f32, radius: f32, pixel: f32, tint: [f32; 
 
 /// The shape of a blaster's crosshair: it tells the kind of gun apart, and
 /// its gap is the spread the next shot may stray by (`gap_px`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Family {
     /// A dot and four bars: pistols and rifles.
     Cross,
@@ -1074,7 +1074,7 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
 /// What a blaster shot the player landed did, as the mark flashed about
 /// the crosshair shows it: the colour tells a hit from a strong one, a
 /// kill adds red ticks, a bolt a blade turned a grey mark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mark {
     Turned,
     Hit,

@@ -114,7 +114,7 @@ pub struct ItemLook {
 /// A line of an item's stats, and the `upgrade.2da` row it comes with:
 /// none, always in force; else only with that upgrade fitted (KOTOR's
 /// lightsabers and upgradable gear list every crystal's and part's).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Stat {
     pub upgrade: Option<u8>,
     pub line: Vec<u8>,
@@ -124,7 +124,7 @@ pub struct Stat {
 /// line for each thing it requires. A line that comes from a property with
 /// an `upgrade.2da` row counts only while that upgrade is fitted, as a
 /// stat does.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Requirements {
     pub heading: Vec<u8>,
     pub lines: Vec<Stat>,
@@ -184,7 +184,7 @@ fn requirement_name(name: Vec<u8>) -> Vec<u8> {
 /// roll that threatens a critical hit, "-20", and the multiplier
 /// ("19-20,x2"). The damage that Massive Criticals adds to a critical hit
 /// follows as "+min-max".
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Critical {
     pub heading: Vec<u8>,
     /// The base item's `critthreat`: how many of the highest rolls threaten.
@@ -194,7 +194,7 @@ pub struct Critical {
 
 /// A Keen property (`massive` none) or a Massive Criticals property (the
 /// least and most damage it adds), and the `upgrade.2da` row it comes with.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Edge {
     pub upgrade: Option<u8>,
     pub massive: Option<(i64, i64)>,
@@ -741,6 +741,11 @@ impl GuiAssets {
     }
 
     /// The campaign's files (its module's own first, once one is set).
+    /// The campaign's talk table, when it reads.
+    pub fn talk(&self) -> Option<&Tlk> {
+        self.tlk.as_deref()
+    }
+
     pub fn resolver(&self) -> &Resolver {
         &self.resolver
     }

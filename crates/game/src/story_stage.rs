@@ -1,9 +1,10 @@
-//! A screen opened on stand-in data and taken through a story's steps
-//! (`kjk gui screen --step`, docs/UI.md, "UI catalogue"). The shell's
-//! catalogue verbs draw what this stages, and the in-game catalogue will
-//! show it.
+//! A screen opened on stand-in data, or on a capture of play, and taken
+//! through a story's steps (`kjk gui screen --step`, docs/UI.md, "UI
+//! catalogue"). The shell's catalogue verbs draw what this stages, and the
+//! in-game catalogue will show it.
 
 use ui::assets::GuiAssets;
+use ui::draw::DrawList;
 use vfs::{Discovery, Game};
 
 /// A screen as a story left it: the stack it is open in, the view model
@@ -17,20 +18,36 @@ pub struct Staged {
     pub quiet: ui::input::UiInput,
     /// Where the pointer is: the window's middle until `point` moves it.
     pointer: [f32; 2],
+    /// What is drawn over play, for the story screen `play`
+    /// (`ui::catalogue::PLAY`).
+    pub hud: Option<ui::hud_layer::Hud>,
+}
+
+/// One layer of a staged frame: the screen module that drew it, the layout
+/// it drew, and what it drew.
+pub struct Shown {
+    pub screen: String,
+    pub layout: String,
+    pub list: DrawList,
 }
 
 /// The screen `name` of `game` opened as play opens it, in a window of
 /// `size` physical pixels with `factor` of them to each logical pixel, and
-/// `steps` taken in turn. The view model is what the game fills for the
-/// screen (character creation's choices, the session's `error` for
-/// `message`).
+/// `steps` taken in turn. The view model is that of the capture named
+/// `capture` (`data/ui/captures`), or else what the game fills for the screen (character creation's choices, the session's
+/// `error` for `message`).
 pub fn stage(
     discovery: &Discovery,
     (game, name): (Game, &str),
-    (steps, error): (&[String], Option<String>),
+    (steps, error, capture): (&[String], Option<String>, Option<&str>),
     (size, factor): ((u32, u32), f32),
 ) -> Result<Staged, String> {
-    let mut staged = Staged::open(discovery, (game, name), (steps, error), (size, factor))?;
+    let mut staged = Staged::open(
+        discovery,
+        (game, name),
+        (steps, error, capture),
+        (size, factor),
+    )?;
     for step in steps {
         staged.step(discovery, step)?;
     }
@@ -43,7 +60,7 @@ impl Staged {
     pub fn open(
         discovery: &Discovery,
         (game, name): (Game, &str),
-        (steps, error): (&[String], Option<String>),
+        (steps, error, capture): (&[String], Option<String>, Option<&str>),
         (size, factor): ((u32, u32), f32),
     ) -> Result<Staged, String> {
         // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
@@ -51,63 +68,20 @@ impl Staged {
         let install = crate::installs::open(discovery, game)?;
         let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
         let mut assets = crate::runtime::skinned(assets, discovery)?;
-        // The settings as play shows them (`KJK_SETTINGS` names another).
-        let movie_duels = discovery
-            .get(Game::JediAcademy)
-            .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found);
-        let mut vm = ui::vm::ViewModel {
-            settings: crate::settings::Settings::load().values_shown(),
-            movie_duels: movie_duels == vfs::MovieDuels::Installed,
-            movie_duels_incomplete: matches!(movie_duels, vfs::MovieDuels::Incomplete { .. }),
-            ..ui::vm::ViewModel::default()
-        };
-        vm.session.error = error;
-        (vm.keys, vm.pad_keys) = crate::key_rows();
-        padded(&mut vm, crate::pad::PadKind::Xbox);
-        if matches!(name.split(':').next(), Some("chargen" | "levelup")) {
-            vm.chargen = Some(crate::character::chargen(&mut assets));
-        }
-        if matches!(name, "workbench" | "chemical") {
-            vm.workbench = Some(stand_in_bench(&mut assets, name == "chemical"));
-        }
-        if name == "character" {
-            vm.character = Some(stand_in_member());
-            let folders = crate::stance_sets::offered_folders(discovery).unwrap_or_else(|why| {
-                outln!("no stance sets offered: {why}");
-                Vec::new()
-            });
-            vm.stances = folders
-                .into_iter()
-                .map(|folder| {
-                    let title = crate::stance_sets::title(&folder);
-                    (folder, title)
-                })
-                .collect();
-        }
-        if name == "lobby" {
-            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0, false));
-        }
-        if name == "party" {
-            vm.party_selection = Some(stand_in_party(&mut assets, game, false));
-        }
-        if name == "pazaak_game" {
-            vm.pazaak = Some(stand_in_pazaak());
-        }
-        // The in-game menu of a game played alone, with a party of three,
-        // where the player may save and load.
-        if ui::screens::tabs::under_tabs(name) {
-            vm.here = Some(ui::vm::SaveView::default());
-            vm.load_in_play = true;
-            vm.party = vec![ui::vm::MemberView::default(); 3];
-        }
-        for step in steps {
-            if let Some(("level", level)) = step.split_once(' ') {
-                stand_in_level(&mut vm, &mut assets, level)?;
+        let vm = match capture {
+            Some(name) => {
+                let tlk = assets
+                    .talk()
+                    .ok_or("no talk table to read a capture's words from")?;
+                let talk = ui::catalogue::TalkTable::new(tlk);
+                ui::catalogue::read_capture(&ui::catalogue::captures(), name, &talk)?.view
             }
-        }
+            None => stand_ins(discovery, (game, name), (steps, error), &mut assets)?,
+        };
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         stack.marked = true;
-        if !stack.open(name, &vm) {
+        let play = name == ui::catalogue::PLAY;
+        if !play && !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
         }
         let window = (size.0 as f32 / factor, size.1 as f32 / factor);
@@ -125,7 +99,47 @@ impl Staged {
             stack,
             quiet,
             pointer: [window.0 / 2.0, window.1 / 2.0],
+            hud: play.then(ui::hud_layer::Hud::default),
         })
+    }
+
+    /// The frame as it stands, bottom layer first: what is drawn over play,
+    /// then the screens of the stack. What a screen refused to draw is
+    /// printed.
+    pub fn frame(&mut self) -> Vec<Shown> {
+        let frame = self.stack.step(&mut self.assets, &self.vm, &self.quiet);
+        for why in &frame.refusals {
+            outln!("refused: {why}");
+        }
+        let mut shown = Vec::new();
+        if let Some(hud) = self.hud.as_mut() {
+            let mut drawing = ui::hud_layer::Frame {
+                assets: &mut self.assets,
+                vm: &self.vm,
+                palette: self.stack.palette,
+                pulse: self.stack.pulsing(),
+                scale_factor: self.quiet.scale_factor,
+                settings: 0,
+                marked: self.stack.marked,
+            };
+            for (screen, list) in hud.still(&mut drawing, self.quiet.window) {
+                shown.push(Shown {
+                    screen: screen.to_string(),
+                    layout: ui::screens::hud::LAYOUT.to_string(),
+                    list,
+                });
+            }
+        }
+        let screens = self.stack.screens().map(|id| id.0.to_string());
+        let layouts = self.stack.layouts().map(str::to_string);
+        for ((screen, layout), list) in screens.zip(layouts).zip(frame.layers) {
+            shown.push(Shown {
+                screen,
+                layout,
+                list,
+            });
+        }
+        shown
     }
 
     /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `key MOVE` a
@@ -141,6 +155,7 @@ impl Staged {
             stack,
             quiet,
             pointer,
+            ..
         } = self;
         let (game, quiet) = (*game, &*quiet);
         match step.split_once(' ') {
@@ -213,6 +228,7 @@ impl Staged {
                 });
                 stack.step(assets, vm, quiet);
             }
+            Some(("wheel", what)) => wheel_step(vm, what)?,
             Some(("level", _)) => {}
             Some(("stands", folder)) => {
                 if let Some(me) = vm.character.as_mut() {
@@ -230,6 +246,7 @@ impl Staged {
             Some(("pad", kind)) => {
                 let kind = crate::pad::PadKind::named(kind)
                     .ok_or(format!("{kind}: xbox, playstation, nintendo or deck"))?;
+                repad(vm, kind.key())?;
                 padded(vm, kind);
                 vm.pad_playing = true;
             }
@@ -305,7 +322,7 @@ impl Staged {
             }
             _ => {
                 return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND` or `pazaak turn N`"
+                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close` or `pazaak turn N`"
                 ));
             }
         }
@@ -321,6 +338,142 @@ impl Staged {
 fn padded(vm: &mut ui::vm::ViewModel, kind: crate::pad::PadKind) {
     vm.pad_kind = kind.key().to_string();
     vm.pad_names = kind.names();
+}
+
+/// The pad glyphs a view model names (`ui::icons::pad_texture`, as a
+/// capture taken with a pad holds them on its action bar) renamed for the
+/// pad `kind`, so that a capture taken with one pad shows another's buttons.
+/// A view model naming no glyph of its pad is left as it is.
+fn repad(vm: &mut ui::vm::ViewModel, kind: &str) -> Result<(), String> {
+    let was = format!("\"{}{}_", ui::icons::PREFIX, vm.pad_kind);
+    if vm.pad_kind == kind {
+        return Ok(());
+    }
+    let text = serde_json::to_string(&*vm).map_err(|error| error.to_string())?;
+    if !text.contains(&was) {
+        return Ok(());
+    }
+    let text = text.replace(&was, &format!("\"{}{kind}_", ui::icons::PREFIX));
+    *vm = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// A step on an open power wheel: `wheel at N` highlights entry N (from
+/// 0), `wheel pick NAME` the first entry whose name holds NAME, and
+/// `wheel close` shuts the wheel. The pointer goes to the highlighted
+/// entry, the ring turns to show it, and the arc of the entry highlighted
+/// before goes away, as only the game knows an entry's arc.
+fn wheel_step(vm: &mut ui::vm::ViewModel, what: &str) -> Result<(), String> {
+    use ui::screens::wheel::{Ring, ring_slot};
+    if what == "close" {
+        vm.wheel = None;
+        return Ok(());
+    }
+    let wheel = vm
+        .wheel
+        .as_mut()
+        .ok_or("wheel: no wheel is open (a capture taken with it open has one)")?;
+    let at = match what.split_once(' ') {
+        Some(("at", nth)) => nth
+            .parse()
+            .map_err(|_| format!("wheel at {nth}: N is an entry's number"))?,
+        Some(("pick", name)) => {
+            let name = name.to_lowercase();
+            (wheel.entries.iter())
+                .position(|entry| {
+                    String::from_utf8_lossy(&entry.name)
+                        .to_lowercase()
+                        .contains(&name)
+                })
+                .ok_or(format!("wheel pick {name}: no entry is so named"))?
+        }
+        _ => {
+            return Err(format!(
+                "wheel {what}: `wheel at N`, `wheel pick NAME` or `wheel close`"
+            ));
+        }
+    };
+    let entries = wheel.entries.len();
+    if at >= entries {
+        return Err(format!("wheel at {at}: the wheel has {entries} entries"));
+    }
+    if ring_slot(at, wheel.first, entries).is_none() {
+        wheel.first = at;
+    }
+    let groups: Vec<u8> = wheel.entries.iter().map(|entry| entry.group).collect();
+    let ring = Ring::shown(&groups, wheel.first);
+    let slot = ring_slot(at, wheel.first, entries).ok_or("wheel: the entry is not on the ring")?;
+    let angle = ring.angles[slot].to_radians();
+    wheel.at = Some(at);
+    wheel.pointer = [angle.sin() * ring.radius, angle.cos() * ring.radius];
+    wheel.arc.clear();
+    wheel.arc_at = None;
+    Ok(())
+}
+
+/// The view model of the screen `name` of `game` on stand-ins, as play
+/// fills it for that screen, with the settings as play shows them
+/// (`KJK_SETTINGS` names another).
+fn stand_ins(
+    discovery: &Discovery,
+    (game, name): (Game, &str),
+    (steps, error): (&[String], Option<String>),
+    assets: &mut GuiAssets,
+) -> Result<ui::vm::ViewModel, String> {
+    let movie_duels = discovery
+        .get(Game::JediAcademy)
+        .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found);
+    let mut vm = ui::vm::ViewModel {
+        settings: crate::settings::Settings::load().values_shown(),
+        movie_duels: movie_duels == vfs::MovieDuels::Installed,
+        movie_duels_incomplete: matches!(movie_duels, vfs::MovieDuels::Incomplete { .. }),
+        ..ui::vm::ViewModel::default()
+    };
+    vm.session.error = error;
+    (vm.keys, vm.pad_keys) = crate::key_rows();
+    padded(&mut vm, crate::pad::PadKind::Xbox);
+    if matches!(name.split(':').next(), Some("chargen" | "levelup")) {
+        vm.chargen = Some(crate::character::chargen(assets));
+    }
+    if matches!(name, "workbench" | "chemical") {
+        vm.workbench = Some(stand_in_bench(assets, name == "chemical"));
+    }
+    if name == "character" {
+        vm.character = Some(stand_in_member());
+        let folders = crate::stance_sets::offered_folders(discovery).unwrap_or_else(|why| {
+            outln!("no stance sets offered: {why}");
+            Vec::new()
+        });
+        vm.stances = folders
+            .into_iter()
+            .map(|folder| {
+                let title = crate::stance_sets::title(&folder);
+                (folder, title)
+            })
+            .collect();
+    }
+    if name == "lobby" {
+        vm.lobby = Some(stand_in_lobby(assets, game, 0, 0, false));
+    }
+    if name == "party" {
+        vm.party_selection = Some(stand_in_party(assets, game, false));
+    }
+    if name == "pazaak_game" {
+        vm.pazaak = Some(stand_in_pazaak());
+    }
+    // The in-game menu of a game played alone, with a party of three,
+    // where the player may save and load.
+    if ui::screens::tabs::under_tabs(name) {
+        vm.here = Some(ui::vm::SaveView::default());
+        vm.load_in_play = true;
+        vm.party = vec![ui::vm::MemberView::default(); 3];
+    }
+    for step in steps {
+        if let Some(("level", level)) = step.split_once(' ') {
+            stand_in_level(&mut vm, assets, level)?;
+        }
+    }
+    Ok(vm)
 }
 
 /// The save id the `lobby checkpoint PATH` step opens: the checkpoint at

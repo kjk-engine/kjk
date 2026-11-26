@@ -514,14 +514,25 @@ impl Hud {
     /// The HUD, its floating target block, the power wheel and the banner
     /// of one still frame for a window of `window` pixels, under to over,
     /// as a frame of play draws them where nothing floats over creatures.
-    pub fn still(&mut self, frame: &mut Frame<'_>, window: (f32, f32)) -> Vec<DrawList> {
+    /// Each layer comes with the name of the module that draws it, `hud`
+    /// or `wheel`.
+    pub fn still(
+        &mut self,
+        frame: &mut Frame<'_>,
+        window: (f32, f32),
+    ) -> Vec<(&'static str, DrawList)> {
         let block = self.target_block(frame, window, None);
         let hud = self.layer(frame, window, false, block.as_ref());
         let wheel = self.wheel(frame, window);
         let banner = self.layer(frame, window, true, None);
-        let hud = hud.map(|layer| layer.list);
-        let banner = banner.map(|layer| layer.list);
-        [hud, wheel, banner].into_iter().flatten().collect()
+        [
+            ("hud", hud.map(|layer| layer.list)),
+            ("wheel", wheel),
+            ("hud", banner.map(|layer| layer.list)),
+        ]
+        .into_iter()
+        .filter_map(|(module, list)| Some((module, list?)))
+        .collect()
     }
 
     /// The minimap and the duel bars for a window of `window` pixels, as

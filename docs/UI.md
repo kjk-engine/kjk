@@ -670,7 +670,9 @@ Running and checking:
   offers Security too (below). The host's answer is the feedback log's,
   in the game's own lines. `kjk play --skill security=N` gives the
   players N ranks.
-- Console verbs: `ui open <screen>`, `ui show <layout>`, `ui press <TAG>`,
+- Console verbs: `ui open <screen>`, `ui show <layout>`, `ui capture NAME`
+  (the view model of that moment as a capture of play; "Captures of play"
+  below), `ui press <TAG>`,
   `ui nav up|down|left|right|activate`, `ui type <text>`, `ui back`,
   `ui close`, `ui security [spike]`, `ui use TAG open|close|talk|use` (a
   Use of the nearest object so tagged), `ui wear TEMPLATE` and `ui unwear
@@ -752,10 +754,11 @@ Running and checking:
   notes, and its stories. A story is a named state of a screen: its
   `name`, the `screen` as `screens::open` names it, the `steps` that
   `kjk gui screen --step` takes, the `games` it is drawn on (both by
-  default) and, for the message screen, an `error`. A module drawn over
-  play, outside the stack (the HUD, barks, the conversation), or one that
-  is only a part of other screens, has no stories yet, and its notes say
-  why. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
+  default) and, for the message screen, an `error`. A story may also start
+  from a capture of play instead of stand-ins (below). A module drawn over
+  play other than the HUD and the power wheel (barks, the conversation),
+  or one that is only a part of other screens, has no stories yet, and its
+  notes say why. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
   (`catalogue::SIZES`: `deck`, `1080p`, `4k-tv`, `4k-monitor` at a scale
   factor of 2, `4x3`, `ultrawide`) and with two inputs (`pad`, its hints
   shown, the Steam Deck's buttons on `deck`; `mouse`). The screens step in
@@ -767,6 +770,65 @@ Running and checking:
   [STORY] [--at SIZE] [--input pad|mouse] [--game k1|tsl]` draws stories,
   a PNG and a control tree each, into
   `kjk-artifacts/gui/catalogue/<game>/<module>/<story>/<size>-<input>.png`.
+  The steps a story takes and the stand-in view models live in
+  `kjk_game::story_stage`, so that the in-game catalogue can stage
+  stories as the shell does.
+- **Captures of play** (`ui::catalogue::Capture`, `data/ui/captures`). A
+  capture is the UI's view model at one moment of a real run, written as
+  JSON with the window it was drawn in. It holds numbers, the names of
+  textures and kjk's own words, but no game art and no text of the game's,
+  so it can be committed (AGENT.md forbids committing the game's files and
+  dumps of them). Each of the game's words, such as a creature's or a
+  power's name, is written as its line in the install's talk table
+  (`{"$talk": 1234}`), and read back from the install when a story is
+  drawn (`ui::catalogue::TalkTable`). A line shown with its braces taken
+  out says `"unbraced": true`. The text fields `area` and `name` of a
+  save's summary say `"text": true`. A run of bytes is swapped only when
+  it has three bytes or more and a letter among them, so pairs of numbers
+  such as a character's health stay as they are. The settings are written
+  as they are. A capture also holds the key bindings of the run. The list
+  of saves on disk is left out, because it names the player's own saves.
+  - **Taking one.** The console command `ui capture NAME` writes the view
+    model of that moment to `data/ui/captures/NAME.json` in the checkout
+    the game was built from. A name is letters, digits, `-` and `_`. It
+    works in a `--cmds` script and in a headless run. Run such a script
+    with `KJK_SETTINGS` naming a copy of the settings file, so that its
+    `ui set` commands do not change the player's own settings. The game
+    fills the action bar and the key hints for the input in use, so a
+    story drawn with both inputs needs two captures of the same moment:
+    one taken with the mouse and one taken after `ui pad xbox`. For
+    example, the captures of the HUD's and the wheel's stories were taken
+    with `kjk play --stage 301nar --class jedi --power 9 --power 21
+    --power 26 --force-points 3 --item g_i_medeqpmnt01=3 --item
+    g_w_fraggren01=2 --hostile exchangethug2 --size 1920x1080 --headless
+    --cmds 'wait world; wait 40f; ui target exchangethug2; wait 30f; ui
+    powerwheel hold; wait 30f; ui capture nar-shaddaa-low-force; quit'`,
+    and again with `ui pad xbox` after `wait world` and the name
+    `nar-shaddaa-low-force-pad`.
+  - **A story from a capture.** A story names its captures by their names,
+    `capture` for the mouse and `pad_capture` for a pad. Its view model is
+    then the capture's, and none of the stand-ins is added. A story with a
+    `capture` and no `pad_capture` is drawn with the mouse alone. The
+    `pad KIND` step renames the pad glyphs a capture holds
+    (`kjkpad_<kind>_<chord>`) for that pad, so a capture taken with an Xbox
+    pad shows the Steam Deck's buttons at the `deck` size. The story then
+    takes its own steps on top, such as `set display.target_top false`.
+  - **What is drawn over play.** The screen `play` (`catalogue::PLAY`)
+    draws KOTOR's HUD, the floating target block, the power wheel and the
+    banner over a plain background, with no screen of the stack open
+    (`ui::hud_layer::Hud::still`). The game draws the same layers each
+    frame through the same `ui::hud_layer::Hud`, so a story shows what
+    play shows. Its stories start from a capture. The wheel takes three
+    steps of its own. `wheel at N` highlights entry N, counting from 0.
+    `wheel pick NAME` highlights the first entry whose name holds NAME,
+    such as `wheel pick Stun`. `wheel close` shuts the wheel. The pointer
+    goes to the highlighted entry, and the arc of the entry highlighted
+    before goes away, because only the game knows an entry's arc.
+  - **The check.** The approved test `ui_catalogue` fails when a capture a
+    story names is missing, does not read, reads otherwise once written
+    again, or was taken with the wrong input. It needs no game data, so it
+    reads each line of the talk table as stand-in words (`talk 1234`,
+    `ui::catalogue::StandInTalk`).
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
   2025.10). They hold the screens' palettes, which are the source of the
   colours in the code (the probe `palette_tokens` fails when a palette
