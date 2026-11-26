@@ -370,6 +370,8 @@ pub fn compose(
     let mut grass = None;
     let mut weather = viewer::SceneWeather::default();
     let mut ambient_effects = Vec::new();
+    // A level editor project's sun for the area (`sun::of_area`).
+    let mut sun = None;
     let mut sound = None;
     let mut probes = Default::default();
     let (mut baked, mut dark_unlit) = (false, false);
@@ -391,6 +393,7 @@ pub fn compose(
         grass = module.grass;
         weather = module.weather;
         ambient_effects = module.ambient_effects;
+        sun = module.sun;
         doors = module.doors;
         instance_models = module.instance_models;
         lamps = module.lamps;
@@ -471,7 +474,7 @@ pub fn compose(
         weather,
         ambient_effects,
         sound,
-        sun: None,
+        sun,
     };
     (scene, bodies)
 }
