@@ -390,6 +390,9 @@ type Line = (u32, u32, u64);
 /// Per guest seat, the modules it was in, in order (`Kotor::bodies`).
 type Bodies = Arc<Mutex<BTreeMap<u8, Vec<Visit>>>>;
 
+/// The sessions whose guests' bodies are checked, by name.
+type Watched = Vec<(String, Bodies)>;
+
 /// A guest's stay in a module: whether it drove a body there, and whether
 /// it flew a remote droid there.
 #[derive(Default)]
@@ -561,7 +564,7 @@ impl Scenario for Kotor {
 /// plans it as announced (I30 P21; planned for one, it is refused). Their
 /// plans open the playtest links: KOTOR seals the door back to
 /// `end_m01aa`, which the players run back through. None without KOTOR.
-fn kotor_sessions(discovery: &vfs::Discovery) -> Result<(Vec<Session>, Vec<(String, Bodies)>), String> {
+fn kotor_sessions(discovery: &vfs::Discovery) -> Result<(Vec<Session>, Watched), String> {
     if discovery.get(Game::Kotor1).is_none() {
         return Ok((Vec::new(), Vec::new()));
     }
@@ -666,7 +669,7 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<(Vec<Session>, Vec<(Stri
 /// (`k_pend_modab`) takes Trask out of the party, as the story leaves him
 /// behind, so the guest flies a remote droid from then on, the party
 /// having fewer characters than seats.
-fn guests_played(report: &Report, watched: &[(String, Bodies)]) -> bool {
+fn guests_played(report: &Report, watched: &Watched) -> bool {
     let Some((_, bodies)) = watched.iter().find(|(name, _)| *name == report.name) else {
         return true;
     };
