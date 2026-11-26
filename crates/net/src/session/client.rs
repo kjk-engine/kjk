@@ -96,6 +96,9 @@ const IN_PROCESS_RING: usize = 16;
 pub const REBASE_EVERY_US: u64 = 32_000;
 /// Mismatches logged in full (all are counted).
 const LOGGED: usize = 64;
+/// The most actions a client holds while the host has not heard that it
+/// loaded (`Client::act`). Later ones are dropped.
+const HELD_ACTIONS: usize = 256;
 /// The correction's half-life, µs, and the distance it snaps beyond
 /// (units, as the correction is kept).
 const HALF_LIFE_US: f32 = 50_000.0;
@@ -546,6 +549,9 @@ struct Session {
     /// The host's save copy coming in (I30 P17). A reconnect makes a new
     /// session, so a copy cut by a drop is gone whole.
     copies: CopyAssembly,
+    /// This client told the host it loaded the world of the current epoch
+    /// (`Message::Loaded`), so the host takes its actions (`Client::act`).
+    told_loaded: bool,
 }
 
 enum State {
@@ -588,6 +594,9 @@ pub struct Client {
     /// one held.
     hold_loaded: bool,
     withheld: Option<Vec<u8>>,
+    /// This player's actions held until the host hears this client loaded
+    /// the world they name (`act`), at most `HELD_ACTIONS`.
+    unsent: Vec<sim::action::Action>,
 }
 
 impl Client {
@@ -621,6 +630,7 @@ impl Client {
             heard: false,
             hold_loaded: false,
             withheld: None,
+            unsent: Vec::new(),
         })
     }
 
@@ -770,6 +780,7 @@ impl Client {
         };
         self.state = State::Ended(last);
         self.rejoin = None;
+        self.unsent.clear();
         self.events.push_back(ClientEvent::Ended(why));
     }
 
@@ -788,6 +799,8 @@ impl Client {
         if now >= until {
             return self.end(Refusal::Timeout);
         }
+        // The actions held for the session that timed out go with it.
+        self.unsent.clear();
         self.nonce = next_nonce(&self.config.nonce_key, self.nonce);
         let credentials = Credentials {
             reconnect: self.token,
@@ -915,6 +928,7 @@ impl Client {
             die: (false, false),
             stats: ClientStats::default(),
             copies: CopyAssembly::default(),
+            told_loaded: false,
         }));
         self.events.push_back(ClientEvent::Accepted { session });
     }
@@ -1237,6 +1251,7 @@ impl Client {
             Message::Level(request) => {
                 session.wanted = Some(request.clone());
                 session.play = None;
+                session.told_loaded = false;
                 self.events.push_back(ClientEvent::NeedLevel(request));
             }
             Message::Snapshot(payload) => {
@@ -1258,6 +1273,9 @@ impl Client {
                     announced: None,
                     level: None,
                 });
+                // The actions held name the world this install leaves.
+                session.told_loaded = false;
+                self.unsent.clear();
                 self.events.push_back(ClientEvent::Installing(request));
             }
             Message::Hold { payload } => {
@@ -1286,6 +1304,8 @@ impl Client {
                         session.epoch = epoch;
                         session.ring.begin_epoch(epoch, None);
                         session.play = None;
+                        session.told_loaded = false;
+                        self.unsent.clear();
                     }
                 }
                 self.try_commit(now);
@@ -1436,7 +1456,7 @@ impl Client {
             tick: snapshot.tick,
             check,
         };
-        let _ = session.link.send_reliable(&loaded.to_bytes());
+        tell_loaded(session, &loaded.to_bytes(), &mut self.unsent);
         session.play = Some(Play::new(world, &snapshot, session.seat));
         session.fresh = false;
         self.events.push_back(ClientEvent::Loaded {
@@ -1504,7 +1524,7 @@ impl Client {
         if self.hold_loaded {
             self.withheld = Some(loaded);
         } else {
-            let _ = session.link.send_reliable(&loaded);
+            tell_loaded(session, &loaded, &mut self.unsent);
         }
         self.events
             .push_back(ClientEvent::Installed { epoch, agreed });
@@ -1525,7 +1545,7 @@ impl Client {
         if let State::Connected(session) = &mut self.state
             && let Some(loaded) = self.withheld.take()
         {
-            let _ = session.link.send_reliable(&loaded);
+            tell_loaded(session, &loaded, &mut self.unsent);
         }
     }
 
@@ -1537,13 +1557,33 @@ impl Client {
             if session.install.as_ref().is_some_and(|install| install.level.is_none()))
     }
 
-    /// Sends an action of this player's to the host (reliably, in order);
-    /// nothing before the session is up.
+    /// Sends an action of this player's to the host (reliably, in order).
+    /// An action names objects by their index in the module, so the host
+    /// takes a player's actions only once it has heard that the player
+    /// loaded the world they name (`Message::Loaded`). An action made before
+    /// that, in the world this client goes on in, is held and sent right
+    /// after the `Loaded`. That is an action made while this client holds an
+    /// install's `Loaded` back (`hold_loaded`). For the host's own player
+    /// (`in_process`), whose game draws the host's world from its first
+    /// frame, it is also an action made before its client joined and
+    /// loaded. An action made while an install comes in names the world
+    /// being left, and is dropped, as the host would drop it. So is one a
+    /// guest made before its first `Loaded`, while its game drew no world of
+    /// the host's.
     pub fn act(&mut self, action: sim::action::Action) {
-        if let State::Connected(session) = &mut self.state {
-            let _ = session
-                .link
-                .send_reliable(&Message::Action(action).to_bytes());
+        let held = match &mut self.state {
+            State::Connected(session) if session.told_loaded => {
+                send_action(session, action);
+                return;
+            }
+            State::Connected(session) => {
+                session.install.is_none() && (self.in_process || self.withheld.is_some())
+            }
+            State::Joining(_) => self.in_process,
+            State::Ended(_) => false,
+        };
+        if held && self.unsent.len() < HELD_ACTIONS {
+            self.unsent.push(action);
         }
     }
 
@@ -1793,6 +1833,24 @@ fn counted(
     }
     if let Some(audit) = audit {
         audit.push((header.epoch, rebuilt.tick, rebuilt.snapshot.hash()));
+    }
+}
+
+/// Sends `action` to the host.
+fn send_action(session: &mut Session, action: sim::action::Action) {
+    let _ = session
+        .link
+        .send_reliable(&Message::Action(action).to_bytes());
+}
+
+/// Tells the host this client loaded the current epoch's world (`loaded`,
+/// an encoded `Message::Loaded`), then sends the actions held for it
+/// (`Client::act`). The link keeps their order, so the host takes them.
+fn tell_loaded(session: &mut Session, loaded: &[u8], unsent: &mut Vec<sim::action::Action>) {
+    let _ = session.link.send_reliable(loaded);
+    session.told_loaded = true;
+    for action in unsent.drain(..) {
+        send_action(session, action);
     }
 }
 
