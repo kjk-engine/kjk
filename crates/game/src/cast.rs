@@ -3857,7 +3857,7 @@ impl Cast {
                 });
                 if !noted {
                     let weapons =
-                        weapons_held(snapshot, level, &mut objects, who).unwrap_or_default();
+                        weapons_held(snapshot, level, &mut objects, who).unwrap_or([None, None]);
                     self.unequipped.push(Unequipped {
                         owner: talk.owner,
                         dialog: talk.dialog.clone(),
