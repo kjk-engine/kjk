@@ -53,7 +53,7 @@ pub(super) fn spend(
         .filter(|(user, row)| {
             let user = ObjectId(user.0);
             state
-                .casting(catalog, holder(view, user), user, *row)
+                .casting(catalog, holder(view, &state.party, user), user, *row)
                 .is_some_and(|item| state.spend(catalog, out, item))
         })
         .map(|(user, row)| (user.0, *row))

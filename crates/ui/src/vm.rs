@@ -1285,8 +1285,7 @@ pub enum BreakButton {
     #[default]
     Break,
     Resume,
-    /// Greyed: the party is in combat, or another player's break this one
-    /// cannot end.
+    /// Greyed: another player's break this one cannot end.
     Off,
 }
 

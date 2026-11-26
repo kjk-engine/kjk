@@ -403,7 +403,7 @@ pub(crate) fn rect_of(control: &Control) -> [f32; 4] {
 }
 
 /// The border, when it has something to draw.
-fn textured(border: &Option<Border>) -> Option<&Border> {
+pub(crate) fn textured(border: &Option<Border>) -> Option<&Border> {
     border.as_ref().filter(|border| has_textures(border))
 }
 
@@ -1442,7 +1442,9 @@ fn inner(rect: [f32; 4], dim: f32) -> [f32; 4] {
     [left, top, width, height]
 }
 
-fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+/// The part of rectangle `a` that is also in rectangle `b` (left, top,
+/// width, height). It is empty when they do not overlap.
+pub(crate) fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let left = a[0].max(b[0]);
     let top = a[1].max(b[1]);
     let right = (a[0] + a[2]).min(b[0] + b[2]);

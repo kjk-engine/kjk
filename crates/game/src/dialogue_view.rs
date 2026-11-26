@@ -971,7 +971,10 @@ fn answer(
     map: Option<Res<KeyMap>>,
     (mut ui, open): (Option<ResMut<Ui>>, Option<Res<UiOpen>>),
     mut input: ResMut<ReplyInput>,
-    showing: Option<Res<crate::movie_view::Showing>>,
+    (showing, overlay): (
+        Option<Res<crate::movie_view::Showing>>,
+        Option<Res<crate::reshade::Overlay>>,
+    ),
     mut swallowed: ResMut<crate::swallow::Swallowed>,
     mut last: Local<Option<Vec2>>,
     pad: Res<PadPresses>,
@@ -993,7 +996,10 @@ fn answer(
     if active != input.active {
         input.active = active;
         input.focus = 0;
-        for (_, mut cursor) in &mut windows {
+        // A conversation that ends while ReShade's overlay is open leaves the
+        // cursor free. `grab_cursor` takes it again once the overlay closes.
+        let overlay = overlay.is_some_and(|overlay| overlay.0);
+        for (_, mut cursor) in windows.iter_mut().filter(|_| active || !overlay) {
             cursor.grab_mode = if active {
                 bevy::window::CursorGrabMode::None
             } else {

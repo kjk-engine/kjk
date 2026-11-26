@@ -91,6 +91,9 @@ pub struct Display {
     pub frame_limit: Option<u32>,
     /// Multisampling, TAA or DLSS (`temporal`).
     pub antialias: Antialias,
+    /// How strongly a temporal choice's frame is sharpened, 0 to 1
+    /// (`sharpen`).
+    pub sharpening: f32,
     /// The frame's encoded values to the power of 1 / this.
     pub gamma: f32,
     /// The area's grass is drawn (`grass::option`).
@@ -105,6 +108,7 @@ impl Default for Display {
             vsync: true,
             frame_limit: None,
             antialias: Antialias::Msaa(4),
+            sharpening: crate::sharpen::MEDIUM,
             gamma: 1.0,
             grass: true,
         }
@@ -1408,6 +1412,7 @@ fn facts(
                 "present": format!("{:?}", window.present_mode),
                 "frame_limit": display.frame_limit,
                 "antialias": display.antialias.name(),
+                "sharpening": display.sharpening,
                 "gamma": display.gamma,
                 "screens": monitors
                     .iter()

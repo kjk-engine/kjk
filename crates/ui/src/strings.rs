@@ -20,7 +20,7 @@ pub const DEFAULT_NAME: &str = "Player";
 pub const OK: &str = "OK";
 pub const QUIT_TO_MENU: &str = "Quit to the main menu";
 pub const QUIT_TO_DESKTOP: &str = "Quit to the desktop";
-pub const BREAK: &str = "Take a break";
+pub const BREAK: &str = "Pause";
 pub const RESUME: &str = "Resume";
 pub const INVERT_CAMERA: &str = "Invert camera";
 /// The main menu options' way into the combat sandbox.
@@ -201,7 +201,7 @@ A change applies when the next area loads.";
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.
 pub const INTERFACE: &str = "Interface";
-pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block, and sets a frame rate limit.";
+pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block, and sets a frame rate limit and the sharpening.";
 pub const MENU_WIDTH: &str = "Menu width";
 pub const MENU_WIDTH_FILL: &str = "Fill the screen";
 pub const MENU_WIDTH_16X9: &str = "Up to 16:9";
@@ -228,6 +228,12 @@ pub const SHOW_REPLIES_OFF: &str = "Show chosen replies: Off";
 pub const SHOW_REPLIES_HELP: &str = "On: When more than one player is in a conversation, the reply a player chooses is shown to everyone in it for a few seconds before the conversation goes on. Any player can skip it.\n\nOff: A reply runs as soon as it is chosen.";
 pub const FRAME_LIMIT: &str = "Frame rate limit";
 pub const FRAME_LIMIT_OFF: &str = "Off";
+pub const SHARPENING: &str = "Sharpening";
+pub const SHARPENING_OFF: &str = "Off";
+pub const SHARPENING_LOW: &str = "Low";
+pub const SHARPENING_MEDIUM: &str = "Medium";
+pub const SHARPENING_HIGH: &str = "High";
+pub const SHARPENING_HELP: &str = "Sharpens the picture when TAA, DLAA or DLSS anti-aliasing is on. Sharpening has no effect with other anti-aliasing.";
 pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter. With V-Sync off, Off still stops at 240.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.

@@ -268,6 +268,14 @@ const GLOW_BY_ROOM: f32 = 2.0;
 // (`material::PUNCH_THROUGH_CUT`, the same number).
 const PUNCH_THROUGH: u32 = 2097152u;
 const PUNCH_THROUGH_CUT: f32 = 0.35;
+// Water (`material::OdysseyMaterial::water`): the base texture is its bump
+// map's frame of heights, and the env map alone is drawn.
+const WATER: u32 = 4194304u;
+// How far a bump of one texel's height step turns water's reflection. The
+// games turn a bump map's heights into normals when they load it, and that
+// step was not read. This number was chosen by eye on Dantooine's river:
+// at 2 the ripples showed as dark blotches.
+const WATER_BUMP: f32 = 1.0;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -1690,8 +1698,8 @@ const FITTED_BOX_SOURCE: f32 = 0.25;
 fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near) -> f32 {
     var casters = near.at;
     var kept = 1.0;
-    for (var k = 0u; k < near.count; k++) {
-        let caster = shadows.casters[casters[k]];
+    for (var k = 0u; k < near_count(near); k++) {
+        let caster = caster_at(casters[k]);
         let centre = caster.sphere.xyz - position;
         let ahead = dot(centre, direction);
         let off = length(centre - direction * clamp(ahead, 0.0, distance));
@@ -1699,16 +1707,18 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
             continue;
         }
         var lit = 1.0;
-        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
-            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+        let first = caster.lights.y;
+        let end = capsules_end(first, caster.lights.z);
+        for (var j = first; j < end; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, capsule_at(j));
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
         let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
         kept *= 1.0 - (1.0 - lit) * ease;
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let b = box_at(near_box_at(placeables[k]).x);
         // A box does not shadow a light inside it (`cone_visibility`).
         if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)
             || box_distance(position + direction * distance, b) <= 0.0 {
@@ -1959,6 +1969,33 @@ fn fight_highlights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near:
 fn add_fight_light(lighting: vec3<f32>, added: vec3<f32>) -> vec3<f32> {
     let room = max(vec3<f32>(1.0) - lighting, vec3<f32>(1e-4));
     return vec3<f32>(1.0) - room * exp(-max(added, vec3<f32>(0.0)) / room);
+}
+
+// Water's colour and alpha (`WATER`): the env map reflected about the
+// surface as the bump map's heights turn it, at full light. The bump's
+// slopes are taken along the directions in which the texture's U and V grow
+// on the surface.
+fn water_shine(in: VertexOutput, uv: vec2<f32>) -> vec4<f32> {
+    let step = 1.0 / vec2<f32>(textureDimensions(base_texture, 0));
+    let height = textureSampleLevel(base_texture, base_sampler, uv, 0.0).r;
+    let along_u = textureSampleLevel(base_texture, base_sampler, uv + vec2<f32>(step.x, 0.0), 0.0).r - height;
+    let along_v = textureSampleLevel(base_texture, base_sampler, uv + vec2<f32>(0.0, step.y), 0.0).r - height;
+    let normal = normalize(in.world_normal);
+    let dp1 = dpdx(in.world_position.xyz);
+    let dp2 = dpdy(in.world_position.xyz);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
+    let dp2perp = cross(dp2, normal);
+    let dp1perp = cross(normal, dp1);
+    let tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    let bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+    let scale = inverseSqrt(max(max(dot(tangent, tangent), dot(bitangent, bitangent)), 1e-20));
+    let bumped = normalize(normal - WATER_BUMP * (along_u * tangent + along_v * bitangent) * scale);
+    let incident = normalize(in.world_position.xyz - view.world_position);
+    let mirrored = reflect(incident, bumped);
+    // Bevy's world (y up) back to the game's (z up), as the env map below.
+    let lookup = vec3<f32>(mirrored.x, -mirrored.z, mirrored.y);
+    return textureSampleLevel(envmap_texture, envmap_sampler, lookup, 0.0);
 }
 
 @fragment
@@ -2429,7 +2466,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
     }
-    if enhanced {
+    let water = (params.flags & WATER) != 0u;
+    var water_alpha = 1.0;
+    if water {
+        let shine = water_shine(in, uv);
+        colour = shine.rgb;
+        water_alpha = shine.a;
+    }
+    if enhanced && !water {
         // The colour so far is the games' own, worked out on stored values
         // and stopped at 1. A fight's lights are added to it as linear
         // light, and the sum may pass 1. Their sum is read as a stored
@@ -2487,7 +2531,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // An env-mapped texture's alpha is the shine's mask, not coverage: a
     // see-through mesh takes only its own alpha (reone's OIT model does the
     // same), so Dantooine's crystals (alpha 0.9, DXT5 masks) stay solid.
-    let coverage = select(base.a, tint.a, (params.flags & ENVMAP) != 0u);
+    let coverage = select(base.a, tint.a, (params.flags & ENVMAP) != 0u) * water_alpha;
     var alpha = select(coverage, 1.0, (params.flags & OPAQUE_ALPHA) != 0u);
 #ifdef VERTEX_COLORS
     // Effect primitives carry a colour and fading alpha per vertex (the

@@ -180,7 +180,7 @@ pub(crate) fn overlay_view() -> impl Bundle {
 fn own_camera(commands: &mut Commands) -> Entity {
     commands
         .spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             crate::scene::over_world(11),
             overlay_view(),
             crate::scene::encoded_view(),

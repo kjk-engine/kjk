@@ -24,13 +24,14 @@
 //!   `blocked_down`), else it turns back; otherwise it hits as the thrown
 //!   saber's attack (`CADENCE_MS`, a delegated number standing for JA's
 //!   30) and turns back.
-//! - Down: it falls, and lies; after `RETRIEVE_MS` its owner holding attack
-//!   calls it back, after `AUTO_RETURN_MS` it comes back by itself.
+//! - Down: it falls, bounces off walls and floors as JA's knocked-down
+//!   saber does (`bounce`), and lies once it hits a floor slowly enough.
+//!   After `RETRIEVE_MS` its owner holding attack calls it back. After
+//!   `AUTO_RETURN_MS` it comes back by itself, even if it never came to rest.
 //!
 //! Stand-ins (delegated decisions): the saber is a point with a box
 //! (`HALF_SIZE`), not a spinning blade (JA's flying blade also cuts as it
-//! goes); a falling saber stops where it lands instead of bouncing. The
-//! numbers are the book's (`rules::saber_throw`).
+//! goes). The numbers are the book's (`rules::saber_throw`).
 
 use crate::math::{self, Vec3};
 use crate::wire::{DecodeError, Reader, Writer};
@@ -115,6 +116,20 @@ pub const AUTO_RETURN_MS: u64 = down::AUTO_RETURN_MS;
 /// How fast a knocked saber falls away (units/s) and falls (units/s²).
 pub const KNOCKED_SPEED: f32 = down::KNOCKED_SPEED;
 pub const GRAVITY: f32 = down::GRAVITY;
+
+/// The velocity of a falling saber after it bounces off a surface with
+/// `normal`, as JA's half bounce works (`math::bounce`). The result is
+/// `None` when the saber comes to rest on that surface.
+pub fn bounce(velocity: Vec3, normal: Vec3) -> Option<Vec3> {
+    math::bounce(
+        velocity,
+        normal,
+        down::BOUNCE,
+        down::REST_SPEED,
+        down::FLOOR,
+    )
+}
+
 /// The clear space a throw needs ahead (units).
 pub const CLEAR_AHEAD: f32 = out::CLEAR_AHEAD;
 /// Its box (units either side).
