@@ -117,12 +117,3 @@ merges it. What has gone wrong before, and the rule that prevents it:
 * The gate, the pinned hash, the area's probes and measures rerun on the
   merged tree, and renders looked at, not just produced.
 * CI read with `gh run list` / `gh run view` after pushing.
-
-## Helping someone in the level editor
-
-When someone asks for help with a level open in kjk's level editor (what
-they have selected, or a change to make), read `docs/LEVEL-EDIT-AGENT.md`.
-With the editor's Agent link on, an agent reads the editor's state from
-`live.json` and sends it commands through `inbox.txt`, both in the
-`editor-link` folder in kjk's own folder (`%APPDATA%\kjk\editor-link` on
-Windows). The editor writes the same guide there as `README.md`.
