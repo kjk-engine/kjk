@@ -304,6 +304,7 @@ pub(super) fn containers(
             | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_)
+            | Action::Cheat(_)
             | Action::PickStance { .. }
             | Action::JoinTalks(_)
             | Action::Screen(_) => continue,

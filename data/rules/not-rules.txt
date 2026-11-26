@@ -10,6 +10,7 @@ crates/sim/src/action.rs BREAK  # a player action's wire tag
 crates/sim/src/action.rs BREAKDOWN  # a player action's wire tag
 crates/sim/src/action.rs BUY  # a player action's wire tag
 crates/sim/src/action.rs CAST  # a player action's wire tag
+crates/sim/src/action.rs CHEAT  # a player action's wire tag
 crates/sim/src/action.rs CHOOSE_PARTY  # a player action's wire tag
 crates/sim/src/action.rs CLOSE  # a player action's wire tag
 crates/sim/src/action.rs CREATE  # a player action's wire tag
@@ -660,6 +661,7 @@ crates/sim/src/world.rs PREDICT_NEAR  # prediction's culling distance, no rule o
 crates/sim/src/world.rs SPAWN_EVERY_MS  # the placeholder world's wanderers (no module), a test bed
 crates/sim/src/world.rs WALKED  # a measure: how far a step must carry a body to count as walked
 crates/sim/src/world.rs WANDER_SPEED  # the placeholder world's wanderers (no module), a test bed
+crates/sim/src/world/cheats.rs ALL  # every cheat rule, a list
 crates/sim/src/world/coop_items.rs COMPANIONS  # a probe's fixture
 crates/sim/src/world/coop_items.rs COST  # a probe's fixture
 crates/sim/src/world/coop_items.rs DROPPED  # a probe's fixture

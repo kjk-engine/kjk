@@ -1,6 +1,7 @@
 //! The built-in commands, one file for each of `help`'s groups.
 
 mod character;
+mod cheats;
 mod general;
 mod script;
 mod world;
@@ -13,6 +14,7 @@ use crate::{Effect, Facts, Parsed, Refusal, Spec};
 pub static TABLE: LazyLock<Vec<&'static Spec>> = LazyLock::new(|| {
     (general::SPECS.iter())
         .chain(character::SPECS)
+        .chain(cheats::SPECS)
         .chain(world::SPECS)
         .chain(script::SPECS)
         .collect()

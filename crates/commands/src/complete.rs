@@ -97,6 +97,10 @@ pub fn candidates(line: &str, facts: &Facts) -> Vec<String> {
             Some(creatures) => matching(creatures.iter().map(String::as_str), &typing),
             None => Vec::new(),
         },
+        ArgKind::Item => match &facts.items {
+            Some(items) => matching(items.iter().map(String::as_str), &typing),
+            None => Vec::new(),
+        },
         ArgKind::Ability => matching(ABILITIES.iter().copied(), &typing),
         ArgKind::Skill => matching(SKILLS.iter().map(|(name, _)| *name), &typing),
         ArgKind::Class => match &facts.classes {

@@ -2,7 +2,8 @@
 //! test `commands`).
 
 use sim::SimId;
-use sim::action::{Action, ArenaOrder};
+use sim::action::{Action, ArenaOrder, CheatOrder, Mark};
+use sim::cheats::Rule;
 
 use crate::{Effect, Facts, Place, complete, help, run, table, words};
 
@@ -28,6 +29,25 @@ fn arena() -> Facts {
             (9, "JediWeaponMaster".into()),
         ]),
         version: "test".into(),
+        ..Facts::default()
+    }
+}
+
+/// The facts of the host in a story module under the rule Host only: the
+/// party has 100 credits and 1,000 experience points, its next level needs
+/// 2,500, and the crosshair is on object 12.
+fn story() -> Facts {
+    Facts {
+        arena: false,
+        module: Some("tar_m02aa".into()),
+        items: Some(vec!["g_w_lghtsbr01".into(), "g_i_medeqpmnt01".into()]),
+        target: Some(SimId(12)),
+        credits: Some(100),
+        xp: Some(1000),
+        next_level_xp: Some(2500),
+        cheats: Rule::Host,
+        host: true,
+        ..arena()
     }
 }
 
@@ -70,6 +90,7 @@ pub fn probes() -> Checks {
         ("the word splitter", splitter()),
         ("arguments accepted and refused", arguments()),
         ("arena words give the same orders", arena_words()),
+        ("cheat commands give their orders", cheat_orders()),
         ("original names resolve", original_names()),
         ("completion", completion()),
         ("did you mean", did_you_mean()),
@@ -248,6 +269,76 @@ fn arena_words() -> Result<String, String> {
     )
 }
 
+/// Each command that changes the party or the story gives its order. A
+/// command that adds reads the party's amount from the facts and sets the
+/// sum, so an order sent twice does no harm.
+fn cheat_orders() -> Result<String, String> {
+    let facts = story();
+    let cheat = |order: CheatOrder| Ok(vec![Effect::Order(Action::Cheat(order))]);
+    let item = |template: &str, count| {
+        cheat(CheatOrder::Item {
+            template: template.into(),
+            count,
+        })
+    };
+    let script = |who| {
+        cheat(CheatOrder::Script {
+            resref: "k_test".into(),
+            who,
+        })
+    };
+    cases(
+        &[
+            ("giveitem g_w_lghtsbr01 2", item("g_w_lghtsbr01", 2)),
+            ("giveitem G_I_MEDEQPMNT01", item("g_i_medeqpmnt01", 1)),
+            (
+                "giveitem nothing",
+                Err("No item has the template \"nothing\".".into()),
+            ),
+            ("givecredits 500", cheat(CheatOrder::Credits(600))),
+            ("credits 7", cheat(CheatOrder::Credits(7))),
+            ("addexp 100", cheat(CheatOrder::Xp(1100))),
+            ("addxp 100", cheat(CheatOrder::Xp(1100))),
+            ("addlevel", cheat(CheatOrder::Xp(2500))),
+            ("heal", cheat(CheatOrder::Heal { who: None })),
+            (
+                "heal 2",
+                cheat(CheatOrder::Heal {
+                    who: Some(SimId(9)),
+                }),
+            ),
+            (
+                "kill",
+                cheat(CheatOrder::Kill {
+                    who: Mark::Id(SimId(12)),
+                }),
+            ),
+            (
+                "kill tar_guard",
+                cheat(CheatOrder::Kill {
+                    who: Mark::Tag("tar_guard".into()),
+                }),
+            ),
+            (
+                "setglobal K_TEST -3",
+                cheat(CheatOrder::Global {
+                    name: "K_TEST".into(),
+                    value: -3,
+                }),
+            ),
+            ("runscript K_TEST", script(None)),
+            ("runscript k_test me", script(Some(SimId(7)))),
+            (
+                "spawn g_sithtroop01",
+                Ok(vec![Effect::Order(Action::Arena(ArenaOrder::Spawn(
+                    "g_sithtroop01".into(),
+                )))]),
+            ),
+        ],
+        |text| orders(text, &facts),
+    )
+}
+
 /// The original games' names of the commands this table has resolve to
 /// them.
 fn original_names() -> Result<String, String> {
@@ -339,9 +430,17 @@ fn did_you_mean() -> Result<String, String> {
 /// A command refuses where it may not run, and says why.
 fn places() -> Result<String, String> {
     let menu = Facts::default();
-    let story = Facts {
-        arena: false,
-        ..arena()
+    let off = Facts {
+        cheats: Rule::Off,
+        ..story()
+    };
+    let guest = Facts {
+        host: false,
+        ..story()
+    };
+    let all = Facts {
+        cheats: Rule::All,
+        ..guest.clone()
     };
     let refused =
         |text: &str, facts: &Facts| run(&line(text), facts).err().map(|refusal| refusal.0);
@@ -352,14 +451,19 @@ fn places() -> Result<String, String> {
     cases(
         &[
             (("god", &menu), Some("Load a game before using this command.".to_string())),
+            (("god", &off), Some("Cheats are off in this game.".into())),
+            (("god", &guest), Some("Only the host can use this command in this game.".into())),
+            (("god", &all), None),
+            (("god", &arena()), None),
             (
-                ("god", &story),
+                ("clearfoes", &all),
                 Some("This command works only on the Debug Mode map and the other combat test levels.".into()),
             ),
+            (("help", &off), None),
             (("whereami", &menu), Some("Load a game before using this command.".into())),
-            (("whereami", &story), None),
+            (("whereami", &off), None),
             (("version", &menu), None),
-            (("wait world", &story), Some("This command works only in a command script (--cmds).".into())),
+            (("wait world", &off), Some("This command works only in a command script (--cmds).".into())),
         ],
         |(text, facts)| refused(text, facts),
     )

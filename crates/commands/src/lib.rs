@@ -101,6 +101,9 @@ pub enum ArgKind {
     /// A creature template (`.utc`), checked against the game's list when
     /// the game has given one.
     Creature,
+    /// An item template (`.uti`), checked against the game's list when the
+    /// game has given one.
+    Item,
     /// A party member: `me`, or a party member's number from 1.
     Who,
     /// An attribute, by its name or its number from 0 (`ABILITIES`).
@@ -244,6 +247,11 @@ impl Parsed {
         }
     }
 
+    /// Whether the argument at `at` was given.
+    pub fn given(&self, at: usize) -> bool {
+        self.get(at).is_some()
+    }
+
     /// The party member at `at`, the player's own body when none is given.
     pub fn who(&self, at: usize, facts: &Facts) -> Result<SimId, Refusal> {
         let who = match self.get(at) {
@@ -281,6 +289,20 @@ pub struct Facts {
     pub creatures: Option<Vec<String>>,
     /// The classes, as `classes.2da` row and label.
     pub classes: Option<Vec<(u8, String)>>,
+    /// Every item template the game knows, in lower case.
+    pub items: Option<Vec<String>>,
+    /// What the player's crosshair is on.
+    pub target: Option<SimId>,
+    /// The party's credits and experience, when a world is up.
+    pub credits: Option<i32>,
+    pub xp: Option<i32>,
+    /// The experience the party's next level needs, when it is known.
+    pub next_level_xp: Option<i32>,
+    /// Who may cheat in this session (`sim::cheats::Rule`).
+    pub cheats: sim::cheats::Rule,
+    /// This player is the host (the first seat). In solo play the player
+    /// is the host.
+    pub host: bool,
     /// kjk's version text.
     pub version: String,
 }
@@ -456,6 +478,12 @@ fn value(
             }
             _ => Ok(Value::Word(lower)),
         },
+        ArgKind::Item => match &facts.items {
+            Some(known) if !known.contains(&lower) => {
+                Err(Refusal(format!("No item has the template \"{word}\".")))
+            }
+            _ => Ok(Value::Word(lower)),
+        },
         ArgKind::Who => match lower.as_str() {
             "me" => Ok(Value::Who(Who::Me)),
             _ => match lower.parse::<u8>() {
@@ -519,12 +547,28 @@ pub fn place_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
     }
 }
 
+/// Why a command that changes the game cannot run under the session's
+/// cheat rule, if it cannot. A level with arena rules takes every such
+/// command. The simulation checks the rule again for every order.
+pub fn cheat_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
+    if spec.kind != Kind::Cheat || facts.arena {
+        return None;
+    }
+    match facts.cheats {
+        sim::cheats::Rule::Off => Some(Refusal::new("Cheats are off in this game.")),
+        sim::cheats::Rule::Host if !facts.host => Some(Refusal::new(
+            "Only the host can use this command in this game.",
+        )),
+        sim::cheats::Rule::Host | sim::cheats::Rule::All => None,
+    }
+}
+
 /// One command's words run: looked up, its arguments checked, its place
-/// checked, then its `run`.
+/// and the cheat rule checked, then its `run`.
 pub fn run(words: &[String], facts: &Facts) -> Result<Vec<Effect>, Refusal> {
     let (spec, args) = resolve(words)?;
     let parsed = parse_args(spec, &args, facts)?;
-    if let Some(refusal) = place_refusal(spec, facts) {
+    if let Some(refusal) = place_refusal(spec, facts).or_else(|| cheat_refusal(spec, facts)) {
         return Err(refusal);
     }
     (spec.run)(&parsed, facts)

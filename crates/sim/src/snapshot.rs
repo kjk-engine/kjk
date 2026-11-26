@@ -1552,6 +1552,9 @@ pub struct Snapshot {
     /// The share of the normal damage the party and the enemies take, the
     /// session's (`combat::damage::Taken`).
     pub damage_taken: crate::combat::damage::Taken,
+    /// The session's cheat rule, and whether a cheat was ever carried out
+    /// outside an arena level (`world::cheats`).
+    pub cheats: crate::cheats::Cheats,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2343,6 +2346,7 @@ impl Snapshot {
         }
         out.u16(self.damage_taken.party());
         out.u16(self.damage_taken.enemies());
+        self.cheats.encode(out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2532,6 +2536,13 @@ impl Snapshot {
         } else {
             Default::default()
         };
+        // Older snapshots carried none: the rule is Off until the host's
+        // game sends it, and no cheat was used.
+        let cheats = if input.since(crate::since::snapshot::CONSOLE) {
+            crate::cheats::Cheats::decode(&mut input)?
+        } else {
+            Default::default()
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2582,6 +2593,7 @@ impl Snapshot {
             targeted_blocks,
             waiting,
             damage_taken,
+            cheats,
             shared,
             authority,
             next_id,

@@ -13,7 +13,7 @@ pub static SPECS: &[Spec] = &[
         help: "Calls in a hostile creature of this template in front of the player's character.",
         example: "spawn g_sithtroop01",
         group: Group::World,
-        place: Place::Arena,
+        place: Place::Game,
         kind: Kind::Cheat,
         run: spawn,
     },

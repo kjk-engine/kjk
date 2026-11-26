@@ -172,6 +172,10 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
     snapshot.targeted_blocks = true;
     snapshot.damage_taken = crate::combat::damage::Taken::new(50, 200);
+    snapshot.cheats = crate::cheats::Cheats {
+        rule: crate::cheats::Rule::All,
+        used: true,
+    };
     let fighter = snapshot
         .entities
         .iter_mut()
@@ -396,6 +400,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         targeted_blocks: _,
         waiting: _,
         damage_taken: _,
+        cheats: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -405,7 +410,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
         pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
-        targeted_blocks, waiting, damage_taken, shared, authority, next_id,
+        targeted_blocks, waiting, damage_taken, cheats, shared, authority, next_id,
     );
     let State {
         numbers: _,

@@ -1869,6 +1869,7 @@ fn store(
             snapshot: sim::SNAPSHOT_FORMAT,
             story: saves::STORY_SCHEMA,
         }),
+        cheats: snapshot.cheats.used,
         ..saves::Meta::default()
     };
     let tick = snapshot.tick;

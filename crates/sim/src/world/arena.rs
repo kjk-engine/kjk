@@ -17,11 +17,15 @@
 //!   (`Screen::DebugTerminal`), and the page's orders change a party
 //!   member (`edits`). A seat changes its own character or a
 //!   companion no other seat plays, never another seat's character.
+//! - on a level without arena rules, the console's `spawn`, `god` and the
+//!   character page's orders are carried out for a seat that the cheat
+//!   rule lets cheat (`world::cheats`), and they mark the game as cheated.
 
 pub mod edits;
 
 use script_ncs::vm::ObjectId;
 
+use super::cheats::Outcome;
 use crate::action::{Action, ArenaOrder};
 use crate::combat::Sheet;
 use crate::combat::sheet::{factions, flags};
@@ -89,29 +93,43 @@ pub(super) type SeatBody = (Seat, ObjectId, ObjectId);
 
 /// The arena's orders this step (see the module documentation), in the
 /// order they came, and the terminal's uses (`used`: object, user).
-/// Whether a character page's order changed a character, so that what the
-/// players see of the party is gathered again.
+/// `rules` are the level's arena rules. A level without them takes the
+/// orders that make sense in a story module (`off_arena_refusal`)
+/// from a seat the cheat rule lets cheat (`world::cheats`), and each such
+/// order marks the game as cheated. Whether a character page's order
+/// changed a character, so that what the players see of the party is
+/// gathered again.
 pub(super) fn orders(
     library: &Library,
     view: &View,
     state: &mut State,
     (inputs, used): (&TickInput, &[(SimId, SimId)]),
     seats: &[SeatBody],
-    (rules, out): (&Rules, &mut Out),
+    (rules, cheats, out): (Option<&Rules>, &mut super::cheats::Cheats, &mut Out),
 ) -> bool {
-    place_terminal(library, view, state, rules, out);
-    terminal_uses(view, used, seats, out);
+    if let Some(rules) = rules {
+        place_terminal(library, view, state, rules, out);
+        terminal_uses(view, used, seats, out);
+    }
     let mut edited = false;
     for (seat, action) in inputs.actions() {
         let Action::Arena(order) = action else {
             continue;
         };
-        let Some(&(_, _, acting)) = seats.iter().find(|(of, ..)| of == seat) else {
+        let Some(&(_, own, acting)) = seats.iter().find(|(of, ..)| of == seat) else {
             continue;
         };
         let Some(body) = view.thing(acting) else {
             continue;
         };
+        if rules.is_none() {
+            let refused = off_arena_refusal(library, view, cheats, *seat, order);
+            super::cheats::tell(out, own, refused.unwrap_or(Outcome::Done));
+            if refused.is_some() {
+                continue;
+            }
+            cheats.used = true;
+        }
         if edit(library, view, state, *seat, order, out) {
             edited = true;
             continue;
@@ -171,6 +189,36 @@ pub(super) fn orders(
     edited
 }
 
+/// Why an arena order from `seat` is refused on a level without arena
+/// rules, or `None` when it is carried out. `Clear` removes every creature
+/// outside the party, quest characters too, and `Restore` and `Down` belong
+/// to the Debug Mode map, so those three stay on arena levels.
+fn off_arena_refusal(
+    library: &Library,
+    view: &View,
+    cheats: &super::cheats::Cheats,
+    seat: Seat,
+    order: &ArenaOrder,
+) -> Option<Outcome> {
+    let who = match order {
+        ArenaOrder::Clear | ArenaOrder::Restore { .. } | ArenaOrder::Down(_) => {
+            return Some(Outcome::ArenaOnly);
+        }
+        ArenaOrder::Spawn(template) if library.creature(&script::key(template)).is_none() => {
+            return cheats.refusal(seat).or(Some(Outcome::Unknown));
+        }
+        ArenaOrder::Spawn(_) | ArenaOrder::God => None,
+        ArenaOrder::Rebuild { who, .. }
+        | ArenaOrder::Ability { who, .. }
+        | ArenaOrder::Skill { who, .. }
+        | ArenaOrder::Alignment { who, .. } => Some(ObjectId(who.0)),
+    };
+    cheats.refusal(seat).or_else(|| {
+        who.filter(|who| !super::cheats::may_change(view, seat, *who))
+            .map(|_| Outcome::NotYours)
+    })
+}
+
 /// The Debug Mode terminal made where the rules place it, on a level that
 /// has one and has not made it yet. It is made once: a save keeps it, as
 /// it keeps every object play made.
@@ -209,16 +257,6 @@ fn terminal_uses(view: &View, used: &[(SimId, SimId)], seats: &[SeatBody], out: 
     }
 }
 
-/// Whether `seat` may change party member `who`: its own character or the
-/// companion it leads, or a companion no other seat plays.
-fn may_change(view: &View, seat: Seat, who: ObjectId) -> bool {
-    view.thing(who)
-        .and_then(|thing| thing.character)
-        .is_some_and(|character| {
-            character.party && character.driver.is_none_or(|driver| driver == seat)
-        })
-}
-
 /// The terminal's order `order` from `seat` carried out (`edits`): whether
 /// it was one of the terminal's. An order naming a character the seat may
 /// not change, or numbers no character can have, changes nothing, and so
@@ -244,7 +282,7 @@ fn edit(
     let Some(character) = view.thing(who).and_then(|thing| thing.character) else {
         return true;
     };
-    if !may_change(view, seat, who) {
+    if !super::cheats::may_change(view, seat, who) {
         return true;
     }
     let sheet = out.sheet(who, character.worn);

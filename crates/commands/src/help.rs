@@ -1,6 +1,6 @@
 //! Usage lines and help text.
 
-use crate::{Facts, Group, Place, Spec, place_refusal, table};
+use crate::{Facts, Group, Place, Spec, cheat_refusal, place_refusal, table};
 
 /// The command's usage line: its name, then each argument, an optional
 /// one in brackets (`level CLASS LEVEL [SECOND] [SECONDLEVELS]`).
@@ -45,7 +45,8 @@ pub fn list(facts: &Facts, all: bool) -> Vec<String> {
         let specs: Vec<(&Spec, Option<String>)> = (table().iter().copied())
             .filter(|spec| spec.group == group)
             .filter_map(|spec| {
-                let refusal = place_refusal(spec, facts).map(|refusal| refusal.0);
+                let refusal = (place_refusal(spec, facts).or_else(|| cheat_refusal(spec, facts)))
+                    .map(|refusal| refusal.0);
                 (all || refusal.is_none()).then_some((spec, refusal))
             })
             .collect();

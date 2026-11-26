@@ -75,6 +75,7 @@ const GROUPS: &[Group] = &[
     ("arrivals", sim::arrival_probes::probes),
     ("remote", sim::remote_probes),
     ("arena", sim::arena_probes::probes),
+    ("cheats", sim::cheats_probes::probes),
     ("party", sim::party::probes),
     ("party choice", sim::script::party_choice::probes),
     ("lobby", session::lobby::probes),

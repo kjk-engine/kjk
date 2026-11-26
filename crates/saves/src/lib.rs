@@ -110,6 +110,11 @@ pub struct Meta {
     pub game: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formats: Option<Formats>,
+    /// A console command changed the game before it was saved
+    /// (`sim::cheats::Cheats::used`): the save screens say "Cheats used".
+    /// False in a save from before the console.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cheats: bool,
 }
 
 /// `meta.json`: the meta, and where it came from if it is a copy
@@ -347,6 +352,7 @@ pub fn write_checkpoint(
         area: title.to_string(),
         saved,
         seats: save.snapshot.seats(),
+        cheats: save.snapshot.cheats.used,
         ..Meta::default()
     };
     write(root, Some(id), &save, &meta).map(|_| ())

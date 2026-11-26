@@ -308,6 +308,43 @@ summary = "The character on the Debug Mode map starts with {world.arena.terminal
 source = "ours"
 see = "game::arena::gear"
 
+[console]
+title = "Console Limits"
+summary = """
+The console's commands set the party's credits, the party's experience and
+the number of items added within limits. The party can have at most
+{world.console.credits_most:bare} credits and
+{world.console.xp_most:bare} experience points from the console. One
+command adds at most {world.console.items_most:bare} of an item.
+"""
+
+[console.credits_most]
+name = "Most Console Credits"
+type = "i32"
+value = 9999999
+range = [1, 2147483647]
+summary = "The console sets the party's credits to at most {world.console.credits_most:bare}."
+source = "ours"
+see = "sim::world::cheats"
+
+[console.xp_most]
+name = "Most Console Experience"
+type = "i32"
+value = 9999999
+range = [1, 2147483647]
+summary = "The console sets the party's experience to at most {world.console.xp_most:bare} points."
+source = "ours"
+see = "sim::world::cheats"
+
+[console.items_most]
+name = "Most Items at Once"
+type = "u16"
+value = 100
+range = [1, 1000]
+summary = "One console command adds at most {world.console.items_most:bare} of an item."
+source = "ours"
+see = "sim::world::cheats"
+
 [force_costs]
 title = "Force Point Cost"
 summary = """

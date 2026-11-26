@@ -640,6 +640,24 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
         // Seen and heard, not words (`made::exploded`).
         Notice::Explosion(explosion) => format!("[mine of row {} exploded]", explosion.row),
+        Notice::Cheat(outcome) => cheat_words(*outcome).into(),
+    }
+}
+
+/// What became of a console command that changes the game, as the player
+/// reads it.
+fn cheat_words(outcome: sim::cheats::Outcome) -> &'static str {
+    use sim::cheats::Outcome;
+    match outcome {
+        Outcome::Done => "The console command was carried out.",
+        Outcome::Off => "Cheats are off in this game.",
+        Outcome::HostOnly => "Only the host can use this command in this game.",
+        Outcome::NotYours => "That character belongs to another player.",
+        Outcome::Unknown => "Nothing here has that name.",
+        Outcome::Protected => "That character cannot be killed.",
+        Outcome::ArenaOnly => {
+            "This command works only on the Debug Mode map and the other combat test levels."
+        }
     }
 }
 

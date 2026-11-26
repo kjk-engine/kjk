@@ -313,6 +313,7 @@ pub fn run(options: RunOptions) -> AppExit {
             .ok();
         app.add_plugins(crate::ui_view::UiViewPlugin::new(assets, start));
     }
+    app.insert_resource(crate::console_view::Scripted(!options.commands.is_empty()));
     app.add_plugins((
         ConsolePlugin {
             commands: options.commands,

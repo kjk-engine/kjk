@@ -13,9 +13,15 @@ run with exit code 2.
 
 A command that changes the game sends an order to the simulation, as
 the keys of the Debug Mode map do. These commands are marked "Changes
-the game". For now they work only on the Debug Mode map and the other
-combat test levels, because the simulation carries out these orders
-only there.
+the game". On the Debug Mode map and the other combat test levels
+they always work. Elsewhere they work only when the session's cheat
+rule allows them. The rule is Off by default. Under the rule Host only,
+only the host can use them. A run with a command script (`--cmds`), or
+with the console setting turned on, plays under the rule Host only.
+The first such command outside the combat test levels marks the game
+as "Cheats used", and a save keeps the mark. A player
+can change only their own character, the companion they lead, or a
+companion that no other player controls.
 
 An argument in brackets may be left out. WHO is a party member: `me`, or
 a party member's number, where 1 is the player's own character. Without
@@ -63,7 +69,7 @@ Turns god mode on or off for the player's character. A character in god mode can
 
 Also accepted: `invulnerability`, `arena god`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `god`
+It works while a game is loaded. Changes the game. Example: `god`
 
 ### `level CLASS LEVEL [SECOND] [SECONDLEVELS]`
 
@@ -71,7 +77,7 @@ Rebuilds the player's character as a character of the class at this total level.
 
 Also accepted: `setlevel`, `arena level`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `level 3 20 9 5`
+It works while a game is loaded. Changes the game. Example: `level 3 20 9 5`
 
 ### `attribute NAME SCORE [WHO]`
 
@@ -79,7 +85,7 @@ Sets an attribute of the player's character, or of the party member WHO, to the 
 
 Also accepted: `arena ability`, `setstrength`, `setdexterity`, `setconstitution`, `setintelligence`, `setwisdom`, `setcharisma`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `attribute strength 18`
+It works while a game is loaded. Changes the game. Example: `attribute strength 18`
 
 ### `skill NAME RANKS [WHO]`
 
@@ -87,7 +93,7 @@ Sets the ranks of a skill of the player's character, or of the party member WHO.
 
 Also accepted: `arena skill`, `setcomputeruse`, `setdemolitions`, `setstealth`, `setawareness`, `setpersuade`, `setrepair`, `setsecurity`, `settreatinjury`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `skill security 10`
+It works while a game is loaded. Changes the game. Example: `skill security 10`
 
 ### `alignment VALUE [WHO]`
 
@@ -95,7 +101,7 @@ Sets the alignment of the player's character, or of the party member WHO. 0 is f
 
 Also accepted: `arena alignment`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `alignment 100`
+It works while a game is loaded. Changes the game. Example: `alignment 100`
 
 ### `restore`
 
@@ -113,7 +119,63 @@ Also accepted: `arena down`.
 
 It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `down 4`
 
+### `giveitem TEMPLATE [COUNT]`
+
+Adds the item of this template to the party's inventory. With COUNT, adds that many of it.
+
+It works while a game is loaded. Changes the game. Example: `giveitem g_w_lghtsbr01 2`
+
+### `givecredits AMOUNT`
+
+Adds this many credits to the party's credits.
+
+It works while a game is loaded. Changes the game. Example: `givecredits 500`
+
+### `credits AMOUNT`
+
+Sets the party's credits to this amount.
+
+It works while a game is loaded. Changes the game. Example: `credits 10000`
+
+### `addexp AMOUNT`
+
+Adds this many experience points to the party's experience.
+
+Also accepted: `addxp`.
+
+It works while a game is loaded. Changes the game. Example: `addexp 2000`
+
+### `addlevel`
+
+Gives the party the experience that the player's character needs for its next level.
+
+It works while a game is loaded. Changes the game. Example: `addlevel`
+
+### `heal [WHO]`
+
+Gives the party member WHO full hit points and Force points. Without WHO, heals every party member the player may change.
+
+It works while a game is loaded. Changes the game. Example: `heal`
+
 ## World
+
+### `kill [TAG]`
+
+Kills the creature the player has targeted, or the nearest creature with this tag. Its death script runs as for any other death. Party members and creatures that the story needs cannot be killed.
+
+It works while a game is loaded. Changes the game. Example: `kill`
+
+### `setglobal NAME VALUE`
+
+Sets the script global NAME to VALUE. A global that holds true or false becomes true for any value but 0.
+
+It works while a game is loaded. Changes the game. Example: `setglobal K_SWG_HELENA 1`
+
+### `runscript RESREF [WHO]`
+
+Runs the game's script RESREF. With WHO, the party member WHO runs it. Without WHO, the module runs it, as it runs its own scripts.
+
+It works while a game is loaded. Changes the game. Example: `runscript k_sup_gohawk`
 
 ### `spawn TEMPLATE`
 
@@ -121,7 +183,7 @@ Calls in a hostile creature of this template in front of the player's character.
 
 Also accepted: `arena spawn`.
 
-It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `spawn g_sithtroop01`
+It works while a game is loaded. Changes the game. Example: `spawn g_sithtroop01`
 
 ### `clearfoes`
 

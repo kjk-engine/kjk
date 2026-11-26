@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3784a16b29671fc5`.
+Edition `8d45161626a6359e`.
 
 ## Contents
 
@@ -240,6 +240,7 @@ Edition `3784a16b29671fc5`.
   - [Triggers](#world-triggers)
   - [Area Map](#world-map)
   - [Combat Arena](#world-arena)
+  - [Console Limits](#world-console)
   - [Force Point Cost](#world-force-costs)
   - [Sniper Bonus](#world-shots)
   - [Healing Over Time](#world-healing)
@@ -10049,6 +10050,32 @@ Alignment runs from 0 (dark) to 100 (light).
 The character on the Debug Mode map starts with 10 of each grenade, mine, medical item and stimulant.
 
 <sub>Source: ours. Code: `game::arena::gear`.</sub>
+
+### <a id="world-console"></a>Console Limits
+
+The console's commands set the party's credits, the party's experience and
+the number of items added within limits. The party can have at most
+9999999 credits and
+9999999 experience points from the console. One
+command adds at most 100 of an item.
+
+<a id="world-console-credits-most"></a>**Most Console Credits** = **9999999** · `world.console.credits_most`
+
+The console sets the party's credits to at most 9999999.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
+
+<a id="world-console-xp-most"></a>**Most Console Experience** = **9999999** · `world.console.xp_most`
+
+The console sets the party's experience to at most 9999999 points.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
+
+<a id="world-console-items-most"></a>**Most Items at Once** = **100** · `world.console.items_most`
+
+One console command adds at most 100 of an item.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 
