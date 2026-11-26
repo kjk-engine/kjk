@@ -503,20 +503,32 @@ impl Made {
             .module()
             .and_then(|module| sim::remains::bag_of(module, &template))
             .map(|row| row.placeable());
+        // The Debug Mode terminal is KOTOR 1's computer in either game's
+        // area (`Stage::with_debug_terminal`, which opened that install).
+        let kotor1 = (template == sim::arena::TERMINAL_TEMPLATE)
+            .then(|| crate::installs::already_open(vfs::Game::Kotor1))
+            .flatten();
         AsyncComputeTaskPool::get().spawn(async move {
             let installer = installer.ok_or("no install to make placeables from")?;
-            let module = module_with(&installer, &modules, &names, |_, resolver| {
-                Ok(bag.is_some()
-                    || resolver
-                        .find(&template, fmt_odyssey::ResType::UTP)
-                        .is_some())
-            })?;
-            let resolver = module
-                .resolver
-                .get()
-                .ok_or("no resolver")?
-                .as_ref()
-                .map_err(Clone::clone)?;
+            let module;
+            let (resolver, game) = match &kotor1 {
+                Some(install) => (install.base()?, vfs::Game::Kotor1),
+                None => {
+                    module = module_with(&installer, &modules, &names, |_, resolver| {
+                        Ok(bag.is_some()
+                            || resolver
+                                .find(&template, fmt_odyssey::ResType::UTP)
+                                .is_some())
+                    })?;
+                    let resolver = module
+                        .resolver
+                        .get()
+                        .ok_or("no resolver")?
+                        .as_ref()
+                        .map_err(Clone::clone)?;
+                    (resolver, installer.game)
+                }
+            };
             let (model, placed) = match bag {
                 Some(appearance) => (
                     appearance_model(resolver, usize::from(appearance))?,
@@ -528,7 +540,7 @@ impl Made {
                 viewer::parsed(resolver, &model)?.ok_or(format!("{template}: no model {model}"))?;
             let ir = asset_odyssey::model::ModelIr::from_model(&parsed);
             let own = viewer::placeable_fx(
-                (&mut BTreeMap::new(), resolver, installer.game),
+                (&mut BTreeMap::new(), resolver, game),
                 &parsed,
                 &ir,
                 (index, placed),

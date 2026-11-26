@@ -247,10 +247,11 @@ impl Stage {
         })
     }
 
-    /// The arena's rules and Jedi on a real area (`arena@MODULE`): the
-    /// module's rooms, lightmaps and lights as they are, its event scripts
-    /// gone, so fights and their lights can be tried in a lit or a dark
-    /// place. Its own creatures stay until `arena clear` (F6) takes them; a
+    /// The arena's rules and Jedi on a real area (`arena@MODULE`, and the
+    /// sandbox): the module's rooms, lightmaps and lights as they are, its
+    /// event scripts gone, so fights and their lights can be tried in a lit
+    /// or a dark place, with the Debug Mode terminal beside the arrival in
+    /// either game (`with_debug_terminal`). Its own creatures stay until `arena clear` (F6) takes them; a
     /// body falling far below the arrival dies there.
     pub fn module_arena(
         discovery: &Discovery,
@@ -281,7 +282,7 @@ impl Stage {
             plan.level = stage.level.clone();
         }
         stage.sheet = crate::arena::sheet_for(&stage.level);
-        Ok(stage)
+        stage.with_debug_terminal(discovery)
     }
 
     /// `course`, `duel`, or a KOTOR 1 module (e.g. `end_m01aa`), for
@@ -310,8 +311,7 @@ impl Stage {
                 scene,
                 seats,
             )
-            .map(Stage::without_creatures)
-            .map(Stage::with_debug_terminal),
+            .map(Stage::without_creatures),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }
@@ -351,26 +351,22 @@ impl Stage {
     }
 
     /// The stage with the Debug Mode terminal (`arena::terminal`): KOTOR 1's
-    /// Rakatan computer (`sim::arena::TERMINAL_TEMPLATE`, read from the
-    /// install), renamed, with no scripts, conversation, lock, items or hit
-    /// points of its own, so that a use of it opens the terminal's screen
-    /// and nothing else. The arena's step makes it beside the arrival
-    /// (`Rules::terminal`). A stage without an install or arena rules is
-    /// kept as it is.
-    pub fn with_debug_terminal(mut self) -> Stage {
-        let (Some(installer), Some(rules)) =
-            (self.installer.as_ref(), self.level.arena_rules().cloned())
-        else {
-            return self;
-        };
+    /// Rakatan computer (`sim::arena::TERMINAL_TEMPLATE`), read from the
+    /// KOTOR 1 install whichever game the stage's area is, renamed, with no
+    /// scripts, conversation, lock, items or hit points of its own, so that
+    /// a use of it opens the character page and nothing else. The arena's
+    /// step makes it beside the arrival (`Rules::terminal`).
+    fn with_debug_terminal(mut self, discovery: &Discovery) -> Result<Stage, String> {
+        let rules = self
+            .level
+            .arena_rules()
+            .cloned()
+            .ok_or("the stage has no arena rules")?;
         let template = sim::arena::TERMINAL_TEMPLATE;
-        let facts = installer.resolver(&self.name).ok().and_then(|resolver| {
-            session::placeable_facts(&crate::modules::ResolverSource(&resolver), template)
-        });
-        let Some(facts) = facts else {
-            bevy::log::warn!("the install has no {template}: the Debug Mode map has no terminal");
-            return self;
-        };
+        let install = crate::installs::open(discovery, vfs::Game::Kotor1)?;
+        let source = crate::modules::ResolverSource(install.base()?);
+        let facts = session::placeable_facts(&source, template)
+            .ok_or(format!("the KOTOR 1 install has no {template}"))?;
         let facts = sim::module::ObjectData {
             tag: sim::arena::TERMINAL_TAG.into(),
             cased_tag: String::new(),
@@ -399,7 +395,7 @@ impl Stage {
         if let Some(plan) = &mut self.plan {
             plan.level = self.level.clone();
         }
-        self
+        Ok(self)
     }
 
     /// The stage with every player as `sheet`.
