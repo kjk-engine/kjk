@@ -4127,6 +4127,18 @@ fn crosshair_into_cages() {
     probed("crosshair cage", &sim::target::cage_probes(), 5);
 }
 
+/// The crosshair on placeables' drawn meshes (proposed 2026-11-26, the
+/// Yavin IV shuttle of the mod Echoes of the Republic, usable only from its
+/// top): on a floor, a ship whose middle stands under its raised hull is
+/// picked on its hull, also from where its middle is out of range, and
+/// neither is picked without its drawn meshes. A creature before the hull
+/// is picked over the ship, and one behind it is not. A camera inside the
+/// hull looks out past it. The sim alone.
+#[test]
+fn crosshair_drawn_meshes() {
+    probed("crosshair drawn", &sim::target::drawn_probes(), 5);
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;

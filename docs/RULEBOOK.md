@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `c98b22e8cf53489e`.
 
 ## Contents
 
@@ -11080,7 +11080,10 @@ An object counts as in sight if nothing blocks the line to its middle or its top
 
 Each kind of object can be targeted anywhere inside an upright cylinder
 that stands on the object's base. A door can also be targeted anywhere on
-its own surfaces.
+its own surfaces. A usable object can also be targeted anywhere on its
+drawn model, as in the original games. For such an object, the targeting
+range is measured to the nearest part of its model. A large object, such
+as a ship, can therefore be targeted anywhere on its hull.
 
 <a id="targeting-volumes-creature-radius"></a>**Creature Radius** = **0.4 m** · `targeting.volumes.creature_radius`
 
