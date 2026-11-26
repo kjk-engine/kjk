@@ -866,11 +866,22 @@ fn origin_at(feet: Vec3) -> Vec3 {
 /// How near (units, seen from above) where a link leaves a walker jumps.
 const TAKE_OFF: f32 = rules::walking::route::TAKE_OFF;
 
+/// Whether a walker at `at` (its origin) stands on the floor a link leaves
+/// from at `leave` (an origin too): no more than `FLOOR_BELOW_M` over it
+/// and `FLOOR_ABOVE_M` under it, as far as a character finds its floor.
+/// Seen from above alone, a walker on a storey right under where a link
+/// leaves stood there too, and jumped from the wrong floor.
+fn on_floor_of(at: Vec3, leave: Vec3) -> bool {
+    let over = (at[2] - leave[2]) * UNIT;
+    (-FLOOR_ABOVE_M..=FLOOR_BELOW_M).contains(&over)
+}
+
 /// The link a walker at `at` (its origin) crosses making for `corner`: one
 /// whose landing is `corner` (exactly: the walk makes for a link's landing
 /// only as `across_link` gives it), with where it leaves within
-/// `TAKE_OFF`. Its kind.
-fn crossing(level: &Level, at: Vec3, corner: Vec3) -> Option<collision::nav::LinkKind> {
+/// `TAKE_OFF`. Its kind, and where it leaves (an origin). The walker may
+/// be in the air over it by now, so its height is not asked here.
+fn crossing(level: &Level, at: Vec3, corner: Vec3) -> Option<(collision::nav::LinkKind, Vec3)> {
     let nav = level.nav()?;
     let same = |a: Vec3, b: Vec3| (0..3).all(|axis| a[axis].to_bits() == b[axis].to_bits());
     nav.links.iter().find_map(|link| {
@@ -881,8 +892,9 @@ fn crossing(level: &Level, at: Vec3, corner: Vec3) -> Option<collision::nav::Lin
             1
         };
         ways.into_iter().take(take).find_map(|(leave, land)| {
-            (same(origin_at(land), corner) && math::flat_distance(origin_at(leave), at) <= TAKE_OFF)
-                .then_some(link.kind)
+            let leave = origin_at(leave);
+            (same(origin_at(land), corner) && math::flat_distance(leave, at) <= TAKE_OFF)
+                .then_some((link.kind, leave))
         })
     })
 }
@@ -1212,9 +1224,12 @@ impl Walker {
             command.right = if self.stalls % 4 == 1 { 127 } else { -127 };
         }
         // A link's jump: from the ground where it leaves, as a player
-        // jumps (a drop's walker only walks off).
+        // jumps (a drop's walker only walks off), and from the link's own
+        // floor (`on_floor_of`).
         if player.ground.is_some()
-            && crossing(level, player.origin, corner) == Some(collision::nav::LinkKind::Jump)
+            && crossing(level, player.origin, corner).is_some_and(|(kind, leave)| {
+                kind == collision::nav::LinkKind::Jump && on_floor_of(player.origin, leave)
+            })
         {
             command.up = i8::MAX;
         }
@@ -1282,7 +1297,10 @@ impl Walker {
         let there = nav.island_at(soles(self.goal), FLOOR_BELOW_M, FLOOR_ABOVE_M)?;
         let (leave, land) = nav.first_link(here, there)?;
         let (leave, land) = (origin_at(leave), origin_at(land));
-        if math::flat_distance(leave, at) <= REACHED {
+        // Standing where the link leaves, on its floor (`on_floor_of`). A
+        // walker under it, on a lower storey of the same island, walks up
+        // to it first.
+        if math::flat_distance(leave, at) <= REACHED && on_floor_of(at, leave) {
             return Some(land);
         }
         route_round(level, at, leave, state, walled)
