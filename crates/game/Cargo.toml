@@ -56,6 +56,15 @@ rfd.workspace = true
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 bevy_internal = { version = "0.19.1", default-features = false, features = ["dlss"], optional = true }
 
+# Finding ReShade in the process and registering with it (`src/reshade.rs`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
 [features]
 # Hosting and joining through Steam as well as by address (`net/steam`).
 steam = ["net/steam"]

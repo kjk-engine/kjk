@@ -42,6 +42,7 @@ const GROUPS: &[Group] = &[
     ("bindings", kjk_game::settings::binding_probes),
     ("hide interface", kjk_game::hide_probes),
     ("photo mode", kjk_game::photo_mode::probes),
+    ("reshade", kjk_game::reshade::probes),
     ("stance sets table", kjk_game::stance_sets::probes),
     ("flinch", kjk_game::acting::flinch_probes),
     ("kept on", kjk_game::acting::kept_probes),

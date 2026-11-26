@@ -157,6 +157,7 @@ mod particle_surfaces;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;
+pub mod reshade;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]

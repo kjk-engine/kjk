@@ -2466,7 +2466,7 @@ fn draw(
         // It draws the HUD too, under the screens (`hud`): the HUD's view,
         // its layers given it while there is one.
         let mut camera = commands.spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             crate::scene::over_world(13),
             crate::hud::overlay_view(),
             crate::scene::encoded_view(),

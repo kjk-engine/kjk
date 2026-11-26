@@ -34,8 +34,9 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, AsBindGroupError, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
-    BufferBindingType, ColorWrites, PipelineCache, PreparedBindGroup, RenderPipelineDescriptor,
-    ShaderStages, ShaderType, SpecializedMeshPipelineError, UnpreparedBindGroup,
+    BufferBindingType, ColorWrites, CompareFunction, PipelineCache, PreparedBindGroup,
+    RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipelineError,
+    UnpreparedBindGroup,
 };
 use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
@@ -991,6 +992,11 @@ pub struct OdysseyMaterial {
     /// How the mesh is drawn while its alpha is below 1 and while it is 1,
     /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
     pub looks: Option<Looks>,
+    /// Drawn over everything already on its camera's target: it neither
+    /// tests nor writes depth. The quads of the cameras that draw over the
+    /// world (the HUD, the loading screen, a movie, the fade) are, so that
+    /// those cameras can keep the world's depth for ReShade (`reshade`).
+    pub on_top: bool,
 }
 
 /// What a surface changes in a material: the surface, the shader flags and
@@ -1373,6 +1379,7 @@ impl OdysseyMaterial {
             motion_only: false,
             listed_quads: false,
             looks: None,
+            on_top: false,
         }
     }
 
@@ -1831,6 +1838,7 @@ pub struct OdysseyKey {
     /// then discards it too.
     cut: bool,
     motion_only: bool,
+    on_top: bool,
 }
 
 impl From<&OdysseyMaterial> for OdysseyKey {
@@ -1851,6 +1859,7 @@ impl From<&OdysseyMaterial> for OdysseyKey {
                     AlphaMode::Opaque | AlphaMode::Mask(_)
                 ),
             motion_only: material.motion_only,
+            on_top: material.on_top,
         }
     }
 }
@@ -2089,7 +2098,10 @@ impl Material for OdysseyMaterial {
             }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = Some(key.depth_write);
+            depth.depth_write_enabled = Some(key.depth_write && !key.on_top);
+            if key.on_top {
+                depth.depth_compare = Some(CompareFunction::Always);
+            }
         }
         Ok(())
     }
