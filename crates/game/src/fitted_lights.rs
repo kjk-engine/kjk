@@ -137,7 +137,24 @@ pub fn set_mode(mode: Mode) {
 /// project's own, is lit `Live` by those lights. Any other level is lit as
 /// the options say. A mode a program set or the variable named wins over
 /// the project's (`chosen`).
+///
+/// Under Classic lighting (`classic`) the project asks for no mode, and the
+/// level is drawn as the original game draws it. Classic leaves out the
+/// light probes and the light above 1 that both modes are made for. With
+/// one of them forced, the rooms showed half of their light or the bake's
+/// lightmaps with nothing to make up the rest.
 pub fn for_module(module: &str) {
+    let lights = || {
+        level_edit::active::map_lights(module).is_some_and(|lights| !lights.is_empty())
+            || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty())
+    };
+    if (level_edit::active::bake_of(module).is_some() || lights()) && classic() {
+        bevy::log::info!(
+            "{module} is lit as the original game lights it: the lighting is Classic, which shows no project's bake or lights"
+        );
+        write_mode(&PROJECT, None);
+        return;
+    }
     let mode = match level_edit::active::bake_of(module) {
         Some(bake) => {
             bevy::log::info!(
@@ -150,19 +167,32 @@ pub fn for_module(module: &str) {
         // or an installed level's once the project changed them). They
         // shine live, so a level that an author lit is not dark in play
         // before it is baked.
-        None => {
-            let own = level_edit::active::map_lights(module)
-                .is_some_and(|lights| !lights.is_empty())
-                || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty());
-            own.then(|| {
-                bevy::log::info!(
-                    "{module} is lit by its project's own lights, live: its project keeps no bake of it"
-                );
-                Mode::Live
-            })
-        }
+        None => lights().then(|| {
+            bevy::log::info!(
+                "{module} is lit by its project's own lights, live: its project keeps no bake of it"
+            );
+            Mode::Live
+        }),
     };
     write_mode(&PROJECT, mode);
+}
+
+/// Whether this run is lit as the original game was (the options' Lighting
+/// at Classic): what `KJK_LIGHTING` says (`rolloff::forced`, `kjk
+/// --lighting`), else what the settings file keeps, as
+/// `settings::Settings::lighting` reads it. A file without the setting
+/// means Classic.
+fn classic() -> bool {
+    let named = |value: &str| crate::rolloff::LightingMode::named(value);
+    let lighting = match crate::rolloff::forced() {
+        Some(forced) => named(forced),
+        None => named(
+            crate::settings::stored()
+                .get("display.lighting")
+                .map_or("classic", String::as_str),
+        ),
+    };
+    lighting == crate::rolloff::LightingMode::Classic
 }
 
 /// The mode an area is drawn in, where `baked` says whether it is drawn
