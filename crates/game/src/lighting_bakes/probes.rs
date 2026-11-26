@@ -32,6 +32,10 @@ pub fn probes() -> Checks {
             "an_install_unpacks_into_the_store_and_replaces_the_last",
             an_install_unpacks_into_the_store_and_replaces_the_last(),
         ),
+        (
+            "a_refusal_names_the_mods_that_differ",
+            a_refusal_names_the_mods_that_differ(),
+        ),
     ]
 }
 
@@ -151,6 +155,7 @@ fn the_install_needs_nine_areas_in_ten() -> Result<String, String> {
         fall_back: vec![FallBack {
             area: "9".into(),
             why: "rooms".into(),
+            mods: Vec::new(),
         }],
         allowed: true,
         cached: false,
@@ -366,4 +371,80 @@ fn install_in(root: &Path) -> Result<String, String> {
         removed && left.is_empty(),
         format!("removed {removed}, area folders left {left:?}"),
     )
+}
+
+/// A refused report of 10 areas. The areas in `fall_back` fall back, each
+/// with the mods that replace its room files, and the others match.
+fn refused_with(fall_back: &[(&str, &[&str])]) -> Report {
+    Report {
+        game: "tsl".into(),
+        needs: "TSLRCM".into(),
+        areas: 10,
+        matched: (0..10 - fall_back.len()).map(|n| n.to_string()).collect(),
+        placeables_differ: Vec::new(),
+        fall_back: (fall_back.iter())
+            .map(|(area, mods)| FallBack {
+                area: (*area).into(),
+                why: "rooms".into(),
+                mods: mods.iter().map(|name| (*name).to_string()).collect(),
+            })
+            .collect(),
+        allowed: false,
+        cached: false,
+    }
+}
+
+/// The resolver's layers name their mod: a Steam Workshop item by its id,
+/// the override folder with its subfolders, and a `.mod` in the modules
+/// folder. The game's own files name none. A refusal then names each mod
+/// that replaces the room files of the areas that differ, the mod with the
+/// most areas first, with at most three areas by name. TSLRCM's own
+/// Workshop item is not named, since the KOTOR II lighting matches it.
+/// Without any other mod's files, the refusal is the sentence about the
+/// patch alone.
+fn a_refusal_names_the_mods_that_differ() -> Result<String, String> {
+    let layers = [
+        ("workshop/485537937/override", Some("workshop/485537937")),
+        (
+            "workshop/1834631667/modules/602dan.mod",
+            Some("workshop/1834631667"),
+        ),
+        ("override", Some("override")),
+        ("override/textures", Some("override")),
+        ("modules/101per.mod", Some("modules")),
+        ("modules/101per.rim", None),
+        ("texturepacks/swpc_tex_tpa.erf", None),
+        ("chitin.key", None),
+    ];
+    let wrong: Vec<_> = (layers.iter())
+        .filter(|(layer, want)| bake_fingerprint::mod_place(layer).as_deref() != *want)
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("these layers name the wrong mod: {wrong:?}"),
+    )?;
+    let refusal = refused_with(&[
+        ("601dan", &["workshop/111"]),
+        ("602dan", &["workshop/111", "override"]),
+        ("604dan", &["workshop/111"]),
+        ("605dan", &["workshop/111", "workshop/485537937"]),
+        ("606dan", &["workshop/485537937"]),
+        ("701kor", &[]),
+    ])
+    .refusal()
+    .ok_or("a report not allowed has no refusal")?;
+    check(
+        refusal
+            == "The new lighting needs KOTOR II with TSLRCM installed. Only 4 of the 10 areas in \
+                this game's files match the files the lighting was made from, and at least 90% \
+                must match. In 6 areas the rooms or their lightmaps differ from the ones the \
+                lighting was made from. Steam Workshop item 111 replaces these files in 4 of \
+                those areas: 601dan, 602dan, 604dan and 1 more. The override folder replaces \
+                these files in 1 of those areas: 602dan.",
+        refusal,
+    )?;
+    let alone = refused_with(&[("701kor", &[]), ("702kor", &["workshop/485537937"])])
+        .refusal()
+        .ok_or("a report not allowed has no refusal")?;
+    check(alone.ends_with("at least 90% must match."), alone)
 }

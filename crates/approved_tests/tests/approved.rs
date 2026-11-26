@@ -903,8 +903,10 @@ fn placeable_light_sets() {
 /// changes with a mod's texture and not with a voice line. An install
 /// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
 /// replaces the last install whole, is left alone by the store's gc, and
-/// refuses a zip with a file outside the areas' folders. Needs `--features
-/// rig`; no installs (approved 2026-11-23).
+/// refuses a zip with a file outside the areas' folders. A refusal names
+/// the mods that replace the room files of the areas that differ. Needs
+/// `--features rig`; no installs (approved 2026-11-23; the fifth probe,
+/// `a_refusal_names_the_mods_that_differ`, proposed 2026-11-26).
 #[test]
 fn lighting_downloads() {
     #[cfg(not(feature = "rig"))]
@@ -913,7 +915,7 @@ fn lighting_downloads() {
     probed(
         "lighting downloads",
         &kjk_game::lighting_bakes::probes::probes(),
-        4,
+        5,
     );
 }
 
