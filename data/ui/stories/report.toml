@@ -1,0 +1,6 @@
+# The stories of the screens in crates/ui/src/screens/report.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "report"

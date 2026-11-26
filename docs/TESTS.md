@@ -150,6 +150,13 @@ and that a key held as it ends stays out of play until it is let go. It is
 not an approved test,
 and it runs only through `kjk sim probes --only "photo mode"`.
 `bink_decoder_parts` was approved 2026-11-23.
+`ui_catalogue` was approved 2026-11-26. It checks that every module of
+`ui::screens` has a story file in `data/ui/stories`, that every story file
+belongs to a module, and that each story's screen opens. The checks
+`tree_marks`, `tree_focus_links` and `palette_tokens` were added to
+`gui_layouts` the same day. They check the marks a painter leaves for the
+control trees, the focus links the trees record, and that the code's
+palettes have the colours of `data/ui/tokens.json`.
 The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
 approval. It checks that a pause of eight hours, as when a computer sleeps
 with the game running, moves the game by one frame at most, and that the

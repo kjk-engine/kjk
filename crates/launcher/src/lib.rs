@@ -69,6 +69,7 @@ probes!(
     formats_ja,
     game_sweep,
     grenades_verbs,
+    gui_catalogue,
     gui_tree,
     gui_verbs,
     impact_verbs,

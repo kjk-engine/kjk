@@ -1,0 +1,3 @@
+# The stories of the screens in crates/ui/src/screens/arena_panel.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is drawn over play, outside the screen stack, so `kjk gui screen` cannot open it. Its stories come with captures of play."

@@ -745,6 +745,37 @@ Running and checking:
     both cases), drawn by the renderer on a line that starts on a whole
     pixel, a pixel counting from half its alpha. This is the measure
     docs/UI-GUIDELINES.md uses.
+- **UI catalogue** (`ui::catalogue`). Every module of `ui::screens` has a
+  story file of its own name in `data/ui/stories`, and the approved test
+  `ui_catalogue` fails when one is missing. A file gives the module's
+  status in the audit (`not started`, `needs work` or `audited`), its
+  notes, and its stories. A story is a named state of a screen: its
+  `name`, the `screen` as `screens::open` names it, the `steps` that
+  `kjk gui screen --step` takes, the `games` it is drawn on (both by
+  default) and, for the message screen, an `error`. A module drawn over
+  play, outside the stack (the HUD, barks, the conversation), or one that
+  is only a part of other screens, has no stories yet, and its notes say
+  why. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
+  (`catalogue::SIZES`: `deck`, `1080p`, `4k-tv`, `4k-monitor` at a scale
+  factor of 2, `4x3`, `ultrawide`) and with two inputs (`pad`, its hints
+  shown, the Steam Deck's buttons on `deck`; `mouse`). The screens step in
+  the logical window and are drawn at the physical size, as in play, so
+  `4k-monitor` draws as `4k-tv` does: the screens keep their size at any
+  desktop scaling. `kjk gui list [--json]` lists the modules, their
+  statuses and stories, and the sizes and inputs. `kjk gui show MODULE`
+  gives a module's notes and its stories' steps. `kjk gui story MODULE
+  [STORY] [--at SIZE] [--input pad|mouse] [--game k1|tsl]` draws stories,
+  a PNG and a control tree each, into
+  `kjk-artifacts/gui/catalogue/<game>/<module>/<story>/<size>-<input>.png`.
+- **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
+  2025.10). They hold the screens' palettes, which are the source of the
+  colours in the code (the probe `palette_tokens` fails when a palette
+  differs), KOTOR's bitmap fonts by their use (`com.kjk.bitmapFont` holds
+  the texture), and the smallest body heights of docs/UI-GUIDELINES.md.
+  `kjk gui census` counts what the layouts of each install use into
+  `data/ui/census.json`: the layouts, the controls of each kind, and the
+  controls that use each font, text colour and border texture. It is the
+  "before" the tokens are measured against.
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second

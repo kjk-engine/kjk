@@ -1,5 +1,6 @@
 //! What a control tree is made from (`kjk gui screen`): each control's
-//! mark with its words, and where the focus moves from each control.
+//! mark with its words, and where the focus moves from each control. And
+//! the design tokens the palettes must match (`data/ui/tokens.json`).
 
 use fmt_odyssey::gui::{Gui, MoveTo, Rect};
 
@@ -65,6 +66,7 @@ pub(super) fn all() -> Vec<Check> {
     };
     let some = |tag: &str| Some(tag.to_string());
     vec![
+        check("palette_tokens", palette_tokens()),
         check("tree_marks", {
             let tags: Vec<&str> = marked.marks.iter().map(|mark| mark.tag.as_str()).collect();
             let a = marked.marks.iter().find(|mark| mark.tag == "BTN_A");
@@ -106,4 +108,52 @@ pub(super) fn all() -> Vec<Check> {
             })()
         }),
     ]
+}
+
+/// Every palette in the code has the colours `data/ui/tokens.json` gives
+/// it, to a 255th.
+fn palette_tokens() -> Result<String, String> {
+    use crate::paint::Palette;
+    let tokens: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../data/ui/tokens.json"))
+            .map_err(|error| format!("tokens.json: {error}"))?;
+    let colour = |path: &str| -> Option<[f32; 3]> {
+        let mut at = &tokens["color"];
+        for part in path.split('.') {
+            at = &at[part];
+        }
+        let components = at["$value"]["components"].as_array()?;
+        let get = |i: usize| components.get(i)?.as_f64().map(|c| c as f32);
+        Some([get(0)?, get(1)?, get(2)?])
+    };
+    let same = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.5 / 255.0);
+    let palettes = [
+        ("k1", Palette::K1),
+        ("tsl", Palette::TSL),
+        ("tsl-layout", crate::skin::TSL_LAYOUT),
+        ("tsl-engine", crate::skin::TSL_ENGINE),
+    ];
+    for (name, palette) in palettes {
+        for (part, rgb) in [
+            ("base", palette.base),
+            ("hilight", palette.hilight),
+            ("disabled", palette.disabled),
+        ] {
+            let token =
+                colour(&format!("{name}.{part}")).ok_or(format!("no token {name}.{part}"))?;
+            expect(
+                &format!("{name}.{part} is {token:?} in the tokens and {rgb:?} in the code"),
+                same(token, rgb),
+            )?;
+        }
+    }
+    let refused = colour("refused").ok_or("no token refused")?;
+    expect(
+        "the refused colour matches",
+        same(refused, crate::paint::RED),
+    )?;
+    Ok(format!(
+        "{} palettes and the refused colour",
+        palettes.len()
+    ))
 }

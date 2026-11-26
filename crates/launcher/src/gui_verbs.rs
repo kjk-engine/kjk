@@ -99,8 +99,36 @@ pub fn screen(
     size: (u32, u32),
     (out, file): (Option<PathBuf>, Option<&str>),
 ) -> ExitCode {
-    let result = (|| -> Result<PathBuf, String> {
-        let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
+    let result = Game::from_key(game)
+        .ok_or(format!("{game}: use k1 or tsl"))
+        .and_then(|game| {
+            let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
+            let path = output(game, out)?.join(file);
+            render_screen(discovery, (game, name), (steps, error), (size, 1.0), &path)
+        });
+    match result {
+        Ok(path) => {
+            outln!("{}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The screen `name` of `game` drawn as `screen` draws it, at `size`
+/// physical pixels with `factor` of them to each logical pixel, into the
+/// PNG at `path` with its control tree next to it.
+pub(crate) fn render_screen(
+    discovery: &Discovery,
+    (game, name): (Game, &str),
+    (steps, error): (&[String], Option<String>),
+    (size, factor): ((u32, u32), f32),
+    path: &Path,
+) -> Result<PathBuf, String> {
+    {
         // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
         // feats lent.
         let install = kjk_game::installs::open(discovery, game)?;
@@ -171,14 +199,16 @@ pub fn screen(
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
         }
+        let window = (size.0 as f32 / factor, size.1 as f32 / factor);
         let quiet = ui::input::UiInput {
-            window: (size.0 as f32, size.1 as f32),
+            window,
+            scale_factor: factor,
             dt: 0.016,
             ..ui::input::UiInput::default()
         };
         stack.step(&mut assets, &vm, &quiet);
         // Where the pointer is: the window's middle until `point` moves it.
-        let mut pointer = [size.0 as f32 / 2.0, size.1 as f32 / 2.0];
+        let mut pointer = [window.0 / 2.0, window.1 / 2.0];
         for step in steps {
             match step.split_once(' ') {
                 Some(("press", tag)) => stack.press(tag),
@@ -360,9 +390,11 @@ pub fn screen(
             let drawn = raster(layer, &|id| assets.pixels(id), size.0, size.1, [0, 0, 0, 0]);
             over(&mut image, &drawn);
         }
-        let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
-        let path = output(game, out)?.join(file);
-        save(&path, &image, size.0, size.1)?;
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder)
+                .map_err(|error| format!("{}: {error}", folder.display()))?;
+        }
+        save(path, &image, size.0, size.1)?;
         let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
         let layouts: Vec<String> = stack.layouts().map(str::to_string).collect();
         let links = stack.focus_links(&vm);
@@ -376,7 +408,12 @@ pub fn screen(
                 list,
             })
             .collect();
-        let shown = serde_json::json!({ "game": game.key(), "screen": name, "steps": steps });
+        let shown = serde_json::json!({
+            "game": game.key(),
+            "screen": name,
+            "steps": steps,
+            "scale_factor": factor,
+        });
         let tree = crate::gui_tree::tree(
             &assets,
             shown,
@@ -385,18 +422,8 @@ pub fn screen(
             (&links, focus.as_deref()),
             back,
         );
-        write_tree(&path, &tree)?;
-        Ok(path)
-    })();
-    match result {
-        Ok(path) => {
-            outln!("{}", path.display());
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            eprintln!("{error}");
-            ExitCode::FAILURE
-        }
+        write_tree(path, &tree)?;
+        Ok(path.to_path_buf())
     }
 }
 

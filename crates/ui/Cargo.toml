@@ -9,10 +9,13 @@ description = "KOTOR's screens without an engine: layouts drawn into a draw list
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 fmt_odyssey.workspace = true
 asset_odyssey.workspace = true
 vfs.workspace = true
 rules.workspace = true
+# The UI catalogue's story files (`data/ui/stories`).
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 
 [features]
 # The probes (`kjk <layer> probes`): checks, not the game.

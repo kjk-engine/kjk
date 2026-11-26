@@ -3,6 +3,7 @@
 //! test `gui_layouts` runs.
 
 pub mod assets;
+pub mod catalogue;
 pub mod draw;
 pub mod edit;
 pub mod feedback;

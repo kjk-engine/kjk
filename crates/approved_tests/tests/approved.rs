@@ -3857,11 +3857,67 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// were added the same day. A disabled icon is drawn faded and grey on the
 /// HUD's bar and on the wheel. On the setup page, only a hidden power's icon
 /// is grey. Dimmed list rows on other screens are only faded, as before.
-/// The checks `tree_marks` and `tree_focus_links` were proposed on
-/// 2026-11-26, with the control trees of `kjk gui screen`. A painter asked
-/// for marks leaves one for each control, where it was drawn and with the
-/// words it set, and draws nothing differently. The focus moves along a
-/// `MOVETO` link, else to the nearest control that way.
+/// The checks `tree_marks`, `tree_focus_links` and `palette_tokens` were
+/// added on 2026-11-26, with the control trees of `kjk gui screen` and the
+/// design tokens. A painter asked for marks leaves one for each control,
+/// where it was drawn and with the words it set, and draws nothing
+/// differently. The focus moves along a `MOVETO` link, else to the nearest
+/// control that way. Every palette in the code has the colours of
+/// `data/ui/tokens.json`.
+/// The UI catalogue (docs/UI.md, "UI catalogue"), approved by the owner on
+/// 2026-11-26. Every module of `ui::screens` has a story file in
+/// `data/ui/stories`, and every story file is a module's. Each file reads,
+/// with a known status, and each story opens its screen on an empty
+/// view-model. It needs no game data.
+#[test]
+fn ui_catalogue() {
+    use std::collections::BTreeSet;
+    let screens = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/src/screens");
+    let modules: BTreeSet<String> = std::fs::read_dir(&screens)
+        .expect("the screens folder reads")
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.strip_suffix(".rs")
+                .filter(|module| *module != "mod")
+                .map(str::to_string)
+        })
+        .collect();
+    let files = ui::catalogue::read_all(&ui::catalogue::folder()).expect("the story files read");
+    let covered: BTreeSet<String> = files.iter().map(|file| file.module.clone()).collect();
+    let missing: Vec<&String> = modules.difference(&covered).collect();
+    let stray: Vec<&String> = covered.difference(&modules).collect();
+    assert!(
+        missing.is_empty(),
+        "screen modules with no story file: {missing:?}"
+    );
+    assert!(
+        stray.is_empty(),
+        "story files of no screen module: {stray:?}"
+    );
+    let empty = ui::vm::ViewModel::default();
+    let mut unopened = Vec::new();
+    for file in &files {
+        for story in &file.stories {
+            if ui::screens::open(&story.screen, &empty).is_none() {
+                unopened.push(format!(
+                    "{}: {} ({})",
+                    file.module, story.name, story.screen
+                ));
+            }
+        }
+    }
+    assert!(
+        unopened.is_empty(),
+        "stories whose screen does not open: {unopened:?}"
+    );
+    println!(
+        "{} modules, {} stories",
+        files.len(),
+        files.iter().map(|file| file.stories.len()).sum::<usize>()
+    );
+}
+
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

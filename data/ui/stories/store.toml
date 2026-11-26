@@ -1,0 +1,17 @@
+# The stories of the screens in crates/ui/src/screens/store.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "One of the five screens with full stories. Its stories show no items yet, because `kjk gui screen` fills no store."
+
+[[story]]
+name = "At rest"
+screen = "store"
+
+[[story]]
+name = "Weapons shown"
+screen = "store"
+steps = ["press BTN_WEAPONS"]
+
+[[story]]
+name = "Close focused"
+screen = "store"
+steps = ["key Down"]

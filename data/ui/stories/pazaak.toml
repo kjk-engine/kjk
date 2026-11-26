@@ -1,0 +1,14 @@
+# The stories of the screens in crates/ui/src/screens/pazaak.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "Game"
+screen = "pazaak_game"
+
+[[story]]
+name = "Setup"
+screen = "pazaak_setup"
+
+[[story]]
+name = "Wager"
+screen = "pazaak_wager"

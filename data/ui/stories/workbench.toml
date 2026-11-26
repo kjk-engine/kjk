@@ -1,0 +1,10 @@
+# The stories of the screens in crates/ui/src/screens/workbench.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "Workbench"
+screen = "workbench"
+
+[[story]]
+name = "Chemical station"
+screen = "chemical"

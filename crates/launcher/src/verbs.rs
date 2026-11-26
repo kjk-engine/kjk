@@ -788,6 +788,27 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             ),
             GuiVerb::Sweep { game, out } => gui_verbs::sweep(&discover(), game.as_deref(), out),
             GuiVerb::Sheet { game, out } => gui_verbs::sheet(&discover(), &game, out),
+            GuiVerb::Census { out } => gui_catalogue::census(&discover(), out),
+            GuiVerb::List { json } => gui_catalogue::list(json),
+            GuiVerb::Show { module } => gui_catalogue::show(&module),
+            GuiVerb::Story {
+                module,
+                story,
+                size,
+                input,
+                game,
+                out,
+            } => gui_catalogue::story(
+                &discover(),
+                &gui_catalogue::Choice {
+                    module: &module,
+                    story: story.as_deref(),
+                    size: size.as_deref(),
+                    input: input.as_deref(),
+                    game: game.as_deref(),
+                },
+                out,
+            ),
         },
         Verb::Sim { verb } => sim(verb, size.unwrap_or(scene::HEADLESS_SIZE)),
         Verb::Playthrough {
@@ -1332,6 +1353,46 @@ pub(crate) enum GuiVerb {
         game: Option<String>,
         /// Also draw every layout at rest into this folder, one PNG and one
         /// control tree (JSON) each, under a folder for each game
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// The UI catalogue: every screen module, its status and its stories
+    /// (data/ui/stories)
+    List {
+        /// The modules, stories, sizes and inputs as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// One module's notes and its stories with their steps
+    Show {
+        /// The screen module, as `options` or `pages`
+        module: String,
+    },
+    /// Draw a module's stories, a PNG and a control tree each, at the
+    /// catalogue's sizes and inputs
+    Story {
+        /// The screen module, as `options` or `pages`
+        module: String,
+        /// One story, by name or slug; all by default
+        story: Option<String>,
+        /// One size (`deck`, `1080p`, `4k-tv`, `4k-monitor`, `4x3`,
+        /// `ultrawide`); all six by default
+        #[arg(long = "at")]
+        size: Option<String>,
+        /// `pad` or `mouse`; both by default
+        #[arg(long)]
+        input: Option<String>,
+        /// k1 or tsl; each the story names by default
+        #[arg(long)]
+        game: Option<String>,
+        /// Output folder; defaults to kjk-artifacts/gui/catalogue
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Count what the layouts of each install use (fonts, colours, border
+    /// textures, control kinds) into data/ui/census.json
+    Census {
+        /// Output file; defaults to the repository's data/ui/census.json
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },

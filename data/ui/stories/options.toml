@@ -1,0 +1,27 @@
+# The stories of the screens in crates/ui/src/screens/options.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "One of the five screens with full stories."
+
+[[story]]
+name = "At rest"
+screen = "options"
+
+[[story]]
+name = "Second button focused"
+screen = "options"
+steps = ["key Down"]
+
+[[story]]
+name = "Gameplay page"
+screen = "options"
+steps = ["press BTN_GAMEPLAY"]
+
+[[story]]
+name = "Graphics page"
+screen = "options"
+steps = ["press BTN_GRAPHICS"]
+
+[[story]]
+name = "Sound page"
+screen = "options"
+steps = ["press BTN_SOUND"]

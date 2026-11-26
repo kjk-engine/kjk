@@ -104,7 +104,7 @@ const FLOW_ARROW_IMAGE: &str = "uibit_abi_arrow";
 /// taken (KOTOR 2's feat flow), an item the member may not wear (the equip
 /// list's `CSWGuiInGameItemEntry::SetCanUse`), a number items and effects
 /// lower (`bonus_colour`).
-const RED: [f32; 3] = [0.74, 0.11, 0.0];
+pub(crate) const RED: [f32; 3] = [0.74, 0.11, 0.0];
 /// KOTOR 2's `CGuiInGame::COLOR_NEW_BONUS` and `COLOR_NEW_TEXT`.
 const NEW_BONUS: [f32; 3] = [0.95, 0.66, 0.3];
 const NEW_TEXT: [f32; 3] = [0.1, 0.7, 0.55];

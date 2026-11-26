@@ -1,0 +1,3 @@
+# The stories of the screens in crates/ui/src/screens/galaxy_map.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It needs the party's planets in the view-model, which `kjk gui screen` does not fill yet."

@@ -1,0 +1,10 @@
+# The stories of the screens in crates/ui/src/screens/save_load.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "Save"
+screen = "save"
+
+[[story]]
+name = "Load"
+screen = "load"
