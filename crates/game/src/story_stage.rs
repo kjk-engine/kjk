@@ -20,7 +20,7 @@ pub struct Staged {
     pointer: [f32; 2],
     /// What is drawn over play, for the story screen `play`
     /// (`ui::catalogue::PLAY`).
-    pub hud: Option<ui::hud_layer::Hud>,
+    pub over: Option<ui::over_play::OverPlay>,
 }
 
 /// One layer of a staged frame: the screen module that drew it, the layout
@@ -99,7 +99,7 @@ impl Staged {
             stack,
             quiet,
             pointer: [window.0 / 2.0, window.1 / 2.0],
-            hud: play.then(ui::hud_layer::Hud::default),
+            over: play.then(ui::over_play::OverPlay::default),
         })
     }
 
@@ -112,7 +112,7 @@ impl Staged {
             outln!("refused: {why}");
         }
         let mut shown = Vec::new();
-        if let Some(hud) = self.hud.as_mut() {
+        if let Some(over) = self.over.as_mut() {
             let mut drawing = ui::hud_layer::Frame {
                 assets: &mut self.assets,
                 vm: &self.vm,
@@ -122,11 +122,17 @@ impl Staged {
                 settings: 0,
                 marked: self.stack.marked,
             };
-            for (screen, list) in hud.still(&mut drawing, self.quiet.window) {
+            let corner = ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES);
+            let still = over.still(
+                &mut drawing,
+                self.quiet.window,
+                (self.stack.clock(), corner),
+            );
+            for layer in still {
                 shown.push(Shown {
-                    screen: screen.to_string(),
-                    layout: ui::screens::hud::LAYOUT.to_string(),
-                    list,
+                    screen: layer.module.to_string(),
+                    layout: layer.layout.to_string(),
+                    list: layer.list,
                 });
             }
         }

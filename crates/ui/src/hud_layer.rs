@@ -3,7 +3,8 @@
 //! a story (docs/UI.md, "UI catalogue"). `Hud` keeps the HUD's layout as
 //! read and placed, and the part of the HUD that seldom changes, so that a
 //! frame of play draws only what moved. A new `Hud` draws what one kept
-//! over many frames draws.
+//! over many frames draws. `crate::over_play` draws it with the rest of
+//! what stands over play.
 
 use std::sync::Arc;
 
@@ -509,30 +510,6 @@ impl Hud {
             list: out,
             block_at,
         })
-    }
-
-    /// The HUD, its floating target block, the power wheel and the banner
-    /// of one still frame for a window of `window` pixels, under to over,
-    /// as a frame of play draws them where nothing floats over creatures.
-    /// Each layer comes with the name of the module that draws it, `hud`
-    /// or `wheel`.
-    pub fn still(
-        &mut self,
-        frame: &mut Frame<'_>,
-        window: (f32, f32),
-    ) -> Vec<(&'static str, DrawList)> {
-        let block = self.target_block(frame, window, None);
-        let hud = self.layer(frame, window, false, block.as_ref());
-        let wheel = self.wheel(frame, window);
-        let banner = self.layer(frame, window, true, None);
-        [
-            ("hud", hud.map(|layer| layer.list)),
-            ("wheel", wheel),
-            ("hud", banner.map(|layer| layer.list)),
-        ]
-        .into_iter()
-        .filter_map(|(module, list)| Some((module, list?)))
-        .collect()
     }
 
     /// The minimap and the duel bars for a window of `window` pixels, as
