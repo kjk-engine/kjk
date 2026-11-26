@@ -403,7 +403,7 @@ pub(crate) fn rect_of(control: &Control) -> [f32; 4] {
 }
 
 /// The border, when it has something to draw.
-fn textured(border: &Option<Border>) -> Option<&Border> {
+pub(crate) fn textured(border: &Option<Border>) -> Option<&Border> {
     border.as_ref().filter(|border| has_textures(border))
 }
 
