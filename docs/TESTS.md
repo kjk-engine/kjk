@@ -154,7 +154,7 @@ and it runs only through `kjk sim probes --only "photo mode"`.
 `ui::screens` has a story file in `data/ui/stories`, that every story file
 belongs to a module, and that each story's screen opens. On 2026-11-26 it
 was extended for the HUD's stories (https://github.com/kjk-engine/roadmap/issues/22),
-and the extension awaits the owner's approval. A story may now name the
+and the owner approved the extension the same day. A story may now name the
 screen `play`, which is drawn over play and not opened in the stack. Each
 capture of play a story names must be in `data/ui/captures`, must read,
 must read the same once written again, and must have been taken with its
