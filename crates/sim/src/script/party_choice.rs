@@ -222,7 +222,8 @@ mod probes {
     /// told. Companion 2 was never made, so nothing is told and the screen
     /// falls back on its template. The table reads back from its bytes.
     fn alignment_shown() -> Result<String, String> {
-        const STANDING: u32 = 500;
+        // The id of companion 1's creature in the area.
+        let standing_id: u32 = 500;
         let kept = |from, good_evil| crate::script::party::Kept {
             from,
             sheet: crate::combat::Sheet {
@@ -236,13 +237,13 @@ mod probes {
         };
         let mut party = party(&[0, 1, 2], &[1], &[]);
         for (npc, object, from, good_evil) in
-            [(0, None, 400, 12), (1, Some(STANDING), STANDING, 40)]
+            [(0, None, 400, 12), (1, Some(standing_id), standing_id, 40)]
         {
             let slot = party.available.get_mut(&npc).ok_or("a companion")?;
             slot.object = object;
             slot.kept = Some(kept(from, good_evil));
         }
-        let standing = |id| (id == STANDING).then_some(90);
+        let standing = |id| (id == standing_id).then_some(90);
         let roster = party.roster(None, &crate::inventory::Items::default(), &standing);
         let told: Vec<Option<u8>> = (0..3).map(|npc| roster.good_evil(npc)).collect();
         let screen = crate::notice::Screen::PartySelection(roster);
