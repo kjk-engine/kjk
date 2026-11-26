@@ -1690,8 +1690,8 @@ const FITTED_BOX_SOURCE: f32 = 0.25;
 fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near) -> f32 {
     var casters = near.at;
     var kept = 1.0;
-    for (var k = 0u; k < near.count; k++) {
-        let caster = shadows.casters[casters[k]];
+    for (var k = 0u; k < near_count(near); k++) {
+        let caster = caster_at(casters[k]);
         let centre = caster.sphere.xyz - position;
         let ahead = dot(centre, direction);
         let off = length(centre - direction * clamp(ahead, 0.0, distance));
@@ -1699,16 +1699,18 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
             continue;
         }
         var lit = 1.0;
-        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
-            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+        let first = caster.lights.y;
+        let end = capsules_end(first, caster.lights.z);
+        for (var j = first; j < end; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, capsule_at(j));
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
         let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
         kept *= 1.0 - (1.0 - lit) * ease;
     }
     var placeables = near.box_at;
-    for (var k = 0u; k < near.boxes; k++) {
-        let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let b = box_at(near_box_at(placeables[k]).x);
         // A box does not shadow a light inside it (`cone_visibility`).
         if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)
             || box_distance(position + direction * distance, b) <= 0.0 {
