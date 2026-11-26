@@ -290,6 +290,11 @@ fittings, by the kind its glowing texture names. A new lamp therefore
 lights its surroundings as every other lamp of its kind does, and a change
 to that kind changes the new lamp too.
 
+Under Classic lighting the game does not draw the lamps that kjk's light
+data holds for an installed level. Classic shows the level as the original
+game draws it. A project's own lamps are still drawn, because they are
+part of the project's level. They give no light under Classic.
+
 A lamp is one of two things:
 
 - **A whole model.** A placeable's lamp model is drawn whole. Its glowing

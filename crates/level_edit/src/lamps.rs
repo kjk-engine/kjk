@@ -40,7 +40,7 @@
 
 use toml_edit::{Item, Table, value};
 
-use crate::lights::{area_tables, float, number, text, triple, triple_value, write_area_tables};
+use crate::lights::{float, is_of, number, tables, text, triple, triple_value, write_area_tables};
 
 /// A lamp placed by hand, in game space (metres).
 #[derive(Debug, Clone, PartialEq)]
@@ -159,10 +159,30 @@ fn bad(what: impl std::fmt::Display) -> String {
 /// The lamps a `fittings.toml` text places by hand in `game`'s area `area`
 /// (its module, as the game names it).
 pub fn read_lamps(text: &str, game: &str, area: &str) -> Result<Vec<PlacedLamp>, String> {
-    area_tables(text, "lamp", game, area)?
-        .iter()
-        .map(PlacedLamp::read)
-        .collect()
+    LampTables::read(text)?.of_area(game, area)
+}
+
+/// The `[[lamp]]` tables of a `fittings.toml` text, of every game and
+/// area, read once. The game keeps them and asks them for the lamps of
+/// each area it loads (`of_area`). `read_lamps` reads the whole text for
+/// one area.
+#[derive(Debug, Clone, Default)]
+pub struct LampTables(Vec<Table>);
+
+impl LampTables {
+    /// The lamp tables of `text`.
+    pub fn read(text: &str) -> Result<LampTables, String> {
+        tables(text, "lamp").map(LampTables)
+    }
+
+    /// The lamps of `game`'s area `area` (its module, as the game names
+    /// it).
+    pub fn of_area(&self, game: &str, area: &str) -> Result<Vec<PlacedLamp>, String> {
+        (self.0.iter())
+            .filter(|table| is_of(table, game, area))
+            .map(PlacedLamp::read)
+            .collect()
+    }
 }
 
 /// `text` (a `fittings.toml`) with `game`'s area `area` placing `lamps`:

@@ -169,15 +169,19 @@ pub(crate) fn area_tables(
     game: &str,
     area: &str,
 ) -> Result<Vec<Table>, String> {
+    Ok(tables(text, key)?
+        .into_iter()
+        .filter(|table| is_of(table, game, area))
+        .collect())
+}
+
+/// Every table `key` of a `fittings.toml` text, of each game and area.
+pub(crate) fn tables(text: &str, key: &str) -> Result<Vec<Table>, String> {
     let document: DocumentMut = text.parse().map_err(bad)?;
     let Some(tables) = document.get(key).and_then(Item::as_array_of_tables) else {
         return Ok(Vec::new());
     };
-    Ok(tables
-        .iter()
-        .filter(|table| is_of(table, game, area))
-        .cloned()
-        .collect())
+    Ok(tables.iter().cloned().collect())
 }
 
 /// The lights a `fittings.toml` text places by hand in `game`'s area

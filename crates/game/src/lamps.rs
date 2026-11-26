@@ -65,8 +65,17 @@ pub fn of_area(game: Game, area: &str) -> Vec<PlacedLamp> {
     if let Some(lamps) = level_edit::active::map_lamps(area) {
         return lamps.to_vec();
     }
-    let text = crate::fitted_lights::fittings_text();
-    match level_edit::lamps::read_lamps(&text, game.key(), area) {
+    // The light data's lamps belong to Enhanced lighting. Under Classic
+    // the level is drawn as the original game draws it, without them. A
+    // project's own lamps (above) are part of its level and stay.
+    if crate::fitted_lights::classic() {
+        return Vec::new();
+    }
+    let fittings = crate::fitted_lights::fittings();
+    let lamps = (fittings.lamps.as_ref())
+        .map_err(String::clone)
+        .and_then(|tables| tables.of_area(game.key(), area));
+    match lamps {
         Ok(lamps) => lamps,
         Err(why) => {
             bevy::log::warn!("the lamps of {area} do not read: {why}");
@@ -196,7 +205,10 @@ pub fn place(
     let mut read: BTreeMap<(String, String), Option<ModelIr>> = BTreeMap::new();
     let mut placed = Vec::new();
     for lamp in of_area(game, module) {
-        let key = (lamp.model.clone(), lamp.mesh.to_ascii_lowercase());
+        let key = (
+            lamp.model.to_ascii_lowercase(),
+            lamp.mesh.to_ascii_lowercase(),
+        );
         let ir = read.entry(key).or_insert_with(|| {
             model(resolver, &lamp)
                 .map_err(|why| bevy::log::warn!("lamp {} is not drawn: {why}", lamp.label()))

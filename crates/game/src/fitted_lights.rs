@@ -202,7 +202,7 @@ pub fn for_module(module: &str) {
 /// --lighting`), else what the settings file keeps, as
 /// `settings::Settings::lighting` reads it. A file without the setting
 /// means Classic.
-fn classic() -> bool {
+pub(crate) fn classic() -> bool {
     let named = |value: &str| crate::rolloff::LightingMode::named(value);
     let lighting = match crate::rolloff::forced() {
         Some(forced) => named(forced),
@@ -364,6 +364,72 @@ pub fn kinds_text(game: &str) -> Option<std::borrow::Cow<'static, str>> {
 /// `[[placed]]` lights, and the `[[lamp]]` tables `lamps` reads.
 pub fn fittings_text() -> std::borrow::Cow<'static, str> {
     data_text("fittings.toml", FITTINGS)
+}
+
+/// What `fittings.toml` places by hand, as read from one text of it
+/// (`fittings`).
+pub(crate) struct Fittings {
+    /// The text it was read from.
+    text: std::borrow::Cow<'static, str>,
+    /// The `[[placed]]` lights, by their area's name in lower case.
+    placed: BTreeMap<String, Vec<Light>>,
+    /// The `[[lamp]]` tables, or why the text does not read.
+    pub(crate) lamps: Result<level_edit::lamps::LampTables, String>,
+}
+
+impl Fittings {
+    fn read(text: std::borrow::Cow<'static, str>) -> Fittings {
+        let mut placed: BTreeMap<String, Vec<Light>> = BTreeMap::new();
+        let doc = toml_edit::Document::parse(text.as_ref()).ok();
+        let tables = (doc.as_ref())
+            .and_then(|doc| doc.get("placed"))
+            .and_then(toml_edit::Item::as_array_of_tables);
+        for table in tables.into_iter().flatten() {
+            let Some(area) = table.get("area").and_then(toml_edit::Item::as_str) else {
+                continue;
+            };
+            let light = (|| {
+                Some(Light {
+                    at: three(table.get("at"))?,
+                    colour: three(table.get("colour"))?,
+                    radius: number(table.get("radius"))?,
+                    way: three(table.get("way")).unwrap_or(Vec3::ZERO),
+                    half: number(table.get("half")).unwrap_or(0.0),
+                    aim: three(table.get("aim")).unwrap_or(Vec3::ZERO),
+                    cone: number(table.get("cone")).unwrap_or(0.0),
+                })
+            })();
+            (placed.entry(area.to_ascii_lowercase()).or_default()).extend(light);
+        }
+        let lamps = level_edit::lamps::LampTables::read(&text);
+        Fittings {
+            text,
+            placed,
+            lamps,
+        }
+    }
+}
+
+/// `fittings.toml` as it was last read (`fittings`).
+static FITTINGS_READ: std::sync::Mutex<Option<std::sync::Arc<Fittings>>> =
+    std::sync::Mutex::new(None);
+
+/// What `fittings.toml` places by hand (`fittings_text`). The file is
+/// parsed once, and again only when its text has changed. That happens
+/// when the level editor saves to the folder `KJK_LIGHT_DATA` names.
+/// Before, every area that loaded parsed the file's 1,400 lines once for
+/// the lights and once for the lamps.
+pub(crate) fn fittings() -> std::sync::Arc<Fittings> {
+    let text = fittings_text();
+    let mut read = FITTINGS_READ
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(read) = read.as_ref().filter(|read| read.text == text) {
+        return read.clone();
+    }
+    let fresh = std::sync::Arc::new(Fittings::read(text));
+    *read = Some(fresh.clone());
+    fresh
 }
 
 /// The lights placed by hand that a program sets for an area in place of
@@ -841,30 +907,7 @@ fn placed(area: &str) -> Vec<Light> {
     if let Some(lights) = level_edit::active::map_lights(area) {
         return lights.iter().map(Light::of_placed).collect();
     }
-    let text = data_text("fittings.toml", FITTINGS);
-    let Ok(doc) = toml_edit::Document::parse(text.as_ref()) else {
-        return Vec::new();
-    };
-    let Some(tables) = (doc.get("placed")).and_then(toml_edit::Item::as_array_of_tables) else {
-        return Vec::new();
-    };
-    (tables.iter())
-        .filter(|table| {
-            (table.get("area").and_then(toml_edit::Item::as_str))
-                .is_some_and(|name| name.eq_ignore_ascii_case(area))
-        })
-        .filter_map(|table| {
-            Some(Light {
-                at: three(table.get("at"))?,
-                colour: three(table.get("colour"))?,
-                radius: number(table.get("radius"))?,
-                way: three(table.get("way")).unwrap_or(Vec3::ZERO),
-                half: number(table.get("half")).unwrap_or(0.0),
-                aim: three(table.get("aim")).unwrap_or(Vec3::ZERO),
-                cone: number(table.get("cone")).unwrap_or(0.0),
-            })
-        })
-        .collect()
+    (fittings().placed.get(&area.to_ascii_lowercase())).map_or_else(Vec::new, Vec::clone)
 }
 
 /// A texture's colours (0 to 1, as stored) at its first level no wider or
