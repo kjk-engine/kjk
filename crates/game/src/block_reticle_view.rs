@@ -506,7 +506,7 @@ fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> 
     }
 }
 
-/// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows
+/// The HUD's crosshair dot (`ui::hud_layer::dot_shown`). With no arcs it shows
 /// while the crosshair is up, no blaster's crosshair takes its place and no
 /// melee weapon is readied. With the arcs it never shows. The
 /// HUD's redraw key holds the same value as `dot_shown`, so the key changes
@@ -533,7 +533,7 @@ fn dot_hidden_while_blocking() -> Result<String, String> {
                     };
                     let before_arcs = crosshair && reticle.is_none() && !melee_out;
                     let want = arcs.is_none() && before_arcs;
-                    let got = crate::ui_view::dot_shown(&vm);
+                    let got = ui::hud_layer::dot_shown(&vm);
                     let shown = (reticle.is_some(), arcs.is_some(), melee_out);
                     rows.push((crosshair, shown, got, want));
                 }

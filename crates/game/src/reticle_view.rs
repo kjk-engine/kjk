@@ -66,7 +66,7 @@ pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Opti
 
 /// Whether `own` (the own character at own time, `own_ms`) has a melee
 /// weapon readied: a lightsaber, a sword, a stun baton or bare fists, out to
-/// fight (`drawn`). The HUD draws no crosshair then (`ui_view::dot_shown`).
+/// fight (`drawn`). The HUD draws no crosshair then (`ui::hud_layer::dot_shown`).
 pub fn melee_out(own: &EntityState, objects: &Instances, own_ms: f64) -> bool {
     let now = own_ms.max(0.0) as u64;
     own.player.is_some()

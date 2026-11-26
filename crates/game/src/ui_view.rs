@@ -72,12 +72,9 @@ pub struct Ui {
     /// Where the console's `ui down` and `ui drag` hold the main button
     /// down, until `ui up` lets it go.
     scripted_hold: Option<[f32; 2]>,
-    /// KOTOR's HUD layout, once read (none: it does not read), where it was
-    /// read from, and whether it is the game's own rather than a mod's.
-    hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source, bool)>>,
-    /// KOTOR's HUD layout as last placed, with what it was placed from and
-    /// how much it was stretched down (`hud_gui`).
-    hud_placed: Option<(HudPlaced, Arc<fmt_odyssey::gui::Gui>, f32)>,
+    /// KOTOR's HUD layout, once read, the HUD as last drawn, and what the
+    /// floating target block keeps from frame to frame.
+    hud: ui::hud_layer::Hud,
     /// How many times the game's settings changed in `vm.settings`
     /// (`Settings::shown`).
     pub(crate) settings_revision: u32,
@@ -89,9 +86,6 @@ pub struct Ui {
     summary: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source)>>,
     /// The area transition panel's layout, the same way.
     transition: Option<Option<ui::screens::transition::Panel>>,
-    /// KOTOR's HUD as last drawn, and its banner, with what they were
-    /// drawn from (`hud_layer`).
-    hud_drawn: [Option<(HudDrawn, HudKept)>; 2],
     /// The datapad (its item id) whose box the status summary shows now
     /// (`progress`): while the box is up, the journal key opens the
     /// inventory on it instead of opening the journal.
@@ -105,9 +99,7 @@ pub struct Ui {
     /// The display's physical pixels to each of the window's logical
     /// pixels, as of the last step (`UiInput::scale_factor`).
     scale_factor: f32,
-    /// What the floating target block keeps from frame to frame, and the
-    /// free pointer this frame (window pixels).
-    float: ui::screens::hud::FloatHold,
+    /// The free pointer this frame (window pixels).
     float_pointer: Option<[f32; 2]>,
     /// The floating target block and the floating words, which are placed
     /// after the camera moves (`float_layers`).
@@ -161,80 +153,6 @@ struct Floating {
     changed: bool,
 }
 
-/// What KOTOR's HUD layout is placed from (`hud_gui`), besides the layout
-/// itself.
-#[derive(PartialEq)]
-struct HudPlaced {
-    window: (f32, f32),
-    /// Whether the HUD's pictures keep their shape (`hud_pictures`).
-    pictures: bool,
-    /// The Interface option "Target block at the top centre" is on.
-    target_top: bool,
-    /// The player plays with a controller, so the action slots stand in a
-    /// cross (`hud::bar_cross`).
-    cross: bool,
-    /// How many action slots the HUD shows. The frame round the row is as
-    /// wide as they are (`hud::bar_extra`).
-    slots: usize,
-    /// Which of the Form slot and the feat slot the HUD shows, inside the
-    /// frame after the slots (`hud::EXTRA`).
-    extras: [bool; 2],
-}
-
-/// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
-/// changes on most frames, which `hud_layer` adds to a copy each frame.
-struct HudKept {
-    /// The HUD without its minimap and its duel bars, with what pulses at
-    /// full alpha.
-    out: DrawList,
-    /// Which of `out`'s quads pulse (`ui::paint::Painter::pulses`).
-    pulses: Vec<std::ops::Range<usize>>,
-    /// Where in `out`'s quads the minimap's arrow goes (its picture goes
-    /// before them all), and where the duel bars go.
-    arrow_at: usize,
-    duel_at: usize,
-}
-
-/// The parts of the HUD drawn afresh each frame (`hud_moving`).
-#[derive(Default)]
-struct HudMoving {
-    /// The minimap's picture, under the layout, and its arrow, over it.
-    under: Vec<Quad>,
-    arrow: Option<Quad>,
-    duel: Vec<Quad>,
-}
-
-/// All the kept part of KOTOR's HUD is drawn from (`hud_layer`): the
-/// view-model's parts it reads, the window, the palette, the campaign and
-/// how often the module's art was let go. The same again, it draws the same.
-#[derive(PartialEq)]
-struct HudDrawn {
-    window: (f32, f32),
-    scale_factor: f32,
-    /// Whether the HUD's pictures keep their shape (`hud_pictures`).
-    pictures: bool,
-    /// The HUD's view without what `hud_moving` draws: the player's place
-    /// and turn on the minimap, and how full the duel bars are.
-    hud: Option<ui::vm::HudView>,
-    party: Vec<ui::vm::MemberView>,
-    /// The target as the HUD drawn under the floating block shows it: its
-    /// menu point left out, as the block is drawn afresh each frame
-    /// (`target_block`).
-    target: Option<ui::vm::TargetView>,
-    /// The Interface option "Target block at the top centre" is on.
-    target_top: bool,
-    /// How many times the settings had changed (`Ui::settings_revision`).
-    /// The HUD reads settings such as "Hide Quick Menu Buttons" and the Text
-    /// size, so any change of a setting draws it again.
-    settings: u32,
-    calls: ui::vm::CallsView,
-    requests: Option<ui::vm::RequestsView>,
-    crosshair: bool,
-    palette: ui::paint::Palette,
-    game: vfs::Game,
-    released: u32,
-}
-
 impl Ui {
     /// The screens of `stack`, drawn from `assets` and showing `vm`, before
     /// their first frame. `headless` says that the run has no window.
@@ -251,19 +169,16 @@ impl Ui {
             layers: Vec::new(),
             scripted: Vec::new(),
             scripted_hold: None,
-            hud: None,
-            hud_placed: None,
+            hud: ui::hud_layer::Hud::default(),
             settings_revision: 0,
             bark: None,
             transition: None,
             dialog: None,
             summary: None,
-            hud_drawn: [None, None],
             datapad_up: None,
             datapad_read: None,
             hotkeys: Vec::new(),
             scale_factor: 1.0,
-            float: ui::screens::hud::FloatHold::default(),
             float_pointer: None,
             floating: Floating::default(),
             summary_ok: None,
@@ -287,7 +202,7 @@ impl Ui {
     /// Where the floating target block was last placed (`hud::FloatHold`):
     /// its left, its top and its height in the HUD's frame pixels.
     pub(crate) fn block_placed(&self) -> Option<(i32, i32, i32)> {
-        self.float.placed
+        self.hud.float.placed
     }
 
     /// Whether the status summaries stand in the window's corner rather
@@ -334,13 +249,6 @@ impl Ui {
         self.assets.as_mut()?.set_sizing(before);
         drawn
     }
-}
-
-/// How many window pixels a pixel of the HUD's frame takes (`hud::place`
-/// fits the frame to the window at kjk's scale).
-fn hud_scale(hud: &fmt_odyssey::gui::Gui, window: (f32, f32)) -> f32 {
-    let (width, height) = hud.frame();
-    fit(window, (width as f32, height as f32)).0
 }
 
 /// Whether KOTOR's HUD is drawn this frame.
@@ -1156,7 +1064,7 @@ fn step(
     // The floating target block holds its place under a free pointer
     // (`hud::FloatHold`).
     let free = cursors.iter().next().is_some_and(|cursor| cursor.visible);
-    ui.float.tick(time.delta_secs());
+    ui.hud.float.tick(time.delta_secs());
     ui.float_pointer = input.pointer.filter(|_| free);
     ui.floating.window = (size.x, size.y);
     ui.floating.block_at = None;
@@ -1206,10 +1114,10 @@ fn step(
             .filter(|_| input.click && free && !hidden && !ui.stack.is_open())
         {
             match hud_click(ui, (size.x, size.y), point) {
-                Some(HudClick::Watch(id)) => watch.icon = Some(id),
-                Some(HudClick::Portrait(id)) => picked.0 = Some(id),
-                Some(HudClick::Solo) => solo.0 = true,
-                Some(HudClick::Map) => {
+                Some(ui::hud_layer::Click::Watch(id)) => watch.icon = Some(id),
+                Some(ui::hud_layer::Click::Portrait(id)) => picked.0 = Some(id),
+                Some(ui::hud_layer::Click::Solo) => solo.0 = true,
+                Some(ui::hud_layer::Click::Map) => {
                     ui.stack.open("map", &ui.vm);
                 }
                 None => {}
@@ -1272,412 +1180,79 @@ fn step(
     states.0.insert("ui".into(), open.0);
 }
 
-/// Whether the HUD's pictures keep their shape (`hud::place`): the HUD is
-/// the game's own layout, not a mod's, and "Maintain image aspect ratio" is
-/// on. False while the HUD has not been read.
-fn hud_pictures(ui: &Ui) -> bool {
-    let own = matches!(ui.hud, Some(Some((_, _, true))));
-    own && ui::draw::image_aspect(&ui.vm.settings)
+/// The HUD's own state and what a frame of it is drawn with, when the
+/// assets are read.
+fn hud_parts(ui: &mut Ui) -> Option<(&mut ui::hud_layer::Hud, ui::hud_layer::Frame<'_>)> {
+    let Ui {
+        hud,
+        assets,
+        vm,
+        stack,
+        scale_factor,
+        settings_revision,
+        ..
+    } = ui;
+    let frame = ui::hud_layer::Frame {
+        assets: assets.as_mut()?,
+        vm,
+        palette: stack.palette,
+        pulse: stack.pulsing(),
+        scale_factor: *scale_factor,
+        settings: *settings_revision,
+        marked: false,
+    };
+    Some((hud, frame))
 }
 
-/// KOTOR's HUD layout placed for a window of `window` pixels, where it was
-/// read from, and how much it was stretched down (`hud::place`), when it
-/// reads. The placed layout is kept and shared until the window, the
-/// pictures' shape (`hud_pictures`) or the target block's place
-/// (`target_top`) changes. A caller that changes the layout clones it first.
+/// KOTOR's HUD layout placed for a window of `window` pixels
+/// (`ui::hud_layer::Hud::gui`).
 fn hud_gui(
     ui: &mut Ui,
     window: (f32, f32),
 ) -> Option<(Arc<fmt_odyssey::gui::Gui>, ui::skin::Source, f32)> {
-    use ui::screens::hud::{LAYOUT, backed, known, place};
-    let assets = ui.assets.as_mut()?;
-    if ui.hud.is_none() {
-        let read = assets.screen_layout(LAYOUT).ok().map(|(mut gui, source)| {
-            let own = !ui::assets::Assets::layout_is_mod(assets, LAYOUT, source);
-            if !own && let Ok(stock) = assets.stock_screen_layout(LAYOUT) {
-                known(&mut gui, &stock);
-            }
-            if let Ok(campaign) = assets.layout(LAYOUT) {
-                backed(&mut gui, &campaign);
-            }
-            (gui, source, own)
-        });
-        ui.hud = Some(read);
-        // A layout placed before this one was read is another layout's.
-        ui.hud_placed = None;
-    }
-    let from = HudPlaced {
-        window,
-        pictures: hud_pictures(ui),
-        target_top: target_top(ui),
-        cross: ui.vm.pad_playing,
-        slots: ui.vm.hud.as_ref().map_or(0, |hud| hud.bar.len()),
-        extras: (ui.vm.hud.as_ref())
-            .map_or([false; 2], |hud| hud.extra().map(|slot| slot.is_some())),
-    };
-    let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
-    if let Some((last, gui, stretch)) = &ui.hud_placed
-        && *last == from
-    {
-        return Some((gui.clone(), *source, *stretch));
-    }
-    let (mut gui, source) = (layout.clone(), *source);
-    let stretch = place(&mut gui, window, from.pictures);
-    if from.target_top {
-        ui::screens::hud::to_top(&mut gui);
-    }
-    ui::screens::hud::bar_extra(&mut gui, from.slots, from.extras);
-    ui::screens::hud::solo_beside_portrait(&mut gui);
-    if from.cross {
-        ui::screens::hud::bar_cross(&mut gui);
-    }
-    let gui = Arc::new(gui);
-    ui.hud_placed = Some((from, gui.clone(), stretch));
-    Some((gui, source, stretch))
+    ui.hud.gui(ui.assets.as_mut()?, &ui.vm, window)
 }
 
-/// Whether the Interface option "Target block at the top centre" is on. Off,
-/// the block floats over the target as KOTOR 2's does (`target_block`).
+/// Whether the Interface option "Target block at the top centre" is on.
 fn target_top(ui: &Ui) -> bool {
-    ui::draw::kjk_option(&ui.vm.settings, ui::draw::TARGET_TOP)
+    ui::hud_layer::target_top(&ui.vm)
 }
 
-/// The floating target block for a window of `window` pixels, drawn afresh
-/// each frame over the HUD as KOTOR 2 moves it (`hud::floated`), while
-/// there is a target and the block is not at the top centre. The HUD under
-/// it leaves the block out. `float_layers` calls this once a frame, which
-/// `hud::FloatHold` counts on.
+/// The floating target block for a window of `window` pixels
+/// (`ui::hud_layer::Hud::target_block`). `float_layers` calls this once a
+/// frame, which `hud::FloatHold` counts on.
 fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    if target_top(ui) {
-        return None;
-    }
-    let Some(target) = ui.vm.target.clone() else {
-        let pointer = ui.float_pointer;
-        ui.float.point(None, pointer);
-        return None;
-    };
-    let (gui, source, _) = hud_gui(ui, window)?;
-    // Its own copy: the block is moved in it and the rest is dropped.
-    let mut gui = fmt_odyssey::gui::Gui::clone(&gui);
-    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
-        ui::screens::hud::floated(&mut gui, &target, sizing.pixel, &mut ui.float);
-        let pointer = ui.float_pointer.map(|point| {
-            let (width, height) = gui.frame();
-            let (scale, [left, top]) = fit(window, (width as f32, height as f32));
-            [(point[0] - left) / scale, (point[1] - top) / scale]
-        });
-        ui.float.point(Some((&gui, &target)), pointer);
-        gui.controls
-            .retain(|control| ui::screens::hud::in_block(&control.tag));
-        let Ui {
-            assets, vm, stack, ..
-        } = ui;
-        let mut out = DrawList::default();
-        let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-        painter.source = source;
-        painter.pulsing = stack.pulsing();
-        painter.layout(
-            &gui,
-            &|control| ui::screens::hud::state(control, vm),
-            &mut out,
-        );
-        ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
-        Some(out)
-    })
+    let pointer = ui.float_pointer;
+    let (hud, mut frame) = hud_parts(ui)?;
+    hud.target_block(&mut frame, window, pointer)
 }
 
-/// The power wheel for a window of `window` pixels, in the frame of the
-/// HUD's layout as placed for the window, while the wheel is open
-/// (`ui::screens::wheel`).
+/// The power wheel for a window of `window` pixels, while the wheel is open
+/// (`ui::hud_layer::Hud::wheel`).
 fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let wheel = ui.vm.wheel.clone()?;
-    let (gui, source, _) = hud_gui(ui, window)?;
-    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
-        let Ui { assets, stack, .. } = ui;
-        let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-        painter.source = source;
-        painter.pulsing = stack.pulsing();
-        Some(ui::screens::wheel::draw(
-            &gui,
-            &wheel,
-            sizing.pixel,
-            &mut painter,
-        ))
-    })
-}
-
-/// What a click on the HUD is on.
-enum HudClick {
-    /// A companion's pazaak icon (`hud::watch_at`), by its body.
-    Watch(u32),
-    /// A companion's portrait (`hud::portrait_at`), by its body.
-    Portrait(u32),
-    /// The minimap (`hud::minimap_at`): the map page.
-    Map,
-    /// The solo mode button (`hud::solo_at`): the end of solo mode.
-    Solo,
+    let (hud, mut frame) = hud_parts(ui)?;
+    hud.wheel(&mut frame, window)
 }
 
 /// What the click at `point` (window pixels) on the HUD is on, if anything.
-fn hud_click(ui: &mut Ui, window: (f32, f32), point: [f32; 2]) -> Option<HudClick> {
-    use ui::screens::hud;
-    let (gui, ..) = hud_gui(ui, window)?;
-    let (width, height) = gui.frame();
-    let (scale, [left, top]) = fit(window, (width as f32, height as f32));
-    let at = [(point[0] - left) / scale, (point[1] - top) / scale];
-    let vm = &ui.vm;
-    hud::watch_at(&gui, vm, at)
-        .map(HudClick::Watch)
-        .or_else(|| hud::portrait_at(&gui, vm, at).map(HudClick::Portrait))
-        .or_else(|| hud::minimap_at(&gui, vm, at).then_some(HudClick::Map))
-        .or_else(|| hud::solo_at(&gui, vm, at).then_some(HudClick::Solo))
+fn hud_click(ui: &mut Ui, window: (f32, f32), point: [f32; 2]) -> Option<ui::hud_layer::Click> {
+    ui.hud.click(ui.assets.as_mut()?, &ui.vm, window, point)
 }
 
 /// KOTOR's HUD for a window of `window` pixels, when the game is in play
-/// and its layout reads; with `banner`, only its banner (a break, a ready
-/// check: `hud::banner`), when there is one.
+/// and its layout reads; with `banner`, only its banner
+/// (`ui::hud_layer::Hud::layer`). The floating target block as last placed
+/// is among its quads, where `float_layers` finds it.
 fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> {
-    if banner {
-        ui.vm.calls.banner.as_ref()?;
-    } else {
-        ui.vm.hud.as_ref()?;
-    }
-    let vm = &ui.vm;
-    let from = HudDrawn {
-        window,
-        scale_factor: ui.scale_factor,
-        pictures: hud_pictures(ui),
-        hud: vm.hud.clone().map(|hud| ui::vm::HudView {
-            minimap: hud.minimap.map(|minimap| ui::vm::MinimapView {
-                at: [0.0; 2],
-                spin: 0.0,
-                ..minimap
-            }),
-            duel: hud.duel.map(|_| ui::vm::DuelBars::default()),
-            ..hud
-        }),
-        party: vm.party.clone(),
-        target: vm.target.clone().map(|target| ui::vm::TargetView {
-            point: None,
-            ..target
-        }),
-        target_top: target_top(ui),
-        settings: ui.settings_revision,
-        calls: vm.calls.clone(),
-        requests: vm.requests.clone(),
-        crosshair: dot_shown(vm),
-        palette: ui.stack.palette,
-        game: ui.assets.as_ref()?.game,
-        released: ui.assets.as_ref()?.released(),
-    };
-    let at = usize::from(banner);
-    if !matches!(&ui.hud_drawn[at], Some((last, _)) if *last == from) {
-        let kept = draw_hud(ui, window, banner)?;
-        ui.hud_drawn[at] = Some((from, kept));
-    }
-    let moving = if banner {
-        HudMoving::default()
-    } else {
-        hud_moving(ui, window).unwrap_or(HudMoving::default())
-    };
-    let (_, kept) = ui.hud_drawn[at].as_ref()?;
-    // The kept quads with this frame's among them, in the order one
-    // drawing of the whole HUD gives.
-    let (arrow_at, duel_at) = (kept.arrow_at, kept.duel_at);
-    let arrows = usize::from(moving.arrow.is_some());
-    let added = moving.under.len() + arrows + moving.duel.len();
-    let mut quads = Vec::with_capacity(kept.out.quads.len() + added);
-    quads.extend_from_slice(&moving.under);
-    quads.extend_from_slice(&kept.out.quads[..arrow_at]);
-    quads.extend(moving.arrow);
-    quads.extend_from_slice(&kept.out.quads[arrow_at..duel_at]);
-    quads.extend_from_slice(&moving.duel);
-    quads.extend_from_slice(&kept.out.quads[duel_at..]);
-    // What pulses was drawn at full alpha: this frame's pulse dims it.
-    let pulse = ui.stack.pulsing();
-    for range in &kept.pulses {
-        let mut moved = moving.under.len();
-        if range.start >= arrow_at {
-            moved += arrows;
-        }
-        if range.start >= duel_at {
-            moved += moving.duel.len();
-        }
-        for quad in &mut quads[range.start + moved..range.end + moved] {
-            quad.color[3] *= pulse;
-        }
-    }
-    let mut out = DrawList {
-        size: kept.out.size,
-        fill: kept.out.fill,
-        quads,
-        wide: kept.out.wide.clone(),
-        sized: kept.out.sized.clone(),
-        marks: Vec::new(),
-    };
+    let block = ui.floating.block.take();
+    let layer = hud_parts(ui)
+        .and_then(|(hud, mut frame)| hud.layer(&mut frame, window, banner, block.as_ref()));
+    ui.floating.block = block;
+    let layer = layer?;
     if !banner {
-        // The floating target block as last placed. `float_layers` places
-        // it again once the camera has moved, and finds it here.
-        ui.floating.block_at = Some(out.quads.len());
-        if let Some(block) = &ui.floating.block {
-            out.quads.extend(block.quads.iter().cloned());
-        }
+        ui.floating.block_at = layer.block_at;
     }
-    // A blaster's reticle over the HUD as kept: its gap changes as it
-    // fires, the HUD under it seldom. Placed in the HUD's frame as placed
-    // (`hud::place` fits it to the window).
-    let placed = ui.hud.as_ref().and_then(|hud| hud.as_ref());
-    let frame = placed.map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
-    // The interface colour of the HUD's layout: KOTOR 1's blue or KOTOR 2's
-    // green.
-    let recoloured = placed
-        .zip(ui.assets.as_ref())
-        .is_some_and(|((_, source, _), assets)| ui::draw::Textures::recoloured(assets, *source));
-    let tint = ui::skin::interface_colour(recoloured);
-    // One of the display's physical pixels in the frame's pixels.
-    let pixel = placed.map_or(1.0, |(gui, ..)| {
-        1.0 / (hud_scale(gui, window) * ui.scale_factor).max(f32::EPSILON)
-    });
-    let crosshair = ui.vm.crosshair && !banner;
-    if let (Some(frame), true) = (frame, crosshair) {
-        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
-        let height = frame.1 as f32;
-        let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
-            gap_px(shown.cone, shown.fov, height)
-        });
-        // While the player blocks with targeted blocks on, the arcs of
-        // targeted blocks take the crosshair's place (`block_reticle_view`).
-        if let (Some(shown), None) = (ui.vm.reticle, ui.vm.block_reticle) {
-            out.quads
-                .extend(reticle(frame, shown.family, gap, pixel, tint));
-        }
-        // A landed shot's mark about it (`hitmarker_view`).
-        if let Some((mark, age_ms)) = ui.vm.hitmark {
-            out.quads.extend(hitmarker(frame, mark, gap, age_ms));
-        }
-        if let Some(view) = ui.vm.block_reticle {
-            out.quads.extend(block_arcs(frame, view));
-        }
-    }
-    // The perfect block mark, as a ring wherever no arcs show it: also
-    // while the crosshair is down, as it is under a side camera.
-    let arcs = crosshair && ui.vm.block_reticle.is_some();
-    if let (Some(frame), true, false, false) = (frame, ui.vm.perfect_mark, arcs, banner) {
-        out.quads.extend(ui::screens::hud::perfect_ring(frame));
-    }
-    Some(out)
-}
-
-/// The minimap and the duel bars for a window of `window` pixels, as this
-/// frame's view has them. They change on most frames of play, so
-/// `hud_layer` draws them each frame and keeps the rest of the HUD.
-fn hud_moving(ui: &mut Ui, window: (f32, f32)) -> Option<HudMoving> {
-    let hud = ui.vm.hud.as_ref()?;
-    if hud.minimap.is_none() && hud.duel.is_none() {
-        return None;
-    }
-    let (gui, source, stretch) = hud_gui(ui, window)?;
-    ui.sized(window, hud_scale(&gui, window), |ui, _| {
-        let Ui {
-            assets, vm, stack, ..
-        } = ui;
-        let assets = assets.as_mut()?;
-        let hud = vm.hud.as_ref()?;
-        // The minimap's picture under the layout (its border), the arrow over.
-        let minimap = hud
-            .minimap
-            .as_ref()
-            .and_then(|view| ui::screens::hud::minimap(&gui, view, stretch, assets, source));
-        let mut duel = DrawList::default();
-        if hud.duel.is_some() {
-            let mut painter = ui::paint::Painter::new(assets, stack.palette);
-            painter.source = source;
-            if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
-                ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut duel);
-            }
-        }
-        Some(HudMoving {
-            under: minimap
-                .iter()
-                .flat_map(ui::screens::hud::Minimap::under)
-                .collect(),
-            arrow: minimap.and_then(|minimap| minimap.arrow),
-            duel: duel.quads,
-        })
-    })
-}
-
-/// The kept part of KOTOR's HUD drawn afresh (`hud_layer`): all but its
-/// minimap and its duel bars (`hud_moving`), with what pulses in it at full
-/// alpha. Its text and borders are KOTOR 2's size in the display's
-/// physical pixels (`Ui::sized`). Its pieces stand where KOTOR 2 places
-/// them (`hud::place`). The target block is left out while it floats
-/// (`target_block`), and stands at the top centre with the Interface option
-/// "Target block at the top centre" on (`hud::to_top`).
-fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
-    let (gui, source, _) = hud_gui(ui, window)?;
-    // The floating target block is drawn on its own (`target_block`).
-    let floating = !target_top(ui);
-    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
-        let Ui {
-            assets, vm, stack, ..
-        } = ui;
-        let assets = assets.as_mut()?;
-        let mut out = DrawList::default();
-        let mut painter = ui::paint::Painter::new(assets, stack.palette);
-        painter.source = source;
-        painter.layout(
-            &gui,
-            &|control| {
-                if banner {
-                    ui::screens::hud::banner(control, vm)
-                } else if floating && ui::screens::hud::in_block(&control.tag) {
-                    ui::paint::ControlState {
-                        hidden: true,
-                        ..ui::paint::ControlState::default()
-                    }
-                } else {
-                    ui::screens::hud::state(control, vm)
-                }
-            },
-            &mut out,
-        );
-        let arrow_at = out.quads.len();
-        if !banner {
-            ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
-            ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
-            ui::screens::hud::players(&gui, vm, &mut painter, &mut out);
-            ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
-            if !floating {
-                ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
-            }
-        }
-        let duel_at = out.quads.len();
-        if dot_shown(vm) {
-            out.quads.extend(ui::screens::hud::crosshair(
-                &gui,
-                sizing.pixel,
-                painter.interface_colour(),
-            ));
-        }
-        let pulses = std::mem::take(&mut painter.pulses);
-        Some(HudKept {
-            out,
-            pulses,
-            arrow_at,
-            duel_at,
-        })
-    })
-}
-
-/// Whether the HUD draws its crosshair dot (`ui::screens::hud::crosshair`).
-/// A blaster draws its own crosshair instead. A character with a melee
-/// weapon readied has no crosshair. While the player blocks with targeted
-/// blocks on, the arcs of targeted blocks take the dot's place. The HUD's
-/// redraw key (`HudDrawn::crosshair`) holds this value, so the HUD is drawn
-/// again when it changes.
-pub(crate) fn dot_shown(vm: &ui::vm::ViewModel) -> bool {
-    vm.crosshair && vm.reticle.is_none() && vm.block_reticle.is_none() && !vm.melee_out
+    Some(layer.list)
 }
 
 /// Places the floating target block and the floating words with the
@@ -1753,16 +1328,13 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
     // The Stamina bar wears the HUD's portrait bar art, in its layout's
     // source.
-    let art = hud
-        .as_ref()
-        .and_then(Option::as_ref)
-        .and_then(|(gui, source, _)| {
-            use ui::screens::hud::BarArt;
-            painter.source = *source;
-            Some(ui::screens::floaty::OverheadArt {
-                upper: BarArt::vitality(gui, &mut painter)?,
-            })
-        });
+    let art = hud.layout().and_then(|(gui, source, _)| {
+        use ui::screens::hud::BarArt;
+        painter.source = *source;
+        Some(ui::screens::floaty::OverheadArt {
+            upper: BarArt::vitality(gui, &mut painter)?,
+        })
+    });
     let mut out = match art {
         Some(art) => ui::screens::floaty::bars(&vm.overhead, art, window),
         None => DrawList {
