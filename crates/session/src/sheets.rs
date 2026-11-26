@@ -939,6 +939,12 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
     Some(object)
 }
 
+/// The install's placeable template `template` (`placeable_template`),
+/// for a stage that makes one of its own (the Debug Mode map's terminal).
+pub fn placeable_facts(source: &dyn Source, template: &str) -> Option<ObjectData> {
+    placeable_template(&mut Tables::new(source), template)
+}
+
 /// A placeable's facts from its UTP alone, as a script makes one
 /// (`CreateObject`): its tag, name, scripts, conversation, look, whether it
 /// holds items (and those), is used, and its lock. Its place is the

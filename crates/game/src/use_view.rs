@@ -1,5 +1,5 @@
 //! Using an object from the player's side (render side: the presented
-//! snapshot and the module's facts). For now the console's `ui use TAG
+//! snapshot and its objects' facts). For now the console's `ui use TAG
 //! VERB` asks the host to use the nearest object tagged TAG with VERB
 //! (`open`, `close`, `talk`, `use`; `sim::action::Action::Use`); the host
 //! checks reach and sight (`sim::uses`). `ui wear TEMPLATE` asks it to put
@@ -58,13 +58,12 @@ fn send(
     let (Some(presented), Some(own), Some(swap)) = (presented, own, swap) else {
         return;
     };
-    let Some(module) = swap.level.module() else {
-        return;
-    };
     let snapshot = presented.0.current();
     let Some(me) = snapshot.body(own.0) else {
         return;
     };
+    // The module's objects and those made in play (the Debug Mode terminal).
+    let objects = sim::Instances::in_snapshot(&swap.level, snapshot);
     for (tag, verb) in asks {
         let nearest = snapshot
             .entities
@@ -73,7 +72,7 @@ fn send(
                 let sim::Kind::Object(_, index) = entity.kind else {
                     return None;
                 };
-                let facts = module.object(index as usize)?;
+                let facts = objects.get(index)?;
                 facts.tag.eq_ignore_ascii_case(&tag).then_some(())?;
                 let (dx, dy) = (
                     entity.position[0] - me.position[0],

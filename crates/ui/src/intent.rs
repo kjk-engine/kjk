@@ -356,6 +356,9 @@ pub enum Intent {
     Answer(Option<u8>),
     /// Leave the conversation (R6: its Leave row).
     Leave,
+    /// The Debug Mode terminal's row picked: its number on the page shown
+    /// (from 0).
+    DebugTerminal(u8),
     /// Save the game as `name`, over the save `slot` (its id) or as a new
     /// one.
     Save {

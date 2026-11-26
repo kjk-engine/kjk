@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `6fbba111741694ee`.
 
 ## Contents
 
@@ -9951,6 +9951,69 @@ respawn point with full hit points. The player cannot lose in the arena.
 A creature called into the arena appears 5 meters in front of the player.
 
 <sub>Source: ours. Code: `sim::world::arena::orders`.</sub>
+
+#### <a id="world-arena-terminal"></a>Debug Terminal
+
+A computer on the Debug Mode map lets the player change a party member's
+class, level, attributes, skills and alignment, the party's credits, and
+the items the party carries. An attribute can be set from
+1 to
+50. A skill can be set from 0 to
+50 ranks. Alignment can be set from 0 to
+100, or moved by
+10. The terminal adds
+1000 or
+10000 credits at a time. It adds one of
+every item of a kind, and 10 of each item
+that stacks.
+
+<a id="world-arena-terminal-ability-least"></a>**Lowest Attribute** = **1** · `world.arena.terminal.ability_least`
+
+The Debug terminal sets an attribute no lower than 1.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-ability-most"></a>**Highest Attribute** = **50** · `world.arena.terminal.ability_most`
+
+The Debug terminal sets an attribute no higher than 50.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-skill-most"></a>**Highest Skill Rank** = **50** · `world.arena.terminal.skill_most`
+
+The Debug terminal sets a skill no higher than 50 ranks.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-alignment-most"></a>**Full Light Side** = **100** · `world.arena.terminal.alignment_most`
+
+Alignment runs from 0 (dark) to 100 (light).
+
+<sub>Source: both games' alignment. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-alignment-step"></a>**Alignment Step** = **10** · `world.arena.terminal.alignment_step`
+
+The Debug terminal moves alignment by 10 at a time.
+
+<sub>Source: ours. Code: `game::debug_terminal`.</sub>
+
+<a id="world-arena-terminal-credits-small"></a>**Credits Added** = **1000** · `world.arena.terminal.credits_small`
+
+The Debug terminal's smaller grant adds 1000 credits.
+
+<sub>Source: ours. Code: `game::debug_terminal`.</sub>
+
+<a id="world-arena-terminal-credits-large"></a>**More Credits Added** = **10000** · `world.arena.terminal.credits_large`
+
+The Debug terminal's larger grant adds 10000 credits.
+
+<sub>Source: ours. Code: `game::debug_terminal`.</sub>
+
+<a id="world-arena-terminal-stack"></a>**Items in a Stack** = **10** · `world.arena.terminal.stack`
+
+The Debug terminal adds 10 of each item that stacks.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 

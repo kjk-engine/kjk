@@ -202,7 +202,7 @@ pub(super) fn all() -> Vec<Check> {
             }),
             ..ViewModel::default()
         };
-        let mut screen = Computer;
+        let mut screen = Computer::CONVERSATION;
         let list = screen
             .state(&button("LB_REPLIES", [0, 0, 1, 1], b""), &vm)
             .list
@@ -212,6 +212,32 @@ pub(super) fn all() -> Vec<Check> {
         (list.flatten(), out == [Intent::Leave])
     };
     let computers = [Some(true), Some(false), None].map(computer);
+    // The Debug Mode terminal's screen: its rows from its own view, a row
+    // picked sent with its number, its Leave row and Back closing it.
+    let terminal = {
+        let vm = ViewModel {
+            debug_terminal: Some(ComputerView {
+                message: words(3),
+                replies: vec![words(1), words(2)],
+                leave: Some(true),
+                leave_key: b"Esc".to_vec(),
+                ..ComputerView::default()
+            }),
+            ..ViewModel::default()
+        };
+        let mut screen = Computer::DEBUG_TERMINAL;
+        let rows: Vec<Vec<u8>> = screen
+            .state(&button("LB_REPLIES", [0, 0, 1, 1], b""), &vm)
+            .list
+            .map_or_else(Vec::new, |list| {
+                list.rows.into_iter().map(|row| row.text).collect()
+            });
+        let mut out = Vec::new();
+        screen.row("LB_REPLIES", 1, &vm, &mut out);
+        screen.row("LB_REPLIES", 2, &vm, &mut out);
+        screen.back(&mut out);
+        (rows, out)
+    };
     let mut card_drawn = DrawList::default();
     if let Some(card) = &card {
         let mut painter = Painter::new(&mut fake, Palette::K1);
@@ -371,6 +397,22 @@ pub(super) fn all() -> Vec<Check> {
                     computers == wanted,
                 )?;
                 Ok("the Leave row".into())
+            })(),
+        ),
+        check(
+            "debug_terminal_rows",
+            (|| {
+                let rows = vec![
+                    strings::reply(0, &words(1)),
+                    strings::reply(1, &words(2)),
+                    strings::leave(b"Esc"),
+                ];
+                let sent = vec![Intent::DebugTerminal(1), Intent::Close, Intent::Close];
+                expect(
+                    &format!("its rows and what picking them sends: {terminal:?}"),
+                    terminal == (rows, sent),
+                )?;
+                Ok("two rows and Leave; row 2 sent, Leave and Back close".into())
             })(),
         ),
         check(

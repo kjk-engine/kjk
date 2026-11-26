@@ -298,6 +298,94 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
+    /// The Debug Mode terminal's orders (`world::arena::edits`). Each sets a
+    /// value and never adds to one, so an order sent twice does no harm.
+    /// `who` is the party member changed: the seat's own character, or a
+    /// companion no other seat plays.
+    ///
+    /// `who` rebuilt as a character of class `class` (`classes.2da` row)
+    /// at level `level`, every level's picks the game's own.
+    Rebuild {
+        who: crate::snapshot::SimId,
+        class: u8,
+        level: u8,
+    },
+    /// `who`'s ability `ability` (`Ability` order) at `score`.
+    Ability {
+        who: crate::snapshot::SimId,
+        ability: u8,
+        score: u8,
+    },
+    /// `who`'s ranks in skill `skill` (`skills.2da` row).
+    Skill {
+        who: crate::snapshot::SimId,
+        skill: u8,
+        ranks: u8,
+    },
+    /// `who`'s alignment, 0 (dark) to 100 (light).
+    Alignment {
+        who: crate::snapshot::SimId,
+        good_evil: u8,
+    },
+    /// The party's credits set to this many.
+    Credits(i32),
+    /// One of every item of a kind put in the party's inventory.
+    Items(ItemKind),
+    /// `who` made the Debug Mode map's starting character again (`sheet`),
+    /// with full hit points and Force points.
+    Restore {
+        who: crate::snapshot::SimId,
+        sheet: Box<crate::combat::Sheet>,
+    },
+}
+
+/// A kind of item the Debug Mode terminal puts in the party's inventory
+/// (`ArenaOrder::Items`), in the order its menu lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemKind {
+    Implants,
+    Headgear,
+    Gloves,
+    /// Arm bands and energy shields.
+    Arms,
+    Belts,
+    Armour,
+    /// Melee weapons other than lightsabers.
+    Melee,
+    Lightsabers,
+    Ranged,
+    /// Grenades and mines.
+    Grenades,
+    /// Medical items and stimulants.
+    Medical,
+}
+
+impl ItemKind {
+    pub const ALL: [ItemKind; 11] = [
+        ItemKind::Implants,
+        ItemKind::Headgear,
+        ItemKind::Gloves,
+        ItemKind::Arms,
+        ItemKind::Belts,
+        ItemKind::Armour,
+        ItemKind::Melee,
+        ItemKind::Lightsabers,
+        ItemKind::Ranged,
+        ItemKind::Grenades,
+        ItemKind::Medical,
+    ];
+
+    /// Its byte on the wire: its place in `ALL`.
+    pub fn code(self) -> u8 {
+        ItemKind::ALL
+            .iter()
+            .position(|kind| *kind == self)
+            .unwrap_or(0) as u8
+    }
+
+    pub fn of_code(code: u8) -> Option<ItemKind> {
+        ItemKind::ALL.get(usize::from(code)).copied()
+    }
 }
 
 /// What a seat asks of its body's readied grenade (`Action::Grenade`).
@@ -807,6 +895,46 @@ impl Action {
                         out.u8(3);
                         out.u8(*n);
                     }
+                    ArenaOrder::Rebuild { who, class, level } => {
+                        out.u8(4);
+                        out.u32(who.0);
+                        out.u8(*class);
+                        out.u8(*level);
+                    }
+                    ArenaOrder::Ability {
+                        who,
+                        ability,
+                        score,
+                    } => {
+                        out.u8(5);
+                        out.u32(who.0);
+                        out.u8(*ability);
+                        out.u8(*score);
+                    }
+                    ArenaOrder::Skill { who, skill, ranks } => {
+                        out.u8(6);
+                        out.u32(who.0);
+                        out.u8(*skill);
+                        out.u8(*ranks);
+                    }
+                    ArenaOrder::Alignment { who, good_evil } => {
+                        out.u8(7);
+                        out.u32(who.0);
+                        out.u8(*good_evil);
+                    }
+                    ArenaOrder::Credits(credits) => {
+                        out.u8(8);
+                        out.u32(*credits as u32);
+                    }
+                    ArenaOrder::Items(kind) => {
+                        out.u8(9);
+                        out.u8(kind.code());
+                    }
+                    ArenaOrder::Restore { who, sheet } => {
+                        out.u8(10);
+                        out.u32(who.0);
+                        sheet.encode(out);
+                    }
                 }
             }
         }
@@ -1005,6 +1133,38 @@ impl Action {
                     1 => ArenaOrder::Clear,
                     2 => ArenaOrder::God,
                     3 => ArenaOrder::Down(input.u8()?),
+                    4 => ArenaOrder::Rebuild {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        class: input.u8()?,
+                        level: input.u8()?,
+                    },
+                    5 => ArenaOrder::Ability {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        ability: input.u8()?,
+                        score: input.u8()?,
+                    },
+                    6 => ArenaOrder::Skill {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        skill: input.u8()?,
+                        ranks: input.u8()?,
+                    },
+                    7 => ArenaOrder::Alignment {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        good_evil: input.u8()?,
+                    },
+                    8 => ArenaOrder::Credits(input.u32()? as i32),
+                    9 => {
+                        let kind = input.at();
+                        let code = input.u8()?;
+                        ArenaOrder::Items(
+                            ItemKind::of_code(code)
+                                .ok_or_else(|| input.invalid("item kind", kind))?,
+                        )
+                    }
+                    10 => ArenaOrder::Restore {
+                        who: crate::snapshot::SimId(input.u32()?),
+                        sheet: Box::new(crate::combat::Sheet::decode(input)?),
+                    },
                     _ => return Err(input.invalid("arena order", at)),
                 })
             }

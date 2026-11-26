@@ -2674,6 +2674,13 @@ pub enum Change {
         before: crate::combat::Sheet,
         after: crate::combat::Sheet,
     },
+    /// `who`'s hit points and Force points full at the most `sheet` gives
+    /// it (the Debug Mode terminal's rebuild and restore,
+    /// `world::arena::edits`).
+    Whole {
+        who: ObjectId,
+        sheet: crate::combat::Sheet,
+    },
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
     CancelCombat { who: ObjectId },

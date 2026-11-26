@@ -6,14 +6,14 @@
 use std::sync::Arc;
 
 use super::SimWorld;
-use super::arena::{Rules, SPAWN_AHEAD};
+use super::arena::{Rules, SPAWN_AHEAD, TERMINAL_TAG, TERMINAL_TEMPLATE};
 use crate::action::{Action, ArenaOrder};
 use crate::combat::Sheet;
 use crate::combat::sheet::{factions, flags};
 use crate::input::{Command, Seat, TickInput};
 use crate::module::{ObjectData, ObjectKind};
 use crate::probe::check;
-use crate::snapshot::{Kind, Snapshot};
+use crate::snapshot::{Kind, SimId, Snapshot};
 use crate::{StepReason, WorldConfig};
 
 /// The foe's template, friendly as written: the arena turns it.
@@ -21,16 +21,61 @@ const FOE: &str = "probe_foe";
 /// How long a downed player lies in the probes' arena (ms).
 const RESPAWN_MS: u64 = 500;
 
-/// The proving ground as an arena, the foe's template in its library; the
-/// world and its rules.
+/// The implant templates the probes' catalog has besides a plot implant,
+/// and a belt.
+const IMPLANTS: [&str; 2] = ["probe_implant_a", "probe_implant_b"];
+const PLOT_IMPLANT: &str = "probe_plot_implant";
+const BELT: &str = "probe_belt";
+
+/// The probes' items: two implants, a plot implant and a belt.
+fn catalog() -> crate::inventory::Catalog {
+    use crate::inventory::{ItemFacts, slots};
+    let worn = |template: &str, slot: u8, plot: bool| ItemFacts {
+        slots: 1 << slot,
+        plot,
+        ..ItemFacts::plain(template)
+    };
+    crate::inventory::Catalog::new(
+        IMPLANTS
+            .iter()
+            .map(|template| worn(template, slots::IMPLANT, false))
+            .chain([
+                worn(PLOT_IMPLANT, slots::IMPLANT, true),
+                worn(BELT, slots::BELT, false),
+            ]),
+    )
+}
+
+/// The proving ground as an arena for one seat (`arena_for`).
 fn arena() -> Result<(SimWorld, Rules), String> {
+    arena_for(1, true).map(|(world, rules, _)| (world, rules))
+}
+
+/// The proving ground for `seats` players, an arena when `rules`: the
+/// foe's template, the probes' items, two classes and the Debug Mode
+/// terminal's template in its library. The arena's step makes the terminal
+/// 1 m from where the players arrive. The world, its rules and the
+/// terminal's object index (the first one play makes).
+fn arena_for(seats: u8, rules: bool) -> Result<(SimWorld, Rules, u32), String> {
     let ground = crate::determinism::proving_ground();
-    let entry = ground.module().ok_or("the ground has no module")?.entry;
-    let rules = Rules {
+    let data = ground.module().ok_or("the ground has no module")?;
+    let entry = data.entry;
+    let terminal = data.placements.len() as u32;
+    let [x, y, z] = entry.position;
+    let arena = Rules {
         respawn: entry.position,
         yaw: entry.yaw,
         pit: -3.0,
         respawn_ms: RESPAWN_MS,
+        terminal: Some(super::arena::Terminal {
+            at: [x + 1.0, y, z],
+            yaw: entry.yaw,
+            facts: Arc::new(ObjectData {
+                useable: true,
+                template: TERMINAL_TEMPLATE.into(),
+                ..ObjectData::bare(ObjectKind::Placeable, TERMINAL_TAG, [0.0; 3])
+            }),
+        }),
     };
     let mut foe = ObjectData::creature(FOE, FOE, [0.0; 3], Sheet::dev_soldier());
     if let Some(sheet) = foe.sheet.as_mut() {
@@ -38,27 +83,70 @@ fn arena() -> Result<(SimWorld, Rules), String> {
         sheet.flags |= flags::PLOT;
     }
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
-        .with_creatures([(FOE.to_string(), Arc::new(foe))].into());
-    let level = ground.with_scripts(library).with_arena(rules);
-    let world = SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
-    Ok((world, rules))
+        .with_creatures([(FOE.to_string(), Arc::new(foe))].into())
+        .with_items(catalog())
+        .with_classes(super::coop_items::classes());
+    let mut level = ground.with_scripts(library);
+    if rules {
+        level = level.with_arena(arena.clone());
+    }
+    let config = WorldConfig {
+        seats,
+        guests: crate::Guests::Avatars,
+        ..WorldConfig::one_seat()
+    };
+    let world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
+    Ok((world, arena, terminal))
 }
 
 /// `steps` steps of seat 0 standing, `orders` given on the first.
 fn run(world: &mut SimWorld, orders: &[ArenaOrder], steps: u32) -> Snapshot {
+    let orders: Vec<_> = orders
+        .iter()
+        .map(|order| (Seat(0), order.clone()))
+        .collect();
+    run_seats(world, 1, &orders, steps).0
+}
+
+/// `steps` steps of `seats` seats standing, each order given by its seat
+/// on the first: the last snapshot, and every notice with its seat.
+fn run_seats(
+    world: &mut SimWorld,
+    seats: u8,
+    orders: &[(Seat, ArenaOrder)],
+    steps: u32,
+) -> (Snapshot, Vec<(Seat, crate::notice::Notice)>) {
+    let actions: Vec<_> = orders
+        .iter()
+        .map(|(seat, order)| (*seat, Action::Arena(order.clone())))
+        .collect();
+    act(world, seats, &actions, steps)
+}
+
+/// `run_seats` with any actions.
+fn act(
+    world: &mut SimWorld,
+    seats: u8,
+    actions: &[(Seat, Action)],
+    steps: u32,
+) -> (Snapshot, Vec<(Seat, crate::notice::Notice)>) {
     let mut last = world.snapshot();
+    let mut notices = Vec::new();
     for step in 0..steps {
         let mut input = TickInput::default();
-        input.insert(Seat(0), Command::default());
+        for seat in 0..seats {
+            input.insert(Seat(seat), Command::default());
+        }
         if step == 0 {
-            for order in orders {
-                input.act(Seat(0), Action::Arena(order.clone()));
+            for (seat, action) in actions {
+                input.act(*seat, action.clone());
             }
         }
         let tick = world.tick() + 1;
         last = crate::step(world, tick, &input, 8, StepReason::Authority);
+        notices.extend(world.take_notices());
     }
-    last
+    (last, notices)
 }
 
 /// The creatures standing in `snapshot` that no seat plays.
@@ -77,7 +165,389 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_god", god()),
         ("arena_pit_and_respawn", pit_and_respawn()),
         ("arena_down_gets_up_by_its_side", down_gets_up()),
+        ("arena_terminal_sets_one_field", sets_one_field()),
+        ("arena_terminal_constitution", constitution()),
+        ("arena_terminal_rebuild", rebuild()),
+        ("arena_terminal_party", party_orders()),
+        ("arena_terminal_restore", restore()),
+        ("arena_terminal_seats", seats_rule()),
+        ("arena_terminal_off_arena", off_arena()),
+        ("arena_terminal_made_once", made_once()),
+        ("arena_terminal_opens", opens()),
+        ("arena_terminal_round_trip", round_trip()),
     ]
+}
+
+/// Seat `seat`'s character's id and sheet in `snapshot`.
+fn mine(snapshot: &Snapshot, seat: Seat) -> Result<(SimId, Sheet), String> {
+    let me = snapshot.own(seat).ok_or("no player")?;
+    Ok((me.id, me.sheet.ok_or("no sheet")?))
+}
+
+/// Each sheet order changes the field it names and nothing else, and a
+/// number past a limit is held to the limit.
+fn sets_one_field() -> Result<String, String> {
+    use super::arena::edits::limits;
+    let (mut world, _) = arena()?;
+    let (me, start) = mine(&run(&mut world, &[], 2), Seat(0))?;
+    type Expect = fn(&Sheet) -> Sheet;
+    let cases: [(&str, ArenaOrder, Expect); 5] = [
+        (
+            "Strength 17",
+            ArenaOrder::Ability {
+                who: me,
+                ability: 0,
+                score: 17,
+            },
+            |s| {
+                let mut abilities = s.abilities;
+                abilities[0] = 17;
+                Sheet { abilities, ..*s }
+            },
+        ),
+        (
+            "Dexterity past the most",
+            ArenaOrder::Ability {
+                who: me,
+                ability: 1,
+                score: u8::MAX,
+            },
+            |s| {
+                let mut abilities = s.abilities;
+                abilities[1] = limits::ABILITY_MOST;
+                Sheet { abilities, ..*s }
+            },
+        ),
+        (
+            "Repair 7",
+            ArenaOrder::Skill {
+                who: me,
+                skill: 5,
+                ranks: 7,
+            },
+            |s| {
+                let mut skills = s.skills;
+                skills[5] = 7;
+                Sheet { skills, ..*s }
+            },
+        ),
+        (
+            "Security past the most",
+            ArenaOrder::Skill {
+                who: me,
+                skill: 6,
+                ranks: u8::MAX,
+            },
+            |s| {
+                let mut skills = s.skills;
+                skills[6] = limits::SKILL_MOST;
+                Sheet { skills, ..*s }
+            },
+        ),
+        (
+            "alignment past the most",
+            ArenaOrder::Alignment {
+                who: me,
+                good_evil: u8::MAX,
+            },
+            |s| Sheet {
+                good_evil: limits::ALIGNMENT_MOST,
+                ..*s
+            },
+        ),
+    ];
+    let mut seen = Vec::new();
+    for (name, order, expect) in cases {
+        let (mut world, _) = arena()?;
+        let (_, after) = mine(&run(&mut world, &[order], 3), Seat(0))?;
+        let right = after == expect(&start);
+        seen.push(format!("{name}: {right}"));
+        if !right {
+            return Err(seen.join("; "));
+        }
+    }
+    Ok(seen.join("; "))
+}
+
+/// A Constitution raised by 2 raises the most hit points by 1 a level.
+fn constitution() -> Result<String, String> {
+    let (mut world, _) = arena()?;
+    let (me, start) = mine(&run(&mut world, &[], 2), Seat(0))?;
+    let raised = ArenaOrder::Ability {
+        who: me,
+        ability: 2,
+        score: start.abilities[2] + 2,
+    };
+    let (_, after) = mine(&run(&mut world, &[raised], 3), Seat(0))?;
+    let rise = i32::from(after.max_hp) - i32::from(start.max_hp);
+    check(
+        rise == i32::from(start.level),
+        format!("level {}: most hit points up by {rise}", start.level),
+    )
+}
+
+/// A rebuild to class 1 at level 4 is a level-4 character whose career
+/// is four levels of that class, at full hit points, with the party's XP
+/// what the level needs. A second rebuild gives the same sheet. A rebuild
+/// at level 1 is character creation's first level of the class.
+fn rebuild() -> Result<String, String> {
+    let (mut world, _) = arena()?;
+    let (me, start) = mine(&run(&mut world, &[], 2), Seat(0))?;
+    let order = |level| ArenaOrder::Rebuild {
+        who: me,
+        class: 1,
+        level,
+    };
+    let once = run(&mut world, &[order(4)], 3);
+    let (_, sheet) = mine(&once, Seat(0))?;
+    let hp = once.own(Seat(0)).and_then(|me| me.fighter).map(|f| f.hp);
+    let career = world.script_state().careers.get(&me.0).cloned();
+    let classes = super::coop_items::classes();
+    let xp = world.script_state().xp(crate::inventory::PARTY);
+    let (_, twice) = mine(&run(&mut world, &[order(4)], 3), Seat(0))?;
+    let (_, first) = mine(&run(&mut world, &[order(1)], 3), Seat(0))?;
+    let created = crate::creation::first_level(
+        &classes,
+        classes.classes[1].recommended,
+        start.faction,
+        &crate::levels::Choices {
+            class: 1,
+            ..Default::default()
+        },
+    )
+    .ok_or("no first level")?
+    .0;
+    let numbers = |s: &Sheet| {
+        (
+            s.abilities,
+            s.level,
+            s.bab,
+            s.saves,
+            s.max_hp,
+            s.feats,
+            s.skills,
+        )
+    };
+    check(
+        sheet.level == 4
+            && career == Some(vec![(1, 4)])
+            && hp == Some(i32::from(sheet.max_hp) * 100)
+            && xp >= classes.next(3).unwrap_or(0)
+            && twice == sheet
+            && numbers(&first) == numbers(&created),
+        format!(
+            "level {}, career {career:?}, hit points {hp:?} of {}, XP {xp}; again the same: {}; level 1 as created: {}",
+            sheet.level,
+            sheet.max_hp,
+            twice == sheet,
+            numbers(&first) == numbers(&created)
+        ),
+    )
+}
+
+/// Credits set to 5,000; the implants put in the party's inventory, one of
+/// each and no plot one, and two of each when asked twice.
+fn party_orders() -> Result<String, String> {
+    let (mut world, _) = arena()?;
+    let implants = ArenaOrder::Items(crate::action::ItemKind::Implants);
+    let held = |snapshot: &Snapshot, template: &str| -> u32 {
+        snapshot
+            .goods
+            .items
+            .iter()
+            .map(|(_, item)| item)
+            .filter(|item| item.holder == crate::inventory::PARTY && item.template == template)
+            .map(|item| u32::from(item.stack))
+            .sum()
+    };
+    let once = run(
+        &mut world,
+        &[ArenaOrder::Credits(5000), implants.clone()],
+        3,
+    );
+    let twice = run(&mut world, &[implants], 3);
+    let counts = |snapshot: &Snapshot| -> Vec<u32> {
+        IMPLANTS
+            .iter()
+            .chain([&PLOT_IMPLANT, &BELT])
+            .map(|template| held(snapshot, template))
+            .collect()
+    };
+    let (first, second) = (counts(&once), counts(&twice));
+    check(
+        once.goods.gold == 5000 && first == [1, 1, 0, 0] && second == [2, 2, 0, 0],
+        format!(
+            "credits {}; implants, plot implant, belt: {first:?}, then {second:?}",
+            once.goods.gold
+        ),
+    )
+}
+
+/// A restore makes the character the starting one again, at full hit
+/// points.
+fn restore() -> Result<String, String> {
+    let (mut world, _) = arena()?;
+    let (me, start) = mine(&run(&mut world, &[], 2), Seat(0))?;
+    let jedi = Sheet::dev_jedi();
+    let changed = [
+        ArenaOrder::Rebuild {
+            who: me,
+            class: 0,
+            level: 3,
+        },
+        ArenaOrder::Restore {
+            who: me,
+            sheet: Box::new(jedi),
+        },
+    ];
+    let back = run(&mut world, &changed, 3);
+    let (_, sheet) = mine(&back, Seat(0))?;
+    let hp = back.own(Seat(0)).and_then(|me| me.fighter).map(|f| f.hp);
+    let numbers = |s: &Sheet| {
+        (
+            s.abilities,
+            s.level,
+            s.max_hp,
+            s.max_fp,
+            s.feats,
+            s.powers,
+            s.skills,
+        )
+    };
+    check(
+        numbers(&sheet) == numbers(&jedi)
+            && sheet.faction == start.faction
+            && hp == Some(i32::from(sheet.max_hp) * 100),
+        format!(
+            "as the starting character: {}; faction kept: {}; hit points {hp:?} of {}",
+            numbers(&sheet) == numbers(&jedi),
+            sheet.faction == start.faction,
+            sheet.max_hp
+        ),
+    )
+}
+
+/// An order from seat 1 that names seat 0's character changes nothing. The
+/// same order naming seat 1's own character changes it.
+fn seats_rule() -> Result<String, String> {
+    let (mut world, ..) = arena_for(2, true)?;
+    let (start, _) = run_seats(&mut world, 2, &[], 2);
+    let (host, host_sheet) = mine(&start, Seat(0))?;
+    let (guest, _) = mine(&start, Seat(1))?;
+    let strength = |who| ArenaOrder::Ability {
+        who,
+        ability: 0,
+        score: 30,
+    };
+    let orders = [(Seat(1), strength(host)), (Seat(1), strength(guest))];
+    let (after, _) = run_seats(&mut world, 2, &orders, 3);
+    let (_, host_after) = mine(&after, Seat(0))?;
+    let (_, guest_after) = mine(&after, Seat(1))?;
+    check(
+        host_after == host_sheet && guest_after.abilities[0] == 30,
+        format!(
+            "host's Strength {} (was {}), guest's {}",
+            host_after.abilities[0], host_sheet.abilities[0], guest_after.abilities[0]
+        ),
+    )
+}
+
+/// The terminal's orders on a level without arena rules change nothing.
+fn off_arena() -> Result<String, String> {
+    let (mut world, ..) = arena_for(1, false)?;
+    let start = run(&mut world, &[], 2);
+    let (me, sheet) = mine(&start, Seat(0))?;
+    let orders = [
+        ArenaOrder::Ability {
+            who: me,
+            ability: 0,
+            score: 30,
+        },
+        ArenaOrder::Credits(5000),
+    ];
+    let after = run(&mut world, &orders, 3);
+    let (_, now) = mine(&after, Seat(0))?;
+    check(
+        now == sheet && after.goods.gold == start.goods.gold,
+        format!("sheet kept: {}; credits {}", now == sheet, after.goods.gold),
+    )
+}
+
+/// The arena's step makes the terminal once, and a level without arena
+/// rules has none.
+fn made_once() -> Result<String, String> {
+    let made = |snapshot: &Snapshot| {
+        (snapshot.spawned.iter())
+            .filter(|spawned| spawned.template == TERMINAL_TEMPLATE)
+            .count()
+    };
+    let (mut world, ..) = arena_for(1, true)?;
+    let arena = made(&run(&mut world, &[], 20));
+    let (mut world, ..) = arena_for(1, false)?;
+    let other = made(&run(&mut world, &[], 20));
+    check(
+        arena == 1 && other == 0,
+        format!("terminals made in the arena: {arena}; elsewhere: {other}"),
+    )
+}
+
+/// Seat 0 using the terminal opens its screen for seat 0 and no other.
+fn opens() -> Result<String, String> {
+    use crate::notice::{Notice, Screen};
+    let (mut world, _, terminal) = arena_for(2, true)?;
+    run_seats(&mut world, 2, &[], 2);
+    let used = Action::Use {
+        object: terminal,
+        verb: crate::action::Verb::Use,
+    };
+    let (_, notices) = act(&mut world, 2, &[(Seat(0), used)], 30);
+    let told: Vec<Seat> = notices
+        .iter()
+        .filter(|(_, notice)| *notice == Notice::Show(Screen::DebugTerminal))
+        .map(|(seat, _)| *seat)
+        .collect();
+    check(told == [Seat(0)], format!("told to {told:?}"))
+}
+
+/// Every terminal order is read back as it was written.
+fn round_trip() -> Result<String, String> {
+    let who = SimId(7);
+    let orders = [
+        ArenaOrder::Rebuild {
+            who,
+            class: 3,
+            level: 12,
+        },
+        ArenaOrder::Ability {
+            who,
+            ability: 2,
+            score: 18,
+        },
+        ArenaOrder::Skill {
+            who,
+            skill: 4,
+            ranks: 9,
+        },
+        ArenaOrder::Alignment { who, good_evil: 20 },
+        ArenaOrder::Credits(12_345),
+        ArenaOrder::Restore {
+            who,
+            sheet: Box::new(Sheet::dev_jedi()),
+        },
+    ]
+    .into_iter()
+    .chain(crate::action::ItemKind::ALL.map(ArenaOrder::Items));
+    for order in orders {
+        let action = Action::Arena(order);
+        let mut out = crate::wire::Writer::default();
+        action.encode(&mut out);
+        let back = Action::decode(&mut crate::wire::Reader::new("action", &out.0))
+            .map_err(|error| error.to_string())?;
+        if back != action {
+            return Err(format!("{action:?} came back as {back:?}"));
+        }
+    }
+    Ok("every order came back as written".into())
 }
 
 /// `down N` for a death that leaves the body on its back (1) and one on its

@@ -694,6 +694,16 @@ pub(in crate::world) fn apply(
                     fighter.fp = (fighter.fp + gained * script::HUNDREDTHS).max(0);
                 }
             }
+            Change::Whole { who, sheet } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && fighting.0.alive()
+                {
+                    let fighter = &mut fighting.0;
+                    let now = crate::combat::effects::sheet_now(sheet, fighter, clock.time_ms);
+                    fighter.hp = i32::from(now.max_hp) * script::HUNDREDTHS;
+                    fighter.fp = i32::from(now.pool()) * script::HUNDREDTHS;
+                }
+            }
             Change::CancelCombat { who } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {

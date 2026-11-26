@@ -1492,6 +1492,9 @@ pub struct ViewModel {
     /// In play: the HUD's.
     pub hud: Option<HudView>,
     pub computer: Option<ComputerView>,
+    /// The Debug Mode terminal's page, while its screen is open
+    /// (`screens::computer`).
+    pub debug_terminal: Option<ComputerView>,
     /// A computer's conversation is on a camera feed (`screens::feed`).
     pub camera_feed: bool,
     /// What the player looks at, for the HUD's target block.

@@ -377,7 +377,10 @@ impl Level {
             ObjectKind::Placeable if remains::bag_row(template).is_some() => {
                 remains::bag_facts(self.module()?, template).map(Arc::new)
             }
-            ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
+            ObjectKind::Placeable => (self.scripts()?.placeable(template).cloned()).or_else(|| {
+                let terminal = self.arena.as_ref()?.terminal.as_ref()?;
+                (terminal.facts.template == template).then(|| terminal.facts.clone())
+            }),
             ObjectKind::Waypoint => self.scripts()?.waypoint(template).cloned(),
             ObjectKind::Store => self.scripts()?.store(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),

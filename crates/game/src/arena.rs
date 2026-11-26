@@ -14,12 +14,20 @@
 //! chooses the next in `ROSTER`, F4 turns god mode on or off, F6 takes
 //! every foe away; a panel under the minimap says so
 //! (`ui::screens::arena_panel`).
+//!
+//! The sandbox has the Debug Mode terminal too: KOTOR 1's Rakatan computer
+//! beside the arrival (`terminal`), whose screen changes a party member's
+//! class, level, attributes, skills and alignment, the party's credits and
+//! its items (`crate::debug_terminal`). The console gives its orders as
+//! `arena level`, `ability`, `skill`, `alignment`, `credits`, `items` and
+//! `restore` (`console_order`).
 
 use std::sync::Arc;
 
 use bevy::prelude::*;
 use collision::{Brush, BrushWorld};
-use sim::action::{Action, ArenaOrder};
+use sim::SimId;
+use sim::action::{Action, ArenaOrder, ItemKind};
 use sim::combat::Sheet;
 
 /// The module whose plan lends the arena K1's data.
@@ -31,6 +39,28 @@ pub const BASE_MODULE: &str = "end_m01aa";
 pub const SANDBOX: &str = "sandbox";
 pub const SANDBOX_MODULE: &str = "sta_m45ad";
 pub const SANDBOX_ARRIVAL: &str = "sta_way_player";
+/// The Debug Mode terminal's name, shown when the player aims at it.
+pub const TERMINAL_NAME: &str = "Debug Terminal";
+/// Where the terminal stands from the player's arrival on the sandbox
+/// (metres ahead and to the left of the way the player faces), and how far
+/// it turns from facing the way the player faces (degrees).
+const TERMINAL_AHEAD: f32 = -2.5;
+const TERMINAL_LEFT: f32 = 3.0;
+const TERMINAL_TURN: f32 = 180.0;
+
+/// Where the Debug Mode terminal stands and the way it faces, for an
+/// arrival at `at` facing `yaw` (`Stage::with_debug_terminal`).
+pub fn terminal(at: [f32; 3], yaw: f32) -> ([f32; 3], f32) {
+    let (sin, cos) = sim::math::sin_cos_deg(yaw);
+    let [x, y, z] = at;
+    let place = [
+        x + cos * TERMINAL_AHEAD - sin * TERMINAL_LEFT,
+        y + sin * TERMINAL_AHEAD + cos * TERMINAL_LEFT,
+        z,
+    ];
+    (place, yaw + TERMINAL_TURN)
+}
+
 /// Half the floor's side (metres), and its walls' height.
 const HALF: f32 = 18.0;
 const WALL: f32 = 4.0;
@@ -157,6 +187,7 @@ pub fn rules() -> sim::arena::Rules {
         yaw: YAW,
         pit: PIT_FLOOR,
         respawn_ms: RESPAWN_MS,
+        terminal: None,
     }
 }
 
@@ -386,23 +417,24 @@ fn keys(
     (swap, presented, own): Shown,
     mut chosen: ResMut<Chosen>,
     (mut outgoing, mut requests): Orders,
-    mut ui: Option<ResMut<crate::ui_view::Ui>>,
+    (mut ui, map): (
+        Option<ResMut<crate::ui_view::Ui>>,
+        Option<Res<crate::settings::KeyMap>>,
+    ),
 ) {
     let Some(swap) = swap.filter(|swap| swap.level.arena_rules().is_some()) else {
         return;
     };
-    // The console's orders (`arena spawn TEMPLATE`, `arena clear`, `arena
-    // god`), as the keys give them; `arena down N` (no key).
+    // The console's orders, as the keys and the Debug Mode terminal give
+    // them (`console_order`).
+    let me = presented
+        .as_ref()
+        .zip(own.as_ref())
+        .and_then(|(presented, own)| crate::cast::me(presented.0.current(), own.0));
     let asked = requests.as_mut().map_or_else(Vec::new, |requests| {
         std::mem::take(&mut requests.0)
             .into_iter()
-            .filter_map(|words| match words.as_slice() {
-                [spawn, template] if spawn == "spawn" => Some(ArenaOrder::Spawn(template.clone())),
-                [clear] if clear == "clear" => Some(ArenaOrder::Clear),
-                [god] if god == "god" => Some(ArenaOrder::God),
-                [down, n] if down == "down" => n.parse().ok().map(ArenaOrder::Down),
-                _ => None,
-            })
+            .filter_map(|words| console_order(&words, me, &swap.level))
             .collect()
     });
     if let Some(outgoing) = outgoing.as_mut() {
@@ -435,42 +467,131 @@ fn keys(
         }
     }
     // The floors stage says the floor underfoot instead.
-    let me = presented
-        .as_ref()
-        .zip(own.as_ref())
-        .and_then(|(presented, own)| {
-            let current = presented.0.current();
-            let id = crate::cast::me(current, own.0)?;
-            current.get(id).map(|entity| entity.position)
-        });
+    let at = presented.as_ref().zip(me).and_then(|(presented, me)| {
+        let current = presented.0.current();
+        current.get(me).map(|entity| entity.position)
+    });
     let Some(ui) = ui.as_mut() else {
         return;
     };
     if swap.level.name() == crate::floor_arena::NAME {
-        ui.vm.arena = Some(crate::floor_arena::line(me.unwrap_or([0.0; 3])).into_bytes());
+        ui.vm.arena = Some(crate::floor_arena::line(at.unwrap_or([0.0; 3])).into_bytes());
     } else {
-        ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god));
+        // The terminal's row names the key that uses it, on a map that has one.
+        let map = map
+            .as_deref()
+            .unwrap_or(crate::settings::KeyMap::defaults());
+        let terminal = (swap.level.arena_rules())
+            .is_some_and(|rules| rules.terminal.is_some())
+            .then(|| map.shown(crate::settings::Action::Use));
+        ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god, terminal));
     }
 }
 
+/// The console's names of the attributes (`Ability` order), the skills
+/// (`skills.2da` rows) and the kinds of item (`ItemKind::ALL`'s order).
+const ABILITY_NAMES: [&str; 6] = [
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+];
+const SKILL_NAMES: [&str; 8] = [
+    "computer",
+    "demolitions",
+    "stealth",
+    "awareness",
+    "persuade",
+    "repair",
+    "security",
+    "treat",
+];
+const ITEM_NAMES: [&str; 11] = [
+    "implants",
+    "headgear",
+    "gloves",
+    "arms",
+    "belts",
+    "armour",
+    "melee",
+    "lightsabers",
+    "ranged",
+    "grenades",
+    "medical",
+];
+
+/// The console's arena order `words` (`arena spawn TEMPLATE`, `clear`,
+/// `god`, `down N`), and the Debug Mode terminal's orders for the player's
+/// own body `me`: `level CLASS N`, `ability NAME N`, `skill NAME N`,
+/// `alignment N`, `credits N`, `items KIND` and `restore` (to `level`'s
+/// starting character). A name may also be its number.
+fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Option<ArenaOrder> {
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let named = |names: &[&str], word: &str| {
+        let lower = word.to_ascii_lowercase();
+        (names.iter().position(|name| *name == lower))
+            .and_then(|at| u8::try_from(at).ok())
+            .or_else(|| word.parse().ok())
+    };
+    Some(match words.as_slice() {
+        ["spawn", template] => ArenaOrder::Spawn(template.to_string()),
+        ["clear"] => ArenaOrder::Clear,
+        ["god"] => ArenaOrder::God,
+        ["down", n] => ArenaOrder::Down(n.parse().ok()?),
+        ["level", class, n] => ArenaOrder::Rebuild {
+            who: me?,
+            class: class.parse().ok()?,
+            level: n.parse().ok()?,
+        },
+        ["ability", name, n] => ArenaOrder::Ability {
+            who: me?,
+            ability: named(&ABILITY_NAMES, name)?,
+            score: n.parse().ok()?,
+        },
+        ["skill", name, n] => ArenaOrder::Skill {
+            who: me?,
+            skill: named(&SKILL_NAMES, name)?,
+            ranks: n.parse().ok()?,
+        },
+        ["alignment", n] => ArenaOrder::Alignment {
+            who: me?,
+            good_evil: n.parse().ok()?,
+        },
+        ["credits", n] => ArenaOrder::Credits(n.parse().ok()?),
+        ["items", kind] => ArenaOrder::Items(ItemKind::of_code(named(&ITEM_NAMES, kind)?)?),
+        ["restore"] => ArenaOrder::Restore {
+            who: me?,
+            sheet: Box::new(sheet_for(level)),
+        },
+        _ => return None,
+    })
+}
+
 /// The panel's title and rows (`ui::screens::arena_panel`): `foe` the one
-/// F2 calls in, `god` whether the player's body is in god mode.
-fn panel(foe: &str, god: bool) -> ui::vm::ArenaPanelView {
-    let row = |key: &str, words: &str, state: &str, on: bool| ui::vm::ArenaRow {
+/// F2 calls in, `god` whether the player's body is in god mode, and the
+/// key that uses the Debug Mode terminal on a map that has one.
+fn panel(foe: &str, god: bool, terminal: Option<Vec<u8>>) -> ui::vm::ArenaPanelView {
+    let row = |key: &[u8], words: &str, state: &str, on: bool| ui::vm::ArenaRow {
         key: key.into(),
         words: words.into(),
         state: state.into(),
         on,
     };
+    let terminal = terminal.map(|key| row(&key, ui::strings::terminal::PANEL, "", false));
     ui::vm::ArenaPanelView {
         title: b"COMBAT DEBUG".to_vec(),
-        rows: vec![
-            row("F2", "Spawn", foe, true),
-            row("F3", "Next foe", "", false),
-            row("F4", "God mode", if god { "ON" } else { "off" }, god),
-            row("F6", "Clear foes", "", false),
-            row("[ ]", "Pick power", "", false),
-            row("F", "Cast power", "", false),
-        ],
+        rows: [
+            row(b"F2", "Spawn", foe, true),
+            row(b"F3", "Next foe", "", false),
+            row(b"F4", "God mode", if god { "ON" } else { "off" }, god),
+            row(b"F6", "Clear foes", "", false),
+            row(b"[ ]", "Pick power", "", false),
+            row(b"F", "Cast power", "", false),
+        ]
+        .into_iter()
+        .chain(terminal)
+        .collect(),
     }
 }

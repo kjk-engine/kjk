@@ -274,6 +274,7 @@ impl Stage {
             yaw: stage.yaw,
             pit: stage.spawn[2] - ARENA_PIT_BELOW,
             respawn_ms: crate::arena::RESPAWN_MS,
+            terminal: None,
         };
         stage.level = stage.level.clone().with_module(data).with_arena(rules);
         if let Some(plan) = &mut stage.plan {
@@ -309,7 +310,8 @@ impl Stage {
                 scene,
                 seats,
             )
-            .map(Stage::without_creatures),
+            .map(Stage::without_creatures)
+            .map(Stage::with_debug_terminal),
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }
@@ -342,6 +344,58 @@ impl Stage {
             sim::module::Placement::Template { .. } => false,
         });
         self.level = self.level.clone().with_module(data);
+        if let Some(plan) = &mut self.plan {
+            plan.level = self.level.clone();
+        }
+        self
+    }
+
+    /// The stage with the Debug Mode terminal (`arena::terminal`): KOTOR 1's
+    /// Rakatan computer (`sim::arena::TERMINAL_TEMPLATE`, read from the
+    /// install), renamed, with no scripts, conversation, lock, items or hit
+    /// points of its own, so that a use of it opens the terminal's screen
+    /// and nothing else. The arena's step makes it beside the arrival
+    /// (`Rules::terminal`). A stage without an install or arena rules is
+    /// kept as it is.
+    pub fn with_debug_terminal(mut self) -> Stage {
+        let (Some(installer), Some(rules)) =
+            (self.installer.as_ref(), self.level.arena_rules().cloned())
+        else {
+            return self;
+        };
+        let template = sim::arena::TERMINAL_TEMPLATE;
+        let facts = installer.resolver(&self.name).ok().and_then(|resolver| {
+            session::placeable_facts(&crate::modules::ResolverSource(&resolver), template)
+        });
+        let Some(facts) = facts else {
+            bevy::log::warn!("the install has no {template}: the Debug Mode map has no terminal");
+            return self;
+        };
+        let facts = sim::module::ObjectData {
+            tag: sim::arena::TERMINAL_TAG.into(),
+            cased_tag: String::new(),
+            name: crate::arena::TERMINAL_NAME.into(),
+            scripts: Vec::new(),
+            conversation: String::new(),
+            inventory: Vec::new(),
+            container: false,
+            useable: true,
+            lock: None,
+            hit_points: None,
+            ..facts
+        };
+        let (at, yaw) = crate::arena::terminal(self.spawn, self.yaw);
+        bevy::log::info!("the Debug Mode terminal stands at {at:?}, facing {yaw}");
+        let terminal = sim::arena::Terminal {
+            at,
+            yaw,
+            facts: Arc::new(facts),
+        };
+        let rules = sim::arena::Rules {
+            terminal: Some(terminal),
+            ..rules
+        };
+        self.level = self.level.clone().with_arena(rules);
         if let Some(plan) = &mut self.plan {
             plan.level = self.level.clone();
         }

@@ -932,6 +932,42 @@ impl Classes {
         self.taken(sheet, career, choices, banked).ok()
     }
 
+    /// Levels of `class` taken one at a time with the game's own picks for
+    /// each (`auto`), by a character with `sheet`, `career` and `banked`
+    /// points, until its levels in `class` reach `levels`. The sheet, the
+    /// career and the points left unspent, or why a level stopped it: the
+    /// total level it stood at and the refusal (`None` when the class
+    /// offers no level past it). The save editor and the Debug Mode
+    /// terminal's rebuild both level a character so.
+    pub fn auto_levels(
+        &self,
+        sheet: &Sheet,
+        career: &Career,
+        class: u8,
+        banked: u8,
+        levels: u8,
+    ) -> Result<(Sheet, Career, u8), (u8, Option<Refusal>)> {
+        let had = career
+            .iter()
+            .find(|(of, _)| *of == class)
+            .map_or(0, |(_, levels)| *levels);
+        let (mut sheet, mut career, mut banked) = (*sheet, career.clone(), banked);
+        for _ in had..levels {
+            let choices = self
+                .auto(&sheet, &career, class, banked)
+                .ok_or((sheet.level, None))?;
+            (sheet, career, banked) = self
+                .taken(&sheet, &career, &choices, banked)
+                .map_err(|why| (sheet.level, Some(why)))?;
+        }
+        Ok((sheet, career, banked))
+    }
+
+    /// The highest level a character may reach (`exptable.2da`'s rows).
+    pub fn cap(&self) -> u8 {
+        u8::try_from(self.levels.len()).unwrap_or(u8::MAX)
+    }
+
     /// `take`, or why the picks are not the level's to make: a class it has
     /// not, the ability point unspent or spent where the level gives none,
     /// more picks than offered, ranks past the most, skill points

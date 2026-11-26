@@ -1091,14 +1091,15 @@ pub(super) fn scripts(
         &mut scripts.notices,
         &mut out,
     );
-    if level.arena_rules().is_some() {
-        let body = |seat: crate::input::Seat| {
-            seats
-                .iter()
-                .find(|(of, _)| *of == seat)
-                .map(|(_, player)| acting(&view, seat.0, *player))
-        };
-        super::arena::orders(library, &view, state, &inputs.0, body, &mut out);
+    let mut arena_edits = false;
+    if let Some(rules) = level.arena_rules() {
+        let bodies: Vec<super::arena::SeatBody> = seats
+            .iter()
+            .map(|&(seat, player)| (seat, player, acting(&view, seat.0, player)))
+            .collect();
+        let orders = (&inputs.0, used.0.as_slice());
+        arena_edits =
+            super::arena::orders(library, &view, state, orders, &bodies, (rules, &mut out));
     }
     // The feat lines the minds' talents chose.
     for &(user, hand, row) in &feat_talents.0 {
@@ -1179,6 +1180,7 @@ pub(super) fn scripts(
         left_stores |= state.end_trade(body.0);
     }
     let handled = acted
+        || arena_edits
         || left_stores
         || !taken.is_empty()
         || talents_used

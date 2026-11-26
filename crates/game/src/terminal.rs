@@ -49,6 +49,8 @@ pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
+        // The Debug Mode map's terminal shows on the same screen.
+        app.add_plugins(crate::debug_terminal::DebugTerminalPlugin);
         app.add_systems(
             Update,
             (
@@ -133,28 +135,44 @@ fn view(
         .into_iter()
         .find(|id| *id != script_ncs::vm::ObjectId::INVALID);
     let first = user.and_then(|id| snapshot.get(sim::SimId(id.0)));
+    let computer = ComputerView {
+        message,
+        replies,
+        leave: snapshot.may_leave(seat, talk),
+        leave_key: map.shown(KeyAction::LeaveTalk),
+        ..skills_of(assets, snapshot, first, swap)
+    };
+    Some((computer, (talk.id, talk.entry, talk.shown_ms)))
+}
+
+/// A computer screen's numbers for `user`: its Computer Use and Repair
+/// totals as `GetSkillRank` reads them, the numbers both games' computer
+/// screens show (`sim::stealth::rank`), and the spikes and parts the
+/// scripts find on it (`stacks`). The Debug Mode terminal shows them too
+/// (`debug_terminal`).
+pub(crate) fn skills_of(
+    assets: &mut GuiAssets,
+    snapshot: &sim::Snapshot,
+    user: Option<&sim::EntityState>,
+    swap: &SceneSwap,
+) -> ComputerView {
     let library = swap.level.scripts().map(|library| &**library);
     let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
     let rank = |skill| {
-        first
-            .and_then(|pc| Some((pc.sheet?, pc.fighter.as_ref()?)))
+        user.and_then(|pc| Some((pc.sheet?, pc.fighter.as_ref()?)))
             .map_or(0, |(own, fighter)| {
                 let now = sim::combat::effects::sheet_now(own, fighter, snapshot.time_ms);
                 sim::stealth::rank(library, &own, &now, skill, tsl)
             })
     };
-    let (spikes, parts) = stacks(assets, &snapshot.goods, first.map_or(0, |pc| pc.id.0));
-    let computer = ComputerView {
-        message,
-        replies,
+    let (spikes, parts) = stacks(assets, &snapshot.goods, user.map_or(0, |pc| pc.id.0));
+    ComputerView {
         computer_use: rank(skills::COMPUTER_USE),
         spikes,
         repair: rank(skills::REPAIR),
         parts,
-        leave: snapshot.may_leave(seat, talk),
-        leave_key: map.shown(KeyAction::LeaveTalk),
-    };
-    Some((computer, (talk.id, talk.entry, talk.shown_ms)))
+        ..ComputerView::default()
+    }
 }
 
 /// Whether a computer's line is on its camera feed: a line filmed by a
