@@ -37,6 +37,7 @@ mod movement;
 mod moves;
 mod record;
 mod rules;
+pub mod saber_fall_probes;
 mod scenario;
 pub mod stance_probes;
 pub mod stances;

@@ -385,8 +385,9 @@ struct Move<'a, 'b> {
     on_walkable: bool,
     /// The plane of the ground below, walkable or steep.
     ground_plane: Option<Vec3>,
-    /// The box stands with its middle on a placeable's drawn shape that is
-    /// not walkable (`slide::flank`), such as a heap's top it jumped onto.
+    /// The box stands on a placeable's drawn shape that is not walkable
+    /// (`slide::flank`) and not at its foot (`at_flank_foot`), such as on a
+    /// heap's top it jumped onto or a crate's rim it landed on.
     on_shape: bool,
     /// The ground below is a flank (`slide::flank`) under any part of the
     /// box.
@@ -964,7 +965,7 @@ impl Move<'_, '_> {
             return;
         }
         self.ground_flank = slide::flank(hit.contents);
-        self.on_shape = self.ground_flank && self.middle_on_flank(self.ps.origin);
+        self.on_shape = self.ground_flank && !self.at_flank_foot(self.ps.origin);
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
             // A finisher's throw flies in its own clip (`world::grapples`).

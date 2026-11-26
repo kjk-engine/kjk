@@ -8,7 +8,9 @@
 //! script forces companions in opens with those alone picked, and any
 //! other opens with the party as it stands.
 //!
-//! A click chooses a companion, a double click adds or removes it. Add or
+//! A click chooses a companion, a double click adds or removes it. The
+//! companion button with the focus (the pad's cursor, or the one under the
+//! pointer) draws its highlight frame in the highlight colour, pulsing. Add or
 //! Remove on a companion that may not move tells why in a message box:
 //! one the script forces in must stay, and one the player may not pick
 //! (`SetNPCSelectability`) can neither join nor leave.
@@ -32,7 +34,7 @@ use fmt_odyssey::gui::{Border, Control, Gui};
 
 use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, Intent};
-use crate::paint::{ControlState, Painter, rect_of};
+use crate::paint::{ControlState, Painter, rect_of, textured};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::companion_places::{self, STAND_INS};
 use crate::screens::tab::{enabled, hidden, image, skin_line, text};
@@ -89,6 +91,9 @@ pub struct Party {
     /// do. A script's screen shows no tabs, because the player must answer
     /// it before anything else.
     in_menu: bool,
+    /// The control that has the focus (the pad's cursor, or the one under
+    /// the pointer).
+    focus: Option<String>,
 }
 
 /// A companion slot past the campaign's (`BTN_NPC9`, `LBL_CHAR10`, … in
@@ -414,9 +419,22 @@ impl Screen for Party {
         Some("BTN_DONE")
     }
 
+    fn focused(&mut self, tag: &str, _vm: &ViewModel) {
+        self.focus = Some(tag.to_string());
+    }
+
+    fn left(&mut self, tag: &str) {
+        if self.focus.as_deref() == Some(tag) {
+            self.focus = None;
+        }
+    }
+
     /// Each companion's frame: the one chosen in the highlight (KOTOR's
     /// yellow), one picked in KOTOR's green, the others in the plain
-    /// colour; its button's frame drawn again, tinted.
+    /// colour; its button's frame drawn again, tinted. The button with the
+    /// focus also draws its highlight frame over that, in the highlight
+    /// colour and pulsing, as KOTOR 2's executable sets up each companion
+    /// button. Without it the frames drawn here would hide the focus.
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
         let mut out = DrawList::default();
         let picks = self.picks(vm);
@@ -446,6 +464,12 @@ impl Screen for Party {
             };
             let [r, g, b] = color;
             painter.border(&border, rect_of(button), [r, g, b, 1.0], &mut out);
+            if self.focus.as_deref() == Some(tag.as_str()) {
+                let lit = textured(&button.hilight).unwrap_or(&border);
+                let [r, g, b] = painter.palette.hilight;
+                let tint = [r, g, b, painter.pulsing];
+                painter.border(lit, rect_of(button), tint, &mut out);
+            }
         }
         out.quads
     }

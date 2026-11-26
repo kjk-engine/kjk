@@ -157,27 +157,34 @@ pub fn of_area(resolver: &Resolver, area: &AreaIr) -> Fingerprint {
     }
 }
 
+/// The room models of `area` and the stored lightmaps they name, each in
+/// lower case and by name.
+fn room_files(resolver: &Resolver, area: &AreaIr) -> (BTreeSet<String>, BTreeSet<String>) {
+    let models: BTreeSet<String> = (area.rooms.iter())
+        .map(|room| room.model.to_ascii_lowercase())
+        .collect();
+    let lightmaps = (models.iter())
+        .filter_map(|name| model_ir(resolver, name))
+        .flat_map(|ir| {
+            (ir.meshes.into_iter())
+                .filter_map(|mesh| mesh.lightmap)
+                .map(|name| name.to_ascii_lowercase())
+        })
+        .collect();
+    (models, lightmaps)
+}
+
 /// The digest of the layout, the room models and their stored lightmaps.
 fn rooms(resolver: &Resolver, area: &AreaIr) -> String {
     let mut digest = Digest::new("rooms");
     digest.count(area.rooms.len() as u64);
-    let mut models = BTreeSet::new();
     for room in &area.rooms {
-        let name = room.model.to_ascii_lowercase();
-        digest.text(&name);
+        digest.text(&room.model.to_ascii_lowercase());
         digest.numbers(&room.position);
-        models.insert(name);
     }
-    let mut lightmaps = BTreeSet::new();
+    let (models, lightmaps) = room_files(resolver, area);
     for name in &models {
         model_files(&mut digest, resolver, name);
-        if let Some(ir) = model_ir(resolver, name) {
-            lightmaps.extend(
-                (ir.meshes.iter())
-                    .filter_map(|mesh| mesh.lightmap.as_deref())
-                    .map(str::to_ascii_lowercase),
-            );
-        }
     }
     // Each stored lightmap as the game picks it: a TPC or a TGA, whichever
     // the highest layer holds, with its TXI.
@@ -197,6 +204,43 @@ fn rooms(resolver: &Resolver, area: &AreaIr) -> String {
         digest.file(resolver.read(name, ResType::TXI).as_deref());
     }
     digest.finish()
+}
+
+/// The mod that a layer of the resolver belongs to, named as
+/// `lighting_bakes::place` reads it: `workshop/<id>` for a Steam Workshop
+/// item's files, `override` for the game's override folder and `modules`
+/// for a `.mod` in the game's modules folder. `None` for the game's own
+/// files.
+pub fn mod_place(layer: &str) -> Option<String> {
+    if let Some(rest) = layer.strip_prefix("workshop/") {
+        let id = rest.split('/').next().filter(|id| !id.is_empty())?;
+        Some(format!("workshop/{id}"))
+    } else if layer == "override" || layer.starts_with("override/") {
+        Some("override".to_string())
+    } else if layer.starts_with("modules/") && layer.ends_with(".mod") {
+        Some("modules".to_string())
+    } else {
+        None
+    }
+}
+
+/// The mods whose files replace the game's own among the files that the
+/// `rooms` digest of `area` reads: the room models' MDL and MDX, and the
+/// stored lightmaps with their TXI (`mod_place`).
+pub fn room_mods(resolver: &Resolver, area: &AreaIr) -> BTreeSet<String> {
+    let (models, lightmaps) = room_files(resolver, area);
+    let models = (models.iter())
+        .flat_map(|name| [ResType::MDL, ResType::MDX].map(|restype| resolver.find(name, restype)));
+    let lightmaps = lightmaps.iter().flat_map(|name| {
+        [
+            (resolver.find_any(name, &[ResType::TPC, ResType::TGA])).map(|(_, found)| found),
+            resolver.find(name, ResType::TXI),
+        ]
+    });
+    (models.chain(lightmaps))
+        .flatten()
+        .filter_map(|found| mod_place(&found.layer.name))
+        .collect()
 }
 
 /// The digest of the placeables the bake lights or lets block its rays, in

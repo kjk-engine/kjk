@@ -19,8 +19,8 @@
   duel case; false after an install. KOTOR's own rule and line [verify].
 
 ## The break
-- `Action::Break` (any seat) freezes the world for everyone, refused in
-  combat (`Notice::InCombat`); one sent while a break holds is dropped.
+- `Action::Break` (any seat) freezes the world for everyone, in combat
+  too, as KOTOR's own pause does. One sent while a break holds is dropped.
   Its caller or seat 0 ends it (`Action::Resume`; anyone else:
   `Notice::NotYourBreak`). Solo too. `party::breaks` runs first; while a
   break holds a step moves its tick and nothing else (`party::running`).
@@ -57,8 +57,8 @@
 ## Screens and keys
 - Z calls or ends a break (during another's, it asks to end it and is
   told it is not its own); Y is ready (at the host, ready and after 5 s:
-  go now). The in-game menu's autopause button is Break/Resume (greyed in
-  combat or for another's break). The banner, KOTOR's combat message over
+  go now). The in-game menu's autopause button is Pause/Resume (greyed for
+  another's break). Players see the break named "Pause". The banner, KOTOR's combat message over
   everything: "Paused by player N", or "player N wants to go to M. Ready:
   …; waiting for …".
 - Console: `ui break|resume|ready|force`, `wait paused|ready_check`, the

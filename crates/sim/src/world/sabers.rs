@@ -1725,7 +1725,11 @@ impl Step<'_> {
                 }
                 Flight::Falling => {
                     t.velocity[2] -= throw::GRAVITY * dt;
-                    if !self.fly(&mut t, dt, false) {
+                    if out_ms >= throw::AUTO_RETURN_MS {
+                        t.flight = Flight::Back;
+                        t.since = self.now;
+                        t.aim_at = self.now;
+                    } else if !self.fall(&mut t, dt) {
                         t.flight = Flight::Lying;
                         t.velocity = [0.0; 3];
                         t.since = self.now;
@@ -1764,6 +1768,37 @@ impl Step<'_> {
         }
         t.at = next;
         true
+    }
+
+    /// Moves a falling saber one tick; `false` when it came to rest. It
+    /// bounces off what it meets (`throw::bounce`), so a saber knocked into
+    /// a wall drops to the floor below instead of staying in the air there.
+    /// A saber that starts inside a solid lies where it is.
+    fn fall(&self, t: &mut Thrown, dt: f32) -> bool {
+        let next = math::mad(t.at, dt, t.velocity);
+        let trace = self.trace(t.at, next, throw::HALF_SIZE, Contents::SOLID);
+        if trace.start_solid {
+            return false;
+        }
+        if trace.fraction >= 1.0 {
+            t.at = next;
+            return true;
+        }
+        let at = scale(trace.end, 1.0 / UNIT);
+        let normal = trace.plane.normal;
+        match throw::bounce(t.velocity, normal) {
+            Some(velocity) => {
+                // One unit off the surface, as JA's bounce moves it, so the
+                // next trace starts clear.
+                t.at = math::add(at, normal);
+                t.velocity = velocity;
+                true
+            }
+            None => {
+                t.at = at;
+                false
+            }
+        }
     }
 
     /// Where `a`'s view meets the world (units): from a player's crosshair

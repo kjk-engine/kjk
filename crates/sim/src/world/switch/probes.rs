@@ -29,6 +29,9 @@ const STANDING_IS_PC_TOKEN: i32 = 19;
 const DROID_TOKENS: [i32; 4] = [13, 14, 15, 16];
 /// The custom token `probe_rejoin` sets to what `AddPartyMember` returned.
 const REJOINED_TOKEN: i32 = 17;
+/// The custom tokens `probe_sw_strip` and `probe_sw_return` set to what
+/// their switches returned.
+const STRIP_TOKENS: [i32; 2] = [20, 21];
 /// TSL's one-handed Kreia's `appearance.2da` row (`Party_NPC_Kreia_Gimped`),
 /// the body 107PER gives her.
 const ONE_HANDED: u16 = 627;
@@ -92,6 +95,10 @@ int AddPartyMember(int nNPC, object oCreature);
 int GetIsObjectValid(object oObject);
 // 19
 void SetMinOneHP(object oCreature, int nMinOne);
+// 20
+object GetFirstItemInInventory(object oTarget=OBJECT_SELF);
+// 21
+void GiveItem(object oItem, object oGiveTo);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -214,7 +221,7 @@ void SetMinOneHP(object oCreature, int nMinOne);
     // `probe_let_go`, as it lets him go (`a_czerkapad`): 15
     // `RemoveAvailableNPC(STANDING)`, 16 `SwitchPlayerCharacter(NPC_PLAYER)`.
     let mut droid = script_ncs::probes::Asm::default();
-    let by_object: Vec<Op> = (standing.into_iter())
+    let by_object: Vec<Op> = (standing.iter().cloned())
         .chain([int(i32::from(STANDING)), call(15, 2)])
         .collect();
     token(&mut droid, DROID_TOKENS[0], &by_object, false);
@@ -242,6 +249,25 @@ void SetMinOneHP(object oCreature, int nMinOne);
         .collect();
     token(&mut rejoin, REJOINED_TOKEN, &rejoined, false);
     rejoin.op(Op::Retn);
+    // `probe_sw_strip`, as Brotherhood of Shadow's Taris flashback empties
+    // the character switched to (`tem_change`): `SwitchPlayerCharacter(MADE)`,
+    // then `GiveItem(GetFirstItemInInventory(GetFirstPC()), the standing
+    // one)`. `probe_sw_return`, as it gives the items back (`load_ebon`):
+    // `SwitchPlayerCharacter(NPC_PLAYER)`, then
+    // `GiveItem(GetFirstItemInInventory(the standing one), GetFirstPC())`.
+    let give = |asm: &mut script_ncs::probes::Asm, to: &[Op], from: &[Op]| {
+        for op in to.iter().chain(from).chain(&[call(20, 1), call(21, 2)]) {
+            asm.op(op.clone());
+        }
+    };
+    let mut strip = script_ncs::probes::Asm::default();
+    token(&mut strip, STRIP_TOKENS[0], &switch(i32::from(MADE)), false);
+    give(&mut strip, &standing, &[call(4, 0)]);
+    strip.op(Op::Retn);
+    let mut give_back = script_ncs::probes::Asm::default();
+    token(&mut give_back, STRIP_TOKENS[1], &switch(-1), false);
+    give(&mut give_back, &[call(4, 0)], &standing);
+    give_back.op(Op::Retn);
     let scripts = TEMPLATES.iter().map(|(npc, _)| to(*npc)).chain([
         ("probe_sw_seen".to_string(), seen.build()),
         ("probe_sw_back".to_string(), back.build()),
@@ -255,6 +281,8 @@ void SetMinOneHP(object oCreature, int nMinOne);
         ("probe_droid".to_string(), droid.build()),
         ("probe_let_go".to_string(), let_go.build()),
         ("probe_rejoin".to_string(), rejoin.build()),
+        ("probe_sw_strip".to_string(), strip.build()),
+        ("probe_sw_return".to_string(), give_back.build()),
     ]);
     let creatures = TEMPLATES
         .iter()
@@ -517,7 +545,58 @@ pub fn probes() -> crate::probe::Checks {
     ));
     checks.push(("led_companion_faces_the_arrival", led_faces_arrival()));
     checks.push(("xp_gained_while_switched_stays_behind", xp_stays_behind()));
+    checks.push(("items_follow_a_switch_in_its_script", items_follow_switch()));
     checks
+}
+
+/// A script that switches seat 0 and then reads or fills `GetFirstPC()`'s
+/// inventory in the same run works on the party's inventory, as
+/// `GetFirstPC` already answers the creature switched to. Switched back
+/// in a run, `GetFirstPC()` is the seat's own character again, and what
+/// the script gives it goes into the party's inventory. Brotherhood of
+/// Shadow's Taris flashback empties the party's inventory into a container
+/// this way, and later fills it again from that container.
+fn items_follow_switch() -> Result<String, String> {
+    use crate::inventory::{Item, PARTY};
+    let (mut world, _, standing) = switch_world(1, false)?;
+    let item = |holder: u32| Item {
+        template: "probe_item".into(),
+        holder,
+        slot: None,
+        stack: 1,
+        charges: 0,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades: 0,
+        fitted: Vec::new(),
+    };
+    // The standing companion's own item sorts first, so the switch back
+    // gives that one to the player.
+    const ITS_OWN: u32 = 0x7C00_F000;
+    const THE_PARTYS: u32 = ITS_OWN + 1;
+    let mut state = world.script_state().clone();
+    state.items.insert(ITS_OWN, item(standing.0));
+    state.items.insert(THE_PARTYS, item(PARTY));
+    world.set_script_state(state);
+    run(&mut world, 1, 0);
+    let holder = |world: &SimWorld, id: u32| world.script_state().items.get(&id).map(|i| i.holder);
+    queue(&mut world, "probe_sw_strip");
+    run(&mut world, 1, 0);
+    let stripped = holder(&world, THE_PARTYS);
+    queue(&mut world, "probe_sw_return");
+    let back = run(&mut world, 1, 0);
+    let returned = holder(&world, ITS_OWN);
+    let switches = tokens(&back, STRIP_TOKENS[0]..=STRIP_TOKENS[1]);
+    check(
+        stripped == Some(standing.0) && returned == Some(PARTY) && switches == ["1", "1"],
+        format!(
+            "the party's item given away by the switched script is held by {stripped:?} (the standing companion is {}); the item given back is held by {returned:?} (the party is {PARTY}); the switches returned {switches:?}",
+            standing.0
+        ),
+    )
 }
 
 /// The experience the party gains while seat 0 plays a companion does not

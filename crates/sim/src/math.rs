@@ -41,6 +41,25 @@ pub fn length(a: Vec3) -> f32 {
     dot(a, a).sqrt()
 }
 
+/// The velocity of a thing that bounces off a surface with `normal`, as
+/// Jedi Academy's half bounce works. The velocity is reflected off the
+/// surface and keeps `keep` of its speed. The result is `None` when the
+/// thing comes to rest instead. It comes to rest when the surface is rated
+/// above `floor` (0 for a wall, 1 for a level floor) and the bounced speed is
+/// below `rest_speed`.
+pub fn bounce(
+    velocity: Vec3,
+    normal: Vec3,
+    keep: f32,
+    rest_speed: f32,
+    floor: f32,
+) -> Option<Vec3> {
+    let dot: f32 = (0..3).map(|axis| velocity[axis] * normal[axis]).sum();
+    let out: Vec3 = std::array::from_fn(|axis| (velocity[axis] - 2.0 * dot * normal[axis]) * keep);
+    let speed = (out[0] * out[0] + out[1] * out[1] + out[2] * out[2]).sqrt();
+    (normal[2] <= floor || speed >= rest_speed).then_some(out)
+}
+
 /// `a`'s length seen from above (its x and y).
 pub fn flat_length(a: Vec3) -> f32 {
     (a[0] * a[0] + a[1] * a[1]).sqrt()

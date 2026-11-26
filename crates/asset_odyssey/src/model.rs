@@ -373,20 +373,35 @@ impl ModelIr {
     /// renderer skins them. reone bounds a model for picking by its meshes
     /// in their nodes' places. `None` for a model that draws nothing.
     pub fn bounds(&self, worlds: &[Matrix]) -> Option<[f32; 6]> {
+        self.mesh_bounds(worlds).into_iter().reduce(|mut all, b| {
+            for axis in 0..3 {
+                all[axis] = all[axis].min(b[axis]);
+                all[axis + 3] = all[axis + 3].max(b[axis + 3]);
+            }
+            all
+        })
+    }
+
+    /// The box round each drawn mesh with each node at `worlds`, as
+    /// `bounds` takes them, one for each mesh with vertices. KOTOR's
+    /// executables pick an object by its drawn meshes: each mesh's box
+    /// first, then its triangles.
+    pub fn mesh_bounds(&self, worlds: &[Matrix]) -> Vec<[f32; 6]> {
         let apply = |m: &Matrix, p: [f32; 3]| -> [f32; 3] {
             std::array::from_fn(|row| {
                 m[row][0] * p[0] + m[row][1] * p[1] + m[row][2] * p[2] + m[row][3]
             })
         };
-        let mut bounds: Option<[f32; 6]> = None;
-        let mut take = |at: [f32; 3]| {
-            let b = bounds.get_or_insert([at[0], at[1], at[2], at[0], at[1], at[2]]);
-            for axis in 0..3 {
-                b[axis] = b[axis].min(at[axis]);
-                b[axis + 3] = b[axis + 3].max(at[axis]);
-            }
-        };
+        let mut boxes = Vec::with_capacity(self.meshes.len());
         for mesh in &self.meshes {
+            let mut bounds: Option<[f32; 6]> = None;
+            let mut take = |at: [f32; 3]| {
+                let b = bounds.get_or_insert([at[0], at[1], at[2], at[0], at[1], at[2]]);
+                for axis in 0..3 {
+                    b[axis] = b[axis].min(at[axis]);
+                    b[axis + 3] = b[axis + 3].max(at[axis]);
+                }
+            };
             match &mesh.skin {
                 Some(skin) => {
                     let bones: Vec<Matrix> = (skin.joints.iter().zip(&skin.inverse_binds))
@@ -412,14 +427,24 @@ impl ModelIr {
                     .iter()
                     .for_each(|p| take(apply(&worlds[mesh.node], *p))),
             }
+            boxes.extend(bounds);
         }
-        bounds
+        boxes
     }
 
     /// `bounds` in the rest pose.
     pub fn rest_bounds(&self) -> Option<[f32; 6]> {
-        let rest: Vec<Matrix> = self.nodes.iter().map(|node| node.world).collect();
-        self.bounds(&rest)
+        self.bounds(&self.rest())
+    }
+
+    /// `mesh_bounds` in the rest pose.
+    pub fn rest_mesh_bounds(&self) -> Vec<[f32; 6]> {
+        self.mesh_bounds(&self.rest())
+    }
+
+    /// Each node's place in the rest pose, by node index.
+    fn rest(&self) -> Vec<Matrix> {
+        self.nodes.iter().map(|node| node.world).collect()
     }
 
     pub fn from_model(model: &Model) -> ModelIr {
