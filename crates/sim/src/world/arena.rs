@@ -13,9 +13,9 @@
 //!   respawn point, whole, after `Rules::respawn_ms`: nobody revives and
 //!   the arena is never lost (`falls`);
 //! - the Debug Mode terminal (the placeable tagged `TERMINAL_TAG`) used by
-//!   a seat's body opens the terminal's screen for that seat alone
-//!   (`Screen::DebugTerminal`), and the screen's orders change a party
-//!   member or the party (`edits`). A seat changes its own character or a
+//!   a seat's body opens the character page for that seat alone
+//!   (`Screen::DebugTerminal`), and the page's orders change a party
+//!   member (`edits`). A seat changes its own character or a
 //!   companion no other seat plays, never another seat's character.
 
 pub mod edits;
@@ -89,8 +89,8 @@ pub(super) type SeatBody = (Seat, ObjectId, ObjectId);
 
 /// The arena's orders this step (see the module documentation), in the
 /// order they came, and the terminal's uses (`used`: object, user).
-/// Whether a terminal's order changed the party's goods or a character,
-/// so that what the players see of them is gathered again.
+/// Whether a character page's order changed a character, so that what the
+/// players see of the party is gathered again.
 pub(super) fn orders(
     library: &Library,
     view: &View,
@@ -232,22 +232,6 @@ fn edit(
     out: &mut Out,
 ) -> bool {
     let who = match order {
-        ArenaOrder::Credits(credits) => {
-            state.gold = (*credits).max(0);
-            return true;
-        }
-        ArenaOrder::Items(kind) => {
-            let catalog = library.items();
-            let templates: Vec<_> = catalog
-                .iter()
-                .filter(|item| edits::of_kind(item, *kind))
-                .map(|item| (item.template.clone(), edits::count(item)))
-                .collect();
-            for (template, count) in templates {
-                state.make_item(catalog, &template, crate::inventory::PARTY, count, None);
-            }
-            return true;
-        }
         ArenaOrder::Rebuild { who, .. }
         | ArenaOrder::Ability { who, .. }
         | ArenaOrder::Skill { who, .. }

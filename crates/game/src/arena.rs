@@ -8,7 +8,7 @@
 //! templates can be called in (`arena spawn TEMPLATE`).
 //!
 //! The player comes in as a level-20 Jedi who knows every K1 Force power
-//! (`sheet`), carries every hand weapon K1 has (`weapons`), and is back on
+//! (`sheet`), carries every item K1 has (`gear`), and is back on
 //! its feet at the start `RESPAWN_MS` after going down. Keys
 //! (`ArenaPlugin`): F2 calls in the chosen foe ahead of the player, F3
 //! chooses the next in `ROSTER`, F4 turns god mode on or off, F6 takes
@@ -16,18 +16,18 @@
 //! (`ui::screens::arena_panel`).
 //!
 //! The sandbox has the Debug Mode terminal too: KOTOR 1's Rakatan computer
-//! beside the arrival (`terminal`), whose screen changes a party member's
-//! class, level, attributes, skills and alignment, the party's credits and
-//! its items (`crate::debug_terminal`). The console gives its orders as
-//! `arena level`, `ability`, `skill`, `alignment`, `credits`, `items` and
-//! `restore` (`console_order`).
+//! beside the arrival (`terminal`), which opens a page that changes a
+//! party member's class, level, attributes, skills and alignment
+//! (`crate::debug_terminal`). The console gives its orders as `arena
+//! level`, `ability`, `skill`, `alignment` and `restore` (`console_order`).
+//! The arena's player starts with one of every item (`gear`).
 
 use std::sync::Arc;
 
 use bevy::prelude::*;
 use collision::{Brush, BrushWorld};
 use sim::SimId;
-use sim::action::{Action, ArenaOrder, ItemKind};
+use sim::action::{Action, ArenaOrder};
 use sim::combat::Sheet;
 
 /// The module whose plan lends the arena K1's data.
@@ -358,24 +358,43 @@ pub fn sabers(sheet: &Sheet) -> Vec<(&'static str, u8)> {
 /// `baseitems.2da`'s double-bladed lightsaber.
 const STAFF_ROW: u16 = 9;
 
-/// Every hand weapon and every armour K1 has (`library`'s item templates a
-/// right hand holds or a body wears, but plot items), by template: what the
-/// arena's player carries, one of each, two of a gun the left hand takes too
-/// (a pistol, for a pair).
+/// How many of each grenade, mine, medical item and stimulant the arena's
+/// player starts with.
+const STACK: u16 = rules::world::arena::terminal::STACK;
+
+/// Every item the arena's player carries (`library`'s item templates but
+/// plot items, by template): what a body wears on its head, body, hands,
+/// arms, belt or as an implant, every hand weapon, every grenade and mine,
+/// and every medical item and stimulant. It has one of each thing it
+/// wears or holds, two of a gun the left hand takes too (a pistol, for a
+/// pair), and `STACK` of each grenade, mine, medical item and stimulant.
 pub fn gear(library: &sim::script::Library) -> Vec<(String, u16)> {
-    use sim::inventory::slots::{BODY, LEFT_WEAPON, RIGHT_WEAPON};
+    use sim::combat::items::{Shelf, use_of};
+    use sim::inventory::slots::{
+        BELT, BODY, HANDS, HEAD, IMPLANT, LEFT_ARM, LEFT_WEAPON, RIGHT_ARM, RIGHT_WEAPON,
+    };
+    let worn = [HEAD, BODY, HANDS, LEFT_ARM, RIGHT_ARM, IMPLANT, BELT];
     library
         .items()
         .iter()
         .filter(|item| !item.plot)
-        .filter(|item| {
-            item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
-                || item.slots & 1 << BODY != 0
-        })
-        .map(|item| {
+        .filter_map(|item| {
+            let fits = |slot: u8| item.slots & 1 << slot != 0;
+            let shelf = item
+                .spell
+                .and_then(|spell| use_of(spell.row))
+                .map(|of| of.shelf());
+            let used = matches!(shelf, Some(Shelf::Grenade | Shelf::Medpac | Shelf::Stim));
             let gun = item.weapon.is_some_and(|weapon| weapon.delivery.ranged());
-            let pistol = gun && item.slots & 1 << LEFT_WEAPON != 0;
-            (item.template.clone(), 1 + u16::from(pistol))
+            let pistol = gun && fits(LEFT_WEAPON);
+            let count = if item.slots == 0 && (used || item.trap.is_some()) {
+                STACK
+            } else if worn.into_iter().any(fits) || item.weapon.is_some() && fits(RIGHT_WEAPON) {
+                1 + u16::from(pistol)
+            } else {
+                return None;
+            };
+            Some((item.template.clone(), count))
         })
         .collect()
 }
@@ -488,8 +507,8 @@ fn keys(
     }
 }
 
-/// The console's names of the attributes (`Ability` order), the skills
-/// (`skills.2da` rows) and the kinds of item (`ItemKind::ALL`'s order).
+/// The console's names of the attributes (`Ability` order) and the skills
+/// (`skills.2da` rows).
 const ABILITY_NAMES: [&str; 6] = [
     "strength",
     "dexterity",
@@ -508,24 +527,11 @@ const SKILL_NAMES: [&str; 8] = [
     "security",
     "treat",
 ];
-const ITEM_NAMES: [&str; 11] = [
-    "implants",
-    "headgear",
-    "gloves",
-    "arms",
-    "belts",
-    "armour",
-    "melee",
-    "lightsabers",
-    "ranged",
-    "grenades",
-    "medical",
-];
 
 /// The console's arena order `words` (`arena spawn TEMPLATE`, `clear`,
 /// `god`, `down N`), and the Debug Mode terminal's orders for the player's
 /// own body `me`: `level CLASS N`, `ability NAME N`, `skill NAME N`,
-/// `alignment N`, `credits N`, `items KIND` and `restore` (to `level`'s
+/// `alignment N` and `restore` (to `level`'s
 /// starting character). A name may also be its number.
 fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Option<ArenaOrder> {
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -559,8 +565,6 @@ fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Opt
             who: me?,
             good_evil: n.parse().ok()?,
         },
-        ["credits", n] => ArenaOrder::Credits(n.parse().ok()?),
-        ["items", kind] => ArenaOrder::Items(ItemKind::of_code(named(&ITEM_NAMES, kind)?)?),
         ["restore"] => ArenaOrder::Restore {
             who: me?,
             sheet: Box::new(sheet_for(level)),

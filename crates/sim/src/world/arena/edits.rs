@@ -1,4 +1,4 @@
-//! The Debug Mode terminal's changes to a character and to the party
+//! The Debug Mode character page's changes to a character
 //! (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), as pure functions of a
 //! sheet. The numbers they set are held to the rulebook's limits
 //! (`rules::world::arena::terminal`). A rebuilt character takes its first
@@ -7,20 +7,16 @@
 //! (`levels::Classes::auto_levels`), so an edit made at the terminal and
 //! one made in the save editor come out the same.
 
-use crate::action::ItemKind;
 use crate::combat::Sheet;
-use crate::combat::items::{Shelf, use_of};
-use crate::inventory::{ItemFacts, slots};
 use crate::levels::{Career, Choices, Classes};
 
 /// The limits the terminal holds the numbers it sets to (`rules::world::
-/// arena::terminal`), and how many of an item that stacks it adds.
+/// arena::terminal`).
 pub mod limits {
     pub const ABILITY_LEAST: u8 = rules::world::arena::terminal::ABILITY_LEAST;
     pub const ABILITY_MOST: u8 = rules::world::arena::terminal::ABILITY_MOST;
     pub const SKILL_MOST: u8 = rules::world::arena::terminal::SKILL_MOST;
     pub const ALIGNMENT_MOST: u8 = rules::world::arena::terminal::ALIGNMENT_MOST;
-    pub const STACK: u16 = rules::world::arena::terminal::STACK;
 }
 
 /// `sheet` with ability `ability` (`Ability` order) at `score`, held to
@@ -78,7 +74,7 @@ pub fn rebuild(
 
 /// `made`, a character's numbers made anew (a rebuild, or the map's
 /// starting character), with what `current` keeps of its own: its faction
-/// and race, its flags (god mode among them), the weapons its sheet holds
+/// and race, its alignment, its flags (god mode among them), the weapons its sheet holds
 /// and the items it carries, its feat attacks and action bar, and its Form
 /// while it still knows it. Its worn items dress it again afterwards
 /// (`State::dressed`).
@@ -92,6 +88,7 @@ pub fn kept(made: Sheet, current: &Sheet) -> Sheet {
         faction: current.faction,
         race: current.race,
         flags: current.flags,
+        good_evil: current.good_evil,
         weapons: current.weapons,
         items: current.items,
         picks: current.picks,
@@ -99,40 +96,4 @@ pub fn kept(made: Sheet, current: &Sheet) -> Sheet {
         form,
         ..made
     }
-}
-
-/// Whether an item template is of `kind`. Plot items never are.
-pub fn of_kind(item: &ItemFacts, kind: ItemKind) -> bool {
-    let fits = |slot: u8| item.slots & 1 << slot != 0;
-    let shelf = item
-        .spell
-        .and_then(|spell| use_of(spell.row))
-        .map(|of| of.shelf());
-    let weapon = item.weapon.filter(|_| fits(slots::RIGHT_WEAPON));
-    let saber = weapon.is_some_and(|w| matches!(w.delivery, crate::combat::Delivery::Saber(_)));
-    let ranged = weapon.is_some_and(|w| w.delivery.ranged());
-    !item.plot
-        && match kind {
-            ItemKind::Implants => fits(slots::IMPLANT),
-            ItemKind::Headgear => fits(slots::HEAD),
-            ItemKind::Gloves => fits(slots::HANDS),
-            ItemKind::Arms => fits(slots::LEFT_ARM) || fits(slots::RIGHT_ARM),
-            ItemKind::Belts => fits(slots::BELT),
-            ItemKind::Armour => fits(slots::BODY),
-            ItemKind::Melee => weapon.is_some() && !saber && !ranged,
-            ItemKind::Lightsabers => saber,
-            ItemKind::Ranged => ranged,
-            ItemKind::Grenades => {
-                item.slots == 0 && (shelf == Some(Shelf::Grenade) || item.trap.is_some())
-            }
-            ItemKind::Medical => {
-                item.slots == 0 && matches!(shelf, Some(Shelf::Medpac | Shelf::Stim))
-            }
-        }
-}
-
-/// How many of an item the terminal adds: a stack of `limits::STACK` of
-/// one that stacks, else one.
-pub fn count(item: &ItemFacts) -> u16 {
-    if item.stacking > 1 { limits::STACK } else { 1 }
 }

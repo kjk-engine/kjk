@@ -295,13 +295,13 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             (
                 "arena",
                 order @ (["clear" | "god" | "restore"]
-                | ["down" | "alignment" | "credits" | "items", _]
+                | ["down" | "alignment", _]
                 | ["level" | "ability" | "skill", _, _]),
             ) => Command::Arena(order.iter().map(|word| word.to_string()).collect()),
             ("arena", _) => {
                 return Err(error(
                     "arena takes spawn TEMPLATE, clear, god, down N, level CLASS N, \
-                     ability NAME N, skill NAME N, alignment N, credits N, items KIND or restore",
+                     ability NAME N, skill NAME N, alignment N or restore",
                 ));
             }
             ("camera", words) if words.len() == 5 || words.len() == 6 => {

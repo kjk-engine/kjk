@@ -5,11 +5,6 @@
 //! Enter or a click ends the line. While the conversation may be left (R6), a Leave
 //! row stands under the replies. The game opens and closes it with the
 //! conversation; Back does nothing.
-//!
-//! The Debug Mode map's terminal (`debug_terminal`) is the same screen on
-//! the same layout, filled from `ViewModel::debug_terminal`: a picked row
-//! sends `Intent::DebugTerminal` with its number, and its Leave row and
-//! Back close it.
 
 use fmt_odyssey::gui::Control;
 
@@ -35,31 +30,10 @@ static NONE: ComputerView = ComputerView {
     leave_key: Vec::new(),
 };
 
-/// A computer's screen: a conversation's (`computer`), or the Debug Mode
-/// terminal's (`debug_terminal`).
-pub struct Computer {
-    terminal: bool,
-}
+pub struct Computer;
 
-impl Computer {
-    pub const CONVERSATION: Computer = Computer { terminal: false };
-    pub const DEBUG_TERMINAL: Computer = Computer { terminal: true };
-
-    fn view<'a>(&self, vm: &'a ViewModel) -> &'a ComputerView {
-        let shown = match self.terminal {
-            false => vm.computer.as_ref(),
-            true => vm.debug_terminal.as_ref(),
-        };
-        shown.unwrap_or(&NONE)
-    }
-
-    /// Reply `nth` (from 0) taken.
-    fn answer(&self, nth: u8, out: &mut Vec<Intent>) {
-        out.push(match self.terminal {
-            false => Intent::Answer(Some(nth)),
-            true => Intent::DebugTerminal(nth),
-        });
-    }
+fn view(vm: &ViewModel) -> &ComputerView {
+    vm.computer.as_ref().unwrap_or(&NONE)
 }
 
 /// The replies as the list shows them: "1. …", each row as tall as its
@@ -93,11 +67,7 @@ fn replies(computer: &ComputerView) -> ControlState {
 
 impl Screen for Computer {
     fn id(&self) -> ScreenId {
-        ScreenId(if self.terminal {
-            "debug_terminal"
-        } else {
-            "computer"
-        })
+        ScreenId("computer")
     }
 
     fn layout(&self) -> &str {
@@ -105,7 +75,7 @@ impl Screen for Computer {
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
-        let computer = self.view(vm);
+        let computer = view(vm);
         match control.tag.as_str() {
             "LB_MESSAGE" => description(&computer.message),
             REPLIES => replies(computer),
@@ -123,29 +93,21 @@ impl Screen for Computer {
         if list != REPLIES {
             return;
         }
-        let computer = self.view(vm);
+        let computer = view(vm);
         if index == computer.replies.len() {
             if computer.leave == Some(true) {
-                out.push(if self.terminal {
-                    Intent::Close
-                } else {
-                    Intent::Leave
-                });
+                out.push(Intent::Leave);
             }
         } else if let Ok(nth) = u8::try_from(index) {
-            self.answer(nth, out);
+            out.push(Intent::Answer(Some(nth)));
         }
     }
 
-    fn back(&mut self, out: &mut Vec<Intent>) {
-        if self.terminal {
-            out.push(Intent::Close);
-        }
-    }
+    fn back(&mut self, _: &mut Vec<Intent>) {}
 
     /// A click skips a line with no reply to take, as Enter does.
     fn clicked(&mut self, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        let skip = !self.terminal && self.view(vm).replies.is_empty();
+        let skip = view(vm).replies.is_empty();
         if skip {
             out.push(Intent::Answer(None));
         }
@@ -153,7 +115,7 @@ impl Screen for Computer {
     }
 
     fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        let skip = !self.terminal && key == Key::Activate && self.view(vm).replies.is_empty();
+        let skip = key == Key::Activate && view(vm).replies.is_empty();
         if skip {
             out.push(Intent::Answer(None));
         }
@@ -161,7 +123,7 @@ impl Screen for Computer {
     }
 
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        let offered = self.view(vm).replies.len();
+        let offered = view(vm).replies.len();
         let nth = key
             .strip_prefix("Digit")
             .or_else(|| key.strip_prefix("Numpad"))
@@ -169,7 +131,7 @@ impl Screen for Computer {
             .and_then(|n| n.checked_sub(1))
             .filter(|nth| *nth < 9 && usize::from(*nth) < offered);
         if let Some(nth) = nth {
-            self.answer(nth, out);
+            out.push(Intent::Answer(Some(nth)));
         }
         nth.is_some()
     }

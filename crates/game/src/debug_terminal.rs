@@ -1,37 +1,46 @@
-//! The Debug Mode map's terminal (render side): the menu its screen shows
-//! (`ui::screens::computer`, KOTOR 2's computer layout) and what its rows
-//! do.
+//! The Debug Mode character page (render side): the rows the page shows
+//! (`ui::screens::debug_character`, an options list on the layout of kjk's
+//! Interface options) and what stepping them does.
 //!
-//! The sim opens the screen for the player whose body used the terminal
-//! (`Screen::DebugTerminal`, `sim::world::arena`). The menu is data: each
-//! `Page` is a message and a list of `Row`s built from the chosen party
-//! member's sheet as the presented snapshot has it (`page`). A row goes to
-//! another page, chooses something the menu keeps (the character, the
-//! class and level a rebuild takes), or sends one of the arena's orders
-//! (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`) as the arena's keys
-//! send theirs. An order sets a value from the number the row shows. The
-//! screen's numbers are the chosen character's Computer Use and Repair and
-//! the spikes and parts it carries, as on any computer.
+//! The sim opens the page for the player whose body used the Debug Mode
+//! map's computer (`Screen::DebugTerminal`, `sim::world::arena`). Its rows
+//! are the party member edited, the class, the level, the six attributes,
+//! the eight skills and the alignment (`Line`), each with its value as the
+//! presented snapshot has it. Stepping the party member chooses another
+//! one. Stepping any other row sends one of the arena's orders
+//! (`ArenaOrder::Rebuild` to `ArenaOrder::Alignment`) as the arena's keys
+//! send theirs, at once: a class or level stepped rebuilds the character
+//! there and then. Each order sets the value the row shows, one step on.
+//! The page shows a stepped value until the snapshot has it
+//! (`Menu::pending`), so a held key steps on from it and never sends the
+//! same value twice. Restore sends `ArenaOrder::Restore`, for a player's
+//! own character only.
 //!
-//! The names of the attributes, skills, classes, credits and alignment come
+//! The names of the attributes, skills, classes, level and alignment come
 //! from the game's talk table and tables. kjk's own words are
 //! `ui::strings::terminal`.
 
 use bevy::prelude::*;
 use sim::SimId;
-use sim::action::{Action, ArenaOrder, ItemKind};
+use sim::action::{Action, ArenaOrder};
+use sim::arena::edits::limits;
 use sim::combat::Sheet;
 use ui::draw::Textures;
 use ui::intent::Intent;
 use ui::skin::Source;
 use ui::strings::terminal as words;
-use ui::vm::ComputerView;
+use ui::vm::{DebugCharacterView, OptionRowView};
 
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::{Ui, UiIntents};
 
-/// The screen's name among the UI's.
-pub const SCREEN: &str = "debug_terminal";
+/// The page's name among the UI's.
+pub const SCREEN: &str = "debug_character";
+
+/// How many frames a stepped value is shown while the snapshot does not
+/// have it yet, before the snapshot's value shows again (an order the sim
+/// held to another value).
+const PENDING_FRAMES: u8 = 30;
 
 pub struct DebugTerminalPlugin;
 
@@ -48,125 +57,56 @@ impl Plugin for DebugTerminalPlugin {
     }
 }
 
-/// A page of the menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Page {
-    #[default]
-    Main,
-    Character,
+/// A row of the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Line {
+    Member,
     Class,
-    Attributes,
-    /// One attribute, by `Ability` order.
-    Attribute(u8),
-    Skills,
-    /// One skill, by `skills.2da` row.
+    Level,
+    /// An attribute, by `Ability` order.
+    Ability(u8),
+    /// A skill, by `skills.2da` row.
     Skill(u8),
     Alignment,
-    Credits,
-    Items,
-    Restore,
 }
 
-impl Page {
-    /// The page its Back row returns to.
-    fn back(self) -> Page {
-        match self {
-            Page::Attribute(_) => Page::Attributes,
-            Page::Skill(_) => Page::Skills,
-            _ => Page::Main,
-        }
-    }
-
-    /// Every page, for the menu's probes.
-    #[cfg(feature = "probes")]
-    fn all() -> Vec<Page> {
-        let fixed = [
-            Page::Main,
-            Page::Character,
-            Page::Class,
-            Page::Attributes,
-            Page::Skills,
-            Page::Alignment,
-            Page::Credits,
-            Page::Items,
-            Page::Restore,
-        ];
-        let attributes = (0..6).map(Page::Attribute);
-        let skills = (0..8).map(Page::Skill);
-        fixed.into_iter().chain(attributes).chain(skills).collect()
-    }
+/// The page's rows, top to bottom.
+pub fn lines() -> Vec<Line> {
+    [Line::Member, Line::Class, Line::Level]
+        .into_iter()
+        .chain((0..6).map(Line::Ability))
+        .chain((0..8).map(Line::Skill))
+        .chain([Line::Alignment])
+        .collect()
 }
 
-/// What a row does.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Does {
-    Go(Page),
-    Back,
-    /// The party member the other pages change.
-    Choose(SimId),
-    /// The class a rebuild takes, moved by this many in the list.
-    Class(i32),
-    /// The level a rebuild takes, moved by this many.
-    Level(i32),
-    /// An order to the sim, and what the page then says.
-    Order(ArenaOrder, Option<Vec<u8>>),
-}
-
-/// A row: its words and what it does.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Row {
-    pub text: Vec<u8>,
-    pub does: Does,
-}
-
-/// What the menu keeps between frames: the page shown, the party member
-/// chosen (none: the player's own body), the class and level a rebuild
-/// takes (an index in `Facts::classes`, and a level), and what the page
-/// says after an order.
+/// What the page keeps between frames: the party member chosen (none: the
+/// player's own body), and the values stepped that the snapshot does not
+/// show yet, each with the frames it is still shown for.
 #[derive(Resource, Debug, Clone, Default)]
 pub struct Menu {
-    page: Page,
     who: Option<SimId>,
-    class: usize,
-    level: Option<u8>,
-    told: Option<Vec<u8>>,
+    pending: Vec<(Line, i32, u8)>,
 }
 
-/// The game's own words the menu uses.
+/// The game's own words the page uses.
 #[derive(Debug, Clone, Default)]
 pub struct Words {
     /// Strength to Charisma.
     pub abilities: [Vec<u8>; 6],
     /// By `skills.2da` row.
     pub skills: [Vec<u8>; 8],
-    pub attributes: Vec<u8>,
-    pub skills_title: Vec<u8>,
-    pub alignment: Vec<u8>,
-    pub credits: Vec<u8>,
     pub class: Vec<u8>,
     pub level: Vec<u8>,
-    pub light: Vec<u8>,
-    pub dark: Vec<u8>,
-    pub back: Vec<u8>,
+    pub alignment: Vec<u8>,
 }
-
-/// How far the alignment rows move it, and the credits the credit rows add.
-const ALIGNMENT_STEP: u8 = rules::world::arena::terminal::ALIGNMENT_STEP;
-const CREDITS_SMALL: i32 = rules::world::arena::terminal::CREDITS_SMALL;
-const CREDITS_LARGE: i32 = rules::world::arena::terminal::CREDITS_LARGE;
 
 /// The talk table's lines for `Words` (the same strrefs in both games'
 /// talk tables): the attributes, Strength to Charisma, from `ABILITIES`.
 const ABILITIES: u32 = 719;
-const ATTRIBUTES: u32 = 209;
-const SKILLS: u32 = 233;
 const ALIGNMENT: u32 = 921;
-const CREDITS: u32 = 545;
 const CLASS: u32 = 38692;
 const LEVEL: u32 = 32154;
-const LIGHT_SIDE: u32 = 727;
-const DARK_SIDE: u32 = 728;
-const BACK: u32 = 219;
 
 impl Words {
     fn read(assets: &mut ui::assets::GuiAssets) -> Words {
@@ -176,19 +116,7 @@ impl Words {
                 .unwrap_or_else(Vec::new)
         };
         let abilities = std::array::from_fn(|at| text(ABILITIES + at as u32));
-        let (attributes, skills_title, alignment, credits) = (
-            text(ATTRIBUTES),
-            text(SKILLS),
-            text(ALIGNMENT),
-            text(CREDITS),
-        );
-        let (class, level, light, dark, back) = (
-            text(CLASS),
-            text(LEVEL),
-            text(LIGHT_SIDE),
-            text(DARK_SIDE),
-            text(BACK),
-        );
+        let (class, level, alignment) = (text(CLASS), text(LEVEL), text(ALIGNMENT));
         let skills = std::array::from_fn(|row| {
             assets
                 .cell_text("skills", row, "name")
@@ -197,29 +125,24 @@ impl Words {
         Words {
             abilities,
             skills,
-            attributes,
-            skills_title,
-            alignment,
-            credits,
             class,
             level,
-            light,
-            dark,
-            back,
+            alignment,
         }
     }
 }
 
-/// What the pages read: the party (id and name, the player's own first),
-/// the chosen member and its sheet, the party's credits, the classes a
-/// rebuild may take (row and name), the game's level cap, the map's
-/// starting character and whether the member may become it, and the words.
+/// What the page reads: the party (id and name, the seat's body first),
+/// the chosen member, its sheet and its class (its career's first; none
+/// for a character the game made without one), the classes a rebuild may
+/// take (row and name), the game's level cap, the map's starting character
+/// and whether the member may become it, and the words.
 #[derive(Debug, Clone)]
 pub struct Facts {
     pub party: Vec<(SimId, Vec<u8>)>,
     pub who: SimId,
     pub sheet: Sheet,
-    pub credits: i32,
+    pub class: Option<u8>,
     pub classes: Vec<(u8, Vec<u8>)>,
     pub cap: u8,
     pub start: Sheet,
@@ -229,250 +152,195 @@ pub struct Facts {
     pub words: Words,
 }
 
-/// A row of `text` doing `does`.
-fn row(text: impl Into<Vec<u8>>, does: Does) -> Row {
-    Row {
-        text: text.into(),
-        does,
+impl Facts {
+    /// Row `line`'s value as the snapshot has it: the party member's and
+    /// the class's place in their lists (-1 for no class), else the number.
+    fn value(&self, line: Line) -> i32 {
+        let sheet = &self.sheet;
+        match line {
+            Line::Member => (self.party.iter())
+                .position(|(id, _)| *id == self.who)
+                .map_or(0, |at| at as i32),
+            Line::Class => (self.classes.iter())
+                .position(|(row, _)| Some(*row) == self.class)
+                .map_or(-1, |at| at as i32),
+            Line::Level => sheet.level.into(),
+            Line::Ability(at) => sheet.abilities[usize::from(at)].into(),
+            Line::Skill(at) => sheet.skills[usize::from(at)].into(),
+            Line::Alignment => sheet.good_evil.into(),
+        }
+    }
+
+    /// The least and the most value row `line` may have.
+    fn range(&self, line: Line) -> (i32, i32) {
+        match line {
+            Line::Member => (0, self.party.len() as i32 - 1),
+            Line::Class => (0, self.classes.len() as i32 - 1),
+            Line::Level => (1, i32::from(self.cap.max(1))),
+            Line::Ability(_) => (limits::ABILITY_LEAST.into(), limits::ABILITY_MOST.into()),
+            Line::Skill(_) => (0, limits::SKILL_MOST.into()),
+            Line::Alignment => (0, limits::ALIGNMENT_MOST.into()),
+        }
     }
 }
 
-/// The class and level a rebuild takes: the menu's, else the chosen
-/// member's own level.
-fn rebuild_of(menu: &Menu, facts: &Facts) -> (Option<(u8, Vec<u8>)>, u8) {
-    let class = facts.classes.get(menu.class).cloned();
-    let level = menu
-        .level
-        .unwrap_or(facts.sheet.level)
-        .clamp(1, facts.cap.max(1));
-    (class, level)
+impl Menu {
+    /// Row `line`'s value as the page shows it: the one stepped to, else
+    /// the snapshot's.
+    fn shown(&self, facts: &Facts, line: Line) -> i32 {
+        (self.pending.iter())
+            .find(|(of, ..)| *of == line)
+            .map_or_else(|| facts.value(line), |(_, value, _)| *value)
+    }
+
+    /// The values the snapshot now has, or that waited long enough, no
+    /// longer pending.
+    fn settle(&mut self, facts: &Facts) {
+        self.pending.retain_mut(|(line, value, frames)| {
+            *frames = frames.saturating_sub(1);
+            *frames > 0 && facts.value(*line) != *value
+        });
+    }
+
+    /// `line` shown at `value` until the snapshot has it.
+    fn hold(&mut self, line: Line, value: i32) {
+        self.pending.retain(|(of, ..)| *of != line);
+        self.pending.push((line, value, PENDING_FRAMES));
+    }
 }
 
-/// Page `menu.page`: its message and rows (a Back row last, except on the
-/// first page, which the Leave row closes).
-pub fn page(menu: &Menu, facts: &Facts) -> (Vec<u8>, Vec<Row>) {
-    use sim::arena::edits::limits;
+/// The page as the screen shows it.
+pub fn view(menu: &Menu, facts: &Facts) -> DebugCharacterView {
     let w = &facts.words;
-    let who = facts.who;
-    let sheet = &facts.sheet;
-    let name = |id: SimId| {
-        facts
-            .party
-            .iter()
-            .find(|(of, _)| *of == id)
-            .map_or_else(Vec::new, |(_, name)| name.clone())
-    };
-    let order = |order: ArenaOrder| Does::Order(order, None);
-    let (message, mut rows) = match menu.page {
-        Page::Main => {
-            let message = [
-                words::TITLE.as_bytes(),
-                b"\n\n",
-                &words::character(&name(who)),
-            ]
-            .concat();
-            let rows = vec![
-                row(words::CHARACTER, Does::Go(Page::Character)),
-                row(words::CLASS_AND_LEVEL, Does::Go(Page::Class)),
-                row(w.attributes.clone(), Does::Go(Page::Attributes)),
-                row(w.skills_title.clone(), Does::Go(Page::Skills)),
-                row(w.alignment.clone(), Does::Go(Page::Alignment)),
-                row(w.credits.clone(), Does::Go(Page::Credits)),
-                row(words::ITEMS, Does::Go(Page::Items)),
-            ];
-            // Only a player's own character has a starting state to go
-            // back to; a companion's is not kept.
-            let restore = facts
-                .restorable
-                .then(|| row(words::RESTORE, Does::Go(Page::Restore)));
-            return (message, rows.into_iter().chain(restore).collect());
-        }
-        Page::Character => {
-            let rows = (facts.party.iter())
-                .map(|(id, name)| row(name.clone(), Does::Choose(*id)))
-                .collect();
-            (words::CHOOSE_CHARACTER.as_bytes().to_vec(), rows)
-        }
-        Page::Class => {
-            let (class, level) = rebuild_of(menu, facts);
-            let class_name = class.as_ref().map_or(&[][..], |(_, name)| name.as_slice());
-            let message = [
-                w.class.as_slice(),
-                b": ",
-                class_name,
-                b"\n",
-                &words::value(&w.level, i32::from(level), true),
-                b"\n\n",
-                words::REBUILD_HINT.as_bytes(),
-            ]
-            .concat();
-            let mut rows = vec![
-                row(words::NEXT_CLASS, Does::Class(1)),
-                row(words::PREVIOUS_CLASS, Does::Class(-1)),
-            ];
-            rows.extend([1, -1, 5, -5].map(|by| row(words::step(&w.level, by), Does::Level(by))));
-            if let Some((class, _)) = class {
-                rows.push(row(
-                    words::REBUILD,
-                    order(ArenaOrder::Rebuild { who, class, level }),
-                ));
-            }
-            (message, rows)
-        }
-        Page::Attributes => {
-            let rows = (0..6u8)
-                .map(|at| {
-                    let score = sheet.abilities[usize::from(at)];
-                    let text = words::value(&w.abilities[usize::from(at)], score.into(), false);
-                    row(text, Does::Go(Page::Attribute(at)))
-                })
-                .collect();
-            (w.attributes.clone(), rows)
-        }
-        Page::Attribute(at) => {
-            let score = sheet.abilities[usize::from(at)];
-            let set = |score: u8| {
-                order(ArenaOrder::Ability {
-                    who,
-                    ability: at,
-                    score,
-                })
-            };
-            let message = words::value(&w.abilities[usize::from(at)], score.into(), false);
-            let rows = vec![
-                row(words::INCREASE, set(score.saturating_add(1))),
-                row(words::DECREASE, set(score.saturating_sub(1))),
-            ];
-            (message, rows)
-        }
-        Page::Skills => {
-            let rows = (0..8u8)
-                .map(|at| {
-                    let ranks = sheet.skills[usize::from(at)];
-                    let text = words::value(&w.skills[usize::from(at)], ranks.into(), false);
-                    row(text, Does::Go(Page::Skill(at)))
-                })
-                .collect();
-            (w.skills_title.clone(), rows)
-        }
-        Page::Skill(at) => {
-            let ranks = sheet.skills[usize::from(at)];
-            let set = |ranks: u8| {
-                order(ArenaOrder::Skill {
-                    who,
-                    skill: at,
-                    ranks,
-                })
-            };
-            let message = words::value(&w.skills[usize::from(at)], ranks.into(), false);
-            let rows = vec![
-                row(words::INCREASE, set(ranks.saturating_add(1))),
-                row(words::DECREASE, set(ranks.saturating_sub(1))),
-            ];
-            (message, rows)
-        }
-        Page::Alignment => {
-            let now = sheet.good_evil;
-            let set = |good_evil: u8| order(ArenaOrder::Alignment { who, good_evil });
-            let step = ALIGNMENT_STEP;
-            let (light, neutral) = (limits::ALIGNMENT_MOST, rules::combat::sheet::NEUTRAL);
-            let named = |name: &[u8], value: u8| [name, format!(" ({value})").as_bytes()].concat();
-            let rows = vec![
-                row(
-                    words::step(&w.light, step.into()),
-                    set(now.saturating_add(step)),
+    let rows = lines()
+        .into_iter()
+        .map(|line| {
+            let value = menu.shown(facts, line);
+            let number = || value.to_string().into_bytes();
+            let (least, most) = facts.range(line);
+            let range = || ui::strings::bytes(&words::range(least as u8, most as u8));
+            let (name, value, help) = match line {
+                Line::Member => (
+                    ui::strings::bytes(words::MEMBER),
+                    facts
+                        .party
+                        .get(value as usize)
+                        .map_or_else(Vec::new, |(_, name)| name.clone()),
+                    ui::strings::bytes(words::MEMBER_HELP),
                 ),
-                row(
-                    words::step(&w.dark, step.into()),
-                    set(now.saturating_sub(step)),
+                Line::Class => (
+                    w.class.clone(),
+                    usize::try_from(value)
+                        .ok()
+                        .and_then(|at| facts.classes.get(at))
+                        .map_or_else(
+                            || ui::strings::bytes(words::NO_CLASS),
+                            |(_, name)| name.clone(),
+                        ),
+                    ui::strings::bytes(words::CLASS_HELP),
                 ),
-                row(named(&w.light, light), set(light)),
-                row(named(words::NEUTRAL.as_bytes(), neutral), set(neutral)),
-                row(named(&w.dark, 0), set(0)),
-            ];
-            (words::value(&w.alignment, now.into(), true), rows)
-        }
-        Page::Credits => {
-            let credits = facts.credits;
-            let add = |amount: i32| {
-                let text = words::add_credits(&w.credits, amount);
-                row(
-                    text,
-                    order(ArenaOrder::Credits(credits.saturating_add(amount))),
-                )
+                Line::Level => (
+                    w.level.clone(),
+                    number(),
+                    ui::strings::bytes(words::LEVEL_HELP),
+                ),
+                Line::Ability(at) => (w.abilities[usize::from(at)].clone(), number(), range()),
+                Line::Skill(at) => (w.skills[usize::from(at)].clone(), number(), range()),
+                Line::Alignment => (
+                    w.alignment.clone(),
+                    number(),
+                    ui::strings::bytes(words::ALIGNMENT_HELP),
+                ),
             };
-            let rows = vec![
-                add(CREDITS_SMALL),
-                add(CREDITS_LARGE),
-                row(words::REMOVE_CREDITS, order(ArenaOrder::Credits(0))),
-            ];
-            (words::value(&w.credits, credits, true), rows)
-        }
-        Page::Items => {
-            let rows = ItemKind::ALL
-                .into_iter()
-                .zip(words::ITEM_KINDS)
-                .map(|(kind, name)| {
-                    let told = Some(words::added(name));
-                    row(name, Does::Order(ArenaOrder::Items(kind), told))
-                })
-                .collect();
-            (words::ITEMS_HINT.as_bytes().to_vec(), rows)
-        }
-        Page::Restore => {
-            let restore = ArenaOrder::Restore {
-                who,
-                sheet: Box::new(facts.start),
-            };
-            let rows = (facts
-                .restorable
-                .then(|| row(words::RESTORE, order(restore))))
-            .into_iter()
-            .collect();
-            (words::RESTORE_HINT.as_bytes().to_vec(), rows)
-        }
-    };
-    rows.push(row(w.back.clone(), Does::Back));
-    let message = match &menu.told {
-        Some(told) => [message.as_slice(), b"\n\n", told].concat(),
-        None => message,
-    };
-    (message, rows)
+            OptionRowView { name, value, help }
+        })
+        .collect();
+    DebugCharacterView {
+        title: ui::strings::bytes(words::TITLE),
+        rows,
+        restore: facts.restorable,
+    }
 }
 
-/// `menu` after row `does` was picked, and the order it sends, if any.
-pub fn picked(menu: &Menu, facts: &Facts, does: Does) -> (Menu, Option<ArenaOrder>) {
-    let mut menu = Menu {
-        told: None,
-        ..menu.clone()
+/// Row `line` stepped down (`back`) or up: `menu` after it, and the order
+/// it sends, if any. The party member and the class wrap around their
+/// lists; the numbers stop at their limits.
+pub fn stepped(menu: &Menu, facts: &Facts, line: Line, back: bool) -> (Menu, Option<ArenaOrder>) {
+    let mut menu = menu.clone();
+    let who = facts.who;
+    let by = if back { -1 } else { 1 };
+    let now = menu.shown(facts, line);
+    let (least, most) = facts.range(line);
+    if most < least {
+        return (menu, None);
+    }
+    let next = match line {
+        // No class yet: on to the first, back to the last.
+        Line::Class if now < 0 => {
+            if back {
+                most
+            } else {
+                least
+            }
+        }
+        Line::Member | Line::Class => (now + by - least).rem_euclid(most - least + 1) + least,
+        _ => (now + by).clamp(least, most),
     };
-    let mut sent = None;
-    match does {
-        Does::Go(page) => menu.page = page,
-        Does::Back => menu.page = menu.page.back(),
-        Does::Choose(id) => {
-            menu.who = Some(id);
-            menu.level = None;
-            menu.page = Page::Main;
+    if next == now {
+        return (menu, None);
+    }
+    let level = |menu: &Menu| menu.shown(facts, Line::Level).clamp(1, 255) as u8;
+    let class_row = |at: i32| {
+        usize::try_from(at)
+            .ok()
+            .and_then(|at| facts.classes.get(at))
+            .map(|(row, _)| *row)
+    };
+    let order = match line {
+        Line::Member => {
+            menu.who = facts.party.get(next as usize).map(|(id, _)| *id);
+            menu.pending.clear();
+            return (menu, None);
         }
-        Does::Class(by) => {
-            let count = facts.classes.len().max(1) as i32;
-            menu.class = (menu.class as i32 + by).rem_euclid(count) as usize;
-        }
-        Does::Level(by) => {
-            let (_, level) = rebuild_of(&menu, facts);
-            let moved = (i32::from(level) + by).clamp(1, i32::from(facts.cap.max(1)));
-            menu.level = Some(moved as u8);
-        }
-        Does::Order(order, told) => {
-            menu.told = told;
-            sent = Some(order);
+        Line::Class => ArenaOrder::Rebuild {
+            who,
+            class: class_row(next).unwrap_or(0),
+            level: level(&menu),
+        },
+        Line::Level => ArenaOrder::Rebuild {
+            who,
+            class: class_row(menu.shown(facts, Line::Class).max(0)).unwrap_or(0),
+            level: next as u8,
+        },
+        Line::Ability(ability) => ArenaOrder::Ability {
+            who,
+            ability,
+            score: next as u8,
+        },
+        Line::Skill(skill) => ArenaOrder::Skill {
+            who,
+            skill,
+            ranks: next as u8,
+        },
+        Line::Alignment => ArenaOrder::Alignment {
+            who,
+            good_evil: next as u8,
+        },
+    };
+    // A rebuild makes the attributes and skills anew: they show the
+    // snapshot's again. The class it keeps shows as the one chosen.
+    if matches!(line, Line::Class | Line::Level) {
+        menu.pending
+            .retain(|(of, ..)| matches!(of, Line::Class | Line::Level));
+        if line == Line::Level && menu.shown(facts, Line::Class) < 0 {
+            menu.hold(Line::Class, 0);
         }
     }
-    (menu, sent)
+    menu.hold(line, next);
+    (menu, Some(order))
 }
 
-/// What the pages read of the presented snapshot, for this seat: none
+/// What the page reads of the presented snapshot, for this seat: none
 /// when the snapshot has no body for it or the level no library.
 fn facts(
     assets: &mut ui::assets::GuiAssets,
@@ -483,10 +351,9 @@ fn facts(
 ) -> Option<Facts> {
     let library = level.scripts()?;
     let objects = sim::Instances::in_snapshot(level, snapshot);
-    let members = crate::cast::party_of(snapshot, seat);
     // The seat's body first, then its own character and the companions
     // that follow it (another seat's character is not among them).
-    let party: Vec<(SimId, Vec<u8>)> = members
+    let party: Vec<(SimId, Vec<u8>)> = crate::cast::party_of(snapshot, seat)
         .iter()
         .map(|member| {
             let id = script_ncs::vm::ObjectId(member.id.0);
@@ -503,7 +370,6 @@ fn facts(
         .filter(|id| party.iter().any(|(of, _)| of == id))
         .unwrap_or(body);
     let entity = snapshot.get(who)?;
-    let sheet = crate::cast::worn_sheet(snapshot, entity, level);
     let classes = (0..assets.rows("classes"))
         .filter_map(|row| {
             let playable = assets.cell("classes", row, "playerclass").as_deref() == Some("1");
@@ -513,11 +379,14 @@ fn facts(
             Some((u8::try_from(row).ok()?, name))
         })
         .collect();
+    let class = (snapshot.progress.careers.get(&who.0))
+        .and_then(|career| career.first())
+        .map(|(class, _)| *class);
     Some(Facts {
         party,
         who,
-        sheet,
-        credits: snapshot.goods.gold,
+        sheet: crate::cast::worn_sheet(snapshot, entity, level),
+        class,
         classes,
         cap: library.classes().cap(),
         start: crate::arena::sheet_for(level),
@@ -526,9 +395,8 @@ fn facts(
     })
 }
 
-/// The screen's view while it is open: the page's message and rows, and
-/// the chosen member's skills. The menu starts on its first page, for the
-/// player's own body, each time the screen opens.
+/// The page's view while it is open. The page starts on the player's own
+/// body each time it opens.
 fn show(
     presented: Option<Res<PresentedSnapshot>>,
     own: Option<Res<OwnSeat>>,
@@ -538,7 +406,7 @@ fn show(
 ) {
     let ui = &mut *ui;
     if !ui.stack.has(SCREEN) {
-        ui.vm.debug_terminal = None;
+        ui.vm.debug_character = None;
         *menu = Menu::default();
         return;
     }
@@ -551,186 +419,157 @@ fn show(
     let Some(facts) = facts(assets, snapshot, own.0, &swap.level, menu.who) else {
         return;
     };
-    let (message, rows) = page(&menu, &facts);
-    let user = snapshot.get(facts.who);
-    ui.vm.debug_terminal = Some(ComputerView {
-        message,
-        replies: rows.into_iter().map(|row| row.text).collect(),
-        leave: Some(true),
-        leave_key: b"Esc".to_vec(),
-        ..crate::terminal::skills_of(assets, snapshot, user, &swap)
-    });
+    menu.settle(&facts);
+    ui.vm.debug_character = Some(view(&menu, &facts));
 }
 
-/// The rows picked: the menu moved, and the orders sent to the sim.
+/// The rows stepped and Restore pressed: the page moved, and the orders
+/// sent to the sim.
 fn pick(
     presented: Option<Res<PresentedSnapshot>>,
-    own: Option<Res<OwnSeat>>,
-    swap: Option<Res<SceneSwap>>,
+    (own, swap): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>),
     mut ui: ResMut<Ui>,
     mut intents: ResMut<UiIntents>,
     mut menu: ResMut<Menu>,
     mut outgoing: Option<ResMut<crate::loot::Outgoing>>,
 ) {
-    let picks: Vec<u8> = intents
+    let asked: Vec<Intent> = intents
         .0
         .iter()
-        .filter_map(|intent| match intent {
-            Intent::DebugTerminal(nth) => Some(*nth),
-            _ => None,
-        })
+        .filter(|intent| matches!(intent, Intent::DebugStep { .. } | Intent::DebugRestore))
+        .cloned()
         .collect();
-    if picks.is_empty() {
+    if asked.is_empty() {
         return;
     }
     intents
         .0
-        .retain(|intent| !matches!(intent, Intent::DebugTerminal(_)));
+        .retain(|intent| !matches!(intent, Intent::DebugStep { .. } | Intent::DebugRestore));
     let (Some(presented), Some(own), Some(swap), Some(assets)) =
         (presented, own, swap, ui.assets.as_mut())
     else {
         return;
     };
     let snapshot = presented.0.current();
-    for nth in picks {
+    let rows = lines();
+    for intent in asked {
         let Some(facts) = facts(assets, snapshot, own.0, &swap.level, menu.who) else {
             return;
         };
-        let (_, rows) = page(&menu, &facts);
-        let Some(row) = rows.into_iter().nth(usize::from(nth)) else {
-            continue;
+        let order = match intent {
+            Intent::DebugStep { row, back } => {
+                let Some(line) = rows.get(usize::from(row)) else {
+                    continue;
+                };
+                let (next, order) = stepped(&menu, &facts, *line, back);
+                *menu = next;
+                order
+            }
+            _ if facts.restorable => {
+                menu.pending.clear();
+                Some(ArenaOrder::Restore {
+                    who: facts.who,
+                    sheet: Box::new(facts.start),
+                })
+            }
+            _ => None,
         };
-        let (next, order) = picked(&menu, &facts, row.does);
-        *menu = next;
         if let (Some(order), Some(outgoing)) = (order, outgoing.as_mut()) {
             outgoing.0.push(Action::Arena(order));
         }
     }
 }
 
-/// The menu's probes (`kjk sim probes --only "debug terminal menu"`), on
-/// a party of the player and one companion with Strength 16 at level 20,
-/// two classes and placeholder words: every page but the first ends in a
-/// Back row; every row leads to a page that exists, a choice or an order;
-/// a companion is offered no Restore; Increase on Strength 16 sets 17; the class page rebuilds the class and
-/// level chosen on it.
+/// The page's probes (`kjk sim probes --only "debug terminal menu"`), on a
+/// party of the player and one companion, Strength 16 at level 20, two
+/// classes and placeholder words: every row has words to describe it;
+/// Strength stepped up twice before the snapshot changes sets 17, then 18;
+/// a step stops at the limit; the class stepped up from none rebuilds at
+/// the first class and the same level, and the level stepped down then
+/// rebuilds in that class one level lower; the party member stepped up
+/// chooses the companion and sends nothing; Restore shows for the player
+/// and not for a companion.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::probe::check;
     let mut sheet = Sheet::dev_jedi();
     sheet.abilities[0] = 16;
+    sheet.abilities[1] = limits::ABILITY_MOST;
     sheet.level = 20;
     let facts = Facts {
         party: vec![(SimId(1), b"Revan".to_vec()), (SimId(2), b"Carth".to_vec())],
         who: SimId(1),
         sheet,
-        credits: 500,
+        class: None,
         classes: vec![(0, b"Soldier".to_vec()), (3, b"Jedi Guardian".to_vec())],
         cap: 20,
         start: Sheet::dev_jedi(),
         restorable: true,
-        words: Words {
-            back: b"Back".to_vec(),
-            ..Words::default()
-        },
+        words: Words::default(),
     };
-    let on = |page| Menu {
-        page,
-        ..Menu::default()
-    };
-    let pages = Page::all();
-    let backless: Vec<Page> = (pages.iter().copied())
-        .filter(|at| {
-            let (_, rows) = page(&on(*at), &facts);
-            rows.last().is_some_and(|row| row.does == Does::Back) == (*at == Page::Main)
-        })
-        .collect();
-    let astray: Vec<(Page, Page)> = (pages.iter())
-        .flat_map(|at| {
-            page(&on(*at), &facts)
-                .1
-                .into_iter()
-                .map(move |row| (*at, row.does))
-        })
-        .filter_map(|(at, does)| match does {
-            Does::Go(to) if !pages.contains(&to) => Some((at, to)),
-            _ => None,
-        })
-        .collect();
-    let strength = on(Page::Attribute(0));
-    let (_, rows) = page(&strength, &facts);
-    let raised = rows
-        .first()
-        .and_then(|row| picked(&strength, &facts, row.does.clone()).1);
-    let (menu, _) = picked(&on(Page::Class), &facts, Does::Class(1));
-    let (menu, _) = picked(&menu, &facts, Does::Level(-5));
-    let rebuild = page(&menu, &facts)
-        .1
-        .into_iter()
-        .find_map(|row| match row.does {
-            Does::Order(order, _) => Some(order),
-            _ => None,
-        });
-    let restores = |restorable: bool| {
-        let facts = Facts {
-            restorable,
-            ..facts.clone()
-        };
-        [Page::Main, Page::Restore].into_iter().any(|at| {
-            let rows = page(&on(at), &facts).1;
-            rows.iter().any(|row| {
-                matches!(
-                    row.does,
-                    Does::Go(Page::Restore) | Does::Order(ArenaOrder::Restore { .. }, _)
-                )
-            })
+    let menu = Menu::default();
+    let shown = view(&menu, &facts);
+    let described =
+        shown.rows.len() == lines().len() && shown.rows.iter().all(|row| !row.help.is_empty());
+    let (once, first) = stepped(&menu, &facts, Line::Ability(0), false);
+    let (_, second) = stepped(&once, &facts, Line::Ability(0), false);
+    let strength = |score| {
+        Some(ArenaOrder::Ability {
+            who: SimId(1),
+            ability: 0,
+            score,
         })
     };
-    let (player_restores, companion_restores) = (restores(true), restores(false));
-    let wanted = |order| Some(order);
+    let (_, past) = stepped(&menu, &facts, Line::Ability(1), false);
+    let (classed, class) = stepped(&menu, &facts, Line::Class, false);
+    let (_, lower) = stepped(&classed, &facts, Line::Level, true);
+    let rebuild = |class, level| {
+        Some(ArenaOrder::Rebuild {
+            who: SimId(1),
+            class,
+            level,
+        })
+    };
+    let (chosen, member) = stepped(&menu, &facts, Line::Member, false);
+    let companion = Facts {
+        restorable: false,
+        ..facts.clone()
+    };
+    let restores = (view(&menu, &facts).restore, view(&menu, &companion).restore);
     vec![
         (
-            "debug_terminal_back_rows",
+            "debug_character_rows",
             check(
-                backless.is_empty(),
-                format!("pages wrong about their Back row: {backless:?}"),
+                described,
+                format!("{} rows, each described: {described}", shown.rows.len()),
             ),
         ),
         (
-            "debug_terminal_rows_lead_somewhere",
-            check(astray.is_empty(), format!("rows to no page: {astray:?}")),
-        ),
-        (
-            "debug_terminal_no_companion_restore",
+            "debug_character_steps",
             check(
-                player_restores && !companion_restores,
-                format!(
-                    "a Restore row for the player: {player_restores}; for a companion: {companion_restores}"
-                ),
+                first == strength(17) && second == strength(18) && past.is_none(),
+                format!("Strength 16 up twice: {first:?}, {second:?}; past the most: {past:?}"),
             ),
         ),
         (
-            "debug_terminal_increase",
+            "debug_character_rebuilds",
             check(
-                raised
-                    == wanted(ArenaOrder::Ability {
-                        who: SimId(1),
-                        ability: 0,
-                        score: 17,
-                    }),
-                format!("Increase on Strength 16: {raised:?}"),
+                class == rebuild(0, 20) && lower == rebuild(0, 19),
+                format!("class up from none: {class:?}; then level down: {lower:?}"),
             ),
         ),
         (
-            "debug_terminal_rebuild",
+            "debug_character_member",
             check(
-                rebuild
-                    == wanted(ArenaOrder::Rebuild {
-                        who: SimId(1),
-                        class: 3,
-                        level: 15,
-                    }),
-                format!("the next class, five levels down from 20: {rebuild:?}"),
+                member.is_none() && chosen.who == Some(SimId(2)),
+                format!("member up: {:?}, order {member:?}", chosen.who),
+            ),
+        ),
+        (
+            "debug_character_restore",
+            check(
+                restores == (true, false),
+                format!("Restore for the player, for a companion: {restores:?}"),
             ),
         ),
     ]

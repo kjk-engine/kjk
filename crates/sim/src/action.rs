@@ -298,7 +298,7 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
-    /// The Debug Mode terminal's orders (`world::arena::edits`). Each sets a
+    /// The Debug Mode character page's orders (`world::arena::edits`). Each sets a
     /// value and never adds to one, so an order sent twice does no harm.
     /// `who` is the party member changed: the seat's own character, or a
     /// companion no other seat plays.
@@ -327,10 +327,6 @@ pub enum ArenaOrder {
         who: crate::snapshot::SimId,
         good_evil: u8,
     },
-    /// The party's credits set to this many.
-    Credits(i32),
-    /// One of every item of a kind put in the party's inventory.
-    Items(ItemKind),
     /// `who`, a player's own character, made the Debug Mode map's starting
     /// character again (`sheet`), with full hit points and Force points. A
     /// companion is never restored: the terminal keeps no starting state
@@ -339,55 +335,6 @@ pub enum ArenaOrder {
         who: crate::snapshot::SimId,
         sheet: Box<crate::combat::Sheet>,
     },
-}
-
-/// A kind of item the Debug Mode terminal puts in the party's inventory
-/// (`ArenaOrder::Items`), in the order its menu lists them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemKind {
-    Implants,
-    Headgear,
-    Gloves,
-    /// Arm bands and energy shields.
-    Arms,
-    Belts,
-    Armour,
-    /// Melee weapons other than lightsabers.
-    Melee,
-    Lightsabers,
-    Ranged,
-    /// Grenades and mines.
-    Grenades,
-    /// Medical items and stimulants.
-    Medical,
-}
-
-impl ItemKind {
-    pub const ALL: [ItemKind; 11] = [
-        ItemKind::Implants,
-        ItemKind::Headgear,
-        ItemKind::Gloves,
-        ItemKind::Arms,
-        ItemKind::Belts,
-        ItemKind::Armour,
-        ItemKind::Melee,
-        ItemKind::Lightsabers,
-        ItemKind::Ranged,
-        ItemKind::Grenades,
-        ItemKind::Medical,
-    ];
-
-    /// Its byte on the wire: its place in `ALL`.
-    pub fn code(self) -> u8 {
-        ItemKind::ALL
-            .iter()
-            .position(|kind| *kind == self)
-            .unwrap_or(0) as u8
-    }
-
-    pub fn of_code(code: u8) -> Option<ItemKind> {
-        ItemKind::ALL.get(usize::from(code)).copied()
-    }
 }
 
 /// What a seat asks of its body's readied grenade (`Action::Grenade`).
@@ -924,16 +871,8 @@ impl Action {
                         out.u32(who.0);
                         out.u8(*good_evil);
                     }
-                    ArenaOrder::Credits(credits) => {
-                        out.u8(8);
-                        out.u32(*credits as u32);
-                    }
-                    ArenaOrder::Items(kind) => {
-                        out.u8(9);
-                        out.u8(kind.code());
-                    }
                     ArenaOrder::Restore { who, sheet } => {
-                        out.u8(10);
+                        out.u8(8);
                         out.u32(who.0);
                         sheet.encode(out);
                     }
@@ -1154,16 +1093,7 @@ impl Action {
                         who: crate::snapshot::SimId(input.u32()?),
                         good_evil: input.u8()?,
                     },
-                    8 => ArenaOrder::Credits(input.u32()? as i32),
-                    9 => {
-                        let kind = input.at();
-                        let code = input.u8()?;
-                        ArenaOrder::Items(
-                            ItemKind::of_code(code)
-                                .ok_or_else(|| input.invalid("item kind", kind))?,
-                        )
-                    }
-                    10 => ArenaOrder::Restore {
+                    8 => ArenaOrder::Restore {
                         who: crate::snapshot::SimId(input.u32()?),
                         sheet: Box::new(crate::combat::Sheet::decode(input)?),
                     },

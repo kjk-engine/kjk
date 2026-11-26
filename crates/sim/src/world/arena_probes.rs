@@ -23,38 +23,13 @@ const FOE: &str = "probe_foe";
 /// How long a downed player lies in the probes' arena (ms).
 const RESPAWN_MS: u64 = 500;
 
-/// The implant templates the probes' catalog has besides a plot implant,
-/// and a belt.
-const IMPLANTS: [&str; 2] = ["probe_implant_a", "probe_implant_b"];
-const PLOT_IMPLANT: &str = "probe_plot_implant";
-const BELT: &str = "probe_belt";
-
-/// The probes' items: two implants, a plot implant and a belt.
-fn catalog() -> crate::inventory::Catalog {
-    use crate::inventory::{ItemFacts, slots};
-    let worn = |template: &str, slot: u8, plot: bool| ItemFacts {
-        slots: 1 << slot,
-        plot,
-        ..ItemFacts::plain(template)
-    };
-    crate::inventory::Catalog::new(
-        IMPLANTS
-            .iter()
-            .map(|template| worn(template, slots::IMPLANT, false))
-            .chain([
-                worn(PLOT_IMPLANT, slots::IMPLANT, true),
-                worn(BELT, slots::BELT, false),
-            ]),
-    )
-}
-
 /// The proving ground as an arena for one seat (`arena_for`).
 fn arena() -> Result<(SimWorld, Rules), String> {
     arena_for(1, true, false).map(|(world, rules, _)| (world, rules))
 }
 
 /// The proving ground for `seats` players, an arena when `rules`: the
-/// foe's template, the probes' items, two classes and the Debug Mode
+/// foe's template, two classes and the Debug Mode
 /// terminal's template in its library. The arena's step makes the terminal
 /// 1 m from where the players arrive. With `mate`, a creature tagged
 /// `MATE` stands 2 m from the arrival (`companion` makes it one). The
@@ -95,7 +70,6 @@ fn arena_for(seats: u8, rules: bool, mate: bool) -> Result<(SimWorld, Rules, u32
     }
     let library = crate::probe::library("", std::iter::empty::<(String, _)>())
         .with_creatures([(FOE.to_string(), Arc::new(foe))].into())
-        .with_items(catalog())
         .with_classes(super::coop_items::classes());
     let mut level = ground.with_module(data).with_scripts(library);
     if rules {
@@ -179,7 +153,6 @@ pub fn probes() -> crate::probe::Checks {
         ("arena_terminal_sets_one_field", sets_one_field()),
         ("arena_terminal_constitution", constitution()),
         ("arena_terminal_rebuild", rebuild()),
-        ("arena_terminal_party", party_orders()),
         ("arena_terminal_restore", restore()),
         ("arena_terminal_restore_companion", restore_companion()),
         ("arena_terminal_seats", seats_rule()),
@@ -357,44 +330,6 @@ fn rebuild() -> Result<String, String> {
     )
 }
 
-/// Credits set to 5,000; the implants put in the party's inventory, one of
-/// each and no plot one, and two of each when asked twice.
-fn party_orders() -> Result<String, String> {
-    let (mut world, _) = arena()?;
-    let implants = ArenaOrder::Items(crate::action::ItemKind::Implants);
-    let held = |snapshot: &Snapshot, template: &str| -> u32 {
-        snapshot
-            .goods
-            .items
-            .iter()
-            .map(|(_, item)| item)
-            .filter(|item| item.holder == crate::inventory::PARTY && item.template == template)
-            .map(|item| u32::from(item.stack))
-            .sum()
-    };
-    let once = run(
-        &mut world,
-        &[ArenaOrder::Credits(5000), implants.clone()],
-        3,
-    );
-    let twice = run(&mut world, &[implants], 3);
-    let counts = |snapshot: &Snapshot| -> Vec<u32> {
-        IMPLANTS
-            .iter()
-            .chain([&PLOT_IMPLANT, &BELT])
-            .map(|template| held(snapshot, template))
-            .collect()
-    };
-    let (first, second) = (counts(&once), counts(&twice));
-    check(
-        once.goods.gold == 5000 && first == [1, 1, 0, 0] && second == [2, 2, 0, 0],
-        format!(
-            "credits {}; implants, plot implant, belt: {first:?}, then {second:?}",
-            once.goods.gold
-        ),
-    )
-}
-
 /// A restore makes the character the starting one again, at full hit
 /// points.
 fn restore() -> Result<String, String> {
@@ -539,14 +474,14 @@ fn off_arena() -> Result<String, String> {
             ability: 0,
             score: 30,
         },
-        ArenaOrder::Credits(5000),
+        ArenaOrder::Alignment {
+            who: me,
+            good_evil: 0,
+        },
     ];
     let after = run(&mut world, &orders, 3);
     let (_, now) = mine(&after, Seat(0))?;
-    check(
-        now == sheet && after.goods.gold == start.goods.gold,
-        format!("sheet kept: {}; credits {}", now == sheet, after.goods.gold),
-    )
+    check(now == sheet, format!("sheet kept: {}", now == sheet))
 }
 
 /// The arena's step makes the terminal once, and a level without arena
@@ -605,14 +540,11 @@ fn round_trip() -> Result<String, String> {
             ranks: 9,
         },
         ArenaOrder::Alignment { who, good_evil: 20 },
-        ArenaOrder::Credits(12_345),
         ArenaOrder::Restore {
             who,
             sheet: Box::new(Sheet::dev_jedi()),
         },
-    ]
-    .into_iter()
-    .chain(crate::action::ItemKind::ALL.map(ArenaOrder::Items));
+    ];
     for order in orders {
         let action = Action::Arena(order);
         let mut out = crate::wire::Writer::default();

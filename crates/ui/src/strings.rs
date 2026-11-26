@@ -399,73 +399,28 @@ pub fn leave(key: &[u8]) -> Vec<u8> {
     [b"Leave (", key, b")"].concat()
 }
 
-/// The Debug Mode terminal's own words (`game::debug_terminal`). The names
-/// of attributes, skills, classes, credits and alignment come from the
-/// game's talk table and tables.
+/// The Debug Mode character page's own words (`game::debug_terminal`).
+/// The names of the attributes, skills, classes and alignment come from
+/// the game's talk table and tables.
 pub mod terminal {
-    pub const TITLE: &str = "Debug Terminal";
-    pub const CHARACTER: &str = "Character";
+    pub const TITLE: &str = "Edit Character";
+    pub const MEMBER: &str = "Party Member";
+    pub const MEMBER_HELP: &str = "The party member to edit.";
     /// A party member with no name (a player who made no character).
     pub const UNNAMED: &str = "Player";
-    pub const CLASS_AND_LEVEL: &str = "Class and Level";
-    pub const ITEMS: &str = "Items";
-    pub const RESTORE: &str = "Restore Character";
-    pub const CHOOSE_CHARACTER: &str = "Select the character to edit.";
-    pub const NEXT_CLASS: &str = "Next Class";
-    pub const PREVIOUS_CLASS: &str = "Previous Class";
-    pub const REBUILD: &str = "Rebuild Character";
-    pub const REBUILD_HINT: &str =
-        "The game chooses the feats, Force powers and skills for each level.";
-    pub const INCREASE: &str = "Increase";
-    pub const DECREASE: &str = "Decrease";
-    pub const NEUTRAL: &str = "Neutral";
-    pub const REMOVE_CREDITS: &str = "Remove All Credits";
-    pub const ITEMS_HINT: &str =
-        "Select a type of item. One of every item of that type is added to the inventory.";
-    pub const RESTORE_HINT: &str =
-        "Restore the starting character with full health and Force points.";
-    /// The kinds of item, in `sim::action::ItemKind::ALL`'s order.
-    pub const ITEM_KINDS: [&str; 11] = [
-        "Implants",
-        "Headgear",
-        "Gloves",
-        "Arm Bands and Shields",
-        "Belts",
-        "Armor",
-        "Melee Weapons",
-        "Lightsabers",
-        "Ranged Weapons",
-        "Grenades and Mines",
-        "Medical Supplies and Stimulants",
-    ];
+    /// The class of a character the game made without one (the Debug Mode
+    /// map's starting Jedi).
+    pub const NO_CLASS: &str = "Custom";
+    pub const CLASS_HELP: &str = "Changing the class rebuilds the character at the same level. The game chooses the feats, Force powers and skills for each level.";
+    pub const LEVEL_HELP: &str = "Changing the level rebuilds the character in the same class. The game chooses the feats, Force powers and skills for each level.";
+    pub const ALIGNMENT_HELP: &str = "0 is fully dark side. 100 is fully light side.";
+    pub const RESTORE: &str = "Restore";
     /// The panel's row for the terminal.
     pub const PANEL: &str = "Edit character";
 
-    /// "Character: Revan".
-    pub fn character(name: &[u8]) -> Vec<u8> {
-        [CHARACTER.as_bytes(), b": ", name].concat()
-    }
-
-    /// A value and its name, "Strength 16", "Level 12", "Credits: 500"
-    /// (`colon`).
-    pub fn value(name: &[u8], value: i32, colon: bool) -> Vec<u8> {
-        let gap: &[u8] = if colon { b": " } else { b" " };
-        [name, gap, value.to_string().as_bytes()].concat()
-    }
-
-    /// A step of a number, "Level +5", "Light Side -10".
-    pub fn step(name: &[u8], by: i32) -> Vec<u8> {
-        [name, format!(" {by:+}").as_bytes()].concat()
-    }
-
-    /// "Add 1000 Credits".
-    pub fn add_credits(credits: &[u8], amount: i32) -> Vec<u8> {
-        [format!("Add {amount} ").as_bytes(), credits].concat()
-    }
-
-    /// "Implants added to the inventory."
-    pub fn added(kind: &str) -> Vec<u8> {
-        format!("{kind} added to the inventory.").into_bytes()
+    /// "Ranges from 1 to 50."
+    pub fn range(least: u8, most: u8) -> String {
+        format!("Ranges from {least} to {most}.")
     }
 }
 

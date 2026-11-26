@@ -1,3 +1,3 @@
-# The Debug Mode map's terminal.
+# The Debug Mode map's character page.
 [formats]
-replay = "an arena order may rebuild a character, set an attribute, a skill, the alignment or the party's credits, add a kind of item, or restore the starting character (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`, arena order codes 4 to 10)."
+replay = "an arena order may rebuild a character, set an attribute, a skill or the alignment, or restore the starting character (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`, arena order codes 4 to 8)."

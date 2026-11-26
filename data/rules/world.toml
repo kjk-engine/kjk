@@ -250,20 +250,17 @@ source = "ours"
 see = "sim::world::arena::orders"
 
 [arena.terminal]
-title = "Debug Terminal"
+title = "Debug Character Page"
 summary = """
-A computer on the Debug Mode map lets the player change a party member's
-class, level, attributes, skills and alignment, the party's credits, and
-the items the party carries. An attribute can be set from
+A computer on the Debug Mode map opens a page that changes a party member's
+class, level, attributes, skills and alignment. An attribute can be set from
 {world.arena.terminal.ability_least:bare} to
 {world.arena.terminal.ability_most:bare}. A skill can be set from 0 to
 {world.arena.terminal.skill_most:bare} ranks. Alignment can be set from 0 to
-{world.arena.terminal.alignment_most:bare}, or moved by
-{world.arena.terminal.alignment_step:bare}. The terminal adds
-{world.arena.terminal.credits_small:bare} or
-{world.arena.terminal.credits_large:bare} credits at a time. It adds one of
-every item of a kind, and {world.arena.terminal.stack:bare} of each item
-that stacks.
+{world.arena.terminal.alignment_most:bare}. The character on the Debug Mode
+map starts with one of every item that is not a plot item, and
+{world.arena.terminal.stack:bare} of each grenade, mine, medical item and
+stimulant.
 """
 
 [arena.terminal.ability_least]
@@ -271,7 +268,7 @@ name = "Lowest Attribute"
 type = "u8"
 value = 1
 range = [1, 10]
-summary = "The Debug terminal sets an attribute no lower than {world.arena.terminal.ability_least:bare}."
+summary = "The Debug character page sets an attribute no lower than {world.arena.terminal.ability_least:bare}."
 source = "ours"
 see = "sim::world::arena::edits"
 
@@ -280,7 +277,7 @@ name = "Highest Attribute"
 type = "u8"
 value = 50
 range = [18, 100]
-summary = "The Debug terminal sets an attribute no higher than {world.arena.terminal.ability_most:bare}."
+summary = "The Debug character page sets an attribute no higher than {world.arena.terminal.ability_most:bare}."
 source = "ours"
 see = "sim::world::arena::edits"
 
@@ -289,7 +286,7 @@ name = "Highest Skill Rank"
 type = "u8"
 value = 50
 range = [1, 100]
-summary = "The Debug terminal sets a skill no higher than {world.arena.terminal.skill_most:bare} ranks."
+summary = "The Debug character page sets a skill no higher than {world.arena.terminal.skill_most:bare} ranks."
 source = "ours"
 see = "sim::world::arena::edits"
 
@@ -302,41 +299,14 @@ summary = "Alignment runs from 0 (dark) to {world.arena.terminal.alignment_most:
 source = "both games' alignment"
 see = "sim::world::arena::edits"
 
-[arena.terminal.alignment_step]
-name = "Alignment Step"
-type = "u8"
-value = 10
-range = [1, 50]
-summary = "The Debug terminal moves alignment by {world.arena.terminal.alignment_step:bare} at a time."
-source = "ours"
-see = "game::debug_terminal"
-
-[arena.terminal.credits_small]
-name = "Credits Added"
-type = "i32"
-value = 1000
-range = [1, 1000000]
-summary = "The Debug terminal's smaller grant adds {world.arena.terminal.credits_small:bare} credits."
-source = "ours"
-see = "game::debug_terminal"
-
-[arena.terminal.credits_large]
-name = "More Credits Added"
-type = "i32"
-value = 10000
-range = [1, 1000000]
-summary = "The Debug terminal's larger grant adds {world.arena.terminal.credits_large:bare} credits."
-source = "ours"
-see = "game::debug_terminal"
-
 [arena.terminal.stack]
 name = "Items in a Stack"
 type = "u16"
 value = 10
 range = [1, 100]
-summary = "The Debug terminal adds {world.arena.terminal.stack:bare} of each item that stacks."
+summary = "The character on the Debug Mode map starts with {world.arena.terminal.stack:bare} of each grenade, mine, medical item and stimulant."
 source = "ours"
-see = "sim::world::arena::edits"
+see = "game::arena::gear"
 
 [force_costs]
 title = "Force Point Cost"

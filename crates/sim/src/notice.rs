@@ -75,7 +75,7 @@ pub enum Screen {
     /// executable's `ShowSwoopUpgradeScreen(OBJECT_INVALID)`).
     SwoopUpgrade,
     /// The Debug Mode map's terminal, used by the seat's body
-    /// (`world::arena`): the screen that changes a party member.
+    /// (`world::arena`): the page that changes a party member.
     DebugTerminal,
 }
 

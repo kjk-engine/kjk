@@ -51,9 +51,9 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// conversations and whether a screen is open (`Action::JoinTalks`,
 /// `Action::Screen`). A seat other than the first may take over a companion
 /// that nobody plays (`Action::Play`, wire tag 69). 11: a seat may give the
-/// Debug Mode terminal's orders (`ArenaOrder::Rebuild` to
-/// `ArenaOrder::Restore`), and a host may open the terminal's screen for a
-/// seat (`Screen::DebugTerminal`).
+/// Debug Mode character page's orders (`ArenaOrder::Rebuild` to
+/// `ArenaOrder::Restore`), and a host may open that page for a seat
+/// (`Screen::DebugTerminal`).
 pub const PROTOCOL_VERSION: u16 = 11;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
