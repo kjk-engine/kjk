@@ -205,6 +205,10 @@ impl Plugin for AmbientFxPlugin {
 struct Paced {
     generation: Option<u32>,
     next: Vec<Option<f32>>,
+    /// The name each effect is played by (`kept`), looked up once when
+    /// the scene is taken. Each play then needs no name made and no look
+    /// in `NAMES`.
+    names: Vec<&'static str>,
 }
 
 /// Asks `combat_fx` to play each of the scene's ambient effects
@@ -227,6 +231,9 @@ fn play(
         *paced = Paced {
             generation,
             next: vec![None; effects.len()],
+            names: (effects.iter())
+                .map(|effect| kept(&effect.played_name()))
+                .collect(),
         };
     }
     if effects.is_empty() {
@@ -237,7 +244,8 @@ fn play(
         .iter()
         .next()
         .map(|camera| crate::scene::game_to_bevy().inverse() * camera.translation());
-    for (effect, next) in effects.iter().zip(paced.next.iter_mut()) {
+    let Paced { next, names, .. } = &mut *paced;
+    for ((effect, next), &name) in effects.iter().zip(next.iter_mut()).zip(names.iter()) {
         let near = eye.is_none_or(|eye| eye.distance(Vec3::from_array(effect.at)) <= REACH);
         let every = (effect.every * 1000.0).max(FRAME_MS);
         let due = next.get_or_insert(now);
@@ -249,7 +257,7 @@ fn play(
         }
         while *due <= now {
             bursts.0.push(Burst {
-                effect: kept(&effect.played_name()),
+                effect: name,
                 at: Vec3::from_array(effect.at) / UNIT,
                 normal: Vec3::from_array(effect.forward()),
                 ms: *due,
