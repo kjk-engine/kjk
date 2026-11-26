@@ -15,7 +15,8 @@ rules.workspace = true
 # the game.
 probes = ["audit"]
 # The containment audit alone (`audit`), which the level editor's Audit
-# button runs, also in a release (`launcher`'s `editor_tools`).
+# button runs, also in a release's level editor package (`launcher`'s
+# `editor_tools`).
 audit = []
 
 [lints]

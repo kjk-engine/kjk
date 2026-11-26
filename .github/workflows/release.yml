@@ -11,6 +11,10 @@
 # and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so it runs on
 # newer systems and the Steam Deck too). Nothing is signed (the
 # owner's call; the player's readme says how to open the app).
+#
+# The level editor has a package of its own for each OS
+# (`kjk-level-editor-…`, the `level-editor` job), which goes on the same
+# draft. The player's package does not hold it.
 name: release
 
 on:
@@ -124,7 +128,7 @@ jobs:
           cd target/packages
           ls -la
           stage=$(ls -d kjk-*/ | head -n 1)
-          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html THIRD-PARTY-LICENSES-save-editor.html THIRD-PARTY-LICENSES-level-editor.html; do
+          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html THIRD-PARTY-LICENSES-save-editor.html; do
             test -f "$stage$f" || { echo "missing $f"; exit 1; }
           done
           # NVIDIA's release library (never a development one), its
@@ -139,8 +143,8 @@ jobs:
             esac
             cmp "$stage$library" "$DLSS_SDK/lib/$platform/rel/$library"
           fi
-          # kjk and the two editors beside it, each started once.
-          for pair in "kjk.app:kjk" "kjk Save Editor.app:kjk-save-editor" "kjk Level Editor.app:kjk-level-editor"; do
+          # kjk and the save editor beside it, each started once.
+          for pair in "kjk.app:kjk" "kjk Save Editor.app:kjk-save-editor"; do
             app="${stage}${pair%%:*}"
             binary="${pair##*:}"
             case "$RUNNER_OS" in
@@ -171,6 +175,106 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
+          path: |
+            target/packages/*.tar.gz
+            target/packages/*.zip
+          if-no-files-found: error
+
+  # The level editor's package (docs/RELEASE.md, "The level editor's
+  # package"): the level editor, a kjk for it to start and the light rules
+  # its bake reads. It is apart from the player's package, so that package
+  # is the same with or without the editor, and a player who does not edit
+  # levels downloads none of it. The launcher can later offer this package
+  # as a separate choice to install. A job of its own: the player's package
+  # is built as before, and neither build waits for the other.
+  level-editor:
+    name: level editor package (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    # The attestation's signing identity and its store.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: *systems
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `git describe` names the package by the tag.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      # Bevy's window crates and the sound device (cpal) link these.
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.3
+
+      # The dependencies as built last time, in `target/level-editor`. Main
+      # and hand runs save them; a tag's run only reads.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_type != 'tag' }}
+
+      # As in the player's package: only this build's folder may be there.
+      - name: no package from the cache
+        run: rm -rf target/packages
+
+      # The level editor, then its kjk, one after the other (`xtask dist`).
+      - name: package
+        shell: pwsh
+        run: cargo xtask dist --level-editor
+
+      - name: check the package
+        run: |
+          cd target/packages
+          ls -la
+          stage=$(ls -d kjk-level-editor-*/ | head -n 1)
+          for f in README.txt LICENSE.txt NOTICE.txt THIRD-PARTY-LICENSES.html THIRD-PARTY-LICENSES-level-editor.html data/lights/fittings.toml data/lights/bake.toml; do
+            test -f "$stage$f" || { echo "missing $f"; exit 1; }
+          done
+          # The level editor and its kjk, each started once.
+          for pair in "kjk Level Editor.app:kjk-level-editor" "kjk.app:kjk"; do
+            app="${stage}${pair%%:*}"
+            binary="${pair##*:}"
+            case "$RUNNER_OS" in
+              macOS)
+                plutil -lint "$app/Contents/Info.plist"
+                test -f "$app/Contents/Resources/kjk.icns"
+                codesign --verify --strict -vv "$app"
+                program="$app/Contents/MacOS/$binary" ;;
+              Windows) program="${stage}${binary}.exe" ;;
+              *) program="${stage}${binary}" ;;
+            esac
+            file "$program" || true
+            "$program" --help
+          done
+          # This kjk has the two commands the editor runs, which the
+          # player's kjk does not have.
+          "$program" detail-bake --help > /dev/null
+          "$program" collision audit --help > /dev/null
+
+      - uses: actions/attest-build-provenance@v2
+        # Not main's cache-saving builds, which nobody downloads.
+        if: github.ref != 'refs/heads/main'
+        with:
+          subject-path: |
+            target/packages/*.tar.gz
+            target/packages/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: level-editor-${{ matrix.artifact }}
           path: |
             target/packages/*.tar.gz
             target/packages/*.zip
@@ -224,7 +328,7 @@ jobs:
   # missing; it can be built and added to the draft later (docs/RELEASE.md).
   release:
     name: draft release
-    needs: [package, sim]
+    needs: [package, level-editor, sim]
     if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.prerelease)
     runs-on: ubuntu-latest
     permissions:
@@ -245,12 +349,17 @@ jobs:
         run: |
           mkdir packages
           for system in macos-arm64 windows-x86_64 linux-x86_64; do
-            [ -d "artifacts/$system" ] || continue
-            if [ -d "artifacts/sim-$system" ]; then
-              mv "artifacts/$system"/* packages/
-            else
-              echo "::warning::the sim determinism test did not pass on $system: its package is not on the draft"
-            fi
+            # The player's package of that OS, and the level editor's, which
+            # holds a kjk too. Each is taken if it built: neither waits for
+            # the other.
+            for built in "$system" "level-editor-$system"; do
+              [ -d "artifacts/$built" ] || continue
+              if [ -d "artifacts/sim-$system" ]; then
+                mv "artifacts/$built"/* packages/
+              else
+                echo "::warning::the sim determinism test did not pass on $system: the package $built is not on the draft"
+              fi
+            done
           done
 
       - name: checksums
@@ -261,14 +370,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          built="" missing=""
+          built="" missing="" no_editor=""
           for pair in "macos-aarch64:macOS (Apple silicon)" "windows-x86_64:Windows (x86-64)" "linux-x86_64:Linux (x86-64)"; do
             label=${pair#*:}
-            if compgen -G "packages/kjk-*-${pair%%:*}.*" >/dev/null; then
+            # The player's package of that OS. The level editor's has the
+            # same ending, so it is told apart by its name.
+            players=""
+            for file in packages/kjk-*-"${pair%%:*}".*; do
+              case "$(basename "$file")" in
+                kjk-level-editor-*) ;;
+                *) if [ -e "$file" ]; then players=yes; fi ;;
+              esac
+            done
+            if [ -n "$players" ]; then
               built+="${built:+, }$label"
             else
               missing+="${missing:+, }$label"
               echo "::warning::no $label package: it is not on the draft"
+            fi
+            if ! compgen -G "packages/kjk-level-editor-*-${pair%%:*}.*" >/dev/null; then
+              no_editor+="${no_editor:+, }$label"
+              echo "::warning::no $label level editor package: it is not on the draft"
             fi
           done
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
@@ -291,6 +413,8 @@ jobs:
           fi
           notes="${intro}Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum; \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` proves a package was built by this repository's release workflow."
           [ -z "$missing" ] || notes+=" The $missing build is not here yet."
+          notes+=" The kjk-level-editor packages hold the level editor, which is apart from the game: unpack one into a folder of its own and read its README.txt."
+          [ -z "$no_editor" ] || notes+=" The $no_editor level editor package is not here yet."
           gh release create "$tag" packages/* \
             --repo "$GITHUB_REPOSITORY" --draft "${how[@]}" \
             --title "$title" --notes "$notes"

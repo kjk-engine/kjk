@@ -1,12 +1,9 @@
 //! `cargo xtask dist`: the player's build of this machine's OS, packed
 //! (docs/RELEASE.md). `kjk` built with the `dist` profile and without the
 //! verbs that check and measure or Steam (`--no-default-features`: nothing
-//! but MIT code and the crates' own licences ships), but with the two the
-//! level editor runs (`editor_tools`: `detail-bake` and `collision
-//! audit`), so a release's editor bakes and audits as a build from source
-//! does. It is staged with the player's readme, the licences, the crates'
-//! licences (`cargo about`, `about.toml`) and the light rule data the
-//! editor's bake reads (`data/lights`, `LIGHT_DATA`), and packed:
+//! but MIT code and the crates' own licences ships), then staged with the
+//! player's readme, the licences and the crates' licences (`cargo about`,
+//! `about.toml`) and packed:
 //! - Windows: `kjk-<version>-windows-<arch>.zip`, the folder inside;
 //! - macOS: `kjk.app` with its icon (unsigned: the readme says how to
 //!   open it), in
@@ -16,14 +13,24 @@
 //! The save editor (`kjk-save-editor`, `crates/save_editor`) is built from
 //! the same commit in a cargo run of its own (so kjk's build is the same
 //! with or without it) and staged beside kjk: `kjk Save Editor.app` on
-//! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`. The level
-//! editor (`kjk-level-editor`, `crates/level_editor`, docs/LEVEL-EDIT.md)
-//! is built and staged the same way, with
-//! `THIRD-PARTY-LICENSES-level-editor.html`.
+//! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`.
 //!
 //! Everything goes to `target/packages/`. `--skip-build` packs the
 //! programs the last run built; `--pgo <profile>` builds kjk with a profile
 //! `cargo xtask pgo` made (docs/RELEASE.md, "A profile-guided build").
+//!
+//! `--level-editor` packs the level editor instead, in a package of its
+//! own (`kjk-level-editor-<version>-<os>-<arch>`), so the player's package
+//! is the same with or without the editor. It holds the level editor
+//! (`kjk-level-editor`, `crates/level_editor`, docs/LEVEL-EDIT.md), a `kjk`
+//! for the editor to start, and the light rule data the editor's bake reads
+//! (`data/lights`, `LIGHT_DATA`). That `kjk` is built as the player's is,
+//! with the two verbs the editor runs added (`editor_tools`: `detail-bake`
+//! and `collision audit`), so a release's editor plays, bakes and audits
+//! as a build from source does. Both programs are built in
+//! `target/level-editor`, one after the other. The editor links all of
+//! Bevy as kjk does, and two such builds at once need more memory than a
+//! CI runner has. The option takes neither `--dlss` nor `--pgo`.
 //!
 //! `--dlss` (Windows and Linux) builds kjk with the `dlss` feature against
 //! NVIDIA's SDK in `DLSS_SDK` (docs/BUILD.md) and stages beside it what
@@ -94,23 +101,56 @@ itself. Every change is listed and can be undone, the save is checked
 before it is written, and the save as it was is kept beside it
 (<id>.backup-<time>). On the Steam Deck it runs in Desktop Mode.
 
-Level editor
-------------
-kjk-level-editor (kjk Level Editor.app on macOS) changes a KOTOR area or
-makes a new map from its rooms, saved into a project of its own, never into
-the game: objects, Jedi Academy props, collision boxes, the navigation mesh,
-lights placed by hand, and scripts written, compiled and tried in it. Play
-starts kjk on the project. Started with nothing, it lists the projects and
-the levels to pick from. Projects are kept in the projects folder beside
-the saves (Windows %APPDATA%\\kjk\\projects). Its containment audit and
-its light bake work as in kjk built from source. A bake is made in the
-light-kinds folder beside the projects, and the bake reads the light rules
-in data/lights beside the programs.
-
 Movies need ffmpeg on the PATH; without it they are skipped.
 
 Co-op: friends join by the host's address, as on a LAN; over the internet
 the host forwards UDP port 29170.
+";
+
+/// What the level editor's package says first (`--level-editor`).
+const LEVEL_EDITOR_README: &str = "\
+kjk level editor
+================
+
+The level editor changes an area of Knights of the Old Republic or Knights
+of the Old Republic II, or makes a new map from the games' rooms. You place
+objects, Jedi Academy props, collision boxes, lights and lamps, edit the
+navigation mesh, and write, compile and try scripts and conversations. The
+editor saves its work into a project of its own. It never changes the
+games' files.
+
+The editor reads your own copies of the games, as kjk does. No game data
+comes with it.
+
+This package is separate from kjk's own package. It holds three things:
+  - kjk-level-editor, the editor (kjk Level Editor.app on macOS).
+  - kjk, a copy of the game that the editor starts when you press Play,
+    Audit or Bake. This copy has two commands that the kjk of the player's
+    package does not have: detail-bake and collision audit.
+  - data/lights, the light rules that a bake reads.
+Keep the three together. Unpack the package into a folder of its own, not
+into the folder of kjk's own package.
+
+Starting
+--------
+Windows:  run kjk-level-editor.exe.
+Linux:    run ./kjk-level-editor.
+macOS:    the apps are not signed by a known developer, so macOS refuses
+          them the first time. Run this once in Terminal from the folder
+          they are in:
+              xattr -dr com.apple.quarantine \"kjk Level Editor.app\" kjk.app
+
+Started with nothing, the editor lists your projects and the levels of
+your games to pick from. It finds your games as kjk does, and it uses the
+settings kjk keeps.
+
+Where things are kept
+---------------------
+Projects are kept in the projects folder of kjk's own folder:
+  Windows  %APPDATA%\\kjk\\projects
+  macOS    ~/Library/Application Support/kjk/projects
+  Linux    ~/.config/kjk/projects
+A bake is made in the light-kinds folder beside the projects folder.
 ";
 
 /// The readme's last word: whose names and code the package holds.
@@ -119,8 +159,17 @@ Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
 their respective owners; kjk is not affiliated with or endorsed by
 them. kjk is MIT licensed (LICENSE); NOTICE credits the projects read
 as references, and THIRD-PARTY-LICENSES.html lists the libraries it is
-built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's,
-THIRD-PARTY-LICENSES-level-editor.html the level editor's).
+built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
+";
+
+/// `LEGAL_README` in the level editor's package.
+const LEGAL_README_LEVEL_EDITOR: &str = "
+Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
+their respective owners; kjk is not affiliated with or endorsed by
+them. kjk and its level editor are MIT licensed (LICENSE); NOTICE credits
+the projects read as references. THIRD-PARTY-LICENSES.html lists the
+libraries kjk is built from, and THIRD-PARTY-LICENSES-level-editor.html
+lists the level editor's.
 ";
 
 /// `LEGAL_README` in a package with NVIDIA's files, which LICENSE does not
@@ -131,8 +180,7 @@ their respective owners; kjk is not affiliated with or endorsed by
 them. kjk's own code is MIT licensed (LICENSE); the NVIDIA files are not
 (see DLSS below). NOTICE credits the projects read as references, and
 THIRD-PARTY-LICENSES.html lists the libraries it is built from
-(THIRD-PARTY-LICENSES-save-editor.html the save editor's,
-THIRD-PARTY-LICENSES-level-editor.html the level editor's).
+(THIRD-PARTY-LICENSES-save-editor.html the save editor's).
 ";
 
 /// What the readme adds in a package built with `--dlss`.
@@ -154,12 +202,14 @@ the code in it. NVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut skip_build = false;
     let mut dlss = false;
+    let mut level_editor = false;
     let mut profile: Option<PathBuf> = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--skip-build" => skip_build = true,
             "--dlss" => dlss = true,
+            "--level-editor" => level_editor = true,
             "--pgo" => {
                 let path = args
                     .next()
@@ -172,20 +222,34 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             other => {
                 return Err(format!(
-                    "dist: unknown option {other} (--skip-build, --dlss, --pgo <profile>)"
+                    "dist: unknown option {other} (--skip-build, --dlss, --pgo <profile>, --level-editor)"
                 ));
             }
         }
     }
+    if level_editor && (dlss || profile.is_some()) {
+        return Err(
+            "dist: --level-editor takes neither --dlss nor --pgo: the kjk in the level editor's package is built without them"
+                .to_string(),
+        );
+    }
     // The SDK's folder, checked before a build that would need it.
     let dlss_sdk = dlss.then(Dlss::from_env).transpose()?;
-    let kjk_features: &[&str] = if dlss {
-        &["--no-default-features", "--features", "editor_tools,dlss"]
-    } else {
+    let kjk_features: &[&str] = if level_editor {
         &["--no-default-features", "--features", "editor_tools"]
+    } else if dlss {
+        &["--no-default-features", "--features", "dlss"]
+    } else {
+        &["--no-default-features"]
     };
-    // Each program and the features it is built (and its licences read) with.
-    let programs = [(KJK, kjk_features), (EDITOR, &[]), (LEVEL_EDITOR, &[])];
+    // Each program of the package and the features it is built (and its
+    // licences read) with: kjk and the save editor in the player's package,
+    // the level editor and its kjk in the level editor's.
+    let programs: [(Program, &[&str]); 2] = if level_editor {
+        [(LEVEL_EDITOR, &[]), (KJK, kjk_features)]
+    } else {
+        [(KJK, kjk_features), (EDITOR, &[])]
+    };
     let root = repo_root();
     let packages = target_dir(&root).join("packages");
     create(&packages)?;
@@ -199,11 +263,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
     if !skip_build {
         let remaps = remaps(&root);
         // One cargo run each: the editor's crates and features never touch
-        // kjk's build. Both run at once, each in a build folder of its own
-        // (one folder takes one cargo run at a time): fat LTO optimises kjk
-        // on one core for most of its build, and the editor builds on the
-        // other cores meanwhile.
+        // kjk's build. In the player's package both run at once, each in a
+        // build folder of its own (one folder takes one cargo run at a
+        // time): fat LTO optimises kjk on one core for most of its build,
+        // and the save editor builds on the other cores meanwhile. In the
+        // level editor's package they run one after the other in one
+        // folder (`build_dir`). Each of the two links all of Bevy with fat
+        // LTO, which takes most of a CI runner's memory, and the second
+        // run takes the crates both are built from as the first built them.
         let mut builds = Vec::new();
+        let mut failed = Vec::new();
         for (program, features) in programs {
             // kjk laid out by where a profile says its time goes (`cargo
             // xtask pgo`); a function changed since the profile was made is
@@ -213,20 +282,29 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 flags.push(format!("-Cprofile-use={}", profile.display()));
                 flags.push("-Cllvm-args=-no-pgo-warn-mismatch".to_string());
             }
-            let build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            let mut build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
                 .current_dir(&root)
                 .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\u{1f}"))
                 .args(["build", "--profile", "dist", "-p", program.package])
                 .arg("--target-dir")
-                .arg(build_dir(&root, &program))
+                .arg(build_dir(&root, &program, level_editor))
                 .args(features)
                 .spawn()
                 .map_err(|error| format!("cargo build: {error}"))?;
-            builds.push((program, build));
+            if level_editor {
+                let status = build
+                    .wait()
+                    .map_err(|error| format!("cargo build: {error}"))?;
+                if !status.success() {
+                    failed.push(program.package);
+                    break;
+                }
+            } else {
+                builds.push((program, build));
+            }
         }
         // Both are waited for before a failure is reported, so neither is
         // left running.
-        let mut failed = Vec::new();
         for (program, mut build) in builds {
             let status = build
                 .wait()
@@ -243,14 +321,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
     let built = |program: &Program| {
-        let built = build_dir(&root, program).join("dist").join(program.file());
+        let built = build_dir(&root, program, level_editor)
+            .join("dist")
+            .join(program.file());
         if built.is_file() {
             Ok(built)
         } else {
             Err(format!("dist: {} is not built", built.display()))
         }
     };
-    let builds = [built(&KJK)?, built(&EDITOR)?, built(&LEVEL_EDITOR)?];
+    let builds = [built(&programs[0].0)?, built(&programs[1].0)?];
 
     let version = version()?;
     let os = match std::env::consts::OS {
@@ -258,14 +338,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "windows" => "windows",
         _ => "linux",
     };
-    let name = format!("kjk-{version}-{os}-{}", std::env::consts::ARCH);
+    let package = if level_editor {
+        "kjk-level-editor"
+    } else {
+        "kjk"
+    };
+    let name = format!("{package}-{version}-{os}-{}", std::env::consts::ARCH);
     let stage = packages.join(&name);
     if stage.exists() {
         std::fs::remove_dir_all(&stage).map_err(|error| format!("{}: {error}", stage.display()))?;
     }
     std::fs::create_dir_all(&stage).map_err(|error| format!("{}: {error}", stage.display()))?;
 
-    for (program, built) in [KJK, EDITOR, LEVEL_EDITOR].iter().zip(&builds) {
+    for ((program, _), built) in programs.iter().zip(&builds) {
         if os == "macos" {
             let app = stage.join(program.app).join("Contents");
             let binaries = app.join("MacOS");
@@ -283,10 +368,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             sdk.stage(&stage)?;
             format!("{PLAYERS_README}{LEGAL_README_DLSS}{DLSS_README}")
         }
+        None if level_editor => format!("{LEVEL_EDITOR_README}{LEGAL_README_LEVEL_EDITOR}"),
         None => format!("{PLAYERS_README}{LEGAL_README}"),
     };
     write(&stage.join("README.txt"), &readme)?;
-    copy_folder(&root.join(LIGHT_DATA), &stage.join(LIGHT_DATA))?;
+    if level_editor {
+        copy_folder(&root.join(LIGHT_DATA), &stage.join(LIGHT_DATA))?;
+    }
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
     copy(&root.join("NOTICE"), &stage.join("NOTICE.txt"))?;
     for ((program, _), (mut writing, page)) in programs.into_iter().zip(licences) {
@@ -554,13 +642,17 @@ pub(crate) fn target_dir(root: &Path) -> PathBuf {
 }
 
 /// Where cargo builds `program`: kjk in the target folder, the editor in a
-/// folder of its own inside it, so both build at once.
-fn build_dir(root: &Path, program: &Program) -> PathBuf {
+/// folder of its own inside it, so both build at once. In the level
+/// editor's package (`level_editor`), the level editor and its kjk are both
+/// built in a third folder. That kjk has other features than the player's,
+/// and built in the target folder, each of the two would be built again
+/// after the other.
+fn build_dir(root: &Path, program: &Program, level_editor: bool) -> PathBuf {
     let target = target_dir(root);
-    if program.package == EDITOR.package {
-        target.join("editor")
-    } else if program.package == LEVEL_EDITOR.package {
+    if level_editor {
         target.join("level-editor")
+    } else if program.package == EDITOR.package {
+        target.join("editor")
     } else {
         target
     }

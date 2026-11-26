@@ -1,9 +1,10 @@
 //! The two checking verbs the level editor runs (`docs/LEVEL-EDIT.md`):
 //! `kjk detail-bake`, which its Bake buttons run, and `kjk collision
 //! audit`, which its Audit button runs. They are built with the
-//! `editor_tools` feature. A release builds `kjk` with it, so that the
-//! editor of a release bakes and audits as a build from source does
-//! (`xtask dist`). The `probes` feature, which builds every checking verb,
+//! `editor_tools` feature. A release builds the `kjk` of the level editor's
+//! package with it, so that the editor of a release bakes and audits as a
+//! build from source does (`xtask dist --level-editor`). The player's
+//! `kjk` is built without it. The `probes` feature, which builds every checking verb,
 //! takes them in too, and then `verbs` lists them among the others.
 
 use std::process::ExitCode;

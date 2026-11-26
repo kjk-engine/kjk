@@ -123,9 +123,10 @@ jobs:
       - name: clippy (no probes)
         run: cargo clippy -p launcher --all-targets --no-default-features -- -D warnings
 
-      # The release's kjk: the game with the two verbs the level editor runs
-      # (`editor_tools`), as `cargo xtask dist` builds it.
-      - name: clippy (release features)
+      # The kjk of the level editor's package: the game with the two verbs
+      # the level editor runs (`editor_tools`), as `cargo xtask dist
+      # --level-editor` builds it.
+      - name: clippy (level editor package's kjk)
         run: cargo clippy -p launcher --all-targets --no-default-features --features editor_tools -- -D warnings
 
   # kjk itself (the launcher, which links Bevy), so a change that only
