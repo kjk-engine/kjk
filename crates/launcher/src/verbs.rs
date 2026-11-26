@@ -454,7 +454,8 @@ pub(crate) enum Verb {
         /// lighting. `taa`,
         /// `taa-quality`, `taa-balanced`, `taa-performance`,
         /// `taa-ultra-performance` and `dlss-performance` set the
-        /// anti-aliasing alone
+        /// anti-aliasing alone. `taa-sharpen-off` is `taa` with the
+        /// Sharpening setting off
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones

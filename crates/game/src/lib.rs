@@ -181,6 +181,7 @@ mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
 pub mod shadows;
+pub mod sharpen;
 mod shell;
 pub mod shot_fx;
 pub mod shots;
