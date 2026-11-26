@@ -1183,6 +1183,64 @@ fn shots_stop_as_drawn() -> Result<String, String> {
     )
 }
 
+/// A member of the party stands as the player's faction, whatever its own
+/// faction (`module::relation`), as KOTOR 2's executable reads a party
+/// member's reputation. The table has the player and `HOSTILE_1` at war,
+/// and no row for TSL's puppets' faction (23), so a puppet outside the
+/// party is neutral to the hostile one. In the party (Bao-Dur's Remote on
+/// Malachor, played or following), it is the hostile one's enemy, and
+/// two members of the party are on one side whatever their factions.
+fn party_stands_as_the_player() -> Result<String, String> {
+    use crate::combat::Relation;
+    use crate::combat::sheet::factions;
+    use crate::module::{Side, UNADJUSTED, relation};
+    const PUPPETS: u8 = 23;
+    let repute = Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
+    let standing = Some(repute.with(&UNADJUSTED));
+    let side = |id, faction, party| Side { id, faction, party };
+    let beast = side(1, factions::HOSTILE_1, false);
+    let cases = [
+        (
+            "the puppet in the party",
+            side(2, PUPPETS, true),
+            beast,
+            Relation::Hostile,
+        ),
+        (
+            "the puppet outside it",
+            side(2, PUPPETS, false),
+            beast,
+            Relation::Outsider { aimed: false },
+        ),
+        (
+            "the beast against the puppet in the party",
+            beast,
+            side(2, PUPPETS, true),
+            Relation::Hostile,
+        ),
+        (
+            "two members, one turned hostile",
+            side(2, factions::HOSTILE_1, true),
+            side(3, factions::PLAYER, true),
+            Relation::Party,
+        ),
+    ];
+    let seen: Vec<String> = cases
+        .iter()
+        .map(|(name, a, b, want)| {
+            let got = relation(standing, *a, *b);
+            format!(
+                "{name}: {got:?}{}",
+                if got == *want { "" } else { " (wrong)" }
+            )
+        })
+        .collect();
+    check(
+        !seen.iter().any(|line| line.ends_with("(wrong)")),
+        seen.join("; "),
+    )
+}
+
 /// A probe: what it saw, as a pass or a failure.
 type Probe = fn() -> Result<String, String>;
 
@@ -1211,6 +1269,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("kept_by_party", kept_by_party),
         ("solo_mode_by_the_first_seat", solo_by_seat),
         ("shots_stop_as_drawn", shots_stop_as_drawn),
+        ("party_stands_as_the_player", party_stands_as_the_player),
     ];
     cases.into_iter().map(|(name, run)| (name, run())).collect()
 }

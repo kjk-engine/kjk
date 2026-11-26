@@ -1535,24 +1535,43 @@ pub struct Side {
 
 /// How `a` stands to `b`, the one rule every system asks (the damage
 /// pipeline, shots, blades, powers, minds, the party's fight): the same
-/// character; hostile by faction (KOTOR's `GetIsEnemy`, `repute.2da` as
-/// scripts adjusted it); one side, both in the party or friends by faction
-/// (`GetIsFriend`); else an outsider (`aimed` false: the caller knows whom
-/// an attack was made at). Without a module's table only the same
-/// character and the party are known. What a side's own attacks may do to
-/// it is the friendly-fire mode's (`FriendlyFire::spares`).
+/// character; one side when both are in the party; hostile by faction
+/// (KOTOR's `GetIsEnemy`, `repute.2da` as scripts adjusted it); one side
+/// when friends by faction (`GetIsFriend`); else an outsider (`aimed`
+/// false: the caller knows whom an attack was made at). Without a module's
+/// table only the same character and the party are known. What a side's own
+/// attacks may do to it is the friendly-fire mode's
+/// (`FriendlyFire::spares`).
+///
+/// A character in the party stands as the player's faction, whatever its
+/// own faction is (`party_faction`). KOTOR 2's executable reads a party
+/// member's reputation this way. This matters for TSL's puppets: Bao-Dur's
+/// Remote keeps the puppets' faction, which `repute.2da` leaves neutral to
+/// the hostile factions, so without the rule the Remote could not harm the
+/// storm beasts on Malachor while the beasts could harm it.
 pub fn relation(standing: Option<Standing<'_>>, a: Side, b: Side) -> crate::combat::Relation {
     use crate::combat::Relation;
+    let (from, to) = (party_faction(a), party_faction(b));
     if a.id == b.id {
         Relation::Itself
-    } else if standing.is_some_and(|standing| standing.hostile(a.faction, b.faction)) {
+    } else if a.party && b.party {
+        Relation::Party
+    } else if standing.is_some_and(|standing| standing.hostile(from, to)) {
         Relation::Hostile
-    } else if (a.party && b.party)
-        || standing.is_some_and(|standing| standing.friendly(a.faction, b.faction))
-    {
+    } else if standing.is_some_and(|standing| standing.friendly(from, to)) {
         Relation::Party
     } else {
         Relation::Outsider { aimed: false }
+    }
+}
+
+/// The faction `side` stands as in `relation`: the player's for a member of
+/// the party, else its own.
+pub fn party_faction(side: Side) -> u8 {
+    if side.party {
+        crate::combat::sheet::factions::PLAYER
+    } else {
+        side.faction
     }
 }
 

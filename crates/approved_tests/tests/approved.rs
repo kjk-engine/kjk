@@ -4865,13 +4865,16 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// So does the check that a conversation's end scripts begin no
+/// conversation again (`ending_begins_nothing`, TSLRCM's HK-50s and
+/// sisters).
 /// The nineteen checks of shared conversations (`shared_*`: free players
 /// near the main character's player joining its conversations, and the
 /// reply a player takes shown to the others before it runs; issues 636 and
 /// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 166);
+    probed("coop talk", &sim::coop_talk::probes(), 167);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4918,10 +4921,13 @@ fn scene_mode() {
 /// a break's freeze and the ready check, and what enters a trigger; the sim
 /// alone. The check that the view and the shots agree on whom a player's
 /// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
-/// the other player only with friendly fire full) awaits approval.
+/// the other player only with friendly fire full) awaits approval. So
+/// does the check that a member of the party stands as the player's
+/// faction (`party_stands_as_the_player`: Bao-Dur's Remote against the
+/// storm beasts on Malachor).
 #[test]
 fn party_calls() {
-    probed("party", &sim::party::probes(), 20);
+    probed("party", &sim::party::probes(), 21);
 }
 
 /// Which companions a player may choose (`sim::script::party_choice`),
