@@ -16,5 +16,12 @@ a member of the workspace, so kjk's lints and formatting do not apply to it.
   licence files are the project's own, from its repository; the crates.io
   packages leave them out.
 
+The copy is for egui 0.36 alone. From egui 0.37 on, egui and epaint ship
+their fonts only to a program that asks for them, so the crates.io packages
+need no change. `bevy_egui` and `transform-gizmo` have no release for egui
+0.37 yet. When both have one, the level editor moves to egui 0.37, and this
+folder and the `[patch.crates-io]` entries are removed. The level editor
+and the save editor are then built on one egui.
+
 To move one to a newer version, copy the new package from cargo's registry
 over its folder and make the same changes again.

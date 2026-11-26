@@ -157,7 +157,9 @@ strip = true
 # The level editor's move, rotate and scale handles (transform-gizmo-egui),
 # carried in third_party/ with egui's own fonts left out: crates.io's ask for
 # egui's default features, which ship fonts under OFL-1.1 and the Ubuntu
-# font licence, licences kjk does not take (about.toml).
+# font licence, licences kjk does not take (about.toml). The copy goes when
+# the level editor moves to egui 0.37, which ships no fonts unless asked
+# (third_party/README.md).
 [patch.crates-io]
 transform-gizmo = { path = "third_party/transform-gizmo" }
 transform-gizmo-egui = { path = "third_party/transform-gizmo-egui" }
