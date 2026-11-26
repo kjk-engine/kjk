@@ -31,9 +31,15 @@ as Valve's test app 480), so Steam co-op is for builds made from source
 
 | OS | package | inside |
 |---|---|---|
-| Windows | `kjk-<version>-windows-<arch>.zip` | `kjk.exe`, `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html` |
-| macOS | `kjk-<version>-macos-<arch>.tar.gz` | `kjk.app` (the program in `Contents/MacOS`), the same texts |
-| Linux, Steam Deck | `kjk-<version>-linux-<arch>.tar.gz` | `kjk`, the same texts |
+| Windows | `kjk-<version>-windows-<arch>.zip` | `kjk.exe`, `kjk-save-editor.exe`, `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`, `THIRD-PARTY-LICENSES-save-editor.html` |
+| macOS | `kjk-<version>-macos-<arch>.tar.gz` | `kjk.app` and `kjk Save Editor.app` (each program in its `Contents/MacOS`), the same texts |
+| Linux, Steam Deck | `kjk-<version>-linux-<arch>.tar.gz` | `kjk`, `kjk-save-editor`, the same texts |
+
+The save editor (`kjk-save-editor`, `crates/save_editor`) opens a kjk save
+and changes it. `dist` builds it from the same commit in a cargo run of its
+own, in `target/editor`, so `kjk` is built the same with or without it.
+`THIRD-PARTY-LICENSES-save-editor.html` lists the licences of the crates
+the save editor is built from. `THIRD-PARTY-LICENSES.html` lists `kjk`'s.
 
 `<version>` is `git describe --tags --match 'v*' --always --dirty`. Each OS packs its
 own: a Windows package is made on Windows, a macOS one on a Mac (both
