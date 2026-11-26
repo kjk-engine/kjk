@@ -515,7 +515,7 @@ fn spotted() -> Result<String, String> {
     )
 }
 
-/// A break is refused while the party is in combat.
+/// A break called while the party is in combat holds, as KOTOR's pause does.
 fn break_in_combat() -> Result<String, String> {
     let mut ground = ground(2, 2, true)?;
     ground.fight(true);
@@ -523,8 +523,8 @@ fn break_in_combat() -> Result<String, String> {
     let step = ground.step(&[(1, Action::Break)]);
     check(
         fighting.in_combat
-            && step.snapshot.paused_by.is_none()
-            && step.notices.contains(&(Seat(1), Notice::InCombat)),
+            && step.snapshot.paused_by == Some(Seat(1))
+            && !step.notices.contains(&(Seat(1), Notice::InCombat)),
         format!(
             "in combat {}, paused by {:?}, notices {:?}",
             fighting.in_combat, step.snapshot.paused_by, step.notices
