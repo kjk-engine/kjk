@@ -141,6 +141,7 @@ const GROUPS: &[Group] = &[
     ("disruptor beams", kjk_game::shot_fx::probes),
     ("computer camera feeds", kjk_game::terminal::feed_probes),
     ("debug terminal menu", kjk_game::debug_terminal::probes),
+    ("commands", commands::probes::probes),
     ("block reticle view", kjk_game::block_reticle_view::probes),
     ("equip numbers", kjk_game::character::probes),
     ("target block point", kjk_game::target_view::menu_node_probes),

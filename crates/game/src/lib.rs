@@ -47,6 +47,7 @@ pub mod cast;
 pub mod character;
 pub mod clip_events;
 mod combat_fx;
+pub mod console_view;
 pub mod course;
 pub mod crash;
 pub mod dangly;

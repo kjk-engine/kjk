@@ -153,9 +153,10 @@ pub struct UiRequests(pub Vec<Vec<String>>);
 #[derive(Resource, Default, Debug)]
 pub struct VfxRequests(pub Vec<Vec<String>>);
 
-/// `arena` orders for the combat arena to give, oldest first.
+/// Lines for the console's table of commands to run (`Command::Line`),
+/// oldest first.
 #[derive(Resource, Default, Debug)]
-pub struct ArenaRequests(pub Vec<Vec<String>>);
+pub struct LineRequests(pub Vec<String>);
 
 /// How long `wait <state>` and `module` wait.
 const STATE_LIMIT: Duration = Duration::from_secs(120);
@@ -196,7 +197,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<ModuleRequest>()
         .init_resource::<UiRequests>()
         .init_resource::<VfxRequests>()
-        .init_resource::<ArenaRequests>()
+        .init_resource::<LineRequests>()
         .init_resource::<DumpDue>()
         .init_resource::<Hold>()
         .init_resource::<vitals::FrameTimes>()
@@ -377,11 +378,11 @@ fn run_queue(
         Res<WorldTick>,
     ),
     (pipelines, states): (Res<Pipelines>, Res<States>),
-    (mut module, mut screens, mut visuals, mut arena): (
+    (mut module, mut screens, mut visuals, mut lines): (
         ResMut<ModuleRequest>,
         ResMut<UiRequests>,
         ResMut<VfxRequests>,
-        ResMut<ArenaRequests>,
+        ResMut<LineRequests>,
     ),
     (clock, marks): (Res<GameClock>, Res<AudioMarks>),
     entities: Query<Entity>,
@@ -445,7 +446,7 @@ fn run_queue(
             Command::Camera(pose) => camera.0 = Some(*pose),
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
-            Command::Arena(words) => arena.0.push(words.clone()),
+            Command::Line(line) => lines.0.push(line.clone()),
             Command::Clip => match clock.0 {
                 Some(now) => queue.clip = Some((now, Vec::new())),
                 None => {
@@ -576,7 +577,7 @@ fn run_queue(
         | Command::Clip
         | Command::Ui(_)
         | Command::Vfx(_)
-        | Command::Arena(_)
+        | Command::Line(_)
         | Command::Size(..) => true,
         Command::ClipAt(ms) => match (clipping, clock.0) {
             (Some(start), Some(now)) => now >= start + ms,

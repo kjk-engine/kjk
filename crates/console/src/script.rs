@@ -45,9 +45,12 @@ pub enum Command {
     /// 2007 end_trask 9`: `visualeffects.2da` row, the creature's tag,
     /// seconds it lasts, a beam's source's tag), handed over at once.
     Vfx(Vec<String>),
-    /// An order in the combat arena, as its keys give it (`arena spawn
-    /// g_sithtroop01`, `arena clear`, `arena god`), handed over at once.
-    Arena(Vec<String>),
+    /// A line for the console's table of commands (`crates/commands`):
+    /// every verb this parser does not know, such as `god`, `spawn
+    /// g_sithtroop01` or `arena clear`. It is handed over at once, and the
+    /// game runs it against the table. The launcher checks it against the
+    /// table before the run starts.
+    Line(String),
     /// Makes `<name>.mp4` of the screenshots `<name>-0000.png` on, with
     /// the run's sound (`audio.wav`, on the game's clock) from their first
     /// moment, when the run has one. `record` and `clip` end with it.
@@ -152,7 +155,7 @@ impl fmt::Display for Command {
             }
             Command::Ui(words) => write!(f, "ui {}", words.join(" ")),
             Command::Vfx(words) => write!(f, "vfx {}", words.join(" ")),
-            Command::Arena(words) => write!(f, "arena {}", words.join(" ")),
+            Command::Line(line) => f.write_str(line),
             Command::Video(Video {
                 name,
                 frames: Frames::Even { from, fps, count },
@@ -289,22 +292,6 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                     "vfx takes a row, a tag, then seconds and a beam's source",
                 ));
             }
-            ("arena", ["spawn", template]) => {
-                Command::Arena(vec!["spawn".into(), template.to_string()])
-            }
-            (
-                "arena",
-                order @ (["clear" | "god" | "restore"]
-                | ["down" | "alignment", _]
-                | ["level" | "ability" | "skill", _, _]
-                | ["level", _, _, _, _]),
-            ) => Command::Arena(order.iter().map(|word| word.to_string()).collect()),
-            ("arena", _) => {
-                return Err(error(
-                    "arena takes spawn TEMPLATE, clear, god, down N, level CLASS N [CLASS N], \
-                     ability NAME N, skill NAME N, alignment N or restore",
-                ));
-            }
             ("camera", words) if words.len() == 5 || words.len() == 6 => {
                 let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
                 if numbers.len() != words.len() || numbers.iter().any(|n: &f32| !n.is_finite()) {
@@ -388,7 +375,7 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("screenshot" | "dump" | "quit" | "crash", _) => {
                 return Err(error("too many arguments"));
             }
-            _ => return Err(error("unknown command")),
+            _ => Command::Line(text.to_string()),
         };
         commands.push(command);
     }

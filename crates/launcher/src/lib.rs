@@ -18,6 +18,7 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod commands_verb;
 mod installs_report;
 mod levels;
 mod lighting_verbs;
@@ -238,6 +239,13 @@ enum Command {
         /// Check one folder for a game instead: `--check k1 <folder>`
         #[arg(long, num_args = 2, value_names = ["GAME", "FOLDER"])]
         check: Option<Vec<String>>,
+    },
+    /// Every console command (`docs/CONSOLE.md`): its usage, the other
+    /// names it is accepted by and its help. Opens no window.
+    Commands {
+        /// Print the table as JSON, one object for each command
+        #[arg(long)]
+        json: bool,
     },
     /// Turn every module (or one, dumped in full) into the module IR.
     Modules {
@@ -902,6 +910,7 @@ pub fn run() -> ExitCode {
             resource,
             module,
         }) => show::run(&discover(), &game, &resource, module.as_deref()),
+        Some(Command::Commands { json }) => commands_verb::run(json),
         Some(Command::Rules { game, out }) => rules_page::run(&discover(), &game, out),
         Some(Command::Texture {
             game,
@@ -1014,6 +1023,10 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
             return ExitCode::from(2);
         }
     };
+    if let Err(error) = commands_verb::check_script(&commands) {
+        eprintln!("--cmds: {error}");
+        return ExitCode::from(2);
+    }
     let options = runtime::RunOptions {
         commands,
         script: script.to_string(),

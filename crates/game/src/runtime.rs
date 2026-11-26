@@ -275,6 +275,7 @@ pub fn run(options: RunOptions) -> AppExit {
             (
                 crate::bark_view::BarkViewPlugin,
                 crate::arena::ArenaPlugin,
+                crate::console_view::ConsoleViewPlugin,
                 crate::floaty_view::FloatyViewPlugin,
                 crate::duel_view::DuelViewPlugin,
                 crate::hitmarker_view::HitmarkerViewPlugin,

@@ -14,6 +14,7 @@ audio = { workspace = true, features = ["probes"] }
 bink = { workspace = true, features = ["probes"] }
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
+commands = { workspace = true, features = ["probes"] }
 collision_odyssey = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 net = { workspace = true, features = ["probes"] }
