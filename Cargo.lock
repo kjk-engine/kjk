@@ -3281,6 +3281,7 @@ dependencies = [
  "ui",
  "vfs",
  "wgpu 29.0.4",
+ "windows-sys 0.61.2",
  "winit",
  "zip",
 ]

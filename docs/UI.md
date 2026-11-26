@@ -643,7 +643,7 @@ Running and checking:
 - Breaks and ready checks (`game::party_calls`, `PARTY.md`): Z calls
   or ends a break (during another's, it asks and is told it is not its
   own), Y is ready (the host's after 5 s: go now), the in-game
-  menu's autopause button is Break/Resume, the banner (KOTOR's combat
+  menu's autopause button is Pause/Resume (in combat too), the banner (KOTOR's combat
   message) over everything; console `ui break|resume|ready|force`.
 - The party's leader (`game::leader_view`, `WORLD-STATE.md`, "The
   leader"): Tab (KOTOR's `ChangeChar`; key mapping "Switch party leader")

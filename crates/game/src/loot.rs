@@ -624,7 +624,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // K1's dialog.tlk, then send it as a `Notice::Line`].
         Notice::InCombat => "You cannot do that with enemies nearby.".into(),
         Notice::NotYourBreak => {
-            "Only the player who called the break, or the host, can end it.".into()
+            "Only the player who paused the game, or the host, can resume it.".into()
         }
         Notice::CannotForce => {
             "Only the main character's player can go now, after 5 seconds.".into()

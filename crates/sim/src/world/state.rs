@@ -274,6 +274,7 @@ impl SimWorld {
         world.init_resource::<locks::Locks>();
         world.init_resource::<objects::Battering>();
         world.init_resource::<objects::Battered>();
+        world.init_resource::<traps::Shot>();
         world.init_resource::<minigame::Struck>();
         world.init_resource::<covert::Presses>();
         world.init_resource::<scripts::Used>();

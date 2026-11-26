@@ -297,6 +297,38 @@ pub fn lock_kit(
         .copied()
 }
 
+/// How far a bolt's box reaches across a mine's middle, each way along
+/// the floor, and how high above it (metres): `shot_box`.
+pub const SHOT_RADIUS_M: f32 = rules::traps::shooting::RADIUS_M;
+pub const SHOT_HEIGHT_M: f32 = rules::traps::shooting::HEIGHT_M;
+
+/// Whether a player's blaster bolt sets off a mine (`world::traps::shot`).
+/// `bits` are the mine's snapshot bits (`snapshot::trap`). The party must
+/// have found the mine, and it must not be disabled. A mine set on a lock
+/// (`on_lock`) blasts by itself and is left alone. The mine's row (`row`)
+/// must be a kit's, which leaves out K1's rock falls. The mine's own
+/// `OnTrapTriggered` script (`own_script`) must be empty or its row's
+/// standard script, compared by name, so a story mine is left alone.
+pub fn shootable(bits: u8, on_lock: bool, own_script: Option<&str>, row: Option<&TrapRow>) -> bool {
+    use crate::snapshot::trap;
+    let Some(row) = row.filter(|row| !row.kit.is_empty() && !row.script.is_empty()) else {
+        return false;
+    };
+    let standard = own_script.is_none_or(|script| {
+        script.is_empty() || script == "default" || script.eq_ignore_ascii_case(&row.script)
+    });
+    bits & trap::PARTY_SEES != 0 && bits & trap::DISABLED == 0 && !on_lock && standard
+}
+
+/// The box a bolt meets of a mine whose middle is `middle` (metres): its
+/// lowest and its highest corner. It reaches `SHOT_RADIUS_M` each way
+/// across the floor and `SHOT_HEIGHT_M` up.
+pub fn shot_box(middle: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    let [x, y, z] = middle;
+    let (half, height) = (SHOT_RADIUS_M, SHOT_HEIGHT_M);
+    ([x - half, y - half, z], [x + half, y + half, z + height])
+}
+
 /// The template a mine of `row` laid in play is made from.
 pub fn laid_template(row: u8) -> String {
     format!("{LAID_PREFIX}{row}")

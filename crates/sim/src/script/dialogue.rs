@@ -1490,6 +1490,15 @@ impl Step<'_> {
         let Some(at) = self.state.talk.index(id) else {
             return;
         };
+        // Its last entry's looping gestures end with it, before its end
+        // script, which may play its own.
+        let player = self.player(&self.state.talk.conversations[at]);
+        let owner = self.state.talk.conversations[at].owner;
+        for (who, animation) in self.held_gestures(at, (owner, player)) {
+            self.out
+                .changes
+                .push(super::Change::StopAnimating { who, animation });
+        }
         let c = self.state.talk.conversations.remove(at);
         // The screen goes back with it: TSL's `CGuiInGame::CloseDialog`
         // disables the video effect, whoever enabled it.

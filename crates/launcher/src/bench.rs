@@ -351,6 +351,12 @@ fn preset(name: &str) -> Option<Value> {
         "taa-performance" => json!({ "display.msaa": "taa_performance" }),
         "taa-ultra-performance" => json!({ "display.msaa": "taa_ultra_performance" }),
         "dlss-performance" => json!({ "display.msaa": "dlss_performance" }),
+        // TAA with the Sharpening setting off, to compare with `taa`, where
+        // it is at Medium.
+        "taa-sharpen-off" => json!({
+            "display.msaa": "taa",
+            "display.sharpening": "0",
+        }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -747,7 +753,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance, taa-sharpen-off)",
                 options.preset
             ),
         );
@@ -934,12 +940,12 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             ms("early prepass"),
                         );
                     }
-                    if gpu_ms.contains_key("taa_upscale") {
+                    if gpu_ms.contains_key("taa_upscale") || gpu_ms.contains_key("sharpen") {
                         outln!(
                             "  {:<16} gpu ms: upscale {}, sharpen {}",
                             "",
                             ms("taa_upscale"),
-                            ms("taa_upscale_sharpen"),
+                            ms("sharpen"),
                         );
                     }
                 }

@@ -103,7 +103,7 @@ fn fade(
     let layer = layer.get_or_insert_with(|| {
         let camera = commands
             .spawn((
-                Camera3d::default(),
+                crate::reshade::overlay_camera(),
                 crate::scene::over_world(ORDER),
                 Projection::Orthographic(OrthographicProjection {
                     scaling_mode: ScalingMode::FixedVertical {

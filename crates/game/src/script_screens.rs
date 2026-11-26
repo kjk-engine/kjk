@@ -244,8 +244,9 @@ fn galaxy(
 /// The party selection screen's table: each available companion's
 /// portrait and name, by its template; its figure in what it wears now
 /// (the table's), else what its template starts with. Its portrait and
-/// figure follow its alignment as `good_evil` gives it by its template
-/// (the party table's; `alignment_look`).
+/// figure follow its alignment (`alignment_look`): its creature's as the
+/// table tells it, else, for a companion never made, its template's as
+/// `good_evil` gives it.
 fn party(
     assets: &mut GuiAssets,
     roster: &Roster,
@@ -261,7 +262,7 @@ fn party(
     let companions = (0..NPCS)
         .map(|npc| {
             let template = roster.template(npc)?;
-            let alignment = good_evil(template);
+            let alignment = roster.good_evil(npc).or_else(|| good_evil(template));
             let step = alignment.map_or(0, |good_evil| {
                 crate::alignment_look::in_game(assets.game, good_evil).step
             });
@@ -479,7 +480,7 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                // A companion's alignment as the party table keeps it.
+                // The alignment of a companion never made, by its template.
                 let good_evil = |template: &str| {
                     let level = &swap.as_ref()?.level;
                     let facts = level.template(sim::module::ObjectKind::Creature, template)?;

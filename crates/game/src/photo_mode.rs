@@ -725,8 +725,6 @@ impl Play<'_> {
 enum Coop {
     /// A break holds.
     Paused,
-    /// No break holds, and the party fights, so none can be called.
-    Fighting,
     Running,
 }
 
@@ -737,7 +735,6 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device) -> [Vec<u8>; 2] 
     let state = match coop {
         None => speed.said(),
         Some(Coop::Paused) => "Paused for everyone.",
-        Some(Coop::Fighting) => "Enemies are nearby, so the game keeps running.",
         Some(Coop::Running) => "The game keeps running.",
     };
     let (leave, shot) = match device {
@@ -921,10 +918,9 @@ pub(crate) fn photo_keys(
     if photo.shot == Shot::Asked {
         photo.shot = Shot::Due;
     }
-    let state = coop.map(|snapshot| match (snapshot.paused_by, snapshot.in_combat) {
-        (Some(_), _) => Coop::Paused,
-        (None, true) => Coop::Fighting,
-        (None, false) => Coop::Running,
+    let state = coop.map(|snapshot| match snapshot.paused_by {
+        Some(_) => Coop::Paused,
+        None => Coop::Running,
     });
     let fade = ((on.idle - LINE_AFTER) / LINE_FADE).clamp(0.0, 1.0);
     ui.photo = Some(Line {

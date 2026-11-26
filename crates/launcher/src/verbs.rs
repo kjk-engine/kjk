@@ -359,7 +359,8 @@ pub(crate) enum Verb {
         /// lighting. `taa`,
         /// `taa-quality`, `taa-balanced`, `taa-performance`,
         /// `taa-ultra-performance` and `dlss-performance` set the
-        /// anti-aliasing alone
+        /// anti-aliasing alone. `taa-sharpen-off` is `taa` with the
+        /// Sharpening setting off
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones
@@ -879,6 +880,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             } => security_verbs::security(&discover(), &game, &module, door.as_deref(), ranks),
             ScriptVerb::Traps { game, module } => traps_verbs::traps(&discover(), &game, &module),
             ScriptVerb::Locks { game } => lock_census::census(&discover(), &game),
+            ScriptVerb::Mines { game } => traps_verbs::mine_census(&discover(), &game),
             ScriptVerb::Stores {
                 game,
                 module,
@@ -1875,6 +1877,14 @@ pub(crate) enum ScriptVerb {
     /// templates whose difficulty in play differs from the DC written on
     /// the lock (KOTOR 2's difficulty classes), and a count of every step
     Locks {
+        /// k1 or tsl
+        game: String,
+    },
+    /// The mine census: every module's own trap trigger templates with the
+    /// `traps.2da` row, the trigger's own trap script, its key, how many
+    /// times the module places it, and whether a player's bolt can set it
+    /// off once the party has found it
+    Mines {
         /// k1 or tsl
         game: String,
     },

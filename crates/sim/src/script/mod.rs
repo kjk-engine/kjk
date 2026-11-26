@@ -2647,6 +2647,9 @@ pub enum Change {
     Animate { who: ObjectId, play: (u16, u32) },
     /// As `Animate`, but a body already playing that clip goes on with it.
     KeepAnimating { who: ObjectId, play: (u16, u32) },
+    /// `who` stops `animation` if it plays it until stopped (`u32::MAX`): a
+    /// conversation's looping gesture whose entry has gone.
+    StopAnimating { who: ObjectId, animation: u16 },
     /// `who` struck by a scene's shot that landed without its bolt, its
     /// answer row `row` (`effects::blows::struck`).
     Struck { who: ObjectId, row: u16 },
@@ -3941,7 +3944,7 @@ impl Step<'_> {
     ) -> bool {
         let who = thing.id;
         let module = self.view.module.name.clone();
-        let holder = items::holder(self.view, who);
+        let holder = items::holder(self.view, &self.state.party, who);
         let held = self.state.items.get(&item.0).map(|held| held.holder);
         if pick {
             let Some(lying) = self.state.lying(&module, item) else {

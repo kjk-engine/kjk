@@ -131,7 +131,7 @@
       </details>
 
       <details id="coop-override">
-        <summary>It says my override folder differs from the host's.</summary>
+        <summary>It says my game files do not match the host's.</summary>
         <div class="a">
           <p>kjk checks that every player has the same game files, because different files make the game run differently for each player. Make sure every player has the same kjk version and the same mods, with identical <code>Override</code> and <code>modules</code> folders.</p>
         </div>
@@ -271,6 +271,13 @@
             <li>Start kjk with the launcher's Play button.</li>
           </ol>
           <p>If you set ReShade up on <code>kjk.exe</code> instead, ReShade 6 stops kjk from starting.</p>
+          <p>While ReShade's overlay is open, kjk ignores the mouse and frees the cursor, so the mouse only works the overlay. This needs ReShade 6.0 or newer. In a co-op game it also needs the ReShade download "with full add-on support", because the standard download turns add-ons off while a game sends network traffic.</p>
+          <p>ReShade's depth effects, such as ambient occlusion and depth of field, need three more things.</p>
+          <ul>
+            <li>Set Anti-aliasing in kjk's display options to TAA, DLAA or Off. ReShade cannot read the depth under MSAA, nor when kjk draws the world smaller than the window.</li>
+            <li>In ReShade's settings, under preprocessor definitions, set <code>RESHADE_DEPTH_INPUT_IS_REVERSED</code> to 1. kjk stores depth reversed, with 1 at the camera.</li>
+            <li>In a co-op game, use the ReShade download "with full add-on support". The standard download turns depth access off while a game sends network traffic.</li>
+          </ul>
           <p>Tools that change the original game's program do not work, because kjk does not run that program.</p>
         </div>
       </details>

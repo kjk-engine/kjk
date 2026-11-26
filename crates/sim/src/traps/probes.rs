@@ -301,8 +301,129 @@ fn door_mines() -> Vec<(&'static str, Result<String, String>)> {
 }
 
 /// Every check (see the module documentation).
+/// Which mines a player's bolt sets off (`shootable`), one table of cases,
+/// and the box a bolt meets of a mine (`shot_box`).
+fn shooting_rules() -> Vec<(&'static str, Result<String, String>)> {
+    use super::{SHOT_HEIGHT_M, SHOT_RADIUS_M, shootable, shot_box};
+    use crate::snapshot::trap::{DISABLED, PARTY_SEES};
+    let kit = frag_minor();
+    let rock_fall = TrapRow {
+        kit: String::new(),
+        ..frag_minor()
+    };
+    // (name, bits, on a lock, own script, row, shootable)
+    type Case<'a> = (
+        &'static str,
+        u8,
+        bool,
+        Option<&'a str>,
+        Option<&'a TrapRow>,
+        bool,
+    );
+    let cases: [Case; 11] = [
+        ("shootable_found", PARTY_SEES, false, None, Some(&kit), true),
+        (
+            "shootable_empty_script",
+            PARTY_SEES,
+            false,
+            Some(""),
+            Some(&kit),
+            true,
+        ),
+        (
+            "shootable_default_script",
+            PARTY_SEES,
+            false,
+            Some("default"),
+            Some(&kit),
+            true,
+        ),
+        (
+            "shootable_row_script_named",
+            PARTY_SEES,
+            false,
+            Some("K_TRP_GENERIC"),
+            Some(&kit),
+            true,
+        ),
+        ("shootable_not_unfound", 0, false, None, Some(&kit), false),
+        (
+            "shootable_not_disabled",
+            PARTY_SEES | DISABLED,
+            false,
+            None,
+            Some(&kit),
+            false,
+        ),
+        (
+            "shootable_not_on_lock",
+            PARTY_SEES,
+            true,
+            None,
+            Some(&kit),
+            false,
+        ),
+        (
+            "shootable_not_story_script",
+            PARTY_SEES,
+            false,
+            Some("a_mine_setoff"),
+            Some(&kit),
+            false,
+        ),
+        (
+            "shootable_not_rock_fall",
+            PARTY_SEES,
+            false,
+            None,
+            Some(&rock_fall),
+            false,
+        ),
+        (
+            "shootable_not_without_row",
+            PARTY_SEES,
+            false,
+            None,
+            None,
+            false,
+        ),
+        (
+            "shootable_not_disabled_unfound",
+            DISABLED,
+            false,
+            None,
+            Some(&kit),
+            false,
+        ),
+    ];
+    let mut all: Vec<_> = cases
+        .into_iter()
+        .map(|(name, bits, on_lock, script, row, want)| {
+            let got = shootable(bits, on_lock, script, row);
+            (
+                name,
+                check(
+                    got == want,
+                    format!("bits {bits}, on a lock {on_lock}, script {script:?}: {got}"),
+                ),
+            )
+        })
+        .collect();
+    let (min, max) = shot_box([10.0, -2.0, 1.0]);
+    let r = SHOT_RADIUS_M;
+    all.push((
+        "shot_box_over_middle",
+        check(
+            min == [10.0 - r, -2.0 - r, 1.0] && max == [10.0 + r, -2.0 + r, 1.0 + SHOT_HEIGHT_M],
+            format!("{min:?} to {max:?}"),
+        ),
+    ));
+    all
+}
+
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let mut all = rules();
+    all.extend(shooting_rules());
     all.extend(door_mines());
     all.extend(facts());
     all.extend(crate::world::traps::probes::springing());
@@ -317,5 +438,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     all.extend(crate::world::traps::probes::exploding());
     all.extend(crate::world::traps::probes::routines());
     all.extend(crate::world::traps::probes::races());
+    all.extend(crate::world::traps::probes::shooting());
     all
 }

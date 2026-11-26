@@ -18,6 +18,12 @@
 //!   is kept in the store, keyed by the names, sizes and times of the files
 //!   a bake reads (`files_key`) and the manifest, so a second check is
 //!   instant.
+//! - For an area whose rooms differ, the check notes the mods whose files
+//!   replace the game's own among its room models and stored lightmaps: a
+//!   Steam Workshop item, the override folder or a `.mod` in the modules
+//!   folder (`bake_fingerprint::room_mods`). A refusal names them, so the
+//!   player sees which mod stops the install. TSLRCM's own Workshop item
+//!   (485537937) is never named, since the KOTOR II bakes match it.
 //! - `install` puts the zip's area folders under
 //!   `<store>/lighting/<k1|tsl>/<area>/`, with the manifest beside them in
 //!   `MANIFEST`. The store's gc never removes them (`store::KEPT`).
@@ -54,7 +60,7 @@ pub const SETTING_VALUE: &str = "baked";
 
 /// The store's kind for the answers of `check`. Raise its number when the
 /// answer for the same files and manifest would change.
-const CHECKS: &str = "lighting-check-v2";
+const CHECKS: &str = "lighting-check-v3";
 
 /// The files of a bake's set that the game loads, and so the files a
 /// download holds: the lightmaps (PNG), `fill.txt`, `floor.txt`,
@@ -354,6 +360,45 @@ impl Manifest {
 pub struct FallBack {
     pub area: String,
     pub why: String,
+    /// The mods whose files replace the game's own among the area's room
+    /// models and stored lightmaps, when its rooms differ
+    /// (`bake_fingerprint::room_mods`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mods: Vec<String>,
+}
+
+/// The Steam Workshop item of TSLRCM.
+pub const TSLRCM_WORKSHOP_ITEM: u64 = 485_537_937;
+
+/// A mod as `bake_fingerprint::mod_place` names it, as the player is told
+/// it, at the start of a sentence.
+pub fn place(name: &str) -> String {
+    match name.strip_prefix("workshop/") {
+        Some(id) => format!("Steam Workshop item {id}"),
+        None if name == "override" => "The override folder".to_string(),
+        None if name == "modules" => "The .mod files in the modules folder".to_string(),
+        None => name.to_string(),
+    }
+}
+
+/// A list of areas for a sentence: the first three by name, then how many
+/// more there are.
+fn some_areas(areas: &[&str]) -> String {
+    const SHOWN: usize = 3;
+    match areas {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        _ if areas.len() <= SHOWN => format!(
+            "{} and {}",
+            areas[..areas.len() - 1].join(", "),
+            areas[areas.len() - 1]
+        ),
+        _ => format!(
+            "{} and {} more",
+            areas[..SHOWN].join(", "),
+            areas.len() - SHOWN
+        ),
+    }
 }
 
 /// What `check` found.
@@ -391,19 +436,56 @@ impl Report {
         self.matched.len() + self.placeables_differ.len()
     }
 
-    /// What the player is told when the download may not be installed.
+    /// What the player is told when the download may not be installed:
+    /// how many areas match, then which mods replace the rooms of the areas
+    /// that do not (`mod_sentences`).
     pub fn refusal(&self) -> Option<String> {
         if self.allowed {
             return None;
         }
         let game = Game::from_key(&self.game).map_or("the game", game_name);
-        Some(format!(
+        let mut lines = vec![format!(
             "The new lighting needs {game} with {} installed. Only {} of the {} areas in this game's files match the files the lighting was made from, and at least {}% must match.",
             self.needs,
             self.matching(),
             self.areas,
             (MATCH_SHARE * 100.0).round()
-        ))
+        )];
+        lines.extend(self.mod_sentences());
+        Some(lines.join(" "))
+    }
+
+    /// Which mods replace the room models or stored lightmaps of the areas
+    /// that fall back, one sentence for each mod, the mod that replaces
+    /// the most areas first. TSLRCM's Workshop item is left out, since the
+    /// KOTOR II lighting was made with it. Nothing when no other mod's
+    /// files are among them.
+    pub fn mod_sentences(&self) -> Vec<String> {
+        let tslrcm = format!("workshop/{TSLRCM_WORKSHOP_ITEM}");
+        let mut by_mod: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for fall in &self.fall_back {
+            for name in fall.mods.iter().filter(|name| **name != tslrcm) {
+                by_mod.entry(name).or_default().push(&fall.area);
+            }
+        }
+        if by_mod.is_empty() {
+            return Vec::new();
+        }
+        let mut by_mod: Vec<(&str, Vec<&str>)> = by_mod.into_iter().collect();
+        by_mod.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(b.0)));
+        let mut lines = vec![format!(
+            "In {} areas the rooms or their lightmaps differ from the ones the lighting was made from.",
+            self.fall_back.len()
+        )];
+        for (name, areas) in by_mod {
+            lines.push(format!(
+                "{} replaces these files in {} of those areas: {}.",
+                place(name),
+                areas.len(),
+                some_areas(&areas)
+            ));
+        }
+        lines
     }
 
     /// Why the download may not be installed, when it may not: the
@@ -445,6 +527,7 @@ impl Report {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
+            lines.extend(self.mod_sentences().into_iter().skip(1));
         }
         lines
     }
@@ -582,8 +665,8 @@ fn compare(
     let threads = std::thread::available_parallelism()
         .map_or(1, std::num::NonZeroUsize::get)
         .clamp(1, 8);
-    let (send, receive) = std::sync::mpsc::channel::<(String, Verdict)>();
-    let mut verdicts: BTreeMap<String, Verdict> = BTreeMap::new();
+    let (send, receive) = std::sync::mpsc::channel::<(String, Verdict, Vec<String>)>();
+    let mut verdicts: BTreeMap<String, (Verdict, Vec<String>)> = BTreeMap::new();
     std::thread::scope(|scope| {
         for _ in 0..threads {
             let send = send.clone();
@@ -592,16 +675,15 @@ fn compare(
                 while let Some((module, areas)) =
                     modules.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
                 {
-                    for (area, verdict) in module_verdicts(install, module, areas, manifest.format)
-                    {
-                        let _ = send.send((area, verdict));
+                    for found in module_verdicts(install, module, areas, manifest.format) {
+                        let _ = send.send(found);
                     }
                 }
             });
         }
         drop(send);
-        for (area, verdict) in receive {
-            verdicts.insert(area.clone(), verdict);
+        for (area, verdict, mods) in receive {
+            verdicts.insert(area.clone(), (verdict, mods));
             progress(Progress {
                 done: verdicts.len(),
                 total: manifest.areas.len(),
@@ -621,15 +703,17 @@ fn compare(
     };
     for area in &manifest.areas {
         match verdicts.remove(&area.area) {
-            Some(Verdict::Whole) => report.matched.push(area.area.clone()),
-            Some(Verdict::LightmapsOnly) => report.placeables_differ.push(area.area.clone()),
-            Some(Verdict::Refused(why)) => report.fall_back.push(FallBack {
+            Some((Verdict::Whole, _)) => report.matched.push(area.area.clone()),
+            Some((Verdict::LightmapsOnly, _)) => report.placeables_differ.push(area.area.clone()),
+            Some((Verdict::Refused(why), mods)) => report.fall_back.push(FallBack {
                 area: area.area.clone(),
                 why,
+                mods,
             }),
             None => report.fall_back.push(FallBack {
                 area: area.area.clone(),
                 why: "the area was not compared".to_string(),
+                mods: Vec::new(),
             }),
         }
     }
@@ -637,13 +721,15 @@ fn compare(
     report
 }
 
-/// The verdict on each of `areas` of module `module` over `install`'s files.
+/// The verdict on each of `areas` of module `module` over `install`'s files,
+/// with the mods that replace the room files of an area whose rooms differ
+/// (`bake_fingerprint::room_mods`).
 fn module_verdicts(
     install: &crate::installs::Install,
     module: &str,
     areas: &[&Area],
     format: u32,
-) -> Vec<(String, Verdict)> {
+) -> Vec<(String, Verdict, Vec<String>)> {
     let built = install.resolver(Some(module)).and_then(|resolver| {
         asset_odyssey::module::ModuleIr::build(module, &crate::modules::ResolverSource(&resolver))
             .map(|ir| (resolver, ir))
@@ -651,26 +737,40 @@ fn module_verdicts(
     });
     (areas.iter())
         .map(|area| {
-            let verdict = match &built {
-                Err(why) => {
-                    Verdict::Refused(format!("the game's module {module} does not open ({why})"))
-                }
+            let (verdict, mods) = match &built {
+                Err(why) => (
+                    Verdict::Refused(format!("the game's module {module} does not open ({why})")),
+                    Vec::new(),
+                ),
                 Ok((resolver, ir)) => {
                     match (ir.areas.iter())
                         .find(|found| found.resref.eq_ignore_ascii_case(&area.area))
                     {
-                        Some(found) => bake_fingerprint::verdict(
-                            &area.stamp(format),
-                            &bake_fingerprint::of_area(resolver, found),
+                        Some(found) => {
+                            let stamp = area.stamp(format);
+                            let current = bake_fingerprint::of_area(resolver, found);
+                            let rooms_differ =
+                                stamp.format == current.format && stamp.rooms != current.rooms;
+                            let mods = if rooms_differ {
+                                bake_fingerprint::room_mods(resolver, found)
+                                    .into_iter()
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            (bake_fingerprint::verdict(&stamp, &current), mods)
+                        }
+                        None => (
+                            Verdict::Refused(format!(
+                                "the game's module {module} has no area {}",
+                                area.area
+                            )),
+                            Vec::new(),
                         ),
-                        None => Verdict::Refused(format!(
-                            "the game's module {module} has no area {}",
-                            area.area
-                        )),
                     }
                 }
             };
-            (area.area.clone(), verdict)
+            (area.area.clone(), verdict, mods)
         })
         .collect()
 }

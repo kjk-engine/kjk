@@ -327,8 +327,8 @@ impl Move<'_, '_> {
     }
 
     /// Whether a flank (`flank`) is a wall to the box: it is on the ground,
-    /// and not with its middle on a flank already (a heap's top it jumped
-    /// onto).
+    /// and not standing on a flank already (a heap's top it jumped onto, or
+    /// a crate's rim it landed on, `at_flank_foot`).
     pub(super) fn walled(&self) -> bool {
         self.ps.ground.is_some() && !self.on_shape
     }
@@ -351,23 +351,31 @@ impl Move<'_, '_> {
         (!hit.all_solid && hit.fraction < 1.0 && flank(hit.contents)).then(|| upright(hit.normal))
     }
 
-    /// Whether the ground under the middle of a box standing at `at` is a
-    /// flank (`flank`), as under a box that jumped onto a heap's top.
-    pub(super) fn middle_on_flank(&self, at: Vec3) -> bool {
-        let soles = [at[0], at[1], at[2] + self.mins[2] + 1.0];
-        let mut below = soles;
-        below[2] -= STEP_HEIGHT;
-        let hit = self.trace(soles, below, [0.0; 3], [0.0; 3]);
-        hit.fraction < 1.0 && flank(hit.contents)
+    /// Whether a box standing at `at` on a flank (`flank`) stands at its
+    /// foot. That is so when the ground under the box's middle is not a
+    /// flank: the floor or a heap's low base beside it. A box that jumped
+    /// onto a heap's top has the top under its middle. A box that landed on
+    /// a crate's rim has its middle out over the drop, with no ground
+    /// within a step below it, and it stands on the crate too.
+    pub(super) fn at_flank_foot(&self, at: Vec3) -> bool {
+        self.middle_ground(at)
+            .is_some_and(|contents| !flank(contents))
     }
 
     /// Whether the ground under the middle of a box standing at `at` (within
     /// a step down from its soles) is `NONWALK`.
     fn middle_on_nonwalk(&self, at: Vec3) -> bool {
+        self.middle_ground(at)
+            .is_some_and(|contents| contents.intersects(Contents::NONWALK))
+    }
+
+    /// What the ground under the middle of a box standing at `at` is made
+    /// of, if there is ground within a step down from its soles.
+    fn middle_ground(&self, at: Vec3) -> Option<Contents> {
         let soles = [at[0], at[1], at[2] + self.mins[2] + 1.0];
         let mut below = soles;
         below[2] -= STEP_HEIGHT;
         let hit = self.trace(soles, below, [0.0; 3], [0.0; 3]);
-        hit.fraction < 1.0 && hit.contents.intersects(Contents::NONWALK)
+        (hit.fraction < 1.0).then_some(hit.contents)
     }
 }

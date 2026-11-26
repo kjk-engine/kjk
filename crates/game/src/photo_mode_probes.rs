@@ -518,8 +518,8 @@ impl Pair {
 
 /// In co-op, photo mode calls a break as it begins and resumes it as it
 /// ends. A break that seat 0 called first stays, and so does nothing when
-/// the host ended the photo break. In combat the break is asked for, which
-/// the simulation refuses, and leaving resumes nothing.
+/// the host ended the photo break. In combat the break is asked for as
+/// anywhere else, and leaving before it shows resumes nothing at once.
 fn coop() -> Result<String, String> {
     let mut pair = Pair::new()?;
     let start = pair.step(&[]);
@@ -543,8 +543,8 @@ fn coop() -> Result<String, String> {
     let photo_break = pair.step(&[(1, call)]);
     let host_ended = pair.step(&[(0, Some(SimAction::Resume))]);
     let host = break_on_leave(true, true, &host_ended, Seat(1));
-    // In combat no break holds, and leaving resumes nothing at once. The
-    // resume owed is forgotten after `OWED_WAIT` seconds with no break.
+    // In combat, before the break shows, leaving resumes nothing at once.
+    // The resume owed is forgotten after `OWED_WAIT` seconds with no break.
     let mut fighting = host_ended.clone();
     fighting.in_combat = true;
     let combat = (

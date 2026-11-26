@@ -224,8 +224,15 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     as along a level's wall, and a knockback is turned there, not stopped.
     A rise that crosses onto the shape without meeting a face of it, from
     a steeper base, is met as the same wall. So is a step up that would set
-    the box down over it. A character whose middle stands on the shape, on
-    a top it jumped onto, walks on it as before. A dung heap in TSL's
+    the box down over it. A character standing on the shape walks on it as
+    before. That is a character whose middle stands on the shape, on a top
+    it jumped onto, and also one that landed on the shape's rim with its
+    middle out over the drop. The shape is a wall only to a character at
+    its foot, whose middle stands on other ground within a step: the floor
+    or the shape's low base (`at_flank_foot`). A creature that jumped onto
+    a crate and landed on its rim once stood there, pressing towards its
+    target, for the rest of the fight (2026-11-26, sim probe
+    `stays_on_the_crate_it_jumped_onto`). A dung heap in TSL's
     salvagers' camp (605dan) rises gently from its low base, and the player
     walked up its flank onto its top and stuck between the heap and the
     rocks behind it (2026-11-20, approved test `heap_flank_stops_a_walker`).

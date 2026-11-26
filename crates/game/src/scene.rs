@@ -1609,6 +1609,19 @@ impl<'t> Spawner<'t> {
             )
         };
         let surface = surface_at(part.alpha);
+        // Water draws its bump map where the diffuse would be
+        // (`OdysseyMaterial::water`), when its env map is a cube that loaded.
+        let water = material::water(diffuse)
+            .filter(|_| {
+                let envmap = diffuse.and_then(|facts| facts.envmap.as_deref());
+                envmap
+                    .and_then(|name| self.irs.get(name))
+                    .is_some_and(|texture| texture.faces.len() == 6)
+            })
+            .map(|(alpha, bump)| {
+                let bump = textures.get_key_value(bump).map(|(name, _)| *name);
+                (alpha, bump)
+            });
         // A mesh blended by its own alpha alone is drawn with this surface
         // once a clip keys its alpha up to 1 (`OdysseyMaterial::whole_as`).
         let whole = (part.alpha < 1.0)
@@ -1714,6 +1727,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
+                    .water_if(water.map(|(alpha, bump)| (handle(bump), alpha)))
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())
                     .room_glow(placed.room_glow)
@@ -1733,7 +1747,11 @@ impl<'t> Spawner<'t> {
                 stores.materials.add(material)
             })
             .clone();
-        if let Some((handles, fps)) = texture.and_then(|name| self.frames.get(name))
+        let shown = match water {
+            Some((_, bump)) => bump,
+            None => texture,
+        };
+        if let Some((handles, fps)) = shown.and_then(|name| self.frames.get(name))
             && !self
                 .flipbooks
                 .iter()
@@ -1938,7 +1956,8 @@ impl<'t> Spawner<'t> {
             &self.area,
         )
         .opaque_texture(!facts.alpha)
-        .culled(!facts.decal);
+        .culled(!facts.decal)
+        .glowing(shipped_glow(surface));
         let material = stores.materials.add(made);
         if let Some((frames, fps)) = self.frames.get(*name) {
             self.flipbooks
@@ -3715,6 +3734,21 @@ pub(crate) fn shipped_lighting(
         is_room: false,
         room_flat: false,
         fogged: false,
+    }
+}
+
+/// How many times as bright one mesh of a blade a mod ships is drawn under
+/// Enhanced lighting (`BLADE_CORE_GLOW`). A mesh the blade's texture covers
+/// whole, such as the Schematic Lightsaber Mod's 3D core, is drawn like
+/// kjk's own blade core. It passes white, and bloom spreads a glow of the
+/// blade's colour around it. Without this, the mod's blade had only the faint
+/// halo of its planes, and looked dim next to the other blades. The added
+/// planes are drawn as they are, like the glow sprites of kjk's own blades.
+pub(crate) fn shipped_glow(surface: Surface) -> f32 {
+    if matches!(surface, Surface::Additive | Surface::AddOne) {
+        1.0
+    } else {
+        BLADE_CORE_GLOW
     }
 }
 

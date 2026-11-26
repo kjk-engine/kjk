@@ -10,7 +10,7 @@
 //! the pinned determinism world (the arena, the proving ground installed a
 //! third of the way in); the launcher adds a KOTOR module.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use sim::determinism::{self as pinned, GROUND};
 use sim::{
@@ -299,12 +299,21 @@ enum Pending {
     Install(InstallRequest),
 }
 
+/// Starts building a level, `plan_us` long, once the levels asked for
+/// before it are built.
+fn plan(plans: &mut VecDeque<(NetTime, Pending)>, plan_us: u64, now: NetTime, pending: Pending) {
+    let from = plans.back().map_or(now, |(due, _)| (*due).max(now));
+    plans.push_back((from.plus(plan_us), pending));
+}
+
 struct Player {
     joiner: Joiner,
     at: Peer,
     client: Option<Client>,
     next_frame: NetTime,
-    plan: Option<(NetTime, Pending)>,
+    /// The levels asked for, each due when built: built one after another,
+    /// in the order asked, as the game builds them.
+    plans: VecDeque<(NetTime, Pending)>,
     last_angles: [i16; 3],
     /// The clocks' current start, while they run.
     start: Option<NetTime>,
@@ -493,7 +502,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 at,
                 client: None,
                 next_frame: NetTime(joiner.at_us),
-                plan: None,
+                plans: VecDeque::new(),
                 last_angles: [0; 3],
                 start: None,
                 starts: Vec::new(),
@@ -828,12 +837,20 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             while let Some(event) = client.poll_event() {
                 match event {
                     ClientEvent::NeedLevel(request) => {
-                        player.plan =
-                            Some((now.plus(player.joiner.plan_us), Pending::Join(request)));
+                        plan(
+                            &mut player.plans,
+                            player.joiner.plan_us,
+                            now,
+                            Pending::Join(request),
+                        );
                     }
                     ClientEvent::Installing(request) => {
-                        player.plan =
-                            Some((now.plus(player.joiner.plan_us), Pending::Install(request)));
+                        plan(
+                            &mut player.plans,
+                            player.joiner.plan_us,
+                            now,
+                            Pending::Install(request),
+                        );
                         stop(&mut player.start, &mut player.starts, now);
                         let delay = installing_at.map_or(0, |at| now.since(at));
                         player.install_delay_max_us = player.install_delay_max_us.max(delay);
@@ -870,9 +887,9 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                     _ => {}
                 }
             }
-            if let Some((due, _)) = &player.plan
+            if let Some((due, _)) = player.plans.front()
                 && now >= *due
-                && let Some((_, pending)) = player.plan.take()
+                && let Some((_, pending)) = player.plans.pop_front()
             {
                 let level = match &pending {
                     Pending::Join(request) => scenario.level(request),
@@ -979,7 +996,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 Some(client) => {
                     consider(Some(player.next_frame));
                     consider(client.next_deadline());
-                    consider(player.plan.as_ref().map(|(due, _)| *due));
+                    consider(player.plans.front().map(|(due, _)| *due));
                 }
             }
         }
@@ -1690,6 +1707,96 @@ fn unanswered(server: &mut Server, now: NetTime, at: Peer, token: Option<u64>) -
         .any(|connection| connection.peer == at)
 }
 
+/// Moves datagrams between `server` and the real client at `at` for
+/// `steps` steps of 10 ms of virtual time. The client is given `start` when
+/// it asks for the host's level, and `next` when it hears of an install.
+fn exchange(
+    (server, client, at): (&mut Server, &mut Client, Peer),
+    now: &mut NetTime,
+    (start, next): (&Level, &Level),
+    steps: usize,
+) {
+    for _ in 0..steps {
+        *now = now.plus(10_000);
+        while let Some((_, bytes)) = client.poll_transmit(*now) {
+            server.receive(*now, at, &bytes);
+        }
+        while let Some((to, bytes)) = server.poll_transmit(*now) {
+            if to == at {
+                client.receive(*now, HOST, &bytes);
+            }
+        }
+        while let Some(event) = client.poll_event() {
+            let level = match event {
+                ClientEvent::NeedLevel(_) => start,
+                ClientEvent::Installing(_) => next,
+                _ => continue,
+            };
+            client.provide_level(*now, Ok(level.clone()));
+        }
+    }
+}
+
+/// The actions a real client makes before the host hears it loaded the
+/// world they name (`Client::act`). The host's own player acts before its
+/// client has even joined, and the host takes that action once the client
+/// loaded. An action made while an install comes in is dropped. One made
+/// after the client committed the install, while it holds back telling the
+/// host (`hold_loaded`), does not reach the host then, and the host takes it
+/// once the client tells it.
+fn held_actions(probes: &mut crate::probes::Probes) {
+    let ground = pinned::proving_ground();
+    let arena = Level::arena();
+    let take = |container| vec![sim::action::Action::TakeAll(container)];
+    let at = Peer::Local(1);
+    let (mut server, snapshot) = one_seat();
+    server.in_process(at);
+    let mut now = NetTime(0);
+    let client = Client::connect(credentials("own"), HOST, 5, now, ClientConfig::default());
+    let seen = client.ok().and_then(|mut client| {
+        client.in_process();
+        let taken = |server: &mut Server| {
+            (server.actions().into_iter())
+                .map(|(_, action)| action)
+                .collect::<Vec<_>>()
+        };
+        client.act(sim::action::Action::TakeAll(1));
+        let levels = (&arena, &ground);
+        exchange((&mut server, &mut client, at), &mut now, levels, 20);
+        let early = taken(&mut server);
+        server.installing(InstallRequest {
+            game: "kjk".into(),
+            module: GROUND.into(),
+            arrival: String::new(),
+            seats: 1,
+            players: 1,
+        });
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(2));
+        client.hold_loaded(true);
+        let mut world = SimWorld::from_snapshot(&snapshot, arena.clone()).ok()?;
+        let after = world.install(ground.clone(), None).ok()?;
+        let announcement = sim::Announcement::new(&ground, None, &after)?;
+        server.installed(now, announcement, &after);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(3));
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let withheld = taken(&mut server);
+        client.hold_loaded(false);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let told = taken(&mut server);
+        Some((early, withheld, told))
+    });
+    probes.check(
+        "actions: held until the host hears the player loaded",
+        "the host's own player's action from before its client joined is taken once it loaded; one made while an install comes in is dropped; one made while the client holds back that it loaded the install is taken once it tells the host",
+        seen.as_ref().is_some_and(|(early, withheld, told)| {
+            *early == take(1) && withheld.is_empty() && *told == take(3)
+        }),
+        format!("{seen:?}"),
+    );
+}
+
 /// A host of one seat, its world stepped once.
 fn one_seat() -> (Server, Snapshot) {
     host_of(1)
@@ -1972,6 +2079,36 @@ pub fn seat_probes() -> crate::probes::Probes {
         }),
         format!("{taken:?}"),
     );
+    held_actions(&mut probes);
+
+    // A slow player still builds the level it joined in when the host
+    // installs the next one.
+    let hz = u64::from(TickRate::default().hz());
+    let report = run(&mut Determinism::new(6 * hz), &slow_first_level());
+    let slow = report.clients.last();
+    probes.check(
+        "installs: a player still building the level it joined in",
+        "a player joins at 4 s and builds each level in 3 s; the host installs the proving ground at 6 s, before that player's first level is built; the player hands its first level over, then the install's, and plays on in the new module",
+        report.installs == 1
+            && slow.is_some_and(|client| {
+                client.ended.is_none()
+                    && client.installs + client.stats.installs_differed == 1
+                    && client.starts.iter().any(|start| start.lasted_us > 0)
+            }),
+        slow.map_or("no such player".into(), |client| {
+            format!(
+                "ended: {}; installs agreed {}, differed {}; starts {}; the host's installs {}",
+                client
+                    .ended
+                    .as_ref()
+                    .map_or("no".to_string(), ToString::to_string),
+                client.installs,
+                client.stats.installs_differed,
+                client.starts.len(),
+                report.installs
+            )
+        }),
+    );
 
     // The host's own player, in this process, joins after a guest.
     let (mut server, _) = host_of(2);
@@ -2142,6 +2279,36 @@ pub fn conditions(delay_ms: u64, jitter_ms: u64, loss_percent: u64, burst: u64) 
         loss_ppm: loss_percent * 10_000,
         burst_milli: burst.max(1) * 1000,
         ..Conditions::default()
+    }
+}
+
+/// Two clients on a clean 1 ms link as `kjk net session`'s `lan` has them,
+/// and a third joining at 4 s that builds each level in 3 s: the host's
+/// install at 6 s comes while it still builds the level it joined in.
+fn slow_first_level() -> Setup {
+    let mut clients = joiners(0, 100_000);
+    clients.push(Joiner {
+        at_us: 4_000_000,
+        frame_us: 16_667,
+        plan_us: 3_000_000,
+    });
+    Setup {
+        name: "slow_first_level".into(),
+        clients,
+        conditions: conditions(1, 0, 0, 1),
+        seconds: 14,
+        every: 2,
+        seed: 17,
+        load_wait_us: 5_000_000,
+        host_plan_us: 150_000,
+        corrupt_ppm: 0,
+        cut: None,
+        hold: None,
+        host_frame_us: 0,
+        hitches: Hitches::default(),
+        margins: Margins::default(),
+        rewinds: Rewinds::default(),
+        kill_threads_at_us: None,
     }
 }
 

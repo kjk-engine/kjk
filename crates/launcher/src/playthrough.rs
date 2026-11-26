@@ -1537,6 +1537,22 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 }
                             }
                         },
+                        // As a player shoots a mine it sees: a gun drawn when
+                        // none is in hand, the crosshair on the mine's middle
+                        // and the attack held, until no mine is left there.
+                        Goal::Shoot(at) => match seen_mine_near(&here, *at, false) {
+                            None => met = true,
+                            Some((_, middle)) => {
+                                if !ranged(&me) {
+                                    acts.extend(other_weapon(&world, &last, false));
+                                }
+                                let aim = [middle[0], middle[1], middle[2] + 0.15];
+                                command = Command {
+                                    buttons: buttons::ATTACK,
+                                    ..aiming(&player, &me, aim)
+                                };
+                            }
+                        },
                         // As a player casts from the power list: again after
                         // each cast's time, until the power's effect lasts on
                         // the player (one it cannot pay for is never cast).
