@@ -114,7 +114,11 @@ jobs:
         uses: ./.github/actions/dlss-sdk
 
       # The save editor's window (`save_editor`, eframe) is linted in
-      # editor.yml alone, so the engine's runs never build it.
+      # editor.yml alone, so the engine's runs never build it. The level
+      # editor (`level_editor`) stays in: it is built on `game`, so an
+      # engine change can break it, and this is where that shows before
+      # the merge. Its window adds 28 crates to the check (`bevy_egui`,
+      # egui 0.36, `vello_cpu`, `transform-gizmo` among them).
       - name: clippy
         run: cargo clippy --workspace --exclude save_editor --all-targets --all-features -- -D warnings
 
