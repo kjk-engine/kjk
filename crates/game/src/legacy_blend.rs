@@ -309,21 +309,19 @@ type HeldView = (
 
 fn drawn_extent(
     camera: &ExtractedCamera,
+    target: &ViewTarget,
     resolution: Option<&MainPassResolutionOverride>,
-) -> Option<(UVec2, [u32; 4])> {
-    match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
+) -> (UVec2, [u32; 4]) {
+    let tex = target.main_texture().size();
+    let full = UVec2::new(tex.width, tex.height);
+    let bounds = match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
         Some(vp) => {
             let far = vp.physical_position + vp.physical_size;
-            Some((
-                far,
-                [vp.physical_position.x, vp.physical_position.y, far.x, far.y],
-            ))
+            [vp.physical_position.x, vp.physical_position.y, far.x, far.y]
         }
-        None => {
-            let size = camera.physical_target_size?;
-            Some((size, [0, 0, size.x, size.y]))
-        }
-    }
+        None => [0, 0, full.x, full.y],
+    };
+    (full, bounds)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -342,9 +340,7 @@ fn hold_back(
     let Some(phase) = phases.get_mut(&extracted.retained_view_entity) else {
         return;
     };
-    let Some((extent, bounds)) = drawn_extent(camera, resolution) else {
-        return;
-    };
+    let (extent, bounds) = drawn_extent(camera, target, resolution);
     if extent.x == 0 || extent.y == 0 {
         return;
     }

@@ -347,6 +347,7 @@ fn prepare(
                 vertex: pipeline.fullscreen.to_vertex_state(),
                 fragment: Some(FragmentState {
                     shader: SHADER,
+                    entry_point: Some("fragment".into()),
                     targets: vec![Some(ColorTargetState {
                         format,
                         blend: None,
