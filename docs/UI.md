@@ -977,6 +977,26 @@ Running and checking:
     type` and `ui back` reach the screens. A dump has the fact `catalogue`,
     with the size, the mode, where the image stands in the window and the
     focused control.
+- **3D views in the catalogue** (`kjk_game::gui_scene`, `want_staged`). Some
+  screens draw a 3D model inside a control: the main menu's figure, the
+  character sheet's party member, the upgrade bench's item, the party
+  selection's companion, character creation's class tiles and its character
+  figure, and the galaxy map's planets. The catalogue draws them with the
+  same code as play. Each view gets an image of the control's size in the
+  virtual screen's pixels, and a camera of its own on a render layer that
+  the catalogue's cameras do not draw (layers 14 and up). The views move in
+  real time, and they are made again when the size changes, when another
+  story opens, and after a hot reload. Going back to the list puts them away.
+  - **Stand-ins.** With no game running, the character sheet shows the
+    default main character in plain clothes on the sheet's stage. The party
+    selection shows its companions in their own bodies. The upgrade bench
+    stories `upgrade:7` (a blaster pistol) and `upgrade:9` (a lightsaber)
+    open on an item with a model.
+  - **Seeing a story's 3D view without a window.** `kjk gui story` draws on
+    the CPU and shows a 3D view as a white box. A headless catalogue run
+    draws it: `kjk gui catalogue --story main_menu/at-rest --at deck --game
+    k1 --headless --size 1280x800 --cmds 'ui catalogue bar hide; ui
+    catalogue mode pixel; wait 300f; screenshot; quit'`.
 - **Working with the catalogue** (`kjk_game::catalogue_view`, its module
   `collab`). Five things let an agent and the owner work on a story together.
   - **The agent bridge.** When the catalogue starts, it creates three files

@@ -45,7 +45,7 @@ use crate::ui_sounds::Rows;
 use crate::ui_view::{Drawn, LAYER as SCREENS_LAYER, console_input};
 
 /// The render layer of the quad that shows the image in the window.
-const WINDOW_LAYER: usize = 14;
+const WINDOW_LAYER: usize = 10;
 
 /// How fast the right stick pans the image, in logical pixels a second at
 /// full tilt.
@@ -146,16 +146,24 @@ impl Plugin for CataloguePlugin {
                 return;
             }
         }
-        app.add_plugins((UiMaterialPlugin, crate::pad::SticksPlugin))
-            .insert_resource(ClearColor(Color::BLACK))
-            .init_resource::<Painting>()
-            .add_systems(
-                Update,
-                (read_density, step, paint)
-                    .chain()
-                    .after(console::ConsoleQueue)
-                    .after(crate::pad::Settled),
-            );
+        app.add_plugins((
+            UiMaterialPlugin,
+            crate::pad::SticksPlugin,
+            crate::gui_scene::StagedViewsPlugin,
+        ))
+        .insert_resource(ClearColor(Color::BLACK))
+        .init_resource::<Painting>()
+        .add_systems(
+            Update,
+            (read_density, step, views, paint)
+                .chain()
+                .after(console::ConsoleQueue)
+                .after(crate::pad::Settled),
+        )
+        .configure_sets(
+            Update,
+            crate::gui_scene::StagedViews.after(views).before(paint),
+        );
     }
 }
 
@@ -274,12 +282,14 @@ impl Catalogue {
         let capture = story
             .capture_for(key, Input::Mouse)
             .ok_or(format!("{}: no capture on {key} for the mouse", story.name))?;
-        stage(
+        let mut staged = stage(
             discovery,
             (start.game, &story.screen),
             (&story.steps, story.error.clone(), capture),
             (size.pixels, size.factor),
-        )
+        )?;
+        staged.name_models();
+        Ok(staged)
     }
 
     /// `staged` shown in place of the screens so far. Their textures and
@@ -959,6 +969,34 @@ fn fixed(width: f32, height: f32) -> Projection {
     Projection::Orthographic(projection)
 }
 
+/// The 3D views the story's controls ask for (`gui_scene::want_staged`),
+/// drawn at the virtual screen's pixel size.
+#[allow(clippy::too_many_arguments)]
+fn views(
+    mut commands: Commands,
+    cat: Res<Catalogue>,
+    mut scenes: ResMut<crate::gui_scene::GuiScenes>,
+    mut cameras: Query<&mut Camera, Without<crate::ui_composite::UiComposite>>,
+    mut visibilities: Query<&mut Visibility>,
+    mut assets: crate::scene::ModelAssets,
+    mut replaced: Local<u32>,
+) {
+    if *replaced != cat.assets_replaced {
+        *replaced = cat.assets_replaced;
+        crate::gui_scene::forget_views(&mut commands, &mut scenes);
+    }
+    let size = cat.size();
+    let window = size.window();
+    let layers = collab::composed(&cat);
+    crate::gui_scene::want_staged(
+        &mut commands,
+        &mut scenes,
+        (&layers, &cat.staged.assets, &cat.staged.vm),
+        (Vec2::new(window.0, window.1), size.factor),
+        (&mut cameras, &mut visibilities, &mut assets),
+    );
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn paint(
     mut commands: Commands,
@@ -974,6 +1012,7 @@ fn paint(
     mut cameras: Query<&mut Camera, With<ScreensCamera>>,
     mut places: Query<&mut Transform>,
     mut visibility: Query<&mut Visibility>,
+    mut scenes: ResMut<crate::gui_scene::GuiScenes>,
 ) {
     let painting = &mut *painting;
     let size = cat.size();
@@ -1098,7 +1137,7 @@ fn paint(
             &composed,
             (virtual_window, assets),
             (&mut *meshes, &mut *materials, &mut *images),
-            None,
+            Some(&mut scenes),
             &mut visibility,
             SCREENS_LAYER,
         );
@@ -1134,7 +1173,7 @@ fn paint(
         );
     }
     if let Ok(mut camera) = cameras.get_mut(made.screens) {
-        let draws = painting.fresh > 0;
+        let draws = painting.fresh > 0 || painting.drawn.live();
         if camera.is_active != draws {
             camera.is_active = draws;
         }

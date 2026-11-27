@@ -64,6 +64,26 @@ pub fn stage(
 }
 
 impl Staged {
+    /// The party selection's stand-in companions given their bodies, which
+    /// the in-game catalogue's 3D view draws. `kjk gui story` does not call
+    /// this, because its pictures show a 3D view as a white box, and the
+    /// party screen shows none without a body.
+    pub fn name_models(&mut self) {
+        let roster = stand_in_roster(self.game, true);
+        let Some(party) = self.vm.party_selection.as_mut() else {
+            return;
+        };
+        for (npc, template) in roster {
+            let Some(Some(companion)) = party.companions.get_mut(usize::from(npc)) else {
+                continue;
+            };
+            if companion.appearance.is_none() {
+                companion.appearance = self.assets.appearance_of(template);
+                companion.armour = self.assets.armour_of(template);
+            }
+        }
+    }
+
     /// The screen opened, before any step but `level`, which sets the
     /// member before the screen opens.
     pub fn open(
@@ -520,6 +540,9 @@ fn stand_ins(
     if name.split(':').next() == Some("catalogue_list") {
         vm.catalogue = catalogue_list()?;
     }
+    if name.starts_with("upgrade:") {
+        vm.upgrades = stand_in_upgrades(assets, game);
+    }
     if name == "lobby" {
         vm.lobby = Some(stand_in_lobby(assets, game, 0, 0, false));
     }
@@ -834,6 +857,40 @@ fn stand_in_pazaak() -> ui::vm::PazaakView {
         turn: Some(0),
         ..PazaakView::default()
     }
+}
+
+/// The items the upgrade bench opens on (`upgrade:7`, `upgrade:9`): the
+/// game's first blaster pistol (item 7) and the lightsaber the player starts
+/// with (item 9), each with no slots, so that the bench's 3D view has a
+/// model to show.
+fn stand_in_upgrades(assets: &mut GuiAssets, game: Game) -> Vec<ui::vm::UpgradeItem> {
+    use ui::vm::UpgradeKind;
+    let pistol = if game == Game::Kotor2 {
+        "w_blaste_01"
+    } else {
+        "g_w_blstrpstl001"
+    };
+    [
+        (7, pistol, UpgradeKind::Ranged),
+        (9, "g_w_lghtsbr01", UpgradeKind::Lightsaber),
+    ]
+    .into_iter()
+    .filter_map(|(id, template, kind)| {
+        let look = assets.item(template)?;
+        Some(ui::vm::UpgradeItem {
+            id,
+            item: ui::vm::Entry {
+                name: look.name.clone(),
+                icon: Some(look.icon.clone()),
+                description: look.description.clone(),
+                ..ui::vm::Entry::default()
+            },
+            template: template.into(),
+            kind,
+            ..ui::vm::UpgradeItem::default()
+        })
+    })
+    .collect()
 }
 
 /// The member the character page shows: the first seat's character, whose

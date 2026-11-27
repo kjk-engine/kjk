@@ -4,3 +4,11 @@ status = "not started"
 [[story]]
 name = "At rest"
 screen = "upgrade_select"
+
+[[story]]
+name = "Pistol on the bench"
+screen = "upgrade:7"
+
+[[story]]
+name = "Lightsaber on the bench"
+screen = "upgrade:9"

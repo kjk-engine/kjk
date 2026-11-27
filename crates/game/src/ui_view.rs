@@ -373,6 +373,11 @@ pub(crate) struct Drawn {
 }
 
 impl Drawn {
+    /// Whether a shown run shows a 3D view, which moves of itself.
+    pub(crate) fn live(&self) -> bool {
+        self.live
+    }
+
     /// Whether the meshes on the GPU side were made from `ui`'s layers as
     /// they are now.
     pub(crate) fn shows(&self, ui: &Ui) -> bool {
