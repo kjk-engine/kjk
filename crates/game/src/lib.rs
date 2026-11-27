@@ -99,6 +99,8 @@ pub mod launch_times;
 pub mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
+#[cfg(feature = "probes")]
+pub use lifecycle_view::scene_hold_probes;
 pub mod light_probes;
 pub mod lighting_bakes;
 pub mod linear_frame;

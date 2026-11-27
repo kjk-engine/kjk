@@ -206,6 +206,10 @@ pub struct RayQueries {
     /// Shadows is at Ultra or `KJK_RAYS=on` asks for it, and the
     /// anti-aliasing is TAA or DLSS.
     pub traced: bool,
+    /// The scene cameras are currently held on the warm-up layer while
+    /// pipelines compile (`lifecycle_view::SceneHold`). Structures are kept
+    /// empty without rebuilding BLAS/TLAS until the hold lifts.
+    pub held: bool,
 }
 
 /// On a door's model root. Its meshes get structures as a placeable's do.
@@ -341,6 +345,7 @@ impl Plugin for RayStructuresPlugin {
             offered,
             available: offered && !metal && asked() != Some(false),
             traced: false,
+            held: false,
         };
         AVAILABLE.store(queries.available, Ordering::Relaxed);
         info!(
@@ -420,10 +425,15 @@ fn choose(
     }
 }
 
-/// Copies whether the structures are traced this frame into the render
-/// world.
-fn extract_traced(main: Extract<Res<RayQueries>>, mut queries: ResMut<RayQueries>) {
+/// Copies whether the structures are traced and whether the scene is held for
+/// pipeline warm-up into the render world.
+fn extract_traced(
+    main: Extract<Res<RayQueries>>,
+    hold: Extract<Option<Res<crate::lifecycle_view::SceneHold>>>,
+    mut queries: ResMut<RayQueries>,
+) {
     queries.traced = main.traced;
+    queries.held = hold.as_deref().is_some_and(|hold| hold.0);
 }
 
 /// A mesh with no skin's structure, in the mesh's own frame. `size` is
@@ -1154,7 +1164,7 @@ pub(crate) fn build(
         return;
     };
     let structures = &mut *structures;
-    if !queries.traced {
+    if !queries.traced || queries.held {
         forget(structures, &mut ctx);
         return;
     }
@@ -1692,6 +1702,7 @@ fn facts(queries: Res<RayQueries>, mut facts: ResMut<console::DumpFacts>) {
             "offered": queries.offered,
             "available": queries.available,
             "traced": queries.traced,
+            "held": queries.held,
             "instances": load(&INSTANCES_USED),
             "dependencies": load(&DEPENDENCIES),
             "character_structures": load(&CHARACTER_STRUCTURES),

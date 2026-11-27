@@ -156,10 +156,20 @@ fn watch_picture(loading: Res<Loading>, mut picture: ResMut<Picture>, (warmup, c
     picture.observe(loading.committed, compiled.as_deref(), warmup.is_some());
 }
 
+/// Whether the scene's cameras are currently held on `warmup::LAYER` while
+/// pipelines compile (`hold_scene`). Other systems (such as `ray_structures`)
+/// skip building per-frame acceleration structures while held.
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SceneHold(pub bool);
+
 /// A scene camera that sees only the warm-up's stand-ins, and the layers it
 /// saw before (none: the scene's own).
 #[derive(Component)]
 struct Held(Option<RenderLayers>);
+
+fn holding_scene(warming: bool, committed: Option<Instant>, picture: &Picture) -> bool {
+    warming && committed.is_some_and(|committed| !picture.ready(committed))
+}
 
 /// While the loading screen waits for a new area and the area's pipeline
 /// warm-up is under way (`warmup`), the scene's cameras see only the
@@ -176,12 +186,15 @@ struct Held(Option<RenderLayers>);
 fn hold_scene(
     mut commands: Commands,
     (loading, picture, warmup): (Res<Loading>, Res<Picture>, Option<Res<Warmup>>),
+    mut scene_hold: Option<ResMut<SceneHold>>,
     cameras: Query<(Entity, Option<&RenderLayers>, Has<Held>), SceneCamera>,
     held: Query<(Entity, &Held)>,
     cut: Option<ResMut<crate::temporal::TemporalCut>>,
 ) {
-    let hold =
-        warmup.is_some() && (loading.committed).is_some_and(|committed| !picture.ready(committed));
+    let hold = holding_scene(warmup.is_some(), loading.committed, &picture);
+    if let Some(scene_hold) = scene_hold.as_deref_mut() {
+        scene_hold.0 = hold;
+    }
     if hold {
         let scene = RenderLayers::default();
         for (entity, layers, held) in &cameras {
@@ -271,6 +284,7 @@ impl Plugin for LifecycleViewPlugin {
         app.init_resource::<Overlay>()
             .init_resource::<GameScreen>()
             .init_resource::<Picture>()
+            .init_resource::<SceneHold>()
             .add_systems(
                 Update,
                 (
@@ -838,4 +852,32 @@ fn doors(
             lit.show(&mut materials, animated.as_deref_mut());
         }
     }
+}
+
+#[cfg(feature = "probes")]
+pub fn scene_hold_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let now = Instant::now();
+    let committed = Some(
+        now.checked_sub(std::time::Duration::from_secs(1))
+            .unwrap_or(now),
+    );
+    let mut picture = Picture::default();
+    let initial_false = !SceneHold::default().0;
+    let uncommitted_false = !holding_scene(true, None, &picture);
+    let committed_warming_true = holding_scene(true, committed, &picture);
+    let stopped_warming_false = !holding_scene(false, committed, &picture);
+    picture.observe(committed, None, false);
+    let ready_false = !holding_scene(true, committed, &picture);
+    let ok =
+        initial_false && uncommitted_false && committed_warming_true && stopped_warming_false && ready_false;
+    vec![(
+        "scene_hold_follows_warmup_and_picture_ready",
+        check(
+            ok,
+            format!(
+                "initial={initial_false} uncommitted={uncommitted_false} warming={committed_warming_true} stopped={stopped_warming_false} ready={ready_false}"
+            ),
+        ),
+    )]
 }

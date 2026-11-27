@@ -1,0 +1,60 @@
+{
+  "scenes": [
+    {
+      "id": "endar_corridor",
+      "game": "k1",
+      "module": "end_m01aa",
+      "camera": [12.8, 89.1, 0.3, -180.0, 0.0, 80.0],
+      "why": "Shiny metal corridor, wall strip lamps, and terminal panels (PBR/specular & lamp contrast canary)"
+    },
+    {
+      "id": "taris_cantina",
+      "game": "k1",
+      "module": "tar_m03ae",
+      "camera": null,
+      "why": "Dark moody cantina, glowing signs, and NPCs (dark-tone precision & filmic contrast canary)"
+    },
+    {
+      "id": "dantooine_enclave",
+      "game": "k1",
+      "module": "danm13",
+      "camera": null,
+      "why": "Roof skylights, outdoor sun, grass, and NPCs (sun/sky/grass & hybrid character lighting canary)"
+    },
+    {
+      "id": "anchorhead_suns",
+      "game": "k1",
+      "module": "tat_m17aa",
+      "camera": null,
+      "why": "Twin Tatooine suns and sharp building shadows (twin-sun shadow & outdoor exposure canary)"
+    },
+    {
+      "id": "manaan_water",
+      "game": "k1",
+      "module": "manm26aa",
+      "camera": null,
+      "why": "Water surfaces, polished floors, and bright exteriors (water, Fresnel, and reflections canary)"
+    },
+    {
+      "id": "peragus_tunnels",
+      "game": "tsl",
+      "module": "101per",
+      "camera": null,
+      "why": "Dark tunnels, smoke/gas emitters, consoles, and placeables (double-shadow & particle/volumetric canary)"
+    },
+    {
+      "id": "malachor_dark",
+      "game": "tsl",
+      "module": "903mal",
+      "camera": null,
+      "why": "Near-black tomb shadow floor (dark-tone 7-bit banding vs linear HDR precision canary)"
+    },
+    {
+      "id": "dune_sea_sky",
+      "game": "k1",
+      "module": "tat_m18aa",
+      "camera": null,
+      "why": "Sky + blowing sand particles + lightmap-less terrain (Phase 1 linear-blend canary & Phase 6 RT canary)"
+    }
+  ]
+}
