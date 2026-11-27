@@ -1230,24 +1230,146 @@ fn dark_unlit(used: &[Used], area: &str, module: &str) -> bool {
 /// lightmap (`stored_fill`). A file of an older bake holds that fill from
 /// the games' own lightmaps and has no `format` line. The game takes none
 /// of it and makes its probes from the lightmaps.
+/// Baked probes loaded from `used` folders: either Phase 3 indirect-only
+/// 3D probes (`probes-hybrid.txt`, loaded automatically when present) or legacy
+/// trial probes (`probes-sun.txt` / `probes.txt` under `KJK_BAKED_PROBES=on`).
+struct LoadedBakedProbes {
+    probes: Option<Vec<crate::light_probes::BakedProbe>>,
+    sun: Option<crate::light_probes::ProbeSun>,
+    sun2: Option<(bevy::math::Vec3, bevy::math::Vec3)>,
+    hybrid: bool,
+}
+
 fn baked_probes(
     (stored, used): (Stored, &[Used]),
     rooms: &[RoomView],
     area_baked: bool,
-) -> (
-    Option<Vec<crate::light_probes::BakedProbe>>,
-    Option<crate::light_probes::ProbeSun>,
-) {
-    // The owner preferred the probes made from the lightmaps, so the bake's
-    // probes are read only under `KJK_BAKED_PROBES=on`.
-    if !area_baked || std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on") {
-        return (None, None);
+) -> LoadedBakedProbes {
+    let empty = LoadedBakedProbes {
+        probes: None,
+        sun: None,
+        sun2: None,
+        hybrid: false,
+    };
+    if !area_baked {
+        return empty;
     }
-    let live_sun = std::env::var("KJK_PROBE_SUN").is_ok_and(|value| value == "on");
     let names: std::collections::HashSet<String> = rooms
         .iter()
         .map(|room| room.name.to_ascii_lowercase())
         .collect();
+    if crate::light_probes::hybrid_enabled() {
+        let mut probes = Vec::new();
+        let mut sun = None;
+        let mut sun2 = None;
+        for Used { folder, .. } in used {
+            let Ok(text) = std::fs::read_to_string(folder.path.join(crate::light_probes::HYBRID_FILE)) else {
+                continue;
+            };
+            let mut lines = text
+                .lines()
+                .filter(|line| !line.starts_with('#'))
+                .peekable();
+            let mut format = None;
+            let mut maps = Vec::new();
+            while let Some(line) = lines.peek() {
+                if let Some(number) = line.strip_prefix("format ") {
+                    format = number.trim().parse::<u32>().ok();
+                } else if let Some(map) = crate::stored_fill::StoredMap::parse(line) {
+                    maps.push(map);
+                } else {
+                    break;
+                }
+                lines.next();
+            }
+            if format != Some(crate::bake_fingerprint::FORMAT) {
+                continue;
+            }
+            let mut fills = StoredFills::new(stored, folder);
+            for line in lines {
+                let mut words = line.split_whitespace();
+                let Some(first) = words.next() else {
+                    continue;
+                };
+                if first == "sun" || first == "sun2" {
+                    let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+                    if numbers.len() == 6 {
+                        let way = bevy::math::Vec3::from_slice(&numbers[..3]).normalize_or_zero();
+                        let colour = bevy::math::Vec3::from_slice(&numbers[3..6]);
+                        if first == "sun" {
+                            sun = Some(crate::light_probes::ProbeSun {
+                                way,
+                                colour,
+                                curve: bevy::math::Vec3::ONE,
+                            });
+                        } else {
+                            sun2 = Some((way, colour));
+                        }
+                    }
+                    continue;
+                }
+                let room = first.to_ascii_lowercase();
+                if !names.contains(&room) {
+                    continue;
+                }
+                let words: Vec<&str> = words.collect();
+                let (words, stored_ref) = match words.split_last() {
+                    Some((last, rest)) if last.starts_with('@') => {
+                        let Some((map, texel)) = crate::stored_fill::parse_word(last) else {
+                            continue;
+                        };
+                        let Some(map) = maps.get(map) else {
+                            continue;
+                        };
+                        (rest, Some((map, texel)))
+                    }
+                    _ => (&words[..], None),
+                };
+                let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
+                if numbers.len() != 24 {
+                    continue;
+                }
+                let at = bevy::math::Vec3::from_slice(&numbers[..3]);
+                let direct_scale = numbers[3];
+                let sun1_vis = numbers[4];
+                let sun2_vis = numbers[5];
+                let raw_sides = &numbers[6..];
+                let parts = stored_ref.and_then(|(map, texel)| fills.parts(map, texel));
+                let light = std::array::from_fn(|side| {
+                    let side_lin = bevy::math::Vec3::from_slice(&raw_sides[3 * side..3 * side + 3]);
+                    match parts {
+                        Some((stored_px, fill, floor)) => {
+                            crate::stored_fill::with_fill_linear(side_lin, stored_px, fill, floor)
+                        }
+                        None => side_lin,
+                    }
+                });
+                probes.push(crate::light_probes::BakedProbe {
+                    room,
+                    at,
+                    light,
+                    direct_scale,
+                    sun: sun1_vis,
+                    sun2: sun2_vis,
+                });
+            }
+            fills.report("probes-hybrid");
+        }
+        if !probes.is_empty() {
+            return LoadedBakedProbes {
+                probes: Some(probes),
+                sun,
+                sun2,
+                hybrid: true,
+            };
+        }
+    }
+    // The owner preferred the probes made from the lightmaps, so the legacy
+    // bake's probes are read only under `KJK_BAKED_PROBES=on`.
+    if std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on") {
+        return empty;
+    }
+    let live_sun = std::env::var("KJK_PROBE_SUN").is_ok_and(|value| value == "on");
     let mut probes = Vec::new();
     let mut sun = None;
     for Used { folder, .. } in used {
@@ -1347,15 +1469,22 @@ fn baked_probes(
                 room,
                 at,
                 light,
+                direct_scale: 0.0,
                 sun: share,
+                sun2: 0.0,
             });
         }
         fills.report("probes");
     }
     if probes.is_empty() {
-        return (None, None);
+        return empty;
     }
-    (Some(probes), sun)
+    LoadedBakedProbes {
+        probes: Some(probes),
+        sun,
+        sun2: None,
+        hybrid: false,
+    }
 }
 
 /// Where an area's load finds its stored lightmaps: the resolver, and the
@@ -2456,9 +2585,11 @@ pub fn module_scene(
         resolver,
         lightmaps: &stored_lightmaps,
     };
-    let (baked, sun) = baked_probes((stored, &used), &rooms, area_baked);
-    let mut probes = crate::light_probes::bake(&models, &rooms, &textures, baked);
-    probes.sun = sun;
+    let baked = baked_probes((stored, &used), &rooms, area_baked);
+    let mut probes = crate::light_probes::bake(&models, &rooms, &textures, baked.probes);
+    probes.sun = baked.sun;
+    probes.sun2 = baked.sun2;
+    probes.hybrid = baked.hybrid;
     probes.placeables = baked_placeables((stored, &used), &area.resref, &lit, area_baked);
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());

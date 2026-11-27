@@ -10,7 +10,7 @@ use asset_odyssey::module::RoomIr;
 
 use super::{
     Current, EXACT, FORMAT, Facing, Fingerprint, Placed, RoomModels, Verdict, bits, fit,
-    lightmap_digests, parse, stamp, text, verdict,
+    lightmap_approx_digests, lightmap_digests, model_approx_digest, parse, stamp, text, verdict,
 };
 use crate::probe_kit::{Checks, check};
 
@@ -19,6 +19,10 @@ pub fn probes() -> Checks {
     vec![
         ("the_text_reads_back", the_text_reads_back()),
         ("a_verdict_follows_the_parts", a_verdict_follows_the_parts()),
+        (
+            "tolerant_matching_resaved_mdl_and_placeable",
+            tolerant_matching_resaved_mdl_and_placeable(),
+        ),
     ]
 }
 
@@ -376,15 +380,18 @@ fn current_of(
 ) -> Current {
     let models = models_of(models);
     let (lightmaps, rooms_of) = lightmap_digests(rooms, &models);
+    let lightmaps_approx = lightmap_approx_digests(rooms, &models);
     Current {
         print: plain("101per", "rooms", "placeables"),
         lightmaps,
+        lightmaps_approx,
         rooms_of,
         named: super::named_lightmaps(&models),
         placed,
         models: (placeable_models.iter())
             .map(|(name, digest)| ((*name).to_string(), (*digest).to_string()))
             .collect(),
+        models_approx: BTreeMap::new(),
     }
 }
 
@@ -621,9 +628,11 @@ fn the_exact_lines_read_back_in_both_readers() -> Result<String, String> {
             ("lm0".into(), "a".repeat(32)),
             ("lm1".into(), "b".repeat(32)),
         ]),
+        lightmaps_approx: BTreeMap::new(),
         backdrops: ["sky".to_string()].into(),
         placed,
         models: BTreeMap::from([("crate01".into(), "c".repeat(32))]),
+        models_approx: BTreeMap::new(),
     };
     let print = Fingerprint {
         exact: Some(exact),
@@ -652,5 +661,95 @@ fn the_exact_lines_read_back_in_both_readers() -> Result<String, String> {
     check(
         skipped == [Some(false), Some(false)],
         format!("another version and a broken line read as having exact lines: {skipped:?}"),
+    )
+}
+
+/// Re-saved room & placeable MDLs with sub-millimetre / sub-UV float drift
+/// or reordered/merged meshes keep their bake match via `*-approx` digests
+/// and small GIT tolerance (`5 mm`, `0.01 rad`), while larger changes fail.
+fn tolerant_matching_resaved_mdl_and_placeable() -> Result<String, String> {
+    let crate_ir = |drift: f32, reversed: bool| -> ModelIr {
+        let mut corners = [
+            ([0.0 + drift, 0.0, 0.0], [0.0, 0.0]),
+            ([1.0, 0.0, 0.0], [0.0, 0.0]),
+            ([1.0, 1.0, 0.0], [0.0, 0.0]),
+            ([0.0, 1.0, 0.0], [0.0, 0.0]),
+        ];
+        if reversed {
+            corners.reverse();
+            model(
+                "crate01",
+                vec![node([0.0; 3])],
+                vec![mesh(0, &corners, &[0, 3, 2, 0, 2, 1], None, "crate")],
+            )
+        } else {
+            model(
+                "crate01",
+                vec![node([0.0; 3])],
+                vec![mesh(0, &corners, &[0, 1, 2, 0, 2, 3], None, "crate")],
+            )
+        }
+    };
+    let baked_crate = crate_ir(0.0, false);
+    let resaved_crate = crate_ir(0.0002, true);
+    let shifted_crate = crate_ir(0.05, false);
+
+    let mut baked = current_of(
+        &[room("room01", [10.0, 20.0, 0.0])],
+        vec![("room01", room_model(vec![square_mesh(SQUARE)]))],
+        vec![crate_at(0, "crate01", 1.0, 0.5)],
+        &[("crate01", &super::model_digest(&baked_crate))],
+    );
+    baked
+        .models_approx
+        .insert("crate01".into(), model_approx_digest(&baked_crate));
+    let (stamped, _) = stamp(&baked, &BTreeSet::from(["lm0".to_string()]));
+    let reparsed = parse(&text(&stamped)).ok_or("reparse failed")?;
+
+    let drifted_square = SQUARE.map(|(p, uv)| ([p[0] + 0.0002, p[1], p[2]], [uv[0] + 0.0001, uv[1]]));
+    let mut resaved = current_of(
+        &[room("room01", [10.0, 20.0, 0.0])],
+        vec![("room01", room_model(vec![square_mesh(drifted_square)]))],
+        vec![crate_at(4, "crate01", 1.002, 0.503)],
+        &[("crate01", &super::model_digest(&resaved_crate))],
+    );
+    resaved
+        .models_approx
+        .insert("crate01".into(), model_approx_digest(&resaved_crate));
+    let matched = fit(&reparsed, &resaved).ok_or("no exact")??;
+    check(
+        matched.matching == BTreeSet::from(["lm0".to_string()])
+            && matched.placeables.get(&4) == Some(&0)
+            && !matched.placeables_differ,
+        format!("expected drifted MDL to match cleanly: {matched:?}"),
+    )?;
+
+    // Legacy fingerprint without *-approx lines must still parse & match exact.
+    let mut legacy = reparsed.clone();
+    if let Some(exact) = legacy.exact.as_mut() {
+        exact.lightmaps_approx.clear();
+        exact.models_approx.clear();
+    }
+    let legacy_matched = fit(&legacy, &baked).ok_or("no exact")??;
+    check(
+        legacy_matched.matching.contains("lm0") && legacy_matched.placeables.get(&0) == Some(&0),
+        format!("legacy match failed: {legacy_matched:?}"),
+    )?;
+
+    // Large wall shift (10 cm) and shifted/rotated crate must fail.
+    let moved_square = SQUARE.map(|(p, uv)| ([p[0] + 0.1, p[1], p[2]], uv));
+    let mut broken = current_of(
+        &[room("room01", [10.0, 20.0, 0.0])],
+        vec![("room01", room_model(vec![square_mesh(moved_square)]))],
+        vec![crate_at(4, "crate01", 1.2, 1.5)],
+        &[("crate01", &super::model_digest(&shifted_crate))],
+    );
+    broken
+        .models_approx
+        .insert("crate01".into(), model_approx_digest(&shifted_crate));
+    let refused = fit(&reparsed, &broken).ok_or("no exact")??;
+    check(
+        refused.matching.is_empty() && refused.placeables.is_empty() && refused.placeables_differ,
+        format!("expected moved geometry/placeable to fail: {refused:?}"),
     )
 }

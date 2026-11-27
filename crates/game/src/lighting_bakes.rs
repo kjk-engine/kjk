@@ -77,10 +77,10 @@ pub const SETTING_VALUE: &str = "baked";
 const CHECKS: &str = "lighting-check-v4";
 
 /// The files of a bake's set that the game loads, and so the files a
-/// download holds: the lightmaps (PNG), `fill.txt`, `floor.txt`,
-/// `unlit.txt`, `stored.txt`, `placeables.txt` and `fingerprint.txt`. The
-/// probe files are read only by trial switches, and `detail-bake.txt` is
-/// the bake's log.
+/// download holds: the lightmaps (PNG / KLM), `fill.txt`, `floor.txt`,
+/// `unlit.txt`, `stored.txt`, `placeables.txt`, `probes-hybrid.txt` and
+/// `fingerprint.txt`. Legacy `probes.txt` / `probes-sun.txt` remain read only
+/// by trial switches, and `detail-bake.txt` is the bake's log.
 pub fn shipped(file: &str) -> bool {
     let file = file.to_ascii_lowercase();
     file.ends_with(".png")
@@ -91,6 +91,7 @@ pub fn shipped(file: &str) -> bool {
                 | "floor.txt"
                 | "unlit.txt"
                 | "placeables.txt"
+                | crate::light_probes::HYBRID_FILE
                 | crate::stored_fill::STORED_FILE
                 | bake_fingerprint::FILE
         )

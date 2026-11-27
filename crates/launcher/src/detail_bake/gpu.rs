@@ -674,7 +674,7 @@ pub(super) fn bake_lights(
     // The probes' places, six to a probe, one facing each of `PROBE_AXES`.
     // They follow the triangles' middles, and every pass that lights them
     // runs over them alone (`run_from`).
-    let probes = probe_places(reader, area);
+    let probes = probe_places(reader, area, &level);
     let probe_first = places.len();
     places.extend(probes.iter().flat_map(|(_, at)| {
         PROBE_AXES.map(|axis| Place {
@@ -1099,11 +1099,13 @@ pub(super) fn bake_lights(
         Ok((0..probe_range.1).map(|j| [read[2 * (probe_first + j)][0], read[2 * (probe_first + j)][1]]).collect())
     };
     let mut probe_sky = vec![Vec3::ZERO; probe_range.1];
-    // The first sun's direct light on each probe's place, which `probe_sky`
-    // holds, and the sun's way and linear colour. The game adds it live
-    // under `KJK_PROBE_SUN=on` (`write_probes_sun`).
+    // The direct sun light on each probe's place, which `probe_sky` holds,
+    // and each sun's way and linear colour. `write_probes_sun` and
+    // `write_probes_hybrid` write them for live direct sun shading.
     let mut probe_sun = vec![Vec3::ZERO; probe_range.1];
+    let mut probe_sun2 = vec![Vec3::ZERO; probe_range.1];
     let mut sun_of_probes: Option<(Vec3, Vec3)> = None;
+    let mut sun2_of_probes: Option<(Vec3, Vec3)> = None;
     let mut sunlit: Option<Vec<f32>> = None;
     let sky_light: Vec<Vec3> = match &options.sun {
         Some(sun) => {
@@ -1170,9 +1172,13 @@ pub(super) fn bake_lights(
             if probe_range.1 > 0 {
                 let seen = probe_sun_and_sky(sun.toward, sun_rays, SKY_RAYS, width)?;
                 let second: Vec<Vec3> = match sun.second {
-                    Some((toward, colour)) => (probe_sun_and_sky(toward, sun_rays, 0, width)?.iter())
-                        .map(|[sun, _]| colour.powf(GAMMA) * *sun)
-                        .collect(),
+                    Some((toward, colour)) => {
+                        let of_second_sun = colour.powf(GAMMA);
+                        sun2_of_probes = Some((toward, of_second_sun));
+                        (probe_sun_and_sky(toward, sun_rays, 0, width)?.iter())
+                            .map(|[sun, _]| of_second_sun * *sun)
+                            .collect()
+                    }
                     None => vec![Vec3::ZERO; probe_range.1],
                 };
                 for (j, light) in probe_sky.iter_mut().enumerate() {
@@ -1184,6 +1190,7 @@ pub(super) fn bake_lights(
                     let under_a_roof = on_skylight * (ROOF_GAIN * sky_seen).min(1.0);
                     *light = of_sun * sun_seen + second[j] + in_a_courtyard.lerp(under_a_roof, roof);
                     probe_sun[j] = of_sun * sun_seen;
+                    probe_sun2[j] = second[j];
                 }
                 sun_of_probes = Some((sun.toward, of_sun));
             }
@@ -1266,14 +1273,17 @@ pub(super) fn bake_lights(
         (bounce_a, bounce_b)
     };
     // The lamps' light on the probes: direct, and what the texels lit by
-    // them and their bounces send back.
-    let probe_lamps: Vec<Vec3> = {
+    // them and their bounces send back (kept apart for `probes-hybrid.txt`).
+    let probe_bounce_lamps: Vec<Vec3> = {
         let from_b: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
         let gathered = probe_gather(&from_b, 40)?;
         (0..probe_range.1)
-            .map(|j| probe_direct[j] + gathered.get(j).map_or(Vec3::ZERO, |[b, glow]| *b + *glow))
+            .map(|j| gathered.get(j).map_or(Vec3::ZERO, |[b, glow]| *b + *glow))
             .collect()
     };
+    let probe_lamps: Vec<Vec3> = (0..probe_range.1)
+        .map(|j| probe_direct[j] + probe_bounce_lamps[j])
+        .collect();
     // The sun's and the sky's light with its own bounces.
     let sun_light: Vec<Vec3> = if let Some(sun) = &options.sun {
         // What a bounce ray takes from a skylight is the light that falls
@@ -1453,7 +1463,17 @@ pub(super) fn bake_lights(
     // takes its fill from the stored light, the files hold its light without
     // that fill, and `probe_stored` names the stored texel the game reads the
     // fill from when it loads the file.
-    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = {
+    let (
+        rooms_b,
+        shown_b,
+        written_b,
+        fills_b,
+        probe_light,
+        probe_linear,
+        probe_stored,
+        probe_indirect_linear,
+        probe_scales,
+    ) = {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
         // factor for the whole area then raises those targets so that
@@ -1694,7 +1714,33 @@ pub(super) fn bake_lights(
             })
             .collect();
         let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| stored_level(*light)).collect();
-        (rooms, shown, written, fills, probe_light, probe_linear, probe_stored)
+        let probe_indirect_linear: Vec<Vec3> = (0..6 * probes.len())
+            .map(|j| {
+                let in_files = probe_maps[j].is_some_and(|map| fills.contains_key(&room_name(&maps[map])));
+                let (fill, scale) = probe_maps[j].map_or((0.0, 1.0), |map| even[map].unwrap_or((0.0, rooms.scale[map])));
+                let indirect_sky = (probe_sky[j] - probe_sun[j] - probe_sun2[j]).max(Vec3::ZERO);
+                let base_lin = indirect_sky + probe_bounce_lamps[j] * scale;
+                if in_files && probe_stored[j].is_some() {
+                    base_lin.max(floor_lin)
+                } else {
+                    (base_lin + probe_pattern[j] * fill).max(floor_lin)
+                }
+            })
+            .collect();
+        let probe_scales: Vec<f32> = (0..probes.len())
+            .map(|k| probe_maps[6 * k].map_or(1.0, |map| even[map].map_or(rooms.scale[map], |(_, scale)| scale)))
+            .collect();
+        (
+            rooms,
+            shown,
+            written,
+            fills,
+            probe_light,
+            probe_linear,
+            probe_stored,
+            probe_indirect_linear,
+            probe_scales,
+        )
     };
     lap("levels".into(), &mut times);
 
@@ -1709,7 +1755,14 @@ pub(super) fn bake_lights(
     )?;
     // A set baked earlier into the same folder may hold a `fill.txt` or a
     // `floor.txt` that this bake does not ask for.
-    for name in ["fill.txt", "floor.txt", "probes.txt", PROBES_SUN, kjk_game::placeable_light::FILE] {
+    for name in [
+        "fill.txt",
+        "floor.txt",
+        "probes.txt",
+        PROBES_SUN,
+        PROBES_HYBRID,
+        kjk_game::placeable_light::FILE,
+    ] {
         let _ = std::fs::remove_file(folder.join("b").join(name));
     }
     if !fills_b.is_empty() {
@@ -1745,7 +1798,10 @@ pub(super) fn bake_lights(
         for (k, (_, at)) in probes.iter().enumerate() {
             let under: Vec<usize> = (0..count)
                 .filter(|&i| counts[i] && points[i].normal.z > 0.9)
-                .filter(|&i| points[i].at.truncate().distance(at.truncate()) < 0.3 && (at.z - points[i].at.z - PROBE_HEIGHT).abs() < 0.3)
+                .filter(|&i| {
+                    points[i].at.truncate().distance(at.truncate()) < 0.3
+                        && PROBE_HEIGHTS.iter().any(|&h| (at.z - points[i].at.z - h).abs() < 0.3)
+                })
                 .collect();
             if under.is_empty() {
                 continue;
@@ -1771,16 +1827,26 @@ pub(super) fn bake_lights(
         let light: Vec<Vec3> = probe_light[..6 * probes.len()].iter().map(|light| *light / GAIN).collect();
         // A probe's six places stand at one point and share one texel.
         let stored: Vec<Option<usize>> = (0..probes.len()).map(|k| probe_stored[6 * k]).collect();
-        write_probes(&folder.join("b").join("probes.txt"), &probes, &light, &refs(&stored))?;
+        let stored_refs = refs(&stored);
+        write_probes(&folder.join("b").join("probes.txt"), &probes, &light, &stored_refs)?;
         if let Some((toward, colour)) = sun_of_probes {
             let unsunned: Vec<Vec3> = (0..6 * probes.len()).map(|j| probe_linear[j] - probe_sun[j]).collect();
             write_probes_sun(
                 &folder.join("b").join(PROBES_SUN),
                 &probes,
                 (&unsunned, &probe_sun),
-                &refs(&stored),
+                &stored_refs,
                 toward,
                 colour,
+            )?;
+        }
+        if !probe_indirect_linear.is_empty() {
+            write_probes_hybrid(
+                &folder.join("b").join(PROBES_HYBRID),
+                &probes,
+                (&probe_indirect_linear, &probe_scales, &probe_sun, &probe_sun2),
+                &stored_refs,
+                [sun_of_probes, sun2_of_probes],
             )?;
         }
     }
@@ -2477,17 +2543,18 @@ const PROBE_AXES: [Vec3; 6] = [
     Vec3::NEG_Y,
     Vec3::Y,
 ];
-/// How far apart the probes stand, how high over the walkable floor, and
-/// how far apart two storeys must be to each have one, in metres, as the
-/// game's (`probe_places` in `crates/game/src/light_probes.rs`).
+/// How far apart the probes stand, the low and high layers above walkable
+/// floors, the ceiling clearance for safe upper placement, and how far apart
+/// two storeys must be to each have their own probes (metres).
 const PROBE_SPACING: f32 = 1.0;
-const PROBE_HEIGHT: f32 = 1.0;
+const PROBE_HEIGHTS: [f32; 2] = [0.6, 1.8];
+const CEILING_CLEARANCE: f32 = 0.25;
 const PROBE_STOREY: f32 = 1.5;
 
 /// Where the area's probes stand, with the name of each one's room: on a
-/// grid `PROBE_SPACING` apart, `PROBE_HEIGHT` over each walkable face of a
-/// room's walkmesh, as the game places its own.
-fn probe_places(reader: &Reader, area: &AreaIr) -> Vec<(String, Vec3)> {
+/// grid `PROBE_SPACING` apart, at dual heights over each walkable face of a
+/// room's walkmesh (skipping or clamping against low ceilings via `level`).
+fn probe_places(reader: &Reader, area: &AreaIr, level: &Level) -> Vec<(String, Vec3)> {
     let mut places = Vec::new();
     for room in &area.rooms {
         let floor = reader.walkable_faces(&room.model);
@@ -2504,11 +2571,21 @@ fn probe_places(reader: &Reader, area: &AreaIr) -> Vec<(String, Vec3)> {
                 }
             }
         }
+        let room_name = room.model.to_ascii_lowercase();
         for ((gx, gy), mut at) in heights {
             at.sort_by(f32::total_cmp);
             at.dedup_by(|a, b| (*a - *b).abs() < PROBE_STOREY);
             let (x, y) = (gx as f32 * PROBE_SPACING, gy as f32 * PROBE_SPACING);
-            places.extend(at.into_iter().map(|z| (room.model.to_ascii_lowercase(), Vec3::new(x, y, z + PROBE_HEIGHT))));
+            for z in at {
+                let ceiling = level
+                    .first_hit(Vec3::new(x, y, z + 0.15), Vec3::Z, 2.2)
+                    .map(|(_, t)| 0.15 + t);
+                let low_h = ceiling.map_or(PROBE_HEIGHTS[0], |c| (c - CEILING_CLEARANCE).clamp(0.25, PROBE_HEIGHTS[0]));
+                places.push((room_name.clone(), Vec3::new(x, y, z + low_h)));
+                if ceiling.is_none_or(|c| c >= PROBE_HEIGHTS[1] + CEILING_CLEARANCE) {
+                    places.push((room_name.clone(), Vec3::new(x, y, z + PROBE_HEIGHTS[1])));
+                }
+            }
         }
     }
     places
@@ -2557,6 +2634,64 @@ fn write_probes(path: &Path, probes: &[(String, Vec3)], light: &[Vec3], stored: 
 /// The file of a bake's set that holds the probes for the live sun
 /// (`write_probes_sun`).
 const PROBES_SUN: &str = "probes-sun.txt";
+/// The file of a bake's set that holds indirect-only 3D probes for hybrid
+/// live direct fitted-light and sun shading (`write_probes_hybrid`).
+const PROBES_HYBRID: &str = kjk_game::light_probes::HYBRID_FILE;
+
+/// Writes indirect-only 3D probes and live sun metadata to `path` for
+/// Phase 3 hybrid character lighting (`viewer::baked_probes`).
+fn write_probes_hybrid(
+    path: &Path,
+    probes: &[(String, Vec3)],
+    (indirect, scales, probe_sun, probe_sun2): (&[Vec3], &[f32], &[Vec3], &[Vec3]),
+    stored: &StoredRefs,
+    [sun1, sun2]: [Option<(Vec3, Vec3)>; 2],
+) -> Result<(), String> {
+    let mut text = String::from(
+        "# Indirect-only 3D probes for hybrid character lighting (crates/launcher/src/detail_bake/gpu.rs).\n\
+         # sun / sun2: way toward sun in Bevy space (x y z) and linear colour (r g b).\n\
+         # Each probe: room x y z direct_scale sun1_vis sun2_vis followed by linear HDR indirect\n\
+         # irradiance on +x, -x, +y, -y, +z, -z (Bevy axes), and optional @<map>:<texel> fill ref.\n",
+    );
+    stored.header(&mut text);
+    let write_sun = |text: &mut String, tag: &str, sun: Option<(Vec3, Vec3)>| -> Option<(f32, f32)> {
+        let (toward, colour) = sun?;
+        let way = Vec3::new(toward.x, toward.z, -toward.y).normalize_or_zero();
+        let _ = writeln!(
+            text,
+            "{tag} {:.5} {:.5} {:.5} {:.5} {:.5} {:.5}",
+            way.x, way.y, way.z, colour.x, colour.y, colour.z
+        );
+        let facing: f32 = PROBE_AXES.iter().map(|axis| axis.dot(toward).max(0.0)).sum();
+        let strength = luma(colour).max(1e-6);
+        Some((facing, strength))
+    };
+    let s1_meta = write_sun(&mut text, "sun", sun1);
+    let s2_meta = write_sun(&mut text, "sun2", sun2);
+    for (k, (room, at)) in probes.iter().enumerate() {
+        let sun_vis = |meta: Option<(f32, f32)>, samples: &[Vec3]| -> f32 {
+            meta.map_or(0.0, |(facing, strength)| {
+                let reached: f32 = samples[6 * k..6 * k + 6].iter().map(|light| luma(*light)).sum();
+                (reached / (strength * facing).max(1e-6)).clamp(0.0, 1.0)
+            })
+        };
+        let sun1_vis = sun_vis(s1_meta, probe_sun);
+        let sun2_vis = sun_vis(s2_meta, probe_sun2);
+        let scale = scales.get(k).copied().unwrap_or(1.0);
+        let _ = write!(
+            text,
+            "{room} {:.3} {:.3} {:.3} {scale:.4} {sun1_vis:.4} {sun2_vis:.4}",
+            at.x, at.y, at.z
+        );
+        for side in &indirect[6 * k..6 * k + 6] {
+            let side = side.max(Vec3::ZERO);
+            let _ = write!(text, " {:.5} {:.5} {:.5}", side.x, side.y, side.z);
+        }
+        text.push_str(&stored.word(k));
+        text.push('\n');
+    }
+    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+}
 
 /// Writes the probes for the live sun to `path`, which the game reads under
 /// `KJK_PROBE_SUN=on` (`baked_probes` in `crates/game/src/viewer.rs`).

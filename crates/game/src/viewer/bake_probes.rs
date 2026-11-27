@@ -331,6 +331,7 @@ fn files(lightmaps: &[(&str, &str)], placed: Vec<Placed>) -> Current {
         lightmaps: (lightmaps.iter())
             .map(|(name, digest)| ((*name).to_string(), (*digest).to_string()))
             .collect(),
+        lightmaps_approx: BTreeMap::new(),
         rooms_of: BTreeMap::new(),
         named: lightmaps
             .iter()
@@ -340,6 +341,7 @@ fn files(lightmaps: &[(&str, &str)], placed: Vec<Placed>) -> Current {
         models: [("crate01", "c"), ("table01", "t")]
             .map(|(name, digest)| (name.to_string(), digest.to_string()))
             .into(),
+        models_approx: BTreeMap::new(),
     }
 }
 

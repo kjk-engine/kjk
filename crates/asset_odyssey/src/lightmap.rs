@@ -16,7 +16,7 @@ pub fn f32_to_f16(value: f32) -> u16 {
     let bits = value.to_bits();
     let sign = ((bits >> 16) & 0x8000) as u16;
     let exp = ((bits >> 23) & 0xff) as i32;
-    let frac = bits & 0x007f_ffff;
+    let frac = bits & ((1 << 23) - 1);
     if exp == 0xff {
         return sign | 0x7c00 | if frac != 0 { ((frac >> 13) as u16).max(1) } else { 0 };
     }
@@ -39,7 +39,7 @@ pub fn f32_to_f16(value: f32) -> u16 {
         return sign | ((h_exp << 10) as u16) | (h_frac as u16);
     }
     if unbiased >= -25 {
-        let mant = 0x0080_0000 | frac;
+        let mant = (1 << 23) | frac;
         let shift = (-14 - unbiased) + 13;
         let round_bit = 1u32 << (shift - 1);
         let sticky = (mant & (round_bit - 1)) != 0;
@@ -73,7 +73,7 @@ pub fn f16_to_f32(half: u16) -> f32 {
         return f32::from_bits(sign | f_exp | (m << 13));
     }
     if exp == 0x1f {
-        let f_frac = if frac != 0 { (frac << 13) | 0x0040_0000 } else { 0 };
+        let f_frac = if frac != 0 { (frac << 13) | (1 << 22) } else { 0 };
         return f32::from_bits(sign | 0x7f80_0000 | f_frac);
     }
     let f_exp = ((i32::from(exp) - 15 + 127) as u32) << 23;

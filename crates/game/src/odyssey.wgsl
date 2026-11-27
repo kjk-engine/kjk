@@ -188,6 +188,9 @@ struct ProbeList {
     sun_way: vec4<f32>,
     sun_colour: vec4<f32>,
     sun_curve: vec4<f32>,
+    // Secondary live sun (way with w 1 when present, and linear colour).
+    sun2_way: vec4<f32>,
+    sun2_colour: vec4<f32>,
     entries: array<GpuProbe, 1024>,
     // The source of the room's light each model's shadow takes
     // (`light_probes.rs`'s `room_light`). The xyz part is the direction
@@ -742,6 +745,38 @@ fn probe_sun_curve(light: vec3<f32>) -> vec3<f32> {
         eased = level * ((curve.y + over * curve.z / (curve.z + over)) / brightness);
     }
     return eased * 0.5;
+}
+
+// Whether model `owner` uses Phase 3 hybrid lighting (indirect-only 3D probe
+// irradiance + live direct fitted lights & twin suns).
+fn probe_is_hybrid(owner: u32) -> bool {
+    if owner >= PROBE_SLOTS || probe_list.sun_colour.w < 0.5 {
+        return false;
+    }
+    let light = probe_list.entries[min(owner, PROBE_SLOTS - 1u)].light;
+    return light[0].w > 0.5 && light[5].w > 0.5;
+}
+
+// Phase 3 linear HDR indirect probe irradiance of model `owner` along `normal`
+// (without tone-curve compression; no live direct sun baked in).
+fn probe_indirect_linear(owner: u32, normal: vec3<f32>) -> vec3<f32> {
+    let light = probe_list.entries[min(owner, PROBE_SLOTS - 1u)].light;
+    if dot(normal, normal) < 1e-8 {
+        let mean = (light[0].rgb + light[1].rgb + light[2].rgb + light[3].rgb + light[4].rgb + light[5].rgb) / 6.0;
+        return max(mean, vec3<f32>(0.0));
+    }
+    let n = normalize(normal);
+    let w = n * n;
+    let x = select(light[1].rgb, light[0].rgb, n.x > 0.0);
+    let y = select(light[3].rgb, light[2].rgb, n.y > 0.0);
+    let z = select(light[5].rgb, light[4].rgb, n.z > 0.0);
+    return max(x * w.x + y * w.y + z * w.z, vec3<f32>(0.0));
+}
+
+// Per-model hybrid metadata: x = direct_scale, y = sun1_vis, z = sun2_vis, w = room.
+fn probe_hybrid_meta(owner: u32) -> vec4<f32> {
+    let light = probe_list.entries[min(owner, PROBE_SLOTS - 1u)].light;
+    return vec4<f32>(light[2].w, light[1].w, light[3].w, light[4].w);
 }
 
 // The part of `probe_light` that comes from the probe's light from above:
@@ -1722,11 +1757,11 @@ const FITTED_BOX_SOURCE: f32 = 0.25;
 
 #ifdef RAY_QUERIES
 // Whether a candidate ray hit against `scene_rays` stops a fitted light's
-// ray from reaching `position`. Matches `fitted_visibility`'s fallback filter
-// (all near characters and castable boxes not containing the surface/light).
-fn ray_blocks_fitted(number: u32, position: vec3<f32>, direction: vec3<f32>, distance: f32, near: Near, ease: f32) -> bool {
+// ray from reaching `position`. When `block_rooms` is true (hybrid characters
+// and dynamic objects), walls/rooms and other closed doors also block rays.
+fn ray_blocks_fitted(number: u32, position: vec3<f32>, direction: vec3<f32>, distance: f32, near: Near, ease: f32, block_rooms: bool) -> bool {
     if (number & RAY_ROOM) != 0u {
-        return false;
+        return block_rooms;
     }
     let model = number & RAY_MODEL;
     if (number & RAY_PROP) == 0u {
@@ -1746,7 +1781,7 @@ fn ray_blocks_fitted(number: u32, position: vec3<f32>, direction: vec3<f32>, dis
         return false;
     }
     if (number & RAY_DOOR) != 0u {
-        return false;
+        return block_rooms;
     }
     var placeables = near.box_at;
     for (var k = 0u; k < near_box_count(near); k++) {
@@ -1768,14 +1803,12 @@ fn ray_blocks_fitted(number: u32, position: vec3<f32>, direction: vec3<f32>, dis
 
 #ifdef FITTED_LIGHTS
 // How much of a fitted light along `direction`, `distance` away and `source`
-// radians across its half, reaches `position` past the characters and
-// placeables `near` it. Every one of them casts from it. When hardware ray
-// queries are active, it traces `scene_rays`; otherwise it traces their
-// capsules and boxes as `cone_visibility` does.
-fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near) -> f32 {
+// radians across its half, reaches `position` past the characters, placeables,
+// and (when `block_rooms`) room walls/doors via `scene_rays`.
+fn fitted_visibility(position: vec3<f32>, surface_normal: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, block_rooms: bool) -> f32 {
 #ifdef RAY_QUERIES
     if shadows.rays != 0u {
-        if near.count == 0u && near.boxes == 0u {
+        if !block_rooms && near.count == 0u && near.boxes == 0u {
             return 1.0;
         }
         let noise = ray_noise();
@@ -1787,12 +1820,18 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
         let way = direction + offset;
         let length_of_way = length(way);
         let toward = way / length_of_way;
-        let reach = min(distance * length_of_way, RAY_REACH);
+        let origin = select(position, position + surface_normal * 0.04, block_rooms);
+        let trimmed = select(distance, max(distance - 0.25, 0.0), block_rooms);
+        let reach = min(trimmed * length_of_way, RAY_REACH);
+        if block_rooms && reach <= RAY_START {
+            return 1.0;
+        }
+        let mask = select(RAY_CASTERS, RAY_WALLS, block_rooms);
         var query: ray_query;
-        rayQueryInitialize(&query, scene_rays, RayDesc(RAY_FLAG_FORCE_NO_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, RAY_CASTERS, RAY_START, reach, position, toward));
+        rayQueryInitialize(&query, scene_rays, RayDesc(RAY_FLAG_FORCE_NO_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, mask, RAY_START, reach, origin, toward));
         while rayQueryProceed(&query) {
             let hit = rayQueryGetCandidateIntersection(&query);
-            if ray_blocks_fitted(ray_number(hit.instance_custom_data, hit.geometry_index), position, direction, distance, near, noise.z) {
+            if ray_blocks_fitted(ray_number(hit.instance_custom_data, hit.geometry_index), position, direction, distance, near, noise.z, block_rooms) {
                 rayQueryConfirmIntersection(&query);
             }
         }
@@ -1842,19 +1881,19 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
 }
 
 // What the area's light fittings give the surface at `position` of room
-// `room` (the fitted lights' trial, `fitted_lights.rs`, whose `grid` says
-// how the buffer is laid out). The grid's cell over the surface lists the
-// lights that reach it, so only those are read. A light in a list is two
-// values side by side. The first turns away a light too far off. The
-// second holds the rest of it. Each light shines as a fight's light does
-// and keeps out of the rooms not linked with its own. The sums here are
-// `fight_light`'s, written out so that each light costs one square root.
-// The characters and placeables `near` the surface cast shadows from the
-// `FITTED_CAST` lights that give it the most. `whole` is the light without
-// those shadows and `lit` the light with them. A light as wide as a sun
-// gives the share `sunlit` of its light: the share of the suns that reaches
-// the surface, where its lightmap knows it (`room_shadow`), and 1 elsewhere.
-fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room: u32, near: Near, sunlit: f32) -> Fitted {
+// `room`. When `block_rooms` is true on HW RT, room walls & doors also shadow
+// fitted lights (`RAY_WALLS`).
+fn fitted_lights(
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    surface_normal: vec3<f32>,
+    has_normal: bool,
+    room: u32,
+    near: Near,
+    sunlit: f32,
+    wrap: f32,
+    block_rooms: bool,
+) -> Fitted {
     let none = Fitted(vec3<f32>(0.0), vec3<f32>(0.0));
     let head = fitted[0];
     if head.x == 0u {
@@ -1870,7 +1909,11 @@ fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room:
     if count == 0u {
         return none;
     }
-    let casts = near.count != 0u || near.boxes != 0u;
+    var trace_rooms = false;
+#ifdef RAY_QUERIES
+    trace_rooms = block_rooms && shadows.rays != 0u;
+#endif
+    let casts = near.count != 0u || near.boxes != 0u || trace_rooms;
     // The lights that give the most: the way to each with how far it is,
     // and what it gives with how much that weighs.
     var ways: array<vec4<f32>, 4>;
@@ -1906,7 +1949,7 @@ fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room:
         let toward = to_light * inverseSqrt(max(square, 1e-8));
         var facing = 1.0;
         if has_normal {
-            facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * max(0.0, dot(normal, toward));
+            facing = wrap + (1.0 - wrap) * max(0.0, dot(normal, toward));
         }
         // A fitting's light shines mostly out of its fitting. What is
         // beside or behind it keeps a third, so the panel a lamp sits in
@@ -1946,7 +1989,7 @@ fn fitted_lights(position: vec3<f32>, normal: vec3<f32>, has_normal: bool, room:
                 continue;
             }
             let source = max(atan(FITTED_SOURCE / max(ways[k].w, 1e-3)), LEAST_SOURCE);
-            let kept = fitted_visibility(position, ways[k].xyz, ways[k].w, source, near);
+            let kept = fitted_visibility(position, surface_normal, ways[k].xyz, ways[k].w, source, near, block_rooms);
             taken = taken + gives[k].xyz * (1.0 - kept);
             traced = traced + gives[k].w;
         }
@@ -2237,6 +2280,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #endif
     var fight_added = vec3<f32>(0.0);
     var baked_over = vec3<f32>(0.0);
+    var hybrid_over = vec3<f32>(0.0);
     // How much of a room's baked light the characters' and placeables'
     // shadows leave at this surface.
     var unshadowed = 1.0;
@@ -2249,6 +2293,8 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     var term_sides = vec3<f32>(0.0);
     var term_lamps = vec3<f32>(0.0);
     var term_floor = vec3<f32>(0.0);
+    var term_fitted = vec3<f32>(0.0);
+    var has_term_fitted = false;
     if (params.flags & UNLIT) == 0u {
         // Fixed-function lighting, per fragment: an ambient sum, which the
         // material's ambient colour scales, and a diffuse sum, which its
@@ -2273,6 +2319,12 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef VERTEX_COLORS
         vertex_lit = enhanced && baked_trial && (params.flags & VERTEX_LIGHT) != 0u;
 #endif
+        let owner = mesh_owner(in.instance_index);
+        let hybrid_probe = enhanced && baked_trial && !vertex_lit
+            && (params.flags & HAS_LIGHTMAP) == 0u
+            && (params.flags & PROBED) != 0u
+            && probe_is_hybrid(owner);
+        var indirect_lin = vec3<f32>(0.0);
         if (params.flags & HAS_LIGHTMAP) != 0u {
             diffuse_sum = self_lit + baked;
         } else if vertex_lit {
@@ -2280,6 +2332,15 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             ambient_sum = in.color.rgb * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED);
 #endif
             from_probes = true;
+        } else if hybrid_probe {
+            let probe_n = select(vec3<f32>(0.0), normal, has_normal);
+            let indirect_raw = probe_indirect_linear(owner, probe_n);
+            let ao_lin = decode_22(room_kept);
+            indirect_lin = indirect_raw * decode_22(ambient_colour) * ao_lin;
+            from_probes = true;
+            if probe_list.mode == 1u {
+                probe_only = vec4<f32>(encode_22(min(indirect_raw, vec3<f32>(1.0))), 1.0);
+            }
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
             // placeable) that has no baked light of its own. Under Enhanced
@@ -2289,7 +2350,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             // flat ambient.
             var area_ambient = params.world_ambient.rgb;
             if enhanced && (params.flags & PROBED) != 0u {
-                let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
+                let probed = probe_light(owner, select(vec3<f32>(0.0), normal, has_normal));
                 if probed.w > 0.5 {
                     // Under the baked trial the probes' light is doubled
                     // (below), and the least light is meant after it.
@@ -2330,11 +2391,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // The characters whose shadows fall here, leaving out the mesh's
         // own character.
         if (params.flags & SHADOWED) != 0u {
-            var owner = mesh_owner(in.instance_index);
-            if owner == NO_OWNER {
-                owner = untagged_owner(origin);
+            var near_owner = owner;
+            if near_owner == NO_OWNER {
+                near_owner = untagged_owner(origin);
             }
-            near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, owner);
+            near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, near_owner);
         }
         // A room's mesh without a lightmap is lit here too, and takes a
         // fight's lights the way the rest of its room does (below).
@@ -2356,6 +2417,9 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                 if max3(lit) > FAINT {
                     fight = fight + lit * colour * light_visibility(i, light, position, surface_normal, near);
                 }
+                continue;
+            }
+            if hybrid_probe {
                 continue;
             }
             if probed_bake && light.kind.x != 0u {
@@ -2397,60 +2461,113 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef FITTED_LIGHTS
         // The area's light fittings light it as they light the rooms.
         if !probed_bake {
-            fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters(), 1.0).whole * params.diffuse.rgb;
+            fight = fight + fitted_lights(position, fight_normal, surface_normal, has_normal, VIS_ROOMS, no_casters(), 1.0, COMBAT_WRAP, false).whole * params.diffuse.rgb;
         }
 #endif
-        // The diffuse sum never goes below black; the total stops at full.
-        lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
-        if trial {
-            // Under the trial a placeable, a door or a creature keeps half of
-            // the light that the area's ambient and lamps give it, as a
-            // room keeps half of its baked light. A lightmapped surface keeps
-            // its own glow, and its baked light is halved already. Any other
-            // surface keeps half of its own glow where its texture is dull
-            // (`dull_glow`).
-            var own = self_lit;
-            var kept = dull_glow;
-            if (params.flags & HAS_LIGHTMAP) != 0u {
-                own = self_lit + baked;
-                kept = own;
-            }
-            let lamps = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum - own));
-            lighting = min(vec3<f32>(1.0), kept + lamps * dimmed);
-            if baked_trial && from_probes {
-                // Under the baked trial the probes hold the baked lightmaps'
-                // light, the sun's and the sky's with it, so a character
-                // keeps all of it. Only the lamps' light is halved. The
-                // owner walked the Dantooine enclave's bake on 18 November
-                // 2026 and said: "all npcs are very dark".
-                lighting = min(vec3<f32>(1.0), kept + ambient_sum * BAKED_GAIN_PROBES
-                    + max(vec3<f32>(0.0), diffuse_sum - own) * dimmed);
-                if probe_list.mode >= TERM_WHOLE {
-                    let owner = mesh_owner(in.instance_index);
-                    let towards = select(vec3<f32>(0.0), normal, has_normal);
-                    let scale = ambient_colour * room_kept * BAKED_GAIN_PROBES;
-                    let probed = probe_light(owner, towards).rgb;
-                    let above = probe_light_above(owner, towards);
-                    term_glow = kept;
-                    term_above = above * scale;
-                    term_sides = (probed - above) * scale;
-                    if vertex_lit {
-                        // The baked light counts as the probes' light, all
-                        // of it on the sides.
-                        term_above = vec3<f32>(0.0);
-                        term_sides = ambient_sum * BAKED_GAIN_PROBES;
-                    }
-                    term_lamps = max(vec3<f32>(0.0), diffuse_sum - own) * dimmed;
-                    term_floor = params.world_ambient.rgb * (PROBE_FLOOR / BAKED_GAIN_PROBES) * scale;
+        if hybrid_probe {
+            // Phase 3 Hybrid Character Lighting: linear indirect 3D probes +
+            // live direct fitted lights & twin suns with zero wraparound.
+            let meta = probe_hybrid_meta(owner);
+            let direct_scale = meta.x;
+            let sun1_vis = meta.y;
+            let sun2_vis = meta.z;
+            let model_room = min(u32(meta.w + 0.5), VIS_ROOMS);
+            var direct_lin = vec3<f32>(0.0);
+#ifdef FITTED_LIGHTS
+            let fitted_direct = fitted_lights(
+                position,
+                fight_normal,
+                surface_normal,
+                has_normal,
+                model_room,
+                near,
+                0.0,
+                0.0,
+                true,
+            ).lit * direct_scale;
+            var sun_direct = vec3<f32>(0.0);
+            if probe_list.sun_way.w > 0.5 && sun1_vis > 0.0 {
+                let s1_face = select(1.0, max(0.0, dot(normal, probe_list.sun_way.xyz)), has_normal);
+                var s1_shadow = 1.0;
+                if near.count != 0u && s1_face > 0.0 {
+                    s1_shadow = fitted_visibility(position, surface_normal, probe_list.sun_way.xyz, 20.0, SUN_RAY_SOURCE, characters_only(near), false);
                 }
-            } else if baked_trial && (params.flags & PROBED) != 0u {
-                // A model that no probe is near keeps all of the area's
-                // ambient and lamps, as it does today. The rooms show
-                // their bake whole, so nothing is left to match by halving
-                // it. A race track has no walkable floor and so no probe
-                // near its swoop bike. The owner said on 20 November 2026:
-                // "the swoop vehicle in the racing minigames is very dark".
-                lighting = min(vec3<f32>(1.0), kept + lamps);
+                sun_direct = sun_direct + probe_list.sun_colour.rgb * (s1_face * sun1_vis * s1_shadow);
+            }
+            if probe_list.sun2_way.w > 0.5 && sun2_vis > 0.0 {
+                let s2_face = select(1.0, max(0.0, dot(normal, probe_list.sun2_way.xyz)), has_normal);
+                var s2_shadow = 1.0;
+                if near.count != 0u && s2_face > 0.0 {
+                    s2_shadow = fitted_visibility(position, surface_normal, probe_list.sun2_way.xyz, 20.0, SUN_RAY_SOURCE, characters_only(near), false);
+                }
+                sun_direct = sun_direct + probe_list.sun2_colour.rgb * (s2_face * sun2_vis * s2_shadow);
+            }
+            direct_lin = (fitted_direct + sun_direct) * decode_22(params.diffuse.rgb);
+#endif
+            let local_luma = dot(indirect_lin + direct_lin, LUMA);
+            let hybrid_dull = min(1.0, pow(max(local_luma, 0.0), 1.0 / 2.2) * 1.25);
+            let hybrid_self = self_lit * mix(hybrid_dull, 1.0, smoothstep(0.6, 0.9, max3(texel.rgb)));
+            let hybrid_lin = decode_22(hybrid_self) + indirect_lin + direct_lin;
+            lighting = encode_22(min(hybrid_lin, vec3<f32>(1.0)));
+            hybrid_over = max(hybrid_lin - vec3<f32>(1.0), vec3<f32>(0.0));
+            if probe_list.mode >= TERM_WHOLE {
+                has_term_fitted = true;
+                term_glow = hybrid_self;
+                term_above = encode_22(min(indirect_lin, vec3<f32>(1.0)));
+                term_fitted = encode_22(min(direct_lin, vec3<f32>(1.0)));
+            }
+        } else {
+            // The diffuse sum never goes below black; the total stops at full.
+            lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
+            if trial {
+                // Under the trial a placeable, a door or a creature keeps half of
+                // the light that the area's ambient and lamps give it, as a
+                // room keeps half of its baked light. A lightmapped surface keeps
+                // its own glow, and its baked light is halved already. Any other
+                // surface keeps half of its own glow where its texture is dull
+                // (`dull_glow`).
+                var own = self_lit;
+                var kept = dull_glow;
+                if (params.flags & HAS_LIGHTMAP) != 0u {
+                    own = self_lit + baked;
+                    kept = own;
+                }
+                let lamps = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum - own));
+                lighting = min(vec3<f32>(1.0), kept + lamps * dimmed);
+                if baked_trial && from_probes {
+                    // Under the baked trial the probes hold the baked lightmaps'
+                    // light, the sun's and the sky's with it, so a character
+                    // keeps all of it. Only the lamps' light is halved. The
+                    // owner walked the Dantooine enclave's bake on 18 November
+                    // 2026 and said: "all npcs are very dark".
+                    lighting = min(vec3<f32>(1.0), kept + ambient_sum * BAKED_GAIN_PROBES
+                        + max(vec3<f32>(0.0), diffuse_sum - own) * dimmed);
+                    if probe_list.mode >= TERM_WHOLE {
+                        let towards = select(vec3<f32>(0.0), normal, has_normal);
+                        let scale = ambient_colour * room_kept * BAKED_GAIN_PROBES;
+                        let probed = probe_light(owner, towards).rgb;
+                        let above = probe_light_above(owner, towards);
+                        term_glow = kept;
+                        term_above = above * scale;
+                        term_sides = (probed - above) * scale;
+                        if vertex_lit {
+                            // The baked light counts as the probes' light, all
+                            // of it on the sides.
+                            term_above = vec3<f32>(0.0);
+                            term_sides = ambient_sum * BAKED_GAIN_PROBES;
+                        }
+                        term_lamps = max(vec3<f32>(0.0), diffuse_sum - own) * dimmed;
+                        term_floor = params.world_ambient.rgb * (PROBE_FLOOR / BAKED_GAIN_PROBES) * scale;
+                    }
+                } else if baked_trial && (params.flags & PROBED) != 0u {
+                    // A model that no probe is near keeps all of the area's
+                    // ambient and lamps, as it does today. The rooms show
+                    // their bake whole, so nothing is left to match by halving
+                    // it. A race track has no walkable floor and so no probe
+                    // near its swoop bike. The owner said on 20 November 2026:
+                    // "the swoop vehicle in the racing minigames is very dark".
+                    lighting = min(vec3<f32>(1.0), kept + lamps);
+                }
             }
         }
         if enhanced {
@@ -2508,12 +2625,13 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // The fittings' own shadows of the characters and placeables near.
         var fitted_kept = 1.0;
 #ifdef FITTED_LIGHTS
+        let surf_normal = select(vec3<f32>(0.0), fitted_normal, has_normal);
         if !baked_room {
-            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, 1.0).lit * unshadowed;
+            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, surf_normal, has_normal, room, near, 1.0, COMBAT_WRAP, false).lit * unshadowed;
         } else if near.count != 0u {
             // The bake holds the fittings' light and static placeables' shadows,
             // so only dynamic character casters shadow the fitted lights here.
-            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, characters_only(near), lightmap_texel.a);
+            let given = fitted_lights(in.world_position.xyz, fitted_normal, surf_normal, has_normal, room, characters_only(near), lightmap_texel.a, COMBAT_WRAP, false);
             // Where no fitting reaches, nothing is blocked.
             let whole = dot(given.whole, LUMA);
             if whole > 1e-4 {
@@ -2614,12 +2732,13 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // light would. A fragment that no fight's light reaches keeps its
         // stored colour bit for bit.
         var extra = vec3<f32>(0.0);
+        let hdr_over = baked_over + hybrid_over;
         if linear_output {
-            if max3(fight_added) > 0.0 || max3(baked_over) > 0.0 {
-                extra = decode_22(base.rgb) * (decode_22(fight_added) + baked_over);
+            if max3(fight_added) > 0.0 || max3(hdr_over) > 0.0 {
+                extra = decode_22(base.rgb) * (decode_22(fight_added) + hdr_over);
             }
-        } else if max3(fight_added) > 0.0 {
-            extra = decode(base.rgb) * decode(fight_added);
+        } else if max3(fight_added) > 0.0 || max3(hybrid_over) > 0.0 {
+            extra = decode(base.rgb) * (decode(fight_added) + hybrid_over);
         }
         // A shiny surface also mirrors the light itself. The texture's
         // alpha masks that as it masks the env map.
@@ -2650,7 +2769,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     let term = 0u;
 #endif
     if term >= TERM_WHOLE && ((params.flags & UNLIT) == 0u || (params.flags & ROOM) != 0u) {
-        let whole = encode(decode(lighting) + decode(fight_added));
+        let whole = encode(decode(lighting) + decode(fight_added) + baked_over + hybrid_over);
         let model = (params.flags & PROBED) != 0u && (params.flags & ROOM) == 0u;
         var shown = whole;
         if model && term != TERM_WHOLE {
@@ -2658,7 +2777,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             shown = select(shown, term_above, term == TERM_ABOVE);
             shown = select(shown, term_sides, term == TERM_SIDES);
             shown = select(shown, term_lamps, term == TERM_LAMPS);
-            shown = select(shown, fight_added, term == TERM_FITTED);
+            shown = select(shown, select(fight_added, term_fitted, has_term_fitted), term == TERM_FITTED);
             shown = select(shown, term_glow, term == TERM_GLOW);
             shown = select(shown, term_floor, term == TERM_FLOOR);
             shown = select(shown, vec3<f32>(1.0, 0.0, 1.0), term == TERM_MASK);

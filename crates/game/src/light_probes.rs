@@ -66,6 +66,20 @@ use crate::material::{self, AreaLights, GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_AL
 use crate::scene::{SceneContent, SceneModel};
 use crate::viewer::{Placed, RoomView};
 
+/// The file in a bake's set that holds indirect-only 3D probes and live sun
+/// metadata for Phase 3 hybrid character lighting.
+pub const HYBRID_FILE: &str = "probes-hybrid.txt";
+
+/// Whether Phase 3 hybrid character lighting (`probes-hybrid.txt` + live
+/// direct fitted lights & suns) is used when a bake provides it.
+/// `KJK_HYBRID_PROBES=off` falls back to Phase 2 probe lighting.
+pub fn hybrid_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("KJK_HYBRID_PROBES").map_or(true, |value| value != "off")
+    })
+}
+
 /// The probes' light, one entry per placed model (`ProbeList`), which
 /// every material reads.
 pub const AREA_PROBES: Handle<ShaderBuffer> = uuid_handle!("2f6c9e41-7a3d-4b58-9e07-c4d1a8b3f526");
@@ -98,8 +112,11 @@ const CELL: f32 = 2.0;
 /// (texels). The light is soft, and a small level reads fast.
 const MIP_SIDE: usize = 128;
 /// How far from a model a probe still lights it (metres, across the
-/// floor), and how far above or below it.
+/// floor), how wide the vertical 3D interpolation window is (`BLEND_Z`,
+/// spanning the dual `0.6 m` / `1.8 m` probe layers), and how far above or
+/// below another storey lies.
 const BLEND_REACH: f32 = 1.6;
+const BLEND_Z: f32 = 1.35;
 const BLEND_STOREY: f32 = 1.5;
 /// Where a model's light is read: this high above its origin (metres).
 /// A character's origin is at its feet.
@@ -322,27 +339,42 @@ pub fn lamp_share() -> f32 {
 }
 
 /// One probe: where it stands (game space), the light arriving from each
-/// of `AXES`, and whether any of its rays met a lightmap.
+/// of `AXES`, whether any of its rays met a lightmap, and hybrid live
+/// direct metadata (`direct_scale`, `sun`, `sun2`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Probe {
     pub at: Vec3,
     pub light: [Vec3; 6],
     pub lit: bool,
-    /// The share of the sun that reaches it, under the live sun
-    /// (`ProbeSun`). 0 for a probe the game makes.
+    /// Room direct-lamp scale multiplier (for live `fitted_lights` under hybrid mode).
+    pub direct_scale: f32,
+    /// The share of sun 1 that reaches it. 0 for a probe the game makes.
     pub sun: f32,
+    /// The share of sun 2 (twin sun, e.g. Tatooine) that reaches it. 0 otherwise.
+    pub sun2: f32,
 }
 
-/// A probe the bake wrote (`probes.txt` in a bake's set): its room's name in
-/// lower case, its place (game space) and the light on its six sides in the
-/// order of `AXES`, at the level the bake's lightmaps store.
+/// Interpolated probe sample at a model's sampling point.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ProbeSample {
+    pub light: [Vec3; 6],
+    pub direct_scale: f32,
+    pub sun: f32,
+    pub sun2: f32,
+}
+
+/// A probe the bake wrote (`probes.txt`, `probes-sun.txt`, or `probes-hybrid.txt`
+/// in a bake's set): its room's name in lower case, its place (game space),
+/// the light on its six sides in the order of `AXES`, and live sun/direct metadata.
 pub struct BakedProbe {
     pub room: String,
     pub at: Vec3,
     pub light: [Vec3; 6],
-    /// The share of the sun that reaches it, under the live sun
-    /// (`ProbeSun`). 0 otherwise.
+    pub direct_scale: f32,
+    /// The share of sun 1 that reaches it. 0 otherwise.
     pub sun: f32,
+    /// The share of sun 2 that reaches it. 0 otherwise.
+    pub sun2: f32,
 }
 
 /// The live sun of the baked trial (`KJK_PROBE_SUN=on` with
@@ -389,17 +421,16 @@ impl RoomProbes {
         RoomProbes { probes, grid }
     }
 
-    /// The light at `at` (game space, at the height a model's light is
-    /// read): the probes with light within `BLEND_REACH` across and
-    /// `BLEND_STOREY` up or down, each weighed by how near it is. `None`
-    /// when no such probe is near.
-    /// The second part is the blend of the probes' shares of the sun
-    /// (`ProbeSun`).
-    pub fn blend(&self, at: Vec3) -> Option<([Vec3; 6], f32)> {
+    /// The light at `at` (game space, at the model's sampling height):
+    /// separable 3D interpolation across `BLEND_REACH` (XY) and `BLEND_Z` (Z)
+    /// over lit probes within `BLEND_STOREY`. `None` when no such probe is near.
+    pub fn blend(&self, at: Vec3) -> Option<ProbeSample> {
         let (x, y) = grid_key(at);
         let span = (BLEND_REACH / SPACING).ceil() as i32;
         let mut sum = [Vec3::ZERO; 6];
+        let mut direct_scale = 0.0;
         let mut sun = 0.0;
+        let mut sun2 = 0.0;
         let mut weight = 0.0;
         for dx in -span..=span {
             for dy in -span..=span {
@@ -409,22 +440,29 @@ impl RoomProbes {
                 for &index in near {
                     let probe = &self.probes[index as usize];
                     let across = probe.at.truncate().distance(at.truncate());
-                    if !probe.lit
-                        || across >= BLEND_REACH
-                        || (probe.at.z - at.z).abs() >= BLEND_STOREY
-                    {
+                    let dz = (probe.at.z - at.z).abs();
+                    if !probe.lit || across >= BLEND_REACH || dz >= BLEND_STOREY {
                         continue;
                     }
-                    let w = (1.0 - across / BLEND_REACH).powi(2).max(1e-4);
+                    let w_xy = (1.0 - across / BLEND_REACH).powi(2).max(1e-4);
+                    let w_z = (1.0 - dz / BLEND_Z).clamp(0.0, 1.0);
+                    let w = w_xy * w_z.max(1e-3);
                     for (sum, light) in sum.iter_mut().zip(probe.light) {
                         *sum += light * w;
                     }
+                    direct_scale += probe.direct_scale * w;
                     sun += probe.sun * w;
+                    sun2 += probe.sun2 * w;
                     weight += w;
                 }
             }
         }
-        (weight > 0.0).then(|| (sum.map(|light| light / weight), sun / weight))
+        (weight > 0.0).then(|| ProbeSample {
+            light: sum.map(|light| light / weight),
+            direct_scale: direct_scale / weight,
+            sun: sun / weight,
+            sun2: sun2 / weight,
+        })
     }
 }
 
@@ -455,8 +493,13 @@ pub struct AreaProbes {
     /// number in the scene (`placeable_light`). Empty but under the baked
     /// trial with a bake that holds it.
     pub placeables: BTreeMap<usize, std::sync::Arc<crate::placeable_light::BakedPlaceable>>,
-    /// The live sun, when the bake's probes hold their light without it.
+    /// Primary live sun, when probes carry sun visibility separately.
     pub sun: Option<ProbeSun>,
+    /// Secondary live sun (`(way, linear_colour)` in Bevy space), for twin-sun areas.
+    pub sun2: Option<(Vec3, Vec3)>,
+    /// True when loaded from `probes-hybrid.txt` (indirect-only 3D probes +
+    /// live direct fitted lights & suns).
+    pub hybrid: bool,
 }
 
 impl AreaProbes {
@@ -473,7 +516,7 @@ impl AreaProbes {
         rooms: &[RoomView],
         room: Option<usize>,
         at: Vec3,
-    ) -> Result<([Vec3; 6], f32), Fallback> {
+    ) -> Result<ProbeSample, Fallback> {
         if self.is_empty() {
             return Err(Fallback::NoProbes);
         }
@@ -843,7 +886,9 @@ fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
         at,
         light,
         lit: found.iter().any(|found| *found),
+        direct_scale: 0.0,
         sun: 0.0,
+        sun2: 0.0,
     }
 }
 
@@ -1055,7 +1100,9 @@ pub fn bake(
                     at: probe.at,
                     light: probe.light,
                     lit: true,
+                    direct_scale: probe.direct_scale,
                     sun: probe.sun,
+                    sun2: probe.sun2,
                 });
             }
         }
@@ -1073,6 +1120,8 @@ pub fn bake(
         unlit,
         placeables: BTreeMap::new(),
         sun: None,
+        sun2: None,
+        hybrid: false,
     }
 }
 
@@ -1159,10 +1208,13 @@ pub struct ProbeList {
     /// 1 under `KJK_MODEL_LAMPS=off` (`lamps_off`).
     pub lamps_off: u32,
     /// The live sun (`ProbeSun`): its way with w 1 when there is one, its
-    /// linear colour, and the bake's curve.
+    /// linear colour (with w 1 when probes are Phase 3 hybrid), and the bake's curve.
     pub sun_way: Vec4,
     pub sun_colour: Vec4,
     pub sun_curve: Vec4,
+    /// Secondary live sun (way with w 1 when present, and linear colour).
+    pub sun2_way: Vec4,
+    pub sun2_colour: Vec4,
     pub entries: [GpuProbe; PROBE_SLOTS],
     pub room_lights: [Vec4; PROBE_SLOTS],
 }
@@ -1175,6 +1227,8 @@ impl Default for ProbeList {
             sun_way: Vec4::ZERO,
             sun_colour: Vec4::ZERO,
             sun_curve: Vec4::ZERO,
+            sun2_way: Vec4::ZERO,
+            sun2_colour: Vec4::ZERO,
             entries: [GpuProbe::default(); PROBE_SLOTS],
             room_lights: [Vec4::ZERO; PROBE_SLOTS],
         }
@@ -1190,9 +1244,17 @@ struct Entry {
     raw: [Vec3; 6],
     target: [Vec3; 6],
     now: [Vec3; 6],
-    /// The share of the live sun (`ProbeSun`), to settle on and shown.
+    /// Direct fitted-light scale factor for hybrid shading.
+    direct_scale_target: f32,
+    direct_scale_now: f32,
+    /// The share of sun 1, to settle on and shown.
     sun_target: f32,
     sun_now: f32,
+    /// The share of sun 2, to settle on and shown.
+    sun2_target: f32,
+    sun2_now: f32,
+    /// Model's room index (or `VIS_ROOMS` when in no room).
+    room: u32,
     /// The source of the room's light its shadow takes (`room_light`): the
     /// one to settle on, and the one shown, which eases toward it.
     room_target: Vec4,
@@ -1201,6 +1263,28 @@ struct Entry {
     worked: bool,
     seen: bool,
     why: Option<Fallback>,
+}
+
+/// Midpoint height above a model's origin for 3D probe sampling, clamped to `[0.4, 1.8]` m.
+fn model_sample_height(placed: &Placed) -> f32 {
+    let mut low = f32::INFINITY;
+    let mut high = f32::NEG_INFINITY;
+    for mesh in &placed.ir.meshes {
+        let Some(node) = placed.ir.nodes.get(mesh.node) else {
+            continue;
+        };
+        let rest = crate::scene::to_mat4(&node.world);
+        for &pos in &mesh.positions {
+            let z = rest.transform_point3(Vec3::from_array(pos)).z;
+            low = low.min(z);
+            high = high.max(z);
+        }
+    }
+    if low <= high {
+        (0.5 * (low + high)).clamp(0.4, 1.8)
+    } else {
+        SAMPLE_HEIGHT
+    }
 }
 
 /// What `light_objects` keeps between frames.
@@ -1212,6 +1296,8 @@ struct ProbeState {
     shown: bool,
     /// Whether each of the scene's models is a room's.
     is_room: Vec<bool>,
+    /// Cached per-model vertical sampling offset above origin (metres).
+    sample_heights: Vec<f32>,
     /// The meshes' own ambient colours, for the dump.
     mesh_ambient: serde_json::Value,
     /// Models numbered past `PROBE_SLOTS` this frame.
@@ -1226,6 +1312,7 @@ impl ProbeState {
                 *room = true;
             }
         }
+        let sample_heights: Vec<f32> = models.iter().map(model_sample_height).collect();
         let luma = |c: [f32; 3]| 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
         let ambient: Vec<f32> = models
             .iter()
@@ -1243,6 +1330,7 @@ impl ProbeState {
         });
         ProbeState {
             is_room,
+            sample_heights,
             mesh_ambient,
             ..default()
         }
@@ -1390,12 +1478,16 @@ fn light_objects(
             }
             entry.worked = true;
             entry.at = origin;
-            let sample = origin + Vec3::Y * SAMPLE_HEIGHT;
+            let height = state.sample_heights.get(index).copied().unwrap_or(SAMPLE_HEIGHT);
+            let sample = origin + Vec3::Y * height;
             let room = culling.fight.room_of(&loaded.rooms, to_game(origin));
+            entry.room = room.map_or(material::VIS_ROOMS as u32, |r| r as u32);
             match loaded.probes.light_at(&loaded.rooms, room, to_game(sample)) {
-                Ok((light, sun)) => {
-                    entry.raw = light;
-                    entry.sun_target = sun;
+                Ok(probed) => {
+                    entry.raw = probed.light;
+                    entry.direct_scale_target = probed.direct_scale;
+                    entry.sun_target = probed.sun;
+                    entry.sun2_target = probed.sun2;
                     // Under the baked trial the lightmaps hold the fitted
                     // lights, the sun and the sky, and none of the game's
                     // lamps, so no lamp is taken out. The game's lamp with
@@ -1404,10 +1496,10 @@ fn light_objects(
                     // shade stayed bright. The owner said on 21 November
                     // 2026: "plasteel cylinder in the shade is too bright".
                     entry.target = if loaded.baked {
-                        light
+                        probed.light
                     } else {
                         without_lamps(
-                            light,
+                            probed.light,
                             &state.lamps,
                             (origin, sample),
                             model_placed.is_static,
@@ -1420,7 +1512,9 @@ fn light_objects(
                     };
                     if !entry.valid {
                         entry.now = entry.target;
+                        entry.direct_scale_now = entry.direct_scale_target;
                         entry.sun_now = entry.sun_target;
+                        entry.sun2_now = entry.sun2_target;
                         entry.room_now = entry.room_target;
                         entry.valid = true;
                         changed = true;
@@ -1435,6 +1529,13 @@ fn light_objects(
             }
         }
         let ease = 1.0 - (-time.delta_secs() * 4.0 / EASE_SECONDS).exp();
+        let ease_scalar = |now: &mut f32, target: f32| {
+            *now = if (*now - target).abs() < 1e-3 {
+                target
+            } else {
+                *now + (target - *now) * ease
+            };
+        };
         for entry in &mut state.entries {
             if !entry.seen {
                 changed |= entry.valid;
@@ -1444,15 +1545,15 @@ fn light_objects(
             if !entry.valid
                 || (entry.now == entry.target
                     && entry.room_now == entry.room_target
-                    && entry.sun_now == entry.sun_target)
+                    && entry.direct_scale_now == entry.direct_scale_target
+                    && entry.sun_now == entry.sun_target
+                    && entry.sun2_now == entry.sun2_target)
             {
                 continue;
             }
-            entry.sun_now = if (entry.sun_now - entry.sun_target).abs() < 1e-3 {
-                entry.sun_target
-            } else {
-                entry.sun_now + (entry.sun_target - entry.sun_now) * ease
-            };
+            ease_scalar(&mut entry.direct_scale_now, entry.direct_scale_target);
+            ease_scalar(&mut entry.sun_now, entry.sun_target);
+            ease_scalar(&mut entry.sun2_now, entry.sun2_target);
             for (now, target) in entry.now.iter_mut().zip(entry.target) {
                 *now = if now.distance(target) < 1e-3 {
                     target
@@ -1472,6 +1573,7 @@ fn light_objects(
         state.shown |= state.entries.iter().any(|entry| entry.valid);
     }
     if changed {
+        let hybrid = loaded.probes.hybrid;
         let mut list = Box::new(ProbeList {
             mode: if mode == Mode::Only { 1 } else { term_mode() },
             lamps_off: u32::from(lamps_off()),
@@ -1482,11 +1584,20 @@ fn light_objects(
             sun_colour: loaded
                 .probes
                 .sun
-                .map_or(Vec4::ZERO, |sun| sun.colour.extend(0.0)),
+                .map_or(Vec3::ZERO, |sun| sun.colour)
+                .extend(if hybrid { 1.0 } else { 0.0 }),
             sun_curve: loaded
                 .probes
                 .sun
                 .map_or(Vec4::ZERO, |sun| sun.curve.extend(0.0)),
+            sun2_way: loaded
+                .probes
+                .sun2
+                .map_or(Vec4::ZERO, |(way, _)| way.extend(1.0)),
+            sun2_colour: loaded
+                .probes
+                .sun2
+                .map_or(Vec4::ZERO, |(_, colour)| colour.extend(0.0)),
             ..default()
         });
         for ((slot, room), entry) in list
@@ -1496,12 +1607,17 @@ fn light_objects(
             .zip(&state.entries)
         {
             if entry.valid {
-                // The first colour's w is 1 for a model with light, and the
-                // second's holds its share of the live sun.
+                // Slot metadata in `.w`:
+                // 0: 1.0 (valid), 1: sun1 vis, 2: direct_scale, 3: sun2 vis, 4: room index, 5: hybrid flag.
+                let hybrid_flag = if hybrid { 1.0 } else { 0.0 };
                 slot.light = std::array::from_fn(|axis| {
                     entry.now[axis].extend(match axis {
                         0 => 1.0,
                         1 => entry.sun_now,
+                        2 => entry.direct_scale_now,
+                        3 => entry.sun2_now,
+                        4 => entry.room as f32,
+                        5 => hybrid_flag,
                         _ => 0.0,
                     })
                 });

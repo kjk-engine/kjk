@@ -8,7 +8,10 @@
 
 use bevy::prelude::*;
 
-use super::{AreaProbes, Fallback, Pixels, Probe, RoomProbes, Surface, bake_rooms, without_lamps};
+use super::{
+    AreaProbes, Fallback, Pixels, Probe, ProbeSample, RoomProbes, Surface, bake_rooms,
+    without_lamps,
+};
 use crate::material::{GpuLight, LIGHT_COMBAT};
 use crate::probe_kit::{Checks, check};
 use crate::viewer::RoomView;
@@ -20,6 +23,10 @@ pub fn probes() -> Checks {
         ("wall_on_its_side", wall_on_its_side()),
         ("doorway_lights_its_side", doorway_lights_its_side()),
         ("no_blend_across_rooms", no_blend_across_rooms()),
+        (
+            "multi_height_3d_probe_interpolation",
+            multi_height_3d_probe_interpolation(),
+        ),
         ("lamp_share_taken_out", lamp_share_taken_out()),
         ("outside_keeps_flat_ambient", outside_keeps_flat_ambient()),
         ("room_light_direction", room_light_direction()),
@@ -264,7 +271,9 @@ fn probes_over(low: Vec2, high: Vec2, light: Vec3) -> RoomProbes {
                 at: Vec3::new(x, y, 1.0),
                 light: [light; 6],
                 lit: true,
+                direct_scale: 0.0,
                 sun: 0.0,
+                sun2: 0.0,
             });
             y += 1.0;
         }
@@ -297,13 +306,62 @@ fn no_blend_across_rooms() -> Result<String, String> {
     let past_a = Vec3::new(3.8, 1.0, 1.0);
     let lent = probes.light_at(&linked, Some(0), past_a);
     let unlinked = probes.light_at(&apart, Some(0), past_a);
+    let sample = |light| ProbeSample {
+        light: [light; 6],
+        direct_scale: 0.0,
+        sun: 0.0,
+        sun2: 0.0,
+    };
     check(
-        in_a == Ok(([Vec3::ONE; 6], 0.0))
-            && lent == Ok(([Vec3::ZERO; 6], 0.0))
+        in_a == Ok(sample(Vec3::ONE))
+            && lent == Ok(sample(Vec3::ZERO))
             && unlinked == Err(Fallback::NoneNear),
         format!(
             "in room A by the wall {in_a:?}; past A's probes, B linked {lent:?}, B apart {unlinked:?}"
         ),
+    )
+}
+
+/// Probes stacked at `z = 0.6` and `z = 1.8` blend vertically by height within
+/// a storey while isolating probes on separate storeys (`dz >= 1.5 m`).
+fn multi_height_3d_probe_interpolation() -> Result<String, String> {
+    let low = Probe {
+        at: Vec3::new(1.0, 1.0, 0.6),
+        light: [Vec3::new(0.2, 0.2, 0.2); 6],
+        lit: true,
+        direct_scale: 1.0,
+        sun: 0.2,
+        sun2: 0.0,
+    };
+    let high = Probe {
+        at: Vec3::new(1.0, 1.0, 1.8),
+        light: [Vec3::new(1.0, 1.0, 1.0); 6],
+        lit: true,
+        direct_scale: 2.0,
+        sun: 1.0,
+        sun2: 0.5,
+    };
+    let upper_storey = Probe {
+        at: Vec3::new(1.0, 1.0, 3.6),
+        light: [Vec3::new(5.0, 0.0, 0.0); 6],
+        lit: true,
+        direct_scale: 4.0,
+        sun: 0.0,
+        sun2: 0.0,
+    };
+    let rp = RoomProbes::new(vec![low, high, upper_storey]);
+    let s_low = rp.blend(Vec3::new(1.0, 1.0, 0.65)).ok_or("missing near 0.65")?;
+    let s_mid = rp.blend(Vec3::new(1.0, 1.0, 1.2)).ok_or("missing near 1.2")?;
+    let s_high = rp.blend(Vec3::new(1.0, 1.0, 1.75)).ok_or("missing near 1.75")?;
+    check(
+        s_low.light[0].x < s_mid.light[0].x
+            && s_mid.light[0].x < s_high.light[0].x
+            && (s_mid.light[0].x - 0.6).abs() < 0.02
+            && (s_mid.direct_scale - 1.5).abs() < 0.02
+            && (s_mid.sun - 0.6).abs() < 0.02
+            && (s_mid.sun2 - 0.25).abs() < 0.02
+            && s_high.light[0].x <= 1.01,
+        format!("low {s_low:?}, mid {s_mid:?}, high {s_high:?}"),
     )
 }
 

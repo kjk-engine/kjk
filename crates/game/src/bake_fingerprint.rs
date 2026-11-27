@@ -116,9 +116,11 @@ impl Fingerprint {
 /// that the game can judge them one by one (`fit`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Exact {
-    /// The lightmaps the set holds a PNG of, by name in lower case, each
-    /// with the digest of the room triangles that draw it.
+    /// The lightmaps the set holds a PNG or KLM of, by name in lower case, each
+    /// with the exact digest of the room triangles that draw it.
     pub lightmaps: BTreeMap<String, String>,
+    /// Quantized geometry-tolerant digests of the lightmaps (`lightmap-approx`).
+    pub lightmaps_approx: BTreeMap<String, String>,
     /// The lightmaps of the area's rooms that the bake knew and left alone,
     /// by name in lower case. The `stored.txt` lightmaps are among them.
     pub backdrops: BTreeSet<String>,
@@ -127,6 +129,8 @@ pub struct Exact {
     pub placed: Vec<Placed>,
     /// The digest of each lit placeable model, by name in lower case.
     pub models: BTreeMap<String, String>,
+    /// Quantized geometry-tolerant digests of each lit placeable model (`model-approx`).
+    pub models_approx: BTreeMap<String, String>,
 }
 
 /// A lit placeable as the area places it. The numbers are kept as their
@@ -217,6 +221,13 @@ impl Digest {
     fn bits(&mut self, bits: &[u32]) {
         for bits in bits {
             self.0.update(&bits.to_le_bytes());
+        }
+    }
+
+    /// Quantized integers from `ints`, for tolerant geometry digests.
+    fn ints(&mut self, ints: &[i32]) {
+        for value in ints {
+            self.0.update(&value.to_le_bytes());
         }
     }
 
@@ -529,6 +540,130 @@ fn lightmap_digests(rooms: &[RoomIr], models: &RoomModels) -> LightmapDigests {
     (lightmaps, rooms_of)
 }
 
+const POS_QUANT: f32 = 1000.0;
+const UV_QUANT: f32 = 2048.0;
+const PLACE_POS_TOL: f32 = 0.005;
+const PLACE_ANGLE_TOL: f32 = 0.01;
+
+fn quant(v: f32, scale: f32) -> i32 {
+    if v.is_finite() {
+        (v * scale)
+            .clamp(i32::MIN as f32 / 2.0, i32::MAX as f32 / 2.0)
+            .round() as i32
+    } else {
+        0
+    }
+}
+
+fn turned_approx<T: Ord + Copy>(corners: [T; 3]) -> [T; 3] {
+    let first = (0..3).min_by_key(|&i| corners[i]).unwrap_or(0);
+    std::array::from_fn(|i| corners[(first + i) % 3])
+}
+
+type ApproxCorner = [i32; 5];
+
+fn approx_triangles_digest(mut triangles: Vec<[ApproxCorner; 3]>) -> String {
+    triangles.sort_unstable();
+    let mut digest = Digest::new("lightmap-approx");
+    digest.count(triangles.len() as u64);
+    for triangle in &triangles {
+        for corner in triangle {
+            digest.ints(corner);
+        }
+    }
+    digest.finish()
+}
+
+pub fn undrawn_approx_digest() -> String {
+    approx_triangles_digest(Vec::new())
+}
+
+fn lightmap_approx_digests(rooms: &[RoomIr], models: &RoomModels) -> BTreeMap<String, String> {
+    let mut found: BTreeMap<String, Vec<[ApproxCorner; 3]>> = BTreeMap::new();
+    for room in rooms {
+        let model = room.model.to_ascii_lowercase();
+        let Some(Some(ir)) = models.get(&model) else {
+            continue;
+        };
+        for mesh in &ir.meshes {
+            let Some(lightmap) = mesh.lightmap.as_deref() else {
+                continue;
+            };
+            if mesh.referenced || mesh.skin.is_some() || mesh.uv2.len() != mesh.positions.len() {
+                continue;
+            }
+            let Some(node) = ir.nodes.get(mesh.node) else {
+                continue;
+            };
+            let corner = |index: u32| -> Option<ApproxCorner> {
+                let index = index as usize;
+                let at = apply(&node.world, *mesh.positions.get(index)?);
+                let uv = mesh.uv2.get(index)?;
+                Some([
+                    quant(at[0] + room.position[0], POS_QUANT),
+                    quant(at[1] + room.position[1], POS_QUANT),
+                    quant(at[2] + room.position[2], POS_QUANT),
+                    quant(uv[0], UV_QUANT),
+                    quant(uv[1], UV_QUANT),
+                ])
+            };
+            let triangles = found.entry(lightmap.to_ascii_lowercase()).or_default();
+            triangles.extend(mesh.indices.as_chunks::<3>().0.iter().filter_map(|face| {
+                let tri = [corner(face[0])?, corner(face[1])?, corner(face[2])?];
+                if tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2] {
+                    return None;
+                }
+                Some(turned_approx(tri))
+            }));
+        }
+    }
+    found
+        .into_iter()
+        .map(|(name, triangles)| (name, approx_triangles_digest(triangles)))
+        .collect()
+}
+
+/// Quantized world-space triangle digest of a lit placeable model (`model-approx`),
+/// tolerant of vertex reordering, mesh splits, node hierarchy changes, and
+/// sub-millimetre re-save drift.
+pub fn model_approx_digest(ir: &ModelIr) -> String {
+    let lit = crate::placeable_light::lit_meshes(ir);
+    let mut triangles: Vec<[[i32; 3]; 3]> = Vec::new();
+    for (number, mesh) in ir.meshes.iter().enumerate() {
+        if !lit.get(number).copied().unwrap_or(false) {
+            continue;
+        }
+        let rest = ir
+            .nodes
+            .get(mesh.node)
+            .map_or([[0.0; 4]; 4], |node| node.world);
+        let corner = |index: u32| -> Option<[i32; 3]> {
+            let at = apply(&rest, *mesh.positions.get(index as usize)?);
+            Some([
+                quant(at[0], POS_QUANT),
+                quant(at[1], POS_QUANT),
+                quant(at[2], POS_QUANT),
+            ])
+        };
+        triangles.extend(mesh.indices.as_chunks::<3>().0.iter().filter_map(|face| {
+            let tri = [corner(face[0])?, corner(face[1])?, corner(face[2])?];
+            if tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2] {
+                return None;
+            }
+            Some(turned_approx(tri))
+        }));
+    }
+    triangles.sort_unstable();
+    let mut digest = Digest::new("placeable-model-approx");
+    digest.count(triangles.len() as u64);
+    for triangle in &triangles {
+        for corner in triangle {
+            digest.ints(corner);
+        }
+    }
+    digest.finish()
+}
+
 /// The digest of a lit placeable model. It covers each lit mesh's number
 /// among the model's meshes, its node's rest place, which holds the
 /// ancestors' scale, its vertices in order and its triangles' corners.
@@ -576,6 +711,8 @@ pub struct Current {
     pub print: Fingerprint,
     /// The digest of each lightmap that a room mesh draws (`lightmap_digests`).
     pub lightmaps: BTreeMap<String, String>,
+    /// Quantized geometry-tolerant digest of each lightmap (`lightmap_approx_digests`).
+    pub lightmaps_approx: BTreeMap<String, String>,
     /// The room models that draw each lightmap of `lightmaps`.
     pub rooms_of: BTreeMap<String, BTreeSet<String>>,
     /// Every lightmap that a mesh of a room model names.
@@ -584,6 +721,8 @@ pub struct Current {
     pub placed: Vec<Placed>,
     /// The digest of each lit placeable model.
     pub models: BTreeMap<String, String>,
+    /// Quantized geometry-tolerant digest of each lit placeable model.
+    pub models_approx: BTreeMap<String, String>,
 }
 
 impl Current {
@@ -594,6 +733,14 @@ impl Current {
             .get(name)
             .cloned()
             .unwrap_or_else(undrawn_digest)
+    }
+
+    /// The geometry-tolerant digest of lightmap `name` in these files.
+    pub fn lightmap_approx(&self, name: &str) -> String {
+        self.lightmaps_approx
+            .get(name)
+            .cloned()
+            .unwrap_or_else(undrawn_approx_digest)
     }
 }
 
@@ -610,9 +757,11 @@ pub fn current(resolver: &Resolver, area: &AreaIr) -> Current {
         exact: None,
     };
     let (lightmaps, rooms_of) = lightmap_digests(&area.rooms, &models);
+    let lightmaps_approx = lightmap_approx_digests(&area.rooms, &models);
     Current {
         print,
         lightmaps,
+        lightmaps_approx,
         rooms_of,
         named: named_lightmaps(&models),
         placed: (lit.iter())
@@ -620,6 +769,9 @@ pub fn current(resolver: &Resolver, area: &AreaIr) -> Current {
             .collect(),
         models: (lit_models.iter())
             .map(|(name, ir)| (name.clone(), model_digest(ir)))
+            .collect(),
+        models_approx: (lit_models.iter())
+            .map(|(name, ir)| (name.clone(), model_approx_digest(ir)))
             .collect(),
     }
 }
@@ -657,9 +809,13 @@ pub fn stamp(current: &Current, pngs: &BTreeSet<String>) -> (Fingerprint, Vec<St
         lightmaps: (pngs.iter())
             .map(|name| (name.clone(), current.lightmap(name)))
             .collect(),
+        lightmaps_approx: (pngs.iter())
+            .map(|name| (name.clone(), current.lightmap_approx(name)))
+            .collect(),
         backdrops: current.named.difference(pngs).cloned().collect(),
         placed: current.placed.clone(),
         models: current.models.clone(),
+        models_approx: current.models_approx.clone(),
     };
     let print = Fingerprint {
         exact: Some(exact),
@@ -730,6 +886,42 @@ impl Fit {
 /// files. A lit placeable of the player's files matches a baked one with
 /// the same model, place and direction, when its model's digest is also the
 /// baked one's. Each baked placeable matches at most one placeable.
+fn pos_within(a: [u32; 3], b: [u32; 3], tol: f32) -> bool {
+    let mut d2 = 0.0;
+    for i in 0..3 {
+        let diff = number(a[i]) - number(b[i]);
+        if !diff.is_finite() {
+            return false;
+        }
+        d2 += diff * diff;
+    }
+    d2 <= tol * tol
+}
+
+fn facing_dir(facing: Facing) -> Option<[f32; 2]> {
+    match facing {
+        Facing::Bearing(b) => {
+            let angle = number(b);
+            angle.is_finite().then(|| [angle.cos(), angle.sin()])
+        }
+        Facing::Vector([x, y]) => {
+            let (fx, fy) = (number(x), number(y));
+            let len = (fx * fx + fy * fy).sqrt();
+            (len.is_finite() && len > 1e-6).then(|| [fx / len, fy / len])
+        }
+    }
+}
+
+fn facing_within(a: Facing, b: Facing, tol: f32) -> bool {
+    if a == b {
+        return true;
+    }
+    let (Some(va), Some(vb)) = (facing_dir(a), facing_dir(b)) else {
+        return false;
+    };
+    (va[0] * vb[0] + va[1] * vb[1]) >= tol.cos()
+}
+
 pub fn fit(stamp: &Fingerprint, current: &Current) -> Option<Result<Fit, String>> {
     let exact = stamp.exact.as_ref()?;
     if stamp.format != current.print.format {
@@ -740,7 +932,12 @@ pub fn fit(stamp: &Fingerprint, current: &Current) -> Option<Result<Fit, String>
         ..Fit::default()
     };
     for (name, digest) in &exact.lightmaps {
-        if *digest == current.lightmap(name) {
+        let matched = *digest == current.lightmap(name)
+            || exact
+                .lightmaps_approx
+                .get(name)
+                .is_some_and(|approx| *approx == current.lightmap_approx(name));
+        if matched {
             fit.matching.insert(name.clone());
         } else {
             let rooms = current
@@ -751,17 +948,39 @@ pub fn fit(stamp: &Fingerprint, current: &Current) -> Option<Result<Fit, String>
             fit.differing.insert(name.clone(), rooms);
         }
     }
-    let same_model = |model: &str| {
+    let exact_model = |model: &str| {
         exact.models.contains_key(model) && exact.models.get(model) == current.models.get(model)
     };
+    let approx_model = |model: &str| {
+        exact_model(model)
+            || (exact.models_approx.contains_key(model)
+                && exact.models_approx.get(model) == current.models_approx.get(model))
+    };
     let mut taken = vec![false; exact.placed.len()];
+    let mut unmatched: Vec<&Placed> = Vec::new();
     for now in &current.placed {
         let found = (exact.placed.iter().enumerate()).find(|(index, baked)| {
             !taken[*index]
                 && baked.model == now.model
                 && baked.position == now.position
                 && baked.facing == now.facing
-                && same_model(&now.model)
+                && exact_model(&now.model)
+        });
+        match found {
+            Some((index, baked)) => {
+                taken[index] = true;
+                fit.placeables.insert(now.instance, baked.instance);
+            }
+            None => unmatched.push(now),
+        }
+    }
+    for now in unmatched {
+        let found = (exact.placed.iter().enumerate()).find(|(index, baked)| {
+            !taken[*index]
+                && baked.model == now.model
+                && pos_within(baked.position, now.position, PLACE_POS_TOL)
+                && facing_within(baked.facing, now.facing, PLACE_ANGLE_TOL)
+                && approx_model(&now.model)
         });
         match found {
             Some((index, baked)) => {
@@ -800,6 +1019,9 @@ impl Exact {
         for (name, digest) in &self.lightmaps {
             let _ = writeln!(text, "lightmap {name} {digest}");
         }
+        for (name, digest) in &self.lightmaps_approx {
+            let _ = writeln!(text, "lightmap-approx {name} {digest}");
+        }
         for name in &self.backdrops {
             let _ = writeln!(text, "backdrop {name}");
         }
@@ -818,6 +1040,9 @@ impl Exact {
         for (name, digest) in &self.models {
             let _ = writeln!(text, "model {name} {digest}");
         }
+        for (name, digest) in &self.models_approx {
+            let _ = writeln!(text, "model-approx {name} {digest}");
+        }
         text
     }
 
@@ -827,6 +1052,11 @@ impl Exact {
         let read = match words {
             ["lightmap", name, digest] => {
                 self.lightmaps
+                    .insert(name.to_ascii_lowercase(), (*digest).to_string());
+                Ok(())
+            }
+            ["lightmap-approx", name, digest] => {
+                self.lightmaps_approx
                     .insert(name.to_ascii_lowercase(), (*digest).to_string());
                 Ok(())
             }
@@ -859,6 +1089,11 @@ impl Exact {
             }
             ["model", name, digest] => {
                 self.models
+                    .insert(name.to_ascii_lowercase(), (*digest).to_string());
+                Ok(())
+            }
+            ["model-approx", name, digest] => {
+                self.models_approx
                     .insert(name.to_ascii_lowercase(), (*digest).to_string());
                 Ok(())
             }
