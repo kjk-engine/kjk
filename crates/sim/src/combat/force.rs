@@ -1158,10 +1158,10 @@ pub fn regenerate_tsl(
     let gained = per_second * 100.0 * msec as f32 / 1000.0 + state.fp_carry as f32 / 1000.0;
     let whole = gained.trunc();
     let next = *fp + whole as i32;
-    if next >= max_fp {
+    if next > max_fp || (next == max_fp && gained >= 0.0) {
         *fp = max_fp;
         state.fp_carry = 0;
-    } else if next <= 0 {
+    } else if next < 0 || (next == 0 && gained <= 0.0) {
         *fp = 0;
         state.fp_carry = 0;
     } else {
