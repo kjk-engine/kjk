@@ -1048,6 +1048,20 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         broken: g.chance(0.05),
         parried: g.chance(0.1),
         pain_until: now + u64::from(g.below(800)),
+        veteran: false,
+        restrained: false,
+        older: 0,
+        pool: 0,
+        side_cost: 10,
+        can_jump: true,
+        grenade: None,
+        own_running: false,
+        own_rolling: false,
+        own_drawn: true,
+        foe_away: 0.0,
+        foe_around: 0.0,
+        foe_disabled: false,
+        foe_hit_at: 0,
     }
 }
 

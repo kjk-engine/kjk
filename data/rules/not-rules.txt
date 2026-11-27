@@ -769,6 +769,7 @@ crates/sim/src/combat/saber/duel.rs TIMES  # a format's size: the times a duel's
 crates/sim/src/combat/saber/duel.rs OLD_BITS  # a format's layout: where each kept duel flag stood before the one bar
 crates/sim/src/combat/saber/duel.rs OLD_DECAY_AFTER  # a format's layout: which time the one bar dropped, and where it stood
 crates/sim/src/world/minds.rs MEDITATE_SALT  # a dice salt (a hash constant), no number the game plays by
+crates/sim/src/world/minds.rs CHOICE_SALT  # a dice salt (a hash constant), no number the game plays by
 crates/sim/src/world/sabers/duel.rs ASIDE  # a table of moves (game facts: the knockaways)
 crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an attack's bounces)
 crates/sim/src/world/sabers/duel.rs STAGGERS  # a table of moves (game facts: the heavy staggers)
@@ -795,5 +796,11 @@ crates/sim/src/world/minds/perch.rs CLEARANCE  # where a creature lets go of jum
 crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force jump takes off, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc
+crates/sim/src/combat/spells.rs ROWS_BY_KIND  # the rulebook's spells.2da rows of each kind, a list of rules
+crates/sim/src/combat/choose.rs ROWS_BY_REASON  # the rulebook's spells.2da rows of each buff reason, a list of rules
+crates/sim/src/combat/choose.rs MELEE_ORDER  # the melee feat lines in the order of preference, no number
+crates/sim/src/combat/choose.rs GUN_ORDER  # the gun feat lines in the order of preference, no number
+crates/sim/src/combat/choose.rs GUN_FALLBACK  # the gun feat lines in the order a gunner falls back on them, no number
 crates/sim/src/combat/spells.rs RAISES_THE_FALLEN  # Revitalize's spells.2da rows, a list of table rows
 crates/sim/src/action.rs PLAY  # a player action's wire tag
+crates/sim/src/script/party.rs NPC_AISTYLE_MELEE_ATTACK  # the scripts' own constant for an AI style, no number the game plays by

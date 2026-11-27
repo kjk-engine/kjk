@@ -721,6 +721,9 @@ fn linux_environment() {
 /// Parses the command line and runs what it asks for.
 pub fn run() -> ExitCode {
     launch_times::start();
+    sim::combat::choose::log_choices(
+        std::env::var_os("KJK_CHOICE_LOG").is_some_and(|value| value == "1"),
+    );
     let cli = parse_cli();
     let size = cli.size.unwrap_or(scene::HEADLESS_SIZE);
     if cli.playtest_links {

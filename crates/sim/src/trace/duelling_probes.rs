@@ -607,7 +607,7 @@ fn runs_after_a_backing_target() -> Result<String, String> {
 
 /// A melee target `apart` units away (centre to centre) that does not
 /// move, seen by a creature that holds its place.
-fn duel_sight(apart: f32) -> Sight {
+pub(crate) fn duel_sight(apart: f32) -> Sight {
     Sight {
         foe: SimId(2),
         gap: apart - TIP,
@@ -654,6 +654,20 @@ fn duel_sight(apart: f32) -> Sight {
         broken: false,
         parried: false,
         pain_until: 0,
+        veteran: false,
+        restrained: false,
+        older: 0,
+        pool: 0,
+        side_cost: 10,
+        can_jump: true,
+        grenade: None,
+        own_running: false,
+        own_rolling: false,
+        own_drawn: true,
+        foe_away: 0.0,
+        foe_around: 0.0,
+        foe_disabled: false,
+        foe_hit_at: 0,
     }
 }
 
@@ -1004,8 +1018,9 @@ fn after_sidestep(
 }
 
 /// An Ordinary or Skilled fighter steps away from a kata 120 units off at a
-/// run, and not from one 130 units off, and holds no side key while it does,
-/// even after a sidestep. A boss does not step away.
+/// run, and not from one 130 units off. An Ordinary fighter holds no side key
+/// while it does, even after a sidestep. A boss does not step away. A Skilled
+/// fighter that may escape rolls to a side instead (`ai.choices.escapes`).
 fn steps_away_from_a_kata() -> Result<String, String> {
     let kata = |apart: f32| Sight {
         special: true,
@@ -1018,23 +1033,29 @@ fn steps_away_from_a_kata() -> Result<String, String> {
         (Reaction::StepAway, Reaction::None),
         (Reaction::Guard, Reaction::None),
     ];
-    let run = after_sidestep(|_| kata(120.0), Tier::Skilled, 5);
+    let run = after_sidestep(|_| kata(120.0), Tier::Ordinary, 5);
     let backs = run.iter().all(|(way, _, keys)| {
         *way == Way::Retreat && keys.forward < 0 && !keys.walk && keys.right == 0
     });
+    let escape = after_sidestep(|_| kata(120.0), Tier::Skilled, 1);
+    let rolls = escape
+        .iter()
+        .all(|(_, _, keys)| keys.right != 0 && keys.forward == 0 && !keys.attack);
     check(
-        got == want && backs,
+        got == want && backs && rolls,
         format!(
-            "120 and 130 units by tier {got:?}; backs away at a run, no side key {backs}: {run:?}"
+            "120 and 130 units by tier {got:?}; backs away at a run, no side key {backs}: {run:?}; a Skilled fighter rolls aside {rolls}: {escape:?}"
         ),
     )
 }
 
-/// A boss near a kata stands still with its guard up, and its other reads
-/// still work: a kata that leaves its target reeling is swung at.
+/// A boss near a kata that may not escape (its scripts set it to attack
+/// only) stands still with its guard up, and its other reads still work: a
+/// kata that leaves its target reeling is swung at.
 fn boss_guards_against_a_kata() -> Result<String, String> {
     let kata = |reeling| Sight {
         special: true,
+        restrained: true,
         reeling,
         ..duel_sight(120.0)
     };
@@ -2033,6 +2054,15 @@ fn tiered(tier: Tier, style: Option<Style>, points: i32) -> Sight {
     sight
 }
 
+/// `sight` with its target stunned, so that the long special moves are open
+/// too (`pace::long_allowed`).
+fn disabled(sight: Sight) -> Sight {
+    Sight {
+        foe_disabled: true,
+        ..sight
+    }
+}
+
 /// The special moves a drive pressed the keys of, in the order it began them.
 fn begun(run: &[(Pacing, Keys)]) -> Vec<Special> {
     let before = std::iter::once(0).chain(run.iter().map(|(pace, _)| pace.special));
@@ -2087,7 +2117,8 @@ fn ordinary_stays_plain() -> Result<String, String> {
     )
 }
 
-/// A boss starts the special moves of its style, and a style names them.
+/// A boss starts the special moves of its style, and a style names them. Its
+/// target is stunned, so that the long moves are open too.
 fn boss_uses_its_style() -> Result<String, String> {
     let has = |style: Style, wanted: &[Special]| {
         wanted
@@ -2108,7 +2139,9 @@ fn boss_uses_its_style() -> Result<String, String> {
     let seen: Vec<(Style, Vec<Special>)> = styles
         .into_iter()
         .map(|style| {
-            let run = drive(600, true, |_| tiered(Tier::Boss, Some(style), 100));
+            let run = drive(600, true, |_| {
+                disabled(tiered(Tier::Boss, Some(style), 100))
+            });
             (style, begun(&run))
         })
         .collect();
@@ -2183,9 +2216,11 @@ fn refused_special_gives_up() -> Result<String, String> {
 }
 
 /// A boss never starts the same special move twice in a row when its style has
-/// more than one.
+/// more than one. Its target is stunned, so that the long moves are open too.
 fn no_special_twice() -> Result<String, String> {
-    let run = drive(1200, true, |_| tiered(Tier::Boss, Some(Style::Staff), 100));
+    let run = drive(1200, true, |_| {
+        disabled(tiered(Tier::Boss, Some(Style::Staff), 100))
+    });
     let moves = begun(&run);
     let twice = moves.windows(2).any(|pair| pair[0] == pair[1]);
     check(

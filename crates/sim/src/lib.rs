@@ -109,6 +109,10 @@ pub use world::bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;
+#[cfg(feature = "probes")]
+pub use world::choice_probes;
+#[cfg(feature = "probes")]
+pub use world::companion_talent_probes;
 pub use world::containers;
 #[cfg(feature = "probes")]
 pub use world::coop_items;
@@ -121,8 +125,12 @@ pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
 #[cfg(feature = "probes")]
+pub use world::enemy_choice_probes;
+#[cfg(feature = "probes")]
 pub use world::facing_probes;
 pub use world::falls;
+#[cfg(feature = "probes")]
+pub use world::feat_choice_probes;
 #[cfg(feature = "probes")]
 pub use world::feats;
 #[cfg(feature = "probes")]
@@ -184,6 +192,8 @@ pub use world::scream_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+#[cfg(feature = "probes")]
+pub use world::special_choice_probes;
 pub use world::stances::{played_ids, row_set};
 #[cfg(feature = "probes")]
 pub use world::step_down_probes;

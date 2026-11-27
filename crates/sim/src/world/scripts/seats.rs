@@ -149,11 +149,19 @@ pub(super) fn seat_actions(
                 Ok(())
             }
             // A feat attack chosen from the action bar (`Picks::set`): the
-            // seat's acting body's, at once.
+            // seat's acting body's, at once. A line already in use changes
+            // nothing the player sees, but the sheet is kept for the mark
+            // that the player picked the line (`Picks::player`).
             Action::Feat { hand, line } => {
                 let body = acting(view, seat.0, player);
-                let set = |sheet: &mut Sheet| crate::combat::picks::Picks::set(sheet, *hand, *line);
-                if !changed(view, out, body, set) {
+                let mut line_changed = false;
+                let set = |sheet: &mut Sheet| {
+                    let before = sheet.picks;
+                    line_changed = crate::combat::picks::Picks::set(sheet, *hand, *line);
+                    sheet.picks != before
+                };
+                changed(view, out, body, set);
+                if !line_changed {
                     continue;
                 }
                 Ok(())

@@ -445,7 +445,7 @@ fn round_trip() -> Result<String, String> {
     Picks::next(&mut sheet, 0);
     let mut out = Writer::default();
     sheet.picks.encode(&mut out);
-    let got = Picks::decode(&mut Reader::new("picks", &out.0), true, true)
+    let got = Picks::decode(&mut Reader::new("picks", &out.0), true, true, true)
         .map_err(|e| format!("{e:?}"))?;
     let action = Action::NextFeat { hand: 1 };
     let back = Action::from_bytes(&action.to_bytes());
@@ -453,6 +453,110 @@ fn round_trip() -> Result<String, String> {
         got == sheet.picks && back == Ok(action),
         format!("sent {:?}, read {got:?}, action {back:?}", sheet.picks),
     )
+}
+
+/// The combat AI's choice (`Picks::steer`) on each weapon, and the
+/// player's mark that stops it. Each row is one case: the sheet, the feat
+/// row the AI steers to, and whether the line changes. The AI's own choice
+/// leaves no mark, so it may steer the same weapon again. The mark comes
+/// back from its bytes, and old bytes read no mark.
+fn steered() -> Result<String, String> {
+    let picked = |mut sheet: Sheet| {
+        Picks::next(&mut sheet, 0);
+        sheet
+    };
+    let clicked = |mut sheet: Sheet| {
+        Picks::set(&mut sheet, 0, FeatLine::PowerBlast);
+        sheet
+    };
+    let steered_once = |mut sheet: Sheet, row: u16| {
+        Picks::steer(&mut sheet, 0, row);
+        sheet
+    };
+    let single = holding(Delivery::Saber(SaberShape::Single), 1, &BLADE_LINES);
+    let cases: [(&str, Sheet, u16, bool); 11] = [
+        ("two blades", dual(&BLADE_LINES), BLADE_LINES[2], true),
+        ("a staff", staff(&BLADE_LINES), BLADE_LINES[0], true),
+        ("a pistol", pistol(&GUN_LINES), GUN_LINES[2], true),
+        (
+            "a pistol's own line",
+            pistol(&GUN_LINES),
+            GUN_LINES[0],
+            false,
+        ),
+        (
+            "an unknown line",
+            dual(&BLADE_LINES[..1]),
+            BLADE_LINES[2],
+            false,
+        ),
+        ("a single blade", single, BLADE_LINES[0], false),
+        (
+            "blades the player picked",
+            picked(dual(&BLADE_LINES)),
+            BLADE_LINES[2],
+            false,
+        ),
+        (
+            "a pistol the player picked",
+            picked(pistol(&GUN_LINES)),
+            GUN_LINES[2],
+            false,
+        ),
+        (
+            "a pistol whose line in use the player clicked",
+            clicked(pistol(&GUN_LINES)),
+            GUN_LINES[2],
+            false,
+        ),
+        (
+            "the line in use",
+            steered_once(dual(&BLADE_LINES), BLADE_LINES[2]),
+            BLADE_LINES[2],
+            false,
+        ),
+        (
+            "after the AI's own choice",
+            steered_once(dual(&BLADE_LINES), BLADE_LINES[2]),
+            BLADE_LINES[0],
+            true,
+        ),
+    ];
+    let mut wrong: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(name, mut sheet, row, expected)| {
+            let changed = Picks::steer(&mut sheet, 0, row);
+            (changed != expected).then(|| format!("{name} changed {changed}"))
+        })
+        .collect();
+    let marked = picked(dual(&BLADE_LINES));
+    let mut out = Writer::default();
+    marked.picks.encode(&mut out);
+    let back = Picks::decode(&mut Reader::new("picks", &out.0), true, true, true);
+    let mut old = Writer::default();
+    marked.picks.encode_as(&mut old, false);
+    let mut unmarked = marked;
+    unmarked.picks = Picks::decode(&mut Reader::new("picks", &old.0), true, true, false)
+        .map_err(|e| format!("{e:?}"))?;
+    if back != Ok(marked.picks) {
+        wrong.push(format!("read back {back:?}"));
+    }
+    if !Picks::steer(&mut unmarked, 0, BLADE_LINES[2]) {
+        wrong.push("old bytes kept the player's mark".into());
+    }
+    // Clicking the line in use changes no line, but marks the slot.
+    let mut gun = pistol(&GUN_LINES);
+    let line_changed = Picks::set(&mut gun, 0, FeatLine::PowerBlast);
+    if line_changed || !Picks::player_picked(&gun, 0) {
+        wrong.push(format!("a click on the line in use changed {line_changed}"));
+    }
+    check(wrong.is_empty(), format!("wrong: {wrong:?}"))
+}
+
+/// The combat AI's feat lines through `Picks` (`kjk sim probes --only
+/// "feat steering"`).
+pub fn steer_probes() -> Checks {
+    vec![("picks_steered", steered())]
 }
 
 pub fn probes() -> Checks {

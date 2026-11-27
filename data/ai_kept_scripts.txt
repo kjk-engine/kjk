@@ -1,0 +1,6 @@
+# Scripts whose talents an enemy always keeps, one name a line, in lower
+# case. A name that ends in * stands for every script whose name begins
+# with what comes before it. This list wins over ai_generic_scripts.txt.
+#
+# It is for a boss's set piece that runs inside a generic combat script.
+# The survey of 19 November 2026 found none, so the list is empty.
