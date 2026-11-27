@@ -4175,7 +4175,7 @@ fn mod_routines() {
 /// same. The sim alone.
 #[test]
 fn corpse_remains() {
-    probed("remains", &sim::remains::probes(), 10);
+    probed("remains", &sim::remains::probes(), 11);
 }
 
 /// Items a module gives a resref of its own, and what a creature joining

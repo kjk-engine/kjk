@@ -2297,17 +2297,10 @@ impl State {
             self.uncommandable.remove(&id);
             left.uncommandable.insert(id);
         }
-        let dead: Vec<u32> = self
-            .corpses
-            .keys()
-            .copied()
-            .filter(|id| ids.contains(id))
-            .collect();
-        for id in dead {
-            if let Some(corpse) = self.corpses.remove(&id) {
-                left.corpses.insert(id, corpse);
-            }
-        }
+        // Every corpse waiting to fade or drop its remains bag belongs to the
+        // module being left, including one whose body `DESTROY_MS` already
+        // removed from `ids` while its bag still waits on `FADE_MS`.
+        left.corpses.extend(std::mem::take(&mut self.corpses));
         let ours: Vec<u32> = self
             .encounters
             .keys()
