@@ -192,6 +192,9 @@ struct Catalogue {
     reopen_failed: bool,
     /// The screen is the list of stories, not a story.
     listing: bool,
+    /// How many times the staged screens were replaced by ones with assets
+    /// of their own.
+    assets_replaced: u32,
 }
 
 impl Catalogue {
@@ -240,6 +243,7 @@ impl Catalogue {
             rows: Rows::default(),
             reopen_failed: false,
             listing: start.list,
+            assets_replaced: 0,
         };
         catalogue.placement = catalogue.placed();
         Ok(catalogue)
@@ -260,6 +264,15 @@ impl Catalogue {
         )
     }
 
+    /// `staged` shown in place of the screens so far. Their textures and
+    /// sounds belong to the assets they were loaded with, so what was made
+    /// from those is forgotten.
+    fn replace(&mut self, staged: Staged) {
+        self.staged = staged;
+        self.assets_replaced += 1;
+        self.rows = Rows::default();
+    }
+
     /// The list of stories, with its cursor on the story of `start`.
     fn stage_list(discovery: &vfs::Discovery, start: &Start, size: Size) -> Result<Staged, String> {
         let at = format!("{}/{}", start.module, start.story.name);
@@ -276,7 +289,7 @@ impl Catalogue {
         match Catalogue::stage_list(&self.discovery, &self.start, self.size()) {
             Ok(staged) => {
                 info!(target: "catalogue", "the list of stories");
-                self.staged = staged;
+                self.replace(staged);
                 self.collab.restaged();
                 self.listing = true;
                 self.pan = [0.0; 2];
@@ -324,7 +337,7 @@ impl Catalogue {
             Ok(staged) => {
                 info!(target: "catalogue", story = start.story.name, "opened from the list");
                 self.start = start;
-                self.staged = staged;
+                self.replace(staged);
                 self.collab.opened(&self.start.module);
                 self.listing = false;
                 self.pan = [0.0; 2];
@@ -775,6 +788,8 @@ struct Painting {
     /// Frames left to draw the screens' image after a change. It keeps what
     /// it shows the rest of the time.
     fresh: u8,
+    /// The `assets_replaced` the textures made so far belong to.
+    assets: u32,
     made: Option<Made>,
     /// The still of the world behind the screens, when the backdrop is a
     /// frame of play and it is made.
@@ -926,6 +941,10 @@ fn paint(
     // The screens' quads, made again when the screens or the size changed.
     let assets = &cat.staged.assets;
     let composed = collab::composed(&cat);
+    if painting.assets != cat.assets_replaced {
+        painting.assets = cat.assets_replaced;
+        painting.drawn.forget_all();
+    }
     let released = painting.drawn.forget_released(assets);
     if painting.drawn.remake(&composed, virtual_window) || released {
         painting.fresh = REDRAWN;

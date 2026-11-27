@@ -271,7 +271,8 @@ fn open(cat: &mut Catalogue, wanted: &str) -> Result<(), String> {
         story: story.clone(),
         ..cat.start.clone()
     };
-    cat.staged = Catalogue::stage(&cat.discovery, &start, cat.size())?;
+    let staged = Catalogue::stage(&cat.discovery, &start, cat.size())?;
+    cat.replace(staged);
     cat.start = start;
     cat.reopen_failed = false;
     cat.listing = false;
@@ -324,7 +325,7 @@ fn reload(cat: &mut Catalogue, changed: &[String]) {
     match result {
         Ok((start, staged)) => {
             cat.start = start;
-            cat.staged = staged;
+            cat.replace(staged);
             cat.reopen_failed = false;
             log(cat, "disk", "reload", json!({ "changed": changed }));
             info!(target: "catalogue", ?changed, "reloaded");

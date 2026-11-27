@@ -1844,6 +1844,14 @@ fn draw(
 }
 
 impl Drawn {
+    /// Every image and material forgotten, and the meshes made again: the
+    /// assets they were made from were replaced by others.
+    pub(crate) fn forget_all(&mut self) {
+        self.images.clear();
+        self.materials.clear();
+        self.layers.clear();
+    }
+
     /// The images and materials of the textures `assets` let go, let go
     /// here too. Whether any were.
     pub(crate) fn forget_released(&mut self, assets: &GuiAssets) -> bool {
