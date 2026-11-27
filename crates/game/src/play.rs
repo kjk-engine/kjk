@@ -831,7 +831,7 @@ pub fn load_for(
                 world.set_script_state(state);
             }
             crate::by_hand::give_items(&mut world, options.items)?;
-            // The arena's player carries every hand weapon and armour K1 has, the
+            // The arena's player carries every item K1 has (`arena::gear`), the
             // saber in hand unless its sheet holds a blaster (`--class
             // soldier@ROW`).
             let blaster = options.sheet.weapons[0]

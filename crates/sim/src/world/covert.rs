@@ -11,10 +11,17 @@
 //! A stealth press turns stealth mode off, or on: refused,
 //! in the game's line, with no base Stealth ranks, no stealth unit worn
 //! (`flags::STEALTH_UNIT`), in combat, or in the player restrict mode
-//! (`SetPlayerRestrictMode`). Stealth ends on an attack, a power or a
-//! grenade (opening `stealth::OPENER_MS`'s opener; aiming a gun is not an
-//! attack), on combat, on the unit
-//! taken off, and on falling; a conversation beginning ends it too
+//! (`SetPlayerRestrictMode`).
+//!
+//! A melee swing and a Force power end Stealth Mode on the step of the key
+//! press. A gun's shot ends it on the step the shot leaves the gun, and a
+//! grenade on the step it leaves the hand (`firing`, `Covert::attacked`).
+//! So charging a Power Blast, steadying a Sniper Shot, raising a gun and
+//! charging a throw keep Stealth Mode on, and a wind-up that is cancelled
+//! fires nothing and leaves it on. Each of these attacks opens the Sneak
+//! Attack Window (`stealth::OPENER_MS`) at the moment it ends Stealth Mode.
+//! Aiming a gun is not an attack. Stealth Mode also ends on combat, on the
+//! unit taken off, and on falling; a conversation beginning ends it too
 //! (`script::dialogue`, `Change::Unstealth`). While it holds, the body walks
 //! (KOTOR's "Run Disabled": `move_actors`), and a lightsaber in hand stays
 //! unlit (`motion::weapon`'s `dark`). The weapon step runs before this one
@@ -35,13 +42,11 @@ use crate::snapshot::SimId;
 
 /// The skill buttons a press of which does something.
 const SKILL_BUTTONS: u16 = buttons::STEALTH | buttons::LAY_MINE;
-/// The buttons that end stealth as an attack does (`Command::attacks`):
-/// the Force powers and a grenade.
-const LIKE_ATTACKS: u16 = buttons::FORCE_POWER
-    | buttons::FORCE_GRIP
-    | buttons::FORCE_LIGHTNING
-    | buttons::FORCE_DRAIN
-    | buttons::GRENADE;
+/// The buttons that end stealth at the press as an attack does
+/// (`Command::attacks`): the Force powers. A grenade ends it when it is
+/// thrown (`Covert::attacked`).
+const LIKE_ATTACKS: u16 =
+    buttons::FORCE_POWER | buttons::FORCE_GRIP | buttons::FORCE_LIGHTNING | buttons::FORCE_DRAIN;
 
 /// This step's new presses of the skill buttons: by seat, its body, the
 /// buttons newly down.
@@ -99,17 +104,13 @@ pub(super) fn covert(
         }
         let mut tell = |line: u32| notices.0.push((seat, Notice::Line(line)));
         if fighter.covert.stealth {
-            // The alternate attack does nothing with a gun in hand
-            // (`firing`), and the right mouse button that aims the gun
-            // sends it too, so aiming leaves stealth on.
-            let mut attacks = fighter.last_command;
-            if sheet.gunner(fighter.hand) {
-                attacks.buttons &= !buttons::ALT_ATTACK;
-            }
-            let attacked = attacks.attacks() || command & LIKE_ATTACKS != 0;
+            let attacked = strikes_now(&sheet, fighter);
             if attacked {
                 fighter.covert.opener_until = now + crate::stealth::OPENER_MS;
             }
+            // A shot or a grenade that left this step ends Stealth Mode
+            // here: `firing` set `combat_until` on that step, and opened the
+            // Sneak Attack Window (`Covert::attacked`).
             if attacked
                 || fighter.combat_until > now
                 || sheet.flags & flags::STEALTH_UNIT == 0
@@ -135,4 +136,20 @@ pub(super) fn covert(
             presses.0.push((seat, id.0, pressed));
         }
     }
+}
+
+/// Whether the character's keys begin an attack this step that ends
+/// Stealth Mode at the press: a melee swing or a Force power. A gun's keys
+/// do not count. [Attack] and [Feat attack] only raise, charge or steady a
+/// gun until its shot leaves, and [Alt attack] aims it. The attack keys do
+/// not count either while a grenade is readied, because [Attack] then
+/// charges the throw. The shot and the throw end Stealth Mode when they
+/// leave (`Covert::attacked`).
+fn strikes_now(sheet: &crate::combat::Sheet, fighter: &crate::combat::Fighter) -> bool {
+    let mut keys = fighter.last_command;
+    let readied = fighter.pack.readied != crate::combat::items::Readied::Off;
+    if sheet.gunner(fighter.hand) || readied {
+        keys.drop_attacks();
+    }
+    keys.attacks() || keys.buttons & LIKE_ATTACKS != 0
 }

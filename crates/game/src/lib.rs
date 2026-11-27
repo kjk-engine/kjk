@@ -50,6 +50,7 @@ mod combat_fx;
 pub mod course;
 pub mod crash;
 pub mod dangly;
+pub mod debug_terminal;
 pub mod dialogue_view;
 pub mod display;
 mod dotenv;

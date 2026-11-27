@@ -1284,8 +1284,13 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         .as_ref()
         .map(kjk_game::viewer_ja::Files::base);
     let props = state.editor.project.kjk.props.clone();
-    let (prop_models, mut notes) =
-        project_props::add(&mut scene, files.as_ref(), &mut state.prop_models, &props);
+    let (prop_models, mut notes) = project_props::add(
+        &mut scene,
+        &module,
+        files.as_ref(),
+        &mut state.prop_models,
+        &props,
+    );
     // Jedi Academy's ambient effects, played round a loop (`ambient_fx`).
     if let Some(files) = files.as_ref() {
         let effects = state.editor.project.kjk.effects.clone();

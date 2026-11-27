@@ -1445,6 +1445,24 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     }
 }
 
+/// The rows of list `tag` made as tall as the layout's row times the text
+/// size, as KOTOR 2 makes an options list's rows (`Page::fit_read`).
+pub(crate) fn fit_rows(gui: &mut fmt_odyssey::gui::Gui, textures: &mut dyn Textures, tag: &str) {
+    // The sizing's text counts layout pixels to a font pixel, and its
+    // pixel counts layout pixels to a physical pixel. So the text size is
+    // the one divided by the other.
+    let sizing = textures.sizing();
+    let size = sizing.text / sizing.pixel.max(f32::EPSILON);
+    if let Some(proto) = gui
+        .controls
+        .iter_mut()
+        .find(|control| control.tag == tag)
+        .and_then(|list| list.proto.as_deref_mut())
+    {
+        proto.extent.height = (proto.extent.height as f32 * size) as i32;
+    }
+}
+
 /// Where `key`'s value is among `choices` (the first when it is none of
 /// them, or when Movie Duels' absence holds it back: what is played then).
 /// A value a running session keeps is the session's (`kept_by_session`).
@@ -1669,21 +1687,8 @@ impl Screen for Page {
         textures: &mut dyn Textures,
         _: Source,
     ) {
-        let Some((tag, _)) = self.list() else {
-            return;
-        };
-        // The sizing's text counts layout pixels to a font pixel, and its
-        // pixel counts layout pixels to a physical pixel. So the text size
-        // is the one divided by the other.
-        let sizing = textures.sizing();
-        let size = sizing.text / sizing.pixel.max(f32::EPSILON);
-        if let Some(proto) = gui
-            .controls
-            .iter_mut()
-            .find(|control| control.tag == tag)
-            .and_then(|list| list.proto.as_deref_mut())
-        {
-            proto.extent.height = (proto.extent.height as f32 * size) as i32;
+        if let Some((tag, _)) = self.list() {
+            fit_rows(gui, textures, tag);
         }
     }
 

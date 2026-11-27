@@ -86,7 +86,10 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// and `KJKV` do; a seat may say whether it joins nearby conversations and
 /// whether a screen is open (`Action::JoinTalks`, `Action::Screen`, new action
 /// codes).
-const VERSION: u32 = 56 + crate::pending::REPLAY;
+/// 57: an arena order may rebuild a character in one or two classes, set an
+/// attribute, a skill or the alignment, or restore the starting character
+/// (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`, arena order codes 4 to 8).
+const VERSION: u32 = 57 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

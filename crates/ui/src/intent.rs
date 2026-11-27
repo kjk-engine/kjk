@@ -356,6 +356,14 @@ pub enum Intent {
     Answer(Option<u8>),
     /// Leave the conversation (R6: its Leave row).
     Leave,
+    /// The Debug Mode character page's row `row` (from 0) stepped down
+    /// (`back`) or up.
+    DebugStep {
+        row: u8,
+        back: bool,
+    },
+    /// The Debug Mode character page's Restore button.
+    DebugRestore,
     /// Save the game as `name`, over the save `slot` (its id) or as a new
     /// one.
     Save {

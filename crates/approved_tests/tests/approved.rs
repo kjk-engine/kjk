@@ -973,6 +973,29 @@ fn lighting_bake_in_the_viewer() {
     );
 }
 
+/// How the viewer takes a lighting bake with exact lines
+/// (`kjk_game::viewer::bake_probes`, `fit_probes`), on sets, fits and
+/// placeables made here. A room lightmap whose PNG does not fit the
+/// player's rooms, and one that a mod adds or renames, is drawn at its
+/// stored light with no fill. A backdrop the bake left alone is kept as it
+/// is. An area where no baked lightmap matches is not baked. A placeable
+/// that a mod adds first leaves the others their baked light under their
+/// old numbers, and a placeable turned in place loses its own. Needs
+/// `--features rig`; no installs (proposed 2026-11-26).
+#[test]
+fn lighting_bake_by_lightmap_in_the_viewer() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_bake_by_lightmap_in_the_viewer skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting bake by lightmap in the viewer",
+        &kjk_game::viewer::bake_probes::fit_probes(),
+        3,
+    );
+}
+
 /// The sets `kjk lighting pack` takes into the lighting download
 /// (`kjk::probes::lighting_pack`), on folders of bakes made here. The pack
 /// takes the files the game loads from each finished set `b`. It leaves

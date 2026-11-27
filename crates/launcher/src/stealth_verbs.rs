@@ -30,6 +30,13 @@
 //!    hand. Combat ending Stealth Mode lights the blade by the normal rule.
 //!    A lightsaber taken in hand by a change of weapons in Stealth Mode is
 //!    unlit.
+//! 7. The wind-up openers (`sim::stealth::wind_up_openers`), on the same
+//!    proving ground. A player in Stealth Mode with a blaster charges a
+//!    Power Blast, steadies a Sniper Shot, fires a Rapid Shot, raises a
+//!    blaster that was put away, or charges a grenade throw. Stealth Mode
+//!    must hold until the shot or the grenade leaves, and the first hit
+//!    must be a sneak attack. A wind-up that is cancelled fires nothing
+//!    and leaves the player in Stealth Mode.
 
 use std::process::ExitCode;
 
@@ -289,7 +296,10 @@ pub fn stealth(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         let sabers = sim::stealth::unlit_sabers(&anims)
             .into_iter()
             .map(|(name, row)| (name.to_string(), row));
-        for (name, row) in openers.into_iter().chain(sabers) {
+
+        // 7. A gun's wind-up keeps Stealth Mode until the shot leaves.
+        let wind_ups = sim::stealth::wind_up_openers(&anims);
+        for (name, row) in openers.into_iter().chain(sabers).chain(wind_ups) {
             let ok = row.is_ok();
             report.check(ok, format!("{name}: {}", row.unwrap_or_else(|error| error)));
         }

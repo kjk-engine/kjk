@@ -365,8 +365,8 @@ struct BakedProps {
 /// once for all the props of a level. The last folder comes first, as the
 /// rooms' lightmaps are taken (`viewer::detail_baked`): a project's bake
 /// wins over an earlier one.
-fn baked_props() -> Vec<BakedProps> {
-    (crate::viewer::bake_folders().into_iter().rev())
+fn baked_props(module: &str) -> Vec<BakedProps> {
+    (crate::viewer::bake_folders(module).into_iter().rev())
         .filter_map(|folder| {
             let text = std::fs::read_to_string(folder.join(BAKED_PROPS)).ok()?;
             Some(BakedProps { folder, text })
@@ -550,6 +550,7 @@ pub fn placed(model: &PropModel, prop: &Prop) -> Placed {
 /// read) and why each that does not read.
 pub fn add(
     scene: &mut LoadedScene,
+    module: &str,
     files: Option<&Files>,
     cache: &mut BTreeMap<String, Result<PropModel, String>>,
     props: &[Prop],
@@ -564,7 +565,7 @@ pub fn add(
         crate::fitted_lights::mode_of_area(scene.baked) == crate::fitted_lights::Mode::Baked;
     // The bakes' lists of props, read once here and not once for each prop.
     let bakes = if under_bake && !props.is_empty() {
-        baked_props()
+        baked_props(module)
     } else {
         Vec::new()
     };
@@ -685,7 +686,7 @@ pub fn add_active(scene: &mut LoadedScene, game: vfs::Game, module: &str) {
     };
     let files = Files::base(&stack);
     let mut cache = BTreeMap::new();
-    let (_, notes) = add(scene, Some(&files), &mut cache, props);
+    let (_, notes) = add(scene, module, Some(&files), &mut cache, props);
     for note in notes {
         bevy::log::warn!("{note}");
     }

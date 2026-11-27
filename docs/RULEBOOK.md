@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `dd540bb31a39f036`.
+Edition `bc8726a763d33449`.
 
 ## Contents
 
@@ -8608,9 +8608,11 @@ can use that skill.
 To enter Stealth Mode, a character needs ranks in the Stealth skill and a
 stealth unit equipped. A character cannot enter Stealth Mode during combat.
 A character in Stealth Mode cannot run, unless the character knows Stealth
-Run. Stealth Mode ends when the
-character attacks, uses a Force power, throws a grenade, enters combat,
-removes the stealth unit or starts a conversation.
+Run. Stealth Mode ends when the character fires a shot, throws a grenade,
+swings a melee weapon or uses a Force power. Charging a Power Blast,
+steadying a Sniper Shot and charging a grenade throw do not end it. Stealth
+Mode also ends when the character enters combat, removes the stealth unit
+or starts a conversation.
 
 Disarming, recovering or setting a mine does not end Stealth Mode. Opening
 doors and using objects do not end it either. Party members under computer
@@ -8619,13 +8621,19 @@ control never enter Stealth Mode.
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
 Mode stays unlit until the character attacks.
 
+A shot ends Stealth Mode on the moment it leaves the gun, and a grenade on
+the moment it leaves the hand. A Sniper Shot let go before it is steady
+fires nothing, so the character stays in Stealth Mode. A Power Blast whose
+charge is dropped by a change of weapons also fires nothing, and the
+character stays in Stealth Mode.
+
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 
-An attack that hits within 1.5 seconds after the character
-leaves Stealth Mode is a sneak attack. This only works against a target
-that has not yet noticed the attacker.
+An attack that hits within 1.5 seconds after the shot is
+fired or the swing begins is a sneak attack. This only works against a
+target that has not yet noticed the attacker.
 
-<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::world::covert::covert`.</sub>
+<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::combat::fighter::Covert::attacked`.</sub>
 
 <a id="stealth-mode-walk-axis"></a>**Stealth Walk** = **64** · `stealth.mode.walk_axis`
 
@@ -9999,6 +10007,48 @@ respawn point with full hit points. The player cannot lose in the arena.
 A creature called into the arena appears 5 meters in front of the player.
 
 <sub>Source: ours. Code: `sim::world::arena::orders`.</sub>
+
+#### <a id="world-arena-terminal"></a>Debug Character Page
+
+A computer on the Debug Mode map opens a page that changes a party member's
+class, level, attributes, skills and alignment. An attribute can be set from
+1 to
+50. A skill can be set from 0 to
+50 ranks. Alignment can be set from 0 to
+100. The character on the Debug Mode
+map starts with one of every item that is not a plot item, and
+10 of each grenade, mine, medical item and
+stimulant.
+
+<a id="world-arena-terminal-ability-least"></a>**Lowest Attribute** = **1** · `world.arena.terminal.ability_least`
+
+The Debug character page sets an attribute no lower than 1.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-ability-most"></a>**Highest Attribute** = **50** · `world.arena.terminal.ability_most`
+
+The Debug character page sets an attribute no higher than 50.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-skill-most"></a>**Highest Skill Rank** = **50** · `world.arena.terminal.skill_most`
+
+The Debug character page sets a skill no higher than 50 ranks.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-alignment-most"></a>**Full Light Side** = **100** · `world.arena.terminal.alignment_most`
+
+Alignment runs from 0 (dark) to 100 (light).
+
+<sub>Source: both games' alignment. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-stack"></a>**Items in a Stack** = **10** · `world.arena.terminal.stack`
+
+The character on the Debug Mode map starts with 10 of each grenade, mine, medical item and stimulant.
+
+<sub>Source: ours. Code: `game::arena::gear`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 

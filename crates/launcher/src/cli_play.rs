@@ -105,9 +105,9 @@ pub(crate) struct Start {
     /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
     /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
     /// `sandbox`, the same in the Star Forge's partly lit hall (the main
-    /// menu options' Debug), or `ja:LEVEL`, a Jedi Academy level such as
-    /// `ja:t1_sour`, to walk in. `kjk play`'s is `course` when it is left
-    /// out
+    /// menu options' Debug), with a terminal that edits the character, or
+    /// `ja:LEVEL`, a Jedi Academy level such as `ja:t1_sour`, to walk in.
+    /// `kjk play`'s is `course` when it is left out
     #[arg(long)]
     pub(crate) stage: Option<String>,
     /// On a module stage: arrive at this door or waypoint (by tag)

@@ -52,8 +52,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// `Action::Screen`). A seat other than the first may take over a companion
 /// that nobody plays (`Action::Play`, wire tag 69). 11: the party
 /// selection screen's table carries each companion's alignment
-/// (`Roster::good_evil`).
-pub const PROTOCOL_VERSION: u16 = 11;
+/// (`Roster::good_evil`). 12: a seat may give the Debug Mode character
+/// page's orders (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), and a
+/// host may open that page for a seat (`Screen::DebugTerminal`).
+pub const PROTOCOL_VERSION: u16 = 12;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;
