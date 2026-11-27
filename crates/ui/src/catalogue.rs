@@ -438,6 +438,14 @@ pub trait Talk {
     fn template_of(&self, _words: &[u8]) -> Option<(TalkLine, Vec<u8>)> {
         None
     }
+    /// `words`, the words of a line, with `number` in its place for one.
+    fn filled(&self, words: &[u8], number: &[u8]) -> Option<Vec<u8>> {
+        let at = find(words, CUSTOM)?;
+        let mut filled = words[..at].to_vec();
+        filled.extend_from_slice(number);
+        filled.extend_from_slice(&words[at + CUSTOM.len()..]);
+        Some(filled)
+    }
     /// Whether `words` hold a stretch of a line of the game's own text,
     /// which a capture file must never keep as it is.
     fn quotes(&self, _words: &[u8]) -> bool {
@@ -626,12 +634,27 @@ impl Talk for TalkTable<'_> {
     }
 }
 
-/// Stand-in words for each line (`talk 123`, `talk 123 unbraced`), for a
-/// check that reads captures without an install. It finds the lines of the
-/// words it gives back.
+/// Stand-in words for each line (`talk 123`, `talk 123 unbraced`, and
+/// `talk 123 number 100` for a line with a number in it), for a check that
+/// reads captures without an install. It finds the lines of the words it
+/// gives back.
 pub struct StandInTalk;
 
 impl Talk for StandInTalk {
+    fn template_of(&self, words: &[u8]) -> Option<(TalkLine, Vec<u8>)> {
+        let words = std::str::from_utf8(words).ok()?;
+        let (line, number) = words.rsplit_once(" number ")?;
+        let line = self.line_of(line.as_bytes())?;
+        Some((line, number.as_bytes().to_vec()))
+    }
+
+    fn filled(&self, words: &[u8], number: &[u8]) -> Option<Vec<u8>> {
+        let mut filled = words.to_vec();
+        filled.extend_from_slice(b" number ");
+        filled.extend_from_slice(number);
+        Some(filled)
+    }
+
     fn line_of(&self, words: &[u8]) -> Option<TalkLine> {
         let words = std::str::from_utf8(words).ok()?.strip_prefix("talk ")?;
         let (strref, unbraced) = match words.strip_suffix(" unbraced") {
@@ -860,11 +883,8 @@ fn words_of_line(
     let Some(custom) = fields.get("custom").and_then(Value::as_str) else {
         return Ok(words);
     };
-    let at = find(&words, CUSTOM).ok_or(format!("line {strref} has no place for a number"))?;
-    let mut filled = words[..at].to_vec();
-    filled.extend(custom.bytes());
-    filled.extend_from_slice(&words[at + CUSTOM.len()..]);
-    Ok(filled)
+    talk.filled(&words, custom.as_bytes())
+        .ok_or(format!("line {strref} has no place for a number"))
 }
 
 /// Each line of the talk table `value` names swapped back for its words.
