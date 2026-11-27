@@ -787,6 +787,9 @@ pub fn set_lightmaps(set: &Path) -> BTreeSet<String> {
     (entries.flatten())
         .filter_map(|entry| entry.file_name().to_str().map(str::to_ascii_lowercase))
         .filter_map(|name| {
+            if name.ends_with(".dir.png") {
+                return None;
+            }
             name.strip_suffix(".klm")
                 .or_else(|| name.strip_suffix(".png"))
                 .map(str::to_string)
@@ -810,7 +813,7 @@ pub fn stamp(current: &Current, pngs: &BTreeSet<String>) -> (Fingerprint, Vec<St
             .map(|name| (name.clone(), current.lightmap(name)))
             .collect(),
         lightmaps_approx: (pngs.iter())
-            .map(|name| (name.clone(), current.lightmap_approx(name)))
+            .filter_map(|name| Some((name.clone(), current.lightmaps_approx.get(name)?.clone())))
             .collect(),
         backdrops: current.named.difference(pngs).cloned().collect(),
         placed: current.placed.clone(),
@@ -936,7 +939,7 @@ pub fn fit(stamp: &Fingerprint, current: &Current) -> Option<Result<Fit, String>
             || exact
                 .lightmaps_approx
                 .get(name)
-                .is_some_and(|approx| *approx == current.lightmap_approx(name));
+                .is_some_and(|approx| current.lightmaps_approx.get(name) == Some(approx));
         if matched {
             fit.matching.insert(name.clone());
         } else {

@@ -77,7 +77,7 @@ pub const SETTING_VALUE: &str = "baked";
 const CHECKS: &str = "lighting-check-v4";
 
 /// The files of a bake's set that the game loads, and so the files a
-/// download holds: the lightmaps (PNG / KLM), `fill.txt`, `floor.txt`,
+/// download holds: the lightmaps (PNG / KLM / `.dir.png`), `fill.txt`, `floor.txt`,
 /// `unlit.txt`, `stored.txt`, `placeables.txt`, `probes-hybrid.txt` and
 /// `fingerprint.txt`. Legacy `probes.txt` / `probes-sun.txt` remain read only
 /// by trial switches, and `detail-bake.txt` is the bake's log.

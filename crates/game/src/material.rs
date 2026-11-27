@@ -155,12 +155,29 @@ const ON_TOP: u32 = 1 << 23;
 /// The lightmap is true linear HDR (`Rgba16Float` `.klm`): skip gamma decode
 /// and `BAKED_GAIN` scaling in `odyssey.wgsl`.
 const LINEAR_LIGHTMAP: u32 = 1 << 24;
+/// A non-water diffuse texture carries a grayscale height bump map (`bumpmaptexture`).
+const HAS_BUMPMAP: u32 = 1 << 25;
+/// A non-water diffuse texture carries an RGB tangent-space normal map (`_n` or tangent-encoded `bumpmaptexture`).
+const HAS_NORMAL_MAP: u32 = 1 << 26;
+/// A companion PBR roughness/metalness/cavity texture (`<diffuse>_rm`) is bound.
+const HAS_PBR_RM: u32 = 1 << 27;
+/// A companion baked directional GI lightmap (`<lightmap>.dir.png`) is bound.
+const HAS_DIR_LIGHTMAP: u32 = 1 << 28;
 
 /// Bits of `LightList::enhanced`:
 /// - `ENHANCED_BIT`: Enhanced mode active (HDR lights/glows, AO, bloom, tonemap).
 /// - `LINEAR_MAIN_BIT`: Main pass renders in linear HDR (`enhanced && Msaa::Off`).
+/// - `PBR_BIT`: Phase 4 PBR normal mapping, GGX specular, and directional GI active.
 pub const ENHANCED_BIT: u32 = 1;
 pub const LINEAR_MAIN_BIT: u32 = 2;
+pub const PBR_BIT: u32 = 4;
+
+/// Whether Phase 4 PBR material response, normal mapping, and directional GI
+/// shading are enabled under Enhanced mode (`KJK_PBR=off` disables for A/B).
+pub fn pbr_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("KJK_PBR").map_or(true, |value| value != "off"))
+}
 
 /// The alpha a punch-through texel must be above to be drawn. Both games'
 /// executables draw a texture whose TXI says `blending punchthrough` with
@@ -990,6 +1007,12 @@ pub struct OdysseyMaterial {
     /// The light probes' light of each placed model
     /// (`light_probes::AREA_PROBES`). Only `odyssey.wgsl` reads it.
     pub probes: Handle<ShaderBuffer>,
+    /// Bump heightmap or RGB tangent normal map (`HAS_BUMPMAP` / `HAS_NORMAL_MAP`).
+    pub bump_normal: Option<Handle<Image>>,
+    /// Companion PBR map (`_rm`: R=roughness, G=metalness, B=cavity; `HAS_PBR_RM`).
+    pub pbr_rm: Option<Handle<Image>>,
+    /// Companion dominant incident light direction map (`.dir.png`; `HAS_DIR_LIGHTMAP`).
+    pub dir_lightmap: Option<Handle<Image>>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -1098,6 +1121,12 @@ pub struct OdysseyBound {
     /// buffers no slot, so no pipeline built on a Mac.
     #[storage(20, read_only, visibility(fragment))]
     fitted: Handle<ShaderBuffer>,
+    #[texture(21, visibility(fragment))]
+    bump_normal: Option<Handle<Image>>,
+    #[texture(22, visibility(fragment))]
+    pbr_rm: Option<Handle<Image>>,
+    #[texture(23, visibility(fragment))]
+    dir_lightmap: Option<Handle<Image>>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -1125,6 +1154,9 @@ impl OdysseyMaterial {
             probes: self.probes.clone(),
             sway: crate::dangly::SWAY,
             fitted: crate::fitted_lights::grid_handle(),
+            bump_normal: self.bump_normal.clone(),
+            pbr_rm: self.pbr_rm.clone(),
+            dir_lightmap: self.dir_lightmap.clone(),
         }
     }
 }
@@ -1306,6 +1338,44 @@ impl OdysseyMaterial {
         self
     }
 
+    /// Attaches a bump heightmap or RGB tangent-space normal map to a non-water mesh.
+    pub fn bump_map(
+        mut self,
+        map: Option<Handle<Image>>,
+        is_normal_map: bool,
+        scale: f32,
+    ) -> OdysseyMaterial {
+        self.bump_normal = map;
+        if self.bump_normal.is_some() {
+            self.params.glow.y = scale.clamp(0.0, 4.0);
+            self.params.flags &= !(HAS_BUMPMAP | HAS_NORMAL_MAP);
+            self.params.flags |= if is_normal_map {
+                HAS_NORMAL_MAP
+            } else {
+                HAS_BUMPMAP
+            };
+        }
+        self
+    }
+
+    /// Attaches a companion PBR roughness/metalness/cavity texture (`_rm`).
+    pub fn pbr_rm(mut self, map: Option<Handle<Image>>) -> OdysseyMaterial {
+        self.pbr_rm = map;
+        if self.pbr_rm.is_some() {
+            self.params.flags |= HAS_PBR_RM;
+        }
+        self
+    }
+
+    /// Attaches a baked directional GI companion lightmap (`.dir.png`).
+    pub fn dir_lightmap(mut self, map: Option<Handle<Image>>) -> OdysseyMaterial {
+        self.dir_lightmap = map;
+        if self.dir_lightmap.is_some() {
+            self.params.flags |= HAS_DIR_LIGHTMAP;
+        }
+        self
+    }
+
     pub fn new(
         tint: Vec4,
         base: Option<Handle<Image>>,
@@ -1391,7 +1461,7 @@ impl OdysseyMaterial {
                 uv_offset: Vec2::ZERO,
                 flags,
                 slot: 0,
-                glow: Vec4::ONE,
+                glow: Vec4::new(1.0, 1.0, 0.0, 0.0),
             },
             base,
             lightmap,
@@ -1404,6 +1474,9 @@ impl OdysseyMaterial {
             sphere_envmap: None,
             shadow_tiles: Some(crate::shadow_tiles::ATLAS),
             probes: crate::light_probes::AREA_PROBES,
+            bump_normal: None,
+            pbr_rm: None,
+            dir_lightmap: None,
             surface,
             culled: false,
             emitted: None,
@@ -1497,6 +1570,9 @@ impl OdysseyMaterial {
         self.lightmap = None;
         self.envmap = None;
         self.sphere_envmap = None;
+        self.bump_normal = None;
+        self.pbr_rm = None;
+        self.dir_lightmap = None;
         self.surface = Surface::Opaque;
         self.culled = true;
         self
@@ -1530,6 +1606,9 @@ impl OdysseyMaterial {
     pub fn motion_only(mut self) -> OdysseyMaterial {
         self.lightmap = None;
         self.envmap = None;
+        self.bump_normal = None;
+        self.pbr_rm = None;
+        self.dir_lightmap = None;
         self.motion_only = true;
         self
     }
@@ -1806,6 +1885,116 @@ pub fn hint_probes() -> sim::probe::Checks {
         "a hint blends only a mesh whose texture has alpha",
         hint_blends(),
     )]
+}
+
+/// Phase 4 PBR material, bump/normal parsing, directional map encoding, and GGX checks.
+#[cfg(feature = "probes")]
+pub fn pbr_probes() -> sim::probe::Checks {
+    use asset_odyssey::lightmap::{decode_dir_pixel, encode_dir_pixel};
+    use asset_odyssey::texture::{TextureIr, looks_like_tangent_normal_map};
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+    use fmt_odyssey::txi::Txi;
+
+    let txi_check = || -> Result<String, String> {
+        let txi = Txi::parse(b"bumpmaptexture plc_bump\nbumpmapscaling 1.75\nisbumpmap 1\n");
+        let facts = TextureFacts::from_txi(&txi, false);
+        sim::probe::check(
+            facts.bumpmap.as_deref() == Some("plc_bump")
+                && facts.bump_scale == Some(1.75)
+                && facts.is_bumpmap,
+            format!("unexpected TXI facts: {facts:?}"),
+        )
+    };
+
+    let normal_detect_check = || -> Result<String, String> {
+        let make = |rgba: [u8; 4]| {
+            let mut data = Vec::with_capacity(64);
+            for _ in 0..16 {
+                data.extend_from_slice(&rgba);
+            }
+            TextureIr::from_texture(
+                &Texture {
+                    format: PixelFormat::Rgba8,
+                    layers: vec![vec![Mip {
+                        width: 4,
+                        height: 4,
+                        data,
+                    }]],
+                    cube: false,
+                    txi: Txi::default(),
+                    bottom_up: true,
+                    missing_mips: 0,
+                    declared_size: None,
+                    mips_stored: true,
+                    header_key: None,
+                },
+                None,
+            )
+            .expect("valid rgba8 texture")
+        };
+        let heightmap = make([128, 128, 128, 255]);
+        let normal_map = make([128, 128, 255, 255]);
+        sim::probe::check(
+            !looks_like_tangent_normal_map(&heightmap) && looks_like_tangent_normal_map(&normal_map),
+            format!(
+                "height={}, normal={}",
+                looks_like_tangent_normal_map(&heightmap),
+                looks_like_tangent_normal_map(&normal_map)
+            ),
+        )
+    };
+
+    let dir_roundtrip_check = || -> Result<String, String> {
+        let dir = Vec3::new(0.42, 0.78, -0.46).normalize();
+        let strength = 0.73f32;
+        let pixel = encode_dir_pixel(dir.to_array(), strength);
+        let (decoded_dir, decoded_strength) = decode_dir_pixel(pixel);
+        let dot = dir.dot(Vec3::from_array(decoded_dir));
+        sim::probe::check(
+            dot > 0.998 && (decoded_strength - strength).abs() < 0.01,
+            format!("dot={dot}, strength={decoded_strength}"),
+        )
+    };
+
+    let ggx_check = || -> Result<String, String> {
+        fn ggx_eval(n: Vec3, v: Vec3, l: Vec3, roughness: f32, f0: Vec3) -> (Vec3, Vec3) {
+            let ndotl = n.dot(l).max(0.0);
+            let ndotv = n.dot(v).max(1e-4);
+            let h = (v + l).normalize();
+            let ndoth = n.dot(h).max(0.0);
+            let vdoth = v.dot(h).max(0.0);
+            let a = roughness * roughness;
+            let a2 = (a * a).max(1e-4);
+            let denom = ndoth * ndoth * (a2 - 1.0) + 1.0;
+            let d = a2 / (std::f32::consts::PI * denom * denom);
+            let k = (roughness + 1.0) * (roughness + 1.0) * 0.125;
+            let gv = ndotv / (ndotv * (1.0 - k) + k);
+            let gl = ndotl / (ndotl * (1.0 - k) + k);
+            let fresnel = f0 + (Vec3::ONE - f0) * (1.0 - vdoth).powi(5);
+            let brdf = (d * gv * gl * fresnel) / (4.0 * ndotv * ndotl).max(1e-4) * ndotl;
+            (brdf, fresnel)
+        }
+        let n = Vec3::Y;
+        let f0 = Vec3::splat(0.04);
+        let (spec_normal, f_normal) = ggx_eval(n, n, n, 0.35, f0);
+        let l_graze = Vec3::new(0.999, 0.04, 0.0).normalize();
+        let v_graze = Vec3::new(-0.999, 0.04, 0.0).normalize();
+        let (spec_graze, f_graze) = ggx_eval(n, v_graze, l_graze, 0.35, f0);
+        sim::probe::check(
+            spec_normal.min_element() >= 0.0
+                && spec_graze.min_element() >= 0.0
+                && (f_normal.x - 0.04).abs() < 1e-4
+                && f_graze.x > 0.80,
+            format!("spec_normal={spec_normal}, f_normal={f_normal}, f_graze={f_graze}"),
+        )
+    };
+
+    vec![
+        ("txi parses bumpmapscaling and isbumpmap", txi_check()),
+        ("detects grayscale bump vs rgb tangent normal map", normal_detect_check()),
+        ("directional lightmap pixel encode/decode roundtrip", dir_roundtrip_check()),
+        ("ggx microfacet brdf non-negative and fresnel monotonic", ggx_check()),
+    ]
 }
 
 #[cfg(feature = "probes")]

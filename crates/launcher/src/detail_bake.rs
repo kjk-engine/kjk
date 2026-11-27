@@ -1370,7 +1370,8 @@ fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3])
 /// Writes each set into `folder/<name>`. Sets keeping stored texels (`a/`)
 /// write PNGs at `1 / GAIN`; linear sets (`b/`) write `.klm` (`Rgba16Float`,
 /// LZ4-compressed, island-padded mipmaps) holding unclamped linear HDR RGB
-/// and sunlit share alpha.
+/// and sunlit share alpha, plus optional `<name>.dir.png` dominant incident
+/// light direction companion maps.
 #[allow(clippy::type_complexity)]
 fn write_sets(
     resolver: &Resolver,
@@ -1378,7 +1379,7 @@ fn write_sets(
     unwalked: &[String],
     folder: &Path,
     sets: &[(&str, &[Vec3], bool)],
-    sunlit: Option<&[f32]>,
+    (sunlit, dir_maps): (Option<&[f32]>, Option<(&[Vec3], &[f32])>),
     stored_backdrop: bool,
 ) -> Result<(), String> {
     let sunlit = sunlit.map(|sunlit| {
@@ -1418,6 +1419,35 @@ fn write_sets(
                 std::fs::write(&path, encoded)
                     .map_err(|error| format!("{}: {error}", path.display()))?;
                 let _ = std::fs::remove_file(out.join(format!("{}.png", map.name)));
+                if let Some((dir_vecs, dir_strengths)) = dir_maps {
+                    let mut dir_px = vec![[0.0f32; 4]; w * h];
+                    let mut dir_valid = vec![false; w * h];
+                    for (index, point) in points.iter().enumerate() {
+                        if counts[index] && point.map == number {
+                            let d = dir_vecs[index];
+                            dir_px[point.texel] = [d.x, d.y, d.z, dir_strengths[index]];
+                            dir_valid[point.texel] = true;
+                        }
+                    }
+                    asset_odyssey::lightmap::dilate_invalid(&mut dir_px, &mut dir_valid, w, h, 8);
+                    let mut picture = image::RgbaImage::new(w as u32, h as u32);
+                    for y in 0..h {
+                        for x in 0..w {
+                            let idx = y * w + x;
+                            let rgba = if dir_valid[idx] {
+                                let p = dir_px[idx];
+                                asset_odyssey::lightmap::encode_dir_pixel([p[0], p[1], p[2]], p[3])
+                            } else {
+                                [128, 255, 128, 0]
+                            };
+                            picture.put_pixel(x as u32, y as u32, image::Rgba(rgba));
+                        }
+                    }
+                    let dir_path = out.join(format!("{}.dir.png", map.name));
+                    picture
+                        .save(&dir_path)
+                        .map_err(|error| format!("{}: {error}", dir_path.display()))?;
+                }
             }
         } else {
             let field = field_of(maps, points, counts, shown);
@@ -1450,6 +1480,7 @@ fn write_sets(
                 for name in &named {
                     let _ = std::fs::remove_file(out.join(format!("{name}.png")));
                     let _ = std::fs::remove_file(out.join(format!("{name}.klm")));
+                    let _ = std::fs::remove_file(out.join(format!("{name}.dir.png")));
                 }
                 std::fs::write(&stored_file, kjk_game::stored_fill::stored_text(named))
                     .map_err(|error| format!("{}: {error}", stored_file.display()))?;

@@ -853,6 +853,10 @@ fn baked_numbers(folder: &std::path::Path, file: &str) -> BTreeMap<String, f32> 
         .collect()
 }
 
+/// Key suffix used in `textures` for companion directional GI lightmaps
+/// loaded alongside a baked `.klm` or `.png` (`<name>.dir.png`).
+pub const DIR_LIGHTMAP_SUFFIX: &str = ".kjk_dir";
+
 /// One folder of `baked_folders`, read once.
 #[derive(Debug)]
 struct BakeFolder {
@@ -860,6 +864,8 @@ struct BakeFolder {
     /// Its baked lightmaps, by name in lower case. A lightmap's name holds
     /// its area's, so two areas never share one.
     lightmaps: BTreeMap<String, std::path::PathBuf>,
+    /// Optional baked directional GI lightmaps (`<name>.dir.png`), by lightmap name in lower case.
+    dir_lightmaps: BTreeMap<String, std::path::PathBuf>,
     /// How much of its stored light each baked lightmap takes: `fill.txt`,
     /// which `kjk detail-bake --fill-stored` writes.
     fills: BTreeMap<String, f32>,
@@ -890,7 +896,20 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
             continue;
         };
         let mut lightmaps = BTreeMap::new();
+        let mut dir_lightmaps = BTreeMap::new();
         for file in entries.flatten().map(|entry| entry.path()) {
+            let file_name = file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_ascii_lowercase);
+            if let Some(stem) = file_name
+                .as_deref()
+                .and_then(|name| name.strip_suffix(".dir.png"))
+                .filter(|stem| !stem.is_empty())
+            {
+                dir_lightmaps.insert(stem.to_string(), file);
+                continue;
+            }
             let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
             if (ext.eq_ignore_ascii_case("klm") || ext.eq_ignore_ascii_case("png"))
                 && let Some(name) = file.file_stem().and_then(|name| name.to_str())
@@ -916,6 +935,7 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
         }
         folders.push(BakeFolder {
             lightmaps,
+            dir_lightmaps,
             fills: baked_numbers(&path, "fill.txt"),
             floors: baked_numbers(&path, "floor.txt"),
             unlit: path.join("unlit.txt").is_file(),
@@ -1750,17 +1770,54 @@ fn baked_lightmaps(
     textures: &mut BTreeMap<String, TextureIr>,
 ) -> BTreeMap<String, TextureIr> {
     let mut stored = BTreeMap::new();
+    let mut dir_maps = Vec::new();
     if used.is_empty() {
         return stored;
     }
     for (name, texture) in textures.iter_mut() {
-        let Some(baked) = detail_baked(used, room_lightmaps, name, texture) else {
+        let Some((baked, dir_path)) = detail_baked(used, room_lightmaps, name, texture) else {
             continue;
         };
         let baked = crate::scene::fit_to_gpu(&baked, Some(name)).unwrap_or(baked);
         stored.insert(name.to_ascii_lowercase(), std::mem::replace(texture, baked));
+        if let Some(dir_path) = dir_path
+            && let Some(dir_ir) = load_dir_lightmap(dir_path)
+        {
+            let dir_ir = crate::scene::fit_to_gpu(&dir_ir, None).unwrap_or(dir_ir);
+            dir_maps.push((format!("{name}{DIR_LIGHTMAP_SUFFIX}"), dir_ir));
+        }
+    }
+    for (key, dir_ir) in dir_maps {
+        textures.insert(key, dir_ir);
     }
     stored
+}
+
+fn load_dir_lightmap(path: &std::path::Path) -> Option<TextureIr> {
+    let rgba = match image::open(path) {
+        Ok(img) => img.into_rgba8(),
+        Err(error) => {
+            warn!("directional lightmap {} does not read: {error}", path.display());
+            return None;
+        }
+    };
+    let (width, height) = (rgba.width(), rgba.height());
+    let mut facts = asset_odyssey::texture::TextureFacts::from_txi(
+        &fmt_odyssey::txi::Txi::default(),
+        true,
+    );
+    facts.clamp = true;
+    Some(TextureIr {
+        width,
+        height,
+        encoding: asset_odyssey::texture::Encoding::Rgba8,
+        mips: vec![rgba.into_raw()],
+        cube: false,
+        frames: 1,
+        facts,
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    })
 }
 
 /// Where the picture of a lightmap of the area comes from (`lightmap_source`).
@@ -1829,26 +1886,30 @@ fn lightmap_source<'a>(
 /// The picture keeps the stored one's facts and has one level, because a
 /// smaller level would mix the light of faces that lie side by side on the
 /// lightmap.
-fn detail_baked(
-    used: &[Used],
+fn detail_baked<'a>(
+    used: &'a [Used<'a>],
     room_lightmaps: &BTreeSet<String>,
     name: &str,
     texture: &TextureIr,
-) -> Option<TextureIr> {
+) -> Option<(TextureIr, Option<&'a std::path::PathBuf>)> {
     let key = name.to_ascii_lowercase();
     let (folder, source) = lightmap_source(used, room_lightmaps, &key)?;
     if texture.cube || texture.frames > 1 {
         return None;
     }
+    let dir_path = folder.dir_lightmaps.get(&key);
     if let Picture::Klm(path) = source {
         return match std::fs::read(path)
             .ok()
             .and_then(|bytes| asset_odyssey::lightmap::decode_klm(&bytes))
         {
-            Some(klm) => Some(TextureIr {
-                facts: texture.facts.clone(),
-                ..klm
-            }),
+            Some(klm) => Some((
+                TextureIr {
+                    facts: texture.facts.clone(),
+                    ..klm
+                },
+                dir_path,
+            )),
             None => {
                 warn!("baked lightmap {} does not read", path.display());
                 None
@@ -1871,6 +1932,11 @@ fn detail_baked(
     };
     match picture {
         Ok(mut picture) => {
+            let dir = if matches!(source, Picture::Png(_)) {
+                dir_path
+            } else {
+                None
+            };
             if source != Picture::FallBack {
                 if let Some(fill) = folder.fills.get(&key) {
                     add_stored_fill(&mut picture, texture, *fill, false);
@@ -1879,13 +1945,16 @@ fn detail_baked(
                     add_stored_fill(&mut picture, texture, *share, true);
                 }
             }
-            Some(TextureIr {
-                width: picture.width(),
-                height: picture.height(),
-                encoding: asset_odyssey::texture::Encoding::Rgba8,
-                mips: vec![picture.into_raw()],
-                ..texture.clone()
-            })
+            Some((
+                TextureIr {
+                    width: picture.width(),
+                    height: picture.height(),
+                    encoding: asset_odyssey::texture::Encoding::Rgba8,
+                    mips: vec![picture.into_raw()],
+                    ..texture.clone()
+                },
+                dir,
+            ))
         }
         Err(why) => {
             warn!("{why}");
@@ -2084,6 +2153,7 @@ pub(crate) fn textures<'m>(
     // (`BladeSpec::own`). A blade a mod ships is meshes its hilt grows from
     // nothing (`BladeSpec::meshes`).
     let mut names: Vec<String> = Vec::new();
+    let mut companions: Vec<String> = Vec::new();
     let mut objects_envmaps = Vec::new();
     for placed in models {
         objects_envmaps.extend(WornEnvMap::name(placed.envmap.as_ref()).cloned());
@@ -2104,6 +2174,17 @@ pub(crate) fn textures<'m>(
                 .iter()
                 .filter_map(|mesh| mesh.texture.clone()),
         );
+        for name in placed
+            .ir
+            .meshes
+            .iter()
+            .filter_map(|m| m.texture.as_deref())
+            .chain(placed.ir.folded.iter().filter_map(|m| m.texture.as_deref()))
+        {
+            let lower = name.to_ascii_lowercase();
+            companions.push(format!("{lower}_n"));
+            companions.push(format!("{lower}_rm"));
+        }
     }
     for name in &names {
         load(name, &mut textures);
@@ -2126,6 +2207,25 @@ pub(crate) fn textures<'m>(
         .collect();
     for name in &bumps {
         load(name, &mut textures);
+    }
+    // Optional bump/normal maps for non-water surfaces and Override companion PBR textures (`_n`, `_rm`).
+    let load_optional = |name: String, textures: &mut BTreeMap<String, TextureIr>| {
+        if textures.contains_key(&name) || missing.contains(&name) {
+            return;
+        }
+        if let Some(ir) = texture(resolver, &name) {
+            textures.insert(name, ir);
+        }
+    };
+    let all_bumps: Vec<String> = textures
+        .values()
+        .filter_map(|tex: &TextureIr| tex.facts.bumpmap.clone())
+        .collect();
+    for name in all_bumps {
+        load_optional(name, &mut textures);
+    }
+    for name in companions {
+        load_optional(name, &mut textures);
     }
     (textures, missing)
 }

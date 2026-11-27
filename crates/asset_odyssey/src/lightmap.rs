@@ -98,7 +98,13 @@ fn pack_texel(rgba: [f32; 4]) -> [u8; 8] {
 
 /// Runs multi-pass 8-neighbor dilation over invalid texels so UV chart gutters
 /// never bleed black or stale texels into valid island edges across mips.
-fn dilate_invalid(pixels: &mut [[f32; 4]], mask: &mut [bool], width: usize, height: usize, passes: usize) {
+pub fn dilate_invalid(
+    pixels: &mut [[f32; 4]],
+    mask: &mut [bool],
+    width: usize,
+    height: usize,
+    passes: usize,
+) {
     if width == 0 || height == 0 || passes == 0 {
         return;
     }
@@ -378,6 +384,42 @@ pub fn decode_klm(bytes: &[u8]) -> Option<TextureIr> {
         faces: Vec::new(),
         frame_mips: Vec::new(),
     })
+}
+
+/// Encodes a Bevy-space unit direction and directionality strength `[0, 1]`
+/// into an RGBA8 pixel (`RGB = dir * 0.5 + 0.5`, `A = strength`).
+pub fn encode_dir_pixel(dir: [f32; 3], strength: f32) -> [u8; 4] {
+    let len2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+    let n = if len2 > 1e-12 {
+        let inv = len2.sqrt().recip();
+        [dir[0] * inv, dir[1] * inv, dir[2] * inv]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    [
+        byte(n[0] * 0.5 + 0.5),
+        byte(n[1] * 0.5 + 0.5),
+        byte(n[2] * 0.5 + 0.5),
+        byte(strength),
+    ]
+}
+
+/// Decodes an RGBA8 directional lightmap pixel back into `(bevy_unit_dir, strength)`.
+pub fn decode_dir_pixel(pixel: [u8; 4]) -> ([f32; 3], f32) {
+    let raw = [
+        pixel[0] as f32 / 255.0 * 2.0 - 1.0,
+        pixel[1] as f32 / 255.0 * 2.0 - 1.0,
+        pixel[2] as f32 / 255.0 * 2.0 - 1.0,
+    ];
+    let len2 = raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2];
+    let dir = if len2 > 1e-12 {
+        let inv = len2.sqrt().recip();
+        [raw[0] * inv, raw[1] * inv, raw[2] * inv]
+    } else {
+        [0.0, 1.0, 0.0]
+    };
+    (dir, pixel[3] as f32 / 255.0)
 }
 
 /// Deterministic probes covering `f16` conversion, `.klm` encode/decode round-trip,

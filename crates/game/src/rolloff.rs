@@ -43,7 +43,7 @@ use bevy_post_process::bloom::{Bloom, BloomCompositeMode, BloomPlugin, BloomPref
 
 use crate::legacy_blend::LinearLegacyBlend;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::{AreaLights, ENHANCED_BIT, LINEAR_MAIN_BIT};
+use crate::material::{AreaLights, ENHANCED_BIT, LINEAR_MAIN_BIT, PBR_BIT};
 use crate::scene::AreaFogColor;
 
 const SHADER: Handle<Shader> = uuid_handle!("b47d0e92-5a1c-4f38-8e6b-91c3d2a7f054");
@@ -243,7 +243,12 @@ fn tell_shader(
         } else {
             0
         };
-        ENHANCED_BIT | linear
+        let pbr = if crate::material::pbr_enabled() {
+            PBR_BIT
+        } else {
+            0
+        };
+        ENHANCED_BIT | linear | pbr
     } else {
         0
     };

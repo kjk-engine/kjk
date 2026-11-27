@@ -279,9 +279,18 @@ const WATER: u32 = 4194304u;
 const ON_TOP: u32 = 8388608u;
 // The lightmap holds true linear HDR radiance (`.klm`), skipping gamma decode and `BAKED_GAIN`.
 const LINEAR_LIGHTMAP: u32 = 16777216u;
+// Phase 4 PBR flags (`material.rs`).
+const HAS_BUMPMAP: u32 = 33554432u;
+const HAS_NORMAL_MAP: u32 = 67108864u;
+const HAS_PBR_RM: u32 = 134217728u;
+const HAS_DIR_LIGHTMAP: u32 = 268435456u;
 // Bits of `LightList::enhanced` (`material.rs`).
 const ENHANCED_BIT: u32 = 1u;
 const LINEAR_MAIN_BIT: u32 = 2u;
+const PBR_BIT: u32 = 4u;
+const PI: f32 = 3.14159265;
+const BUMP_STRENGTH: f32 = 1.25;
+const PBR_SPEC_CAP: f32 = 12.0;
 // How far a bump of one texel's height step turns water's reflection. The
 // games turn a bump map's heights into normals when they load it, and that
 // step was not read. This number was chosen by eye on Dantooine's river:
@@ -336,6 +345,9 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
+@group(#{MATERIAL_BIND_GROUP}) @binding(21) var bump_normal_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(22) var pbr_rm_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(23) var dir_lightmap_texture: texture_2d<f32>;
 // The fitted lights' grid (`fitted_lights::grid`, `GRID_WORDS` / 4 long),
 // or one `vec4` of zeros where no area has had fitted lights yet
 // (`fitted_lights::NO_GRID`). A grid whose first word is 0 holds no light,
@@ -1730,10 +1742,105 @@ fn fitted_word(at: u32) -> u32 {
 #endif
 
 // What the area's light fittings give a surface: with the shadows of the
-// characters and placeables near it, and without them.
+// characters and placeables near it, without them, and GGX specular.
 struct Fitted {
     lit: vec3<f32>,
     whole: vec3<f32>,
+    spec: vec3<f32>,
+}
+
+struct PbrProps {
+    roughness: f32,
+    metalness: f32,
+    f0: vec3<f32>,
+    cavity: f32,
+    shiny: f32,
+}
+
+fn derive_pbr(albedo_lin: vec3<f32>, texel_a: f32, rm_texel: vec4<f32>) -> PbrProps {
+    let has_env = (params.flags & ENVMAP) != 0u;
+    let shiny = select(0.0, clamp(1.0 - texel_a, 0.0, 1.0), has_env);
+    var roughness = 0.82;
+    var metalness = 0.0;
+    var cavity = 1.0;
+    if (params.flags & HAS_PBR_RM) != 0u {
+        roughness = clamp(rm_texel.r, 0.05, 1.0);
+        metalness = clamp(rm_texel.g, 0.0, 1.0);
+        cavity = select(clamp(rm_texel.b, 0.1, 1.0), 1.0, rm_texel.b < 0.004);
+    } else if has_env && shiny > 0.02 {
+        roughness = mix(0.68, 0.16, sqrt(shiny));
+        metalness = smoothstep(0.15, 0.85, shiny) * 0.85;
+    }
+    let f0 = mix(vec3<f32>(0.04), albedo_lin, metalness);
+    return PbrProps(roughness, metalness, f0, cavity, shiny);
+}
+
+// Cook-Torrance GGX microfacet specular term including NdotL cosine factor.
+fn ggx_spec(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, roughness: f32, f0: vec3<f32>) -> vec3<f32> {
+    let ndotl = max(dot(n, l), 0.0);
+    if ndotl <= 1e-4 {
+        return vec3<f32>(0.0);
+    }
+    let ndotv = max(dot(n, v), 1e-4);
+    let h_raw = v + l;
+    let h_len2 = dot(h_raw, h_raw);
+    if h_len2 <= 1e-8 {
+        return vec3<f32>(0.0);
+    }
+    let h = h_raw * inverseSqrt(h_len2);
+    let ndoth = max(dot(n, h), 0.0);
+    let vdoth = max(dot(v, h), 0.0);
+    let a = roughness * roughness;
+    let a2 = max(a * a, 1e-4);
+    let denom = ndoth * ndoth * (a2 - 1.0) + 1.0;
+    let d = a2 / (PI * denom * denom);
+    let k = (roughness + 1.0) * (roughness + 1.0) * 0.125;
+    let gv = ndotv / (ndotv * (1.0 - k) + k);
+    let gl = ndotl / (ndotl * (1.0 - k) + k);
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vdoth, 5.0);
+    return min((d * gv * gl * fresnel) / max(4.0 * ndotv * ndotl, 1e-4) * ndotl, vec3<f32>(PBR_SPEC_CAP));
+}
+
+fn compute_shading_normal(
+    geom_n: vec3<f32>,
+    uv: vec2<f32>,
+    bump_texel: vec4<f32>,
+    dp1: vec3<f32>,
+    dp2: vec3<f32>,
+    duv1: vec2<f32>,
+    duv2: vec2<f32>,
+) -> vec3<f32> {
+    if (params.flags & (HAS_BUMPMAP | HAS_NORMAL_MAP)) == 0u {
+        return geom_n;
+    }
+    let dp2perp = cross(dp2, geom_n);
+    let dp1perp = cross(geom_n, dp1);
+    let tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    let bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+    let max_len2 = max(dot(tangent, tangent), dot(bitangent, bitangent));
+    if max_len2 <= 1e-12 {
+        return geom_n;
+    }
+    let inv_max = inverseSqrt(max_len2);
+    var perturbed = geom_n;
+    if (params.flags & HAS_NORMAL_MAP) != 0u {
+        let tn = bump_texel.xyz * 2.0 - vec3<f32>(1.0);
+        let xy = tn.xy * params.glow.y;
+        let nz = max(tn.z, 0.05);
+        perturbed = normalize((tangent * xy.x + bitangent * xy.y) * inv_max + geom_n * nz);
+    } else {
+        let dims = max(textureDimensions(bump_normal_texture, 0), vec2<u32>(1u));
+        let step_uv = 1.0 / vec2<f32>(dims);
+        let h0 = textureSampleLevel(bump_normal_texture, base_sampler, uv, 0.0).r;
+        let hu = textureSampleLevel(bump_normal_texture, base_sampler, uv + vec2<f32>(step_uv.x, 0.0), 0.0).r - h0;
+        let hv = textureSampleLevel(bump_normal_texture, base_sampler, uv + vec2<f32>(0.0, step_uv.y), 0.0).r - h0;
+        let strength = params.glow.y * BUMP_STRENGTH;
+        perturbed = normalize(geom_n - strength * (hu * tangent + hv * bitangent) * inv_max);
+    }
+    if dot(perturbed, geom_n) < 0.15 {
+        return normalize(mix(geom_n, perturbed, 0.5));
+    }
+    return perturbed;
 }
 
 // At most this many fitted lights cast shadows at one fragment: the ones
@@ -1893,8 +2000,12 @@ fn fitted_lights(
     sunlit: f32,
     wrap: f32,
     block_rooms: bool,
+    do_spec: bool,
+    view_dir: vec3<f32>,
+    roughness: f32,
+    f0: vec3<f32>,
 ) -> Fitted {
-    let none = Fitted(vec3<f32>(0.0), vec3<f32>(0.0));
+    let none = Fitted(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
     let head = fitted[0];
     if head.x == 0u {
         return none;
@@ -1925,6 +2036,7 @@ fn fitted_lights(
         linked = fitted[2u + room];
     }
     var sum = vec3<f32>(0.0);
+    var spec_sum = vec3<f32>(0.0);
     for (var i = 0u; i < count; i++) {
         let place = bitcast<vec4<f32>>(fitted[first + 2u * i]);
         let away = place.xyz - position;
@@ -1963,8 +2075,12 @@ fn fitted_lights(
         let window = 1.0 - edge * edge;
         let falloff = window * window / (1.0 + edge / (FIGHT_CORE * FIGHT_CORE));
         let colour = vec3<f32>(vec3<u32>(rest.x, rest.x >> 10u, rest.x >> 20u) & vec3<u32>(1023u));
-        let given = colour * (falloff * facing * cone * select(1.0, sunlit, radius >= SUN_RADIUS));
+        let sun_mask = select(1.0, sunlit, radius >= SUN_RADIUS);
+        let given = colour * (falloff * facing * cone * sun_mask);
         sum = sum + given;
+        if do_spec && has_normal {
+            spec_sum = spec_sum + colour * (falloff * cone * sun_mask) * ggx_spec(normal, view_dir, toward, roughness, f0);
+        }
         if casts {
             // It takes the place of the weakest of the lights kept.
             var weakest = 0u;
@@ -1999,7 +2115,8 @@ fn fitted_lights(
         lit = sum - taken * more;
     }
     let scale = FITTED_COLOUR_MOST / 1023.0;
-    return Fitted(max(lit, vec3<f32>(0.0)) * scale, sum * scale);
+    let vis_ratio = select(1.0, saturate(dot(lit, LUMA) / max(dot(sum, LUMA), 1e-4)), casts);
+    return Fitted(max(lit, vec3<f32>(0.0)) * scale, sum * scale, max(spec_sum, vec3<f32>(0.0)) * (scale * vis_ratio));
 }
 #endif
 
@@ -2076,6 +2193,40 @@ fn highlight_point(light: GpuLight, position: vec3<f32>, mirrored: vec3<f32>) ->
         along = (together * dot(mirrored, to_middle) - dot(way, to_middle)) / apart;
     }
     return at + way * clamp(along, -half, half);
+}
+
+// GGX microfacet highlights a fight's lights leave on a surface at `position`
+// using `shade_normal` and `geom_normal` for shadow ray lifting.
+fn fight_highlights_pbr(
+    position: vec3<f32>,
+    shade_normal: vec3<f32>,
+    geom_normal: vec3<f32>,
+    view_dir: vec3<f32>,
+    roughness: f32,
+    f0: vec3<f32>,
+    room: u32,
+    near: Near,
+) -> vec3<f32> {
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < light_count(); i++) {
+        let light = light_at(i);
+        if light.kind.z != LIGHT_COMBAT || !fight_reaches(light, room) {
+            continue;
+        }
+        let radius = light.position_radius.w;
+        let to_light = highlight_point(light, position, reflect(-view_dir, shade_normal)) - position;
+        let distance = length(to_light);
+        if distance >= radius {
+            continue;
+        }
+        let l_dir = to_light / max(distance, 1e-4);
+        let spec = ggx_spec(shade_normal, view_dir, l_dir, roughness, f0);
+        let strength = light.color_multiplier.w * fight_falloff(distance, radius);
+        if max3(spec) * strength > FAINT {
+            sum = sum + decode(light.color_multiplier.rgb) * spec * (strength * light_visibility(i, light, position, geom_normal, near));
+        }
+    }
+    return sum * 1.4;
 }
 
 // The highlights a fight's lights leave on a shiny surface at `position`
@@ -2182,10 +2333,52 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         shade = vec4<f32>(1.0, 1.0, 1.0, tint.a);
     }
     let base = texel * shade;
+    let dp1 = dpdx(in.world_position.xyz);
+    let dp2 = dpdy(in.world_position.xyz);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
     // The second UV set's lightmap, read on every fragment so the sample
     // stays in uniform control flow (a mesh without one binds a stand-in).
     let lightmap_texel = textureSample(lightmap_texture, lightmap_sampler, uv2);
     let lightmap = lightmap_texel.rgb;
+    var dir_lm_texel = vec4<f32>(0.5, 0.5, 1.0, 0.0);
+    if (params.flags & HAS_DIR_LIGHTMAP) != 0u {
+        dir_lm_texel = textureSample(dir_lightmap_texture, lightmap_sampler, uv2);
+    }
+    var bump_texel = vec4<f32>(0.5, 0.5, 1.0, 1.0);
+    if (params.flags & (HAS_BUMPMAP | HAS_NORMAL_MAP)) != 0u {
+        bump_texel = textureSampleBias(bump_normal_texture, base_sampler, uv, view.mip_bias);
+    }
+    var rm_texel = vec4<f32>(0.82, 0.0, 1.0, 1.0);
+    if (params.flags & HAS_PBR_RM) != 0u {
+        rm_texel = textureSampleBias(pbr_rm_texture, base_sampler, uv, view.mip_bias);
+    }
+    let enhanced = (lights.enhanced & ENHANCED_BIT) != 0u;
+#ifdef LEGACY_BLEND
+    let linear_output = false;
+#else
+    let linear_output = (lights.enhanced & LINEAR_MAIN_BIT) != 0u && (params.flags & ON_TOP) == 0u;
+#endif
+    let pbr_on = enhanced && (lights.enhanced & PBR_BIT) != 0u && (params.flags & WATER) == 0u && (params.flags & ON_TOP) == 0u;
+    let raw_has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+    let geom_normal = select(vec3<f32>(0.0, 1.0, 0.0), normalize(in.world_normal), raw_has_normal);
+    let shade_normal = select(geom_normal, compute_shading_normal(geom_normal, uv, bump_texel, dp1, dp2, duv1, duv2), pbr_on && raw_has_normal);
+    let view_dir = normalize(view.world_position - in.world_position.xyz);
+    let pbr = derive_pbr(decode_22(base.rgb), texel.a, rm_texel);
+    var pbr_spec = vec3<f32>(0.0);
+    var dir_mod = 1.0;
+    var dom_dir = geom_normal;
+    var dir_str = 0.0;
+    if pbr_on && (params.flags & HAS_DIR_LIGHTMAP) != 0u && raw_has_normal {
+        let diff_dir = dir_lm_texel.rgb - vec3<f32>(0.5);
+        dir_str = dir_lm_texel.a;
+        if dir_str > 0.01 && dot(diff_dir, diff_dir) > 1e-4 {
+            dom_dir = normalize(dir_lm_texel.rgb * 2.0 - vec3<f32>(1.0));
+            let ndotl_geom = max(dot(geom_normal, dom_dir), 0.15);
+            let ndotl_shade = max(dot(shade_normal, dom_dir), 0.0);
+            dir_mod = mix(1.0, clamp(ndotl_shade / ndotl_geom, 0.35, 1.85), dir_str * 0.85);
+        }
+    }
 #ifdef RAY_QUERIES
     if (shadows.debug == 5u || shadows.debug == 6u) && shadows.rays != 0u {
         return ray_debug(in.world_position.xyz, base.rgb, select(1u, 2u, shadows.debug == 6u));
@@ -2225,11 +2418,12 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     if is_linear_lm {
         // `.klm` stores true linear HDR radiance; apply AO linearly and keep HDR > 1.0 in `baked_linear_hdr`.
         let ao_lin = mix(vec3<f32>(1.0), decode_22(room_kept), LIGHTMAP_OCCLUDED);
-        let lin = max(lightmap, vec3<f32>(0.0)) * ao_lin * select(dimmed, 1.0, baked_room);
+        let lin = max(lightmap, vec3<f32>(0.0)) * ao_lin * select(dimmed, 1.0, baked_room) * dir_mod;
         baked_linear_hdr = max(lin - vec3<f32>(1.0), vec3<f32>(0.0));
         baked = encode_22(min(lin, vec3<f32>(1.0)));
     } else {
-        baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
+        let lm_rgb = select(lightmap, encode_22(decode_22(lightmap) * dir_mod), pbr_on && dir_mod != 1.0);
+        baked = lm_rgb * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
             * select(dimmed, BAKED_GAIN, baked_room);
     }
     // Under the trial a surface without a lightmap keeps half of its own
@@ -2272,12 +2466,6 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     // Under Enhanced lighting, what a fight's lights give this fragment.
     // It is added to the finished colour as linear light (below). Under
     // Classic lighting it stays at nothing.
-    let enhanced = (lights.enhanced & ENHANCED_BIT) != 0u;
-#ifdef LEGACY_BLEND
-    let linear_output = false;
-#else
-    let linear_output = (lights.enhanced & LINEAR_MAIN_BIT) != 0u && (params.flags & ON_TOP) == 0u;
-#endif
     var fight_added = vec3<f32>(0.0);
     var baked_over = vec3<f32>(0.0);
     var hybrid_over = vec3<f32>(0.0);
@@ -2308,8 +2496,8 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         var diffuse_sum = self_lit;
         // Whether the light probes gave this mesh the room's light.
         var from_probes = false;
-        let normal = normalize(in.world_normal);
-        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let normal = shade_normal;
+        let has_normal = raw_has_normal;
         // Under the baked trial a placeable's mesh that the bake lit takes the light
         // the bake gave each of its vertices, in place of the probes' light
         // (`placeable_light.rs`). It is stored as the lightmaps are, and it
@@ -2364,10 +2552,10 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             }
             ambient_sum = ambient_sum + ambient_colour * area_ambient * room_kept;
         }
-        let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
-        // The normal a shadow ray starts off along: none on a mesh without
-        // normals.
-        let surface_normal = select(vec3<f32>(0.0), normal, has_normal);
+        let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), shade_normal, has_normal);
+        // The normal a shadow ray starts off along: geometric normal on a mesh with
+        // normals, none on a mesh without normals.
+        let surface_normal = select(vec3<f32>(0.0), geom_normal, has_normal);
         let position = in.world_position.xyz;
         // The fight's lights are summed apart and added the way a room adds
         // them (below).
@@ -2461,7 +2649,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef FITTED_LIGHTS
         // The area's light fittings light it as they light the rooms.
         if !probed_bake {
-            fight = fight + fitted_lights(position, fight_normal, surface_normal, has_normal, VIS_ROOMS, no_casters(), 1.0, COMBAT_WRAP, false).whole * params.diffuse.rgb;
+            let fitted_res = fitted_lights(position, fight_normal, surface_normal, has_normal, VIS_ROOMS, no_casters(), 1.0, COMBAT_WRAP, false, pbr_on && has_normal, view_dir, pbr.roughness, pbr.f0);
+            fight = fight + fitted_res.lit * params.diffuse.rgb;
+            if pbr_on {
+                pbr_spec = pbr_spec + fitted_res.spec;
+            }
         }
 #endif
         if hybrid_probe {
@@ -2474,7 +2666,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             let model_room = min(u32(hybrid_meta.w + 0.5), VIS_ROOMS);
             var direct_lin = vec3<f32>(0.0);
 #ifdef FITTED_LIGHTS
-            let fitted_direct = fitted_lights(
+            let fitted_res = fitted_lights(
                 position,
                 fight_normal,
                 surface_normal,
@@ -2484,7 +2676,15 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                 0.0,
                 0.0,
                 true,
-            ).lit * direct_scale;
+                pbr_on && has_normal,
+                view_dir,
+                pbr.roughness,
+                pbr.f0,
+            );
+            let fitted_direct = fitted_res.lit * direct_scale;
+            if pbr_on {
+                pbr_spec = pbr_spec + fitted_res.spec * direct_scale;
+            }
             var sun_direct = vec3<f32>(0.0);
             if probe_list.sun_way.w > 0.5 && sun1_vis > 0.0 {
                 let s1_face = select(1.0, max(0.0, dot(normal, probe_list.sun_way.xyz)), has_normal);
@@ -2493,6 +2693,9 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                     s1_shadow = fitted_visibility(position, surface_normal, probe_list.sun_way.xyz, 20.0, SUN_RAY_SOURCE, characters_only(near), false);
                 }
                 sun_direct = sun_direct + probe_list.sun_colour.rgb * (s1_face * sun1_vis * s1_shadow);
+                if pbr_on && has_normal {
+                    pbr_spec = pbr_spec + probe_list.sun_colour.rgb * ggx_spec(shade_normal, view_dir, probe_list.sun_way.xyz, pbr.roughness, pbr.f0) * (sun1_vis * s1_shadow);
+                }
             }
             if probe_list.sun2_way.w > 0.5 && sun2_vis > 0.0 {
                 let s2_face = select(1.0, max(0.0, dot(normal, probe_list.sun2_way.xyz)), has_normal);
@@ -2501,6 +2704,9 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                     s2_shadow = fitted_visibility(position, surface_normal, probe_list.sun2_way.xyz, 20.0, SUN_RAY_SOURCE, characters_only(near), false);
                 }
                 sun_direct = sun_direct + probe_list.sun2_colour.rgb * (s2_face * sun2_vis * s2_shadow);
+                if pbr_on && has_normal {
+                    pbr_spec = pbr_spec + probe_list.sun2_colour.rgb * ggx_spec(shade_normal, view_dir, probe_list.sun2_way.xyz, pbr.roughness, pbr.f0) * (sun2_vis * s2_shadow);
+                }
             }
             direct_lin = (fitted_direct + sun_direct) * decode_22(params.diffuse.rgb);
 #endif
@@ -2617,9 +2823,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     // a dark corridor, a lit hall only warms, never washes out to white.
     if (params.flags & ROOM) != 0u {
         let room = mesh_room(in.instance_index);
-        var fight = combat_lights(in.world_position.xyz, in.world_normal, room, near);
-        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
-        let fitted_normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), in.world_normal, has_normal));
+        let combat_n = select(in.world_normal, shade_normal, pbr_on && raw_has_normal);
+        var fight = combat_lights(in.world_position.xyz, combat_n, room, near);
+        let has_normal = raw_has_normal;
+        let fitted_normal = select(vec3<f32>(0.0, 0.0, 1.0), geom_normal, has_normal);
+        let spec_normal = select(fitted_normal, shade_normal, pbr_on && has_normal);
         // A room's surface with a baked lightmap holds the fitted lights'
         // light already.
         // The fittings' own shadows of the characters and placeables near.
@@ -2627,20 +2835,46 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef FITTED_LIGHTS
         let surf_normal = select(vec3<f32>(0.0), fitted_normal, has_normal);
         if !baked_room {
-            fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, surf_normal, has_normal, room, near, 1.0, COMBAT_WRAP, false).lit * unshadowed;
-        } else if near.count != 0u {
-            // The bake holds the fittings' light and static placeables' shadows,
-            // so only dynamic character casters shadow the fitted lights here.
-            let given = fitted_lights(in.world_position.xyz, fitted_normal, surf_normal, has_normal, room, characters_only(near), lightmap_texel.a, COMBAT_WRAP, false);
-            // Where no fitting reaches, nothing is blocked.
-            let whole = dot(given.whole, LUMA);
-            if whole > 1e-4 {
-                let share = saturate(dot(given.lit, LUMA) / whole);
-                fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+            let fitted_res = fitted_lights(in.world_position.xyz, spec_normal, surf_normal, has_normal, room, near, 1.0, COMBAT_WRAP, false, pbr_on && has_normal, view_dir, pbr.roughness, pbr.f0);
+            fight = fight + fitted_res.lit * unshadowed;
+            if pbr_on {
+                pbr_spec = pbr_spec + fitted_res.spec * unshadowed;
             }
-            lighting = lighting * fitted_kept;
+        } else {
+            if near.count != 0u {
+                // The bake holds the fittings' light and static placeables' shadows,
+                // so only dynamic character casters shadow the fitted lights here.
+                let given = fitted_lights(in.world_position.xyz, fitted_normal, surf_normal, has_normal, room, characters_only(near), lightmap_texel.a, COMBAT_WRAP, false, false, view_dir, pbr.roughness, pbr.f0);
+                // Where no fitting reaches, nothing is blocked.
+                let whole = dot(given.whole, LUMA);
+                if whole > 1e-4 {
+                    let share = saturate(dot(given.lit, LUMA) / whole);
+                    fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+                }
+                lighting = lighting * fitted_kept;
+            }
+            if pbr_on && has_normal {
+                let room_spec_vis = clamp(dot(decode_22(lighting) + baked_linear_hdr * (unshadowed * fitted_kept), LUMA) * 1.6, 0.0, 1.35);
+                if room_spec_vis > 0.01 {
+                    let room_spec = fitted_lights(in.world_position.xyz, spec_normal, surf_normal, has_normal, room, no_casters(), 0.0, COMBAT_WRAP, false, true, view_dir, pbr.roughness, pbr.f0).spec;
+                    pbr_spec = pbr_spec + room_spec * room_spec_vis;
+                }
+            }
         }
 #endif
+        if baked_room && pbr_on && has_normal {
+            let sun_vis = lightmap_texel.a * unshadowed * fitted_kept;
+            if sun_vis > 0.01 && probe_list.sun_way.w > 0.5 {
+                pbr_spec = pbr_spec + probe_list.sun_colour.rgb * ggx_spec(shade_normal, view_dir, probe_list.sun_way.xyz, pbr.roughness, pbr.f0) * sun_vis;
+            }
+            if sun_vis > 0.01 && probe_list.sun2_way.w > 0.5 {
+                pbr_spec = pbr_spec + probe_list.sun2_colour.rgb * ggx_spec(shade_normal, view_dir, probe_list.sun2_way.xyz, pbr.roughness, pbr.f0) * sun_vis;
+            }
+            if (params.flags & HAS_DIR_LIGHTMAP) != 0u && dir_str > 0.01 {
+                let dir_baked = (decode_22(baked) + baked_linear_hdr) * (dir_str * 0.35 * unshadowed * fitted_kept);
+                pbr_spec = pbr_spec + ggx_spec(shade_normal, view_dir, dom_dir, max(pbr.roughness, 0.28), pbr.f0) * dir_baked;
+            }
+        }
         if enhanced {
             fight_added = fight * FIGHT_GAIN_ENHANCED;
             // The baked level above 1 is added as linear light, as the
@@ -2684,7 +2918,10 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             lighting + flash(in.world_position.xyz, lights.flash_at, lights.flash_colour.rgb)
         );
     }
+    let diffuse_scale = select(1.0, (1.0 - pbr.metalness * 0.72) * pbr.cavity, pbr_on);
     var colour = lighting * base.rgb;
+    var env_shine = vec3<f32>(0.0);
+    var has_env_shine = false;
     if (params.flags & ENVMAP) != 0u {
         // Reflection mapping as KOTOR sets it up, done per fragment: the
         // direction from the eye to the point, mirrored about the surface
@@ -2696,7 +2933,8 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // weighs the cube's colour, added to the lit texel): an opaque
         // texel has none.
         let incident = normalize(in.world_position.xyz - view.world_position);
-        let mirrored = reflect(incident, normalize(in.world_normal));
+        let reflect_n = select(normalize(in.world_normal), shade_normal, pbr_on && raw_has_normal);
+        let mirrored = reflect(incident, reflect_n);
         // Bevy's world (y up) back to the game's (z up).
         let lookup = vec3<f32>(mirrored.x, -mirrored.z, mirrored.y);
         var shine = textureSample(envmap_texture, envmap_sampler, lookup).rgb;
@@ -2714,7 +2952,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             let at = r.xy / max(m, 1e-4) + vec2<f32>(0.5);
             shine = textureSample(sphere_texture, sphere_sampler, at).rgb;
         }
-        colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
+        env_shine = shine;
+        has_env_shine = true;
+        if !pbr_on {
+            colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
+        }
     }
     let water = (params.flags & WATER) != 0u;
     var water_alpha = 1.0;
@@ -2735,23 +2977,39 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         let hdr_over = baked_over + hybrid_over;
         if linear_output {
             if max3(fight_added) > 0.0 || max3(hdr_over) > 0.0 {
-                extra = decode_22(base.rgb) * (decode_22(fight_added) + hdr_over);
+                extra = decode_22(base.rgb) * diffuse_scale * (decode_22(fight_added) + hdr_over);
             }
         } else if max3(fight_added) > 0.0 || max3(hybrid_over) > 0.0 {
-            extra = decode(base.rgb) * (decode(fight_added) + hybrid_over);
+            extra = decode(base.rgb) * diffuse_scale * (decode(fight_added) + hybrid_over);
+        }
+        if pbr_on && has_env_shine {
+            let ndotv = max(dot(shade_normal, view_dir), 0.0);
+            let f_ibl = pbr.f0 + (max(vec3<f32>(1.0 - pbr.roughness), pbr.f0) - pbr.f0) * pow(1.0 - ndotv, 5.0);
+            let local_luma = dot(decode_22(lighting) + hdr_over, LUMA);
+            let env_vis = clamp(local_luma * 1.4 + 0.08, 0.08, 1.35);
+            let ibl_mask = select(pbr.shiny, max(pbr.shiny, pbr.metalness), (params.flags & HAS_PBR_RM) != 0u);
+            extra = extra + decode_22(env_shine) * f_ibl * (env_vis * ibl_mask * 0.85);
         }
         // A shiny surface also mirrors the light itself. The texture's
         // alpha masks that as it masks the env map.
         let lit = (params.flags & ROOM) != 0u || (params.flags & UNLIT) == 0u;
-        let shiny = 1.0 - texel.a;
-        if lit && shiny > 0.0 && (params.flags & ENVMAP) != 0u {
-            let room = mesh_room(in.instance_index);
-            extra = extra + fight_highlights(in.world_position.xyz, in.world_normal, room, near) * shiny;
+        if lit {
+            if pbr_on {
+                let room = mesh_room(in.instance_index);
+                let fight_spec = fight_highlights_pbr(in.world_position.xyz, shade_normal, geom_normal, view_dir, pbr.roughness, pbr.f0, room, near);
+                extra = extra + fight_spec + pbr_spec;
+            } else {
+                let shiny = 1.0 - texel.a;
+                if shiny > 0.0 && (params.flags & ENVMAP) != 0u {
+                    let room = mesh_room(in.instance_index);
+                    extra = extra + fight_highlights(in.world_position.xyz, in.world_normal, room, near) * shiny;
+                }
+            }
         }
         if linear_output {
-            colour = decode_22(colour) + extra;
-        } else if max3(extra) > 0.0 {
-            colour = encode(decode(colour) + extra);
+            colour = decode_22(colour) * diffuse_scale + extra;
+        } else if max3(extra) > 0.0 || diffuse_scale < 0.999 {
+            colour = encode(decode(colour) * diffuse_scale + extra);
         }
     } else if linear_output {
         colour = decode_22(colour);

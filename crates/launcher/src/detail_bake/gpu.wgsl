@@ -297,6 +297,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let has_shading = point.normal.w > 0.5;
         var lit = vec3<f32>(0.0);
         var open = vec3<f32>(0.0);
+        var dir_sum = vec3<f32>(0.0);
         for (var k = 0u; k < cell.y; k++) {
             let listed = cell_lights[cell.x + k];
             let number = listed & ~OWN_LIGHT;
@@ -306,11 +307,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             if max(given.x, max(given.y, given.z)) < FAINTEST {
                 continue;
             }
+            let vis = max(soft(number, at), near_lamp(light, at));
+            let contrib = given * vis;
+            let to = nearest(light, at) - at;
+            let dist = length(to);
+            if dist > 1e-4 {
+                let w = 0.2126 * contrib.x + 0.7152 * contrib.y + 0.0722 * contrib.z;
+                dir_sum += (to / dist) * w;
+            }
             open += given;
-            lit += given * max(soft(number, at), near_lamp(light, at));
+            lit += contrib;
         }
-        results[2u * index] = vec4<f32>(lit, select(0.0, 1.0, counts(at, normal)));
-        results[2u * index + 1u] = vec4<f32>(open, 0.0);
+        results[4u * index] = vec4<f32>(lit, select(0.0, 1.0, counts(at, normal)));
+        results[4u * index + 1u] = vec4<f32>(open, 0.0);
+        results[4u * index + 2u] = vec4<f32>(dir_sum, 0.0);
         return;
     }
 
@@ -361,6 +371,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         // The sky: the share of `params.rays` rays over the surface that go
         // upward and meet nothing.
         var sky = 0.0;
+        var sky_dir = vec3<f32>(0.0);
         if params.rays > 0u {
             let sky_side = side_of(normal);
             let sky_up = cross(normal, sky_side);
@@ -376,11 +387,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 let direction = sky_side * d.x + sky_up * d.y + normal * d.z;
                 if direction.z > 0.0 && !hit_any(at, direction, SKY_REACH, BLOCKERS) {
                     free += 1u;
+                    sky_dir += direction;
                 }
             }
             sky = f32(free) / f32(params.rays);
+            sky_dir = sky_dir / f32(params.rays);
         }
-        results[2u * index] = vec4<f32>(sun, sky, 0.0, 0.0);
+        results[4u * index] = vec4<f32>(sun, sky, 0.0, 0.0);
+        results[4u * index + 1u] = vec4<f32>(sky_dir, 0.0);
         return;
     }
 
@@ -395,6 +409,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var a = vec3<f32>(0.0);
     var b = vec3<f32>(0.0);
     var glow = vec3<f32>(0.0);
+    var dir_b = vec3<f32>(0.0);
     for (var k = 0u; k < total; k++) {
         let u1 = fract((f32(k / across) + 0.5) / f32(across) + shift.x);
         let u2 = fract((f32(k % across) + 0.5) / f32(across) + shift.y);
@@ -429,11 +444,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
         a += from_a * tri.albedo.xyz;
-        b += from_b * tri.albedo.xyz;
+        let contrib_b = from_b * tri.albedo.xyz;
+        b += contrib_b;
         glow += tri.glow.xyz;
+        let lum_b = 0.2126 * (contrib_b.x + tri.glow.x) + 0.7152 * (contrib_b.y + tri.glow.y) + 0.0722 * (contrib_b.z + tri.glow.z);
+        dir_b += direction * lum_b;
     }
     let n = f32(max(total, 1u));
-    results[3u * index] = vec4<f32>(a / n, 0.0);
-    results[3u * index + 1u] = vec4<f32>(b / n, 0.0);
-    results[3u * index + 2u] = vec4<f32>(glow / n, 0.0);
+    results[4u * index] = vec4<f32>(a / n, 0.0);
+    results[4u * index + 1u] = vec4<f32>(b / n, 0.0);
+    results[4u * index + 2u] = vec4<f32>(glow / n, 0.0);
+    results[4u * index + 3u] = vec4<f32>(dir_b / n, 0.0);
 }

@@ -199,6 +199,7 @@ fn folder_of(pngs: &[&str], stored: &[&str]) -> BakeFolder {
         lightmaps: (pngs.iter())
             .map(|name| ((*name).to_string(), path.join(format!("{name}.png"))))
             .collect(),
+        dir_lightmaps: BTreeMap::new(),
         fills: names().map(|name| (name, 0.5)).collect(),
         floors: BTreeMap::new(),
         unlit: false,
@@ -293,7 +294,8 @@ fn a_room_lightmap_without_a_fitting_png_shows_its_stored_light() -> Result<Stri
     let stored = one_texel(200);
     let backdrop = crate::stored_fill::backdrop(&stored).ok_or("the backdrop does not decode")?;
     for name in ["lm1", "added"] {
-        let drawn = detail_baked(&with_fit, &rooms, name, &stored).map(|texture| texture.mips);
+        let drawn =
+            detail_baked(&with_fit, &rooms, name, &stored).map(|(texture, _)| texture.mips);
         if drawn.as_ref() != Some(&vec![backdrop.clone()]) {
             wrong.push(format!("{name} is drawn as {drawn:?}, not {backdrop:?}"));
         }

@@ -1631,6 +1631,49 @@ impl<'t> Spawner<'t> {
                     let linear_lightmap = lightmap
                         .and_then(|name| self.irs.get(name))
                         .is_some_and(|texture| texture.encoding == Encoding::Rgba16Float);
+                    let (bump_handle, bump_is_normal, bump_scale) = if water.is_none() {
+                        let scale = diffuse.and_then(|facts| facts.bump_scale);
+                        if let Some((normal_handle, normal_ir)) = texture.and_then(|name| {
+                            let companion = format!("{}_n", name.to_ascii_lowercase());
+                            Some((
+                                textures.get(companion.as_str()).cloned()?,
+                                self.irs.get(companion.as_str()),
+                            ))
+                        }) {
+                            let bump_scale = scale
+                                .or_else(|| normal_ir.and_then(|ir| ir.facts.bump_scale))
+                                .unwrap_or(1.0);
+                            (Some(normal_handle), true, bump_scale)
+                        } else if let Some(bump_name) =
+                            diffuse.and_then(|facts| facts.bumpmap.as_deref())
+                        {
+                            let bump_handle = textures.get(bump_name).cloned();
+                            let bump_ir = self.irs.get(bump_name);
+                            let is_normal = bump_ir.is_some_and(
+                                asset_odyssey::texture::looks_like_tangent_normal_map,
+                            );
+                            let bump_scale = scale
+                                .or_else(|| bump_ir.and_then(|ir| ir.facts.bump_scale))
+                                .unwrap_or(1.0);
+                            (bump_handle, is_normal, bump_scale)
+                        } else {
+                            (None, false, 1.0)
+                        }
+                    } else {
+                        (None, false, 1.0)
+                    };
+                    let rm_handle = if water.is_none() {
+                        texture.and_then(|name| {
+                            let companion = format!("{}_rm", name.to_ascii_lowercase());
+                            textures.get(companion.as_str()).cloned()
+                        })
+                    } else {
+                        None
+                    };
+                    let dir_handle = lightmap.and_then(|name| {
+                        let companion = format!("{name}{}", crate::viewer::DIR_LIGHTMAP_SUFFIX);
+                        textures.get(companion.as_str()).cloned()
+                    });
                     OdysseyMaterial::new(
                         Vec4::ONE,
                         handle(texture),
@@ -1643,6 +1686,9 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .linear_lightmap(linear_lightmap)
+                    .bump_map(bump_handle, bump_is_normal, bump_scale)
+                    .pbr_rm(rm_handle)
+                    .dir_lightmap(dir_handle)
                     .water_if(water.map(|(alpha, bump)| (handle(bump), alpha)))
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())

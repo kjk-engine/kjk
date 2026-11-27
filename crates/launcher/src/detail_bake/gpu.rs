@@ -895,7 +895,7 @@ pub(super) fn bake_lights(
     let blank_field = vec![[0.0f32; 4]; field_size];
     let results = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("detail_bake_results"),
-        size: (3 * places.len() * 16) as u64,
+        size: (4 * places.len() * 16) as u64,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
@@ -1027,13 +1027,16 @@ pub(super) fn bake_lights(
     passes.run(MODE_DIRECT_SOFT, places.len(), SAMPLES, 0, 1)?;
     let first = gpu.read(&passes.results)?;
     let count = points.len();
-    let counts: Vec<bool> = (0..count).map(|i| first[2 * i][3] > 0.5).collect();
-    let first_counts: Vec<bool> = (0..places.len()).map(|i| first[2 * i][3] > 0.5).collect();
+    let counts: Vec<bool> = (0..count).map(|i| first[4 * i][3] > 0.5).collect();
+    let first_counts: Vec<bool> = (0..places.len()).map(|i| first[4 * i][3] > 0.5).collect();
     let mut shadowed: Vec<Vec3> = (0..places.len())
-        .map(|i| Vec3::from_slice(&first[2 * i]))
+        .map(|i| Vec3::from_slice(&first[4 * i]))
         .collect();
     let open: Vec<Vec3> = (0..places.len())
-        .map(|i| Vec3::from_slice(&first[2 * i + 1]))
+        .map(|i| Vec3::from_slice(&first[4 * i + 1]))
+        .collect();
+    let direct_dir: Vec<Vec3> = (0..count)
+        .map(|i| Vec3::from_slice(&first[4 * i + 2]))
         .collect();
     drop(first);
     lap("direct light".into(), &mut times);
@@ -1087,10 +1090,12 @@ pub(super) fn bake_lights(
     // The sun's and the sky's light on each texel, for `b` alone. It is
     // nothing in an area without a sun. It is kept apart from the lamps'
     // light, because a room's scale is for its lamps and not for the sun.
-    let sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
+    let sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<(Vec<[f32; 2]>, Vec<Vec3>), String> {
         passes.run_toward(MODE_SKY, count, (samples, rays, 20), toward, width)?;
         let read = gpu.read(&passes.results)?;
-        Ok((0..count).map(|i| [read[2 * i][0], read[2 * i][1]]).collect())
+        let seen = (0..count).map(|i| [read[4 * i][0], read[4 * i][1]]).collect();
+        let dirs = (0..count).map(|i| Vec3::from_slice(&read[4 * i + 1])).collect();
+        Ok((seen, dirs))
     };
     // The share of the area's suns that reaches each texel, for the alpha of
     // set `b`. The pass gives a sun's share times how squarely the texel
@@ -1111,7 +1116,7 @@ pub(super) fn bake_lights(
     let probe_sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
         passes.run_from(MODE_SKY, probe_range, (samples, rays, 21), toward, width)?;
         let read = gpu.read(&passes.results)?;
-        Ok((0..probe_range.1).map(|j| [read[2 * (probe_first + j)][0], read[2 * (probe_first + j)][1]]).collect())
+        Ok((0..probe_range.1).map(|j| [read[4 * (probe_first + j)][0], read[4 * (probe_first + j)][1]]).collect())
     };
     let mut probe_sky = vec![Vec3::ZERO; probe_range.1];
     // The direct sun light on each probe's place, which `probe_sky` holds,
@@ -1122,19 +1127,26 @@ pub(super) fn bake_lights(
     let mut sun_of_probes: Option<(Vec3, Vec3)> = None;
     let mut sun2_of_probes: Option<(Vec3, Vec3)> = None;
     let mut sunlit: Option<Vec<f32>> = None;
+    let mut sky_dir_weighted = vec![Vec3::ZERO; count];
     let sky_light: Vec<Vec3> = match &options.sun {
         Some(sun) => {
             let (sun_rays, width) = sun.width.map_or((SUN_RAYS, 0.0), |width| (SHARP_SUN_RAYS, width));
-            let seen = sun_and_sky(sun.toward, sun_rays, SKY_RAYS, width)?;
+            let (seen, sky_dirs) = sun_and_sky(sun.toward, sun_rays, SKY_RAYS, width)?;
             let mut shares = reached(&seen, sun.toward);
+            let (of_sun, of_sky) = (sun.colour.powf(GAMMA), sun.sky.powf(GAMMA));
+            for (dir, [sun_seen, _]) in sky_dir_weighted.iter_mut().zip(&seen) {
+                *dir += sun.toward * (*sun_seen * luma(of_sun));
+            }
             // The second sun's light on each texel.
             let of_second: Vec<Vec3> = match sun.second {
                 Some((toward, colour)) => {
-                    let seen = sun_and_sky(toward, sun_rays, 0, width)?;
-                    for (share, second) in shares.iter_mut().zip(reached(&seen, toward)) {
+                    let (seen, _) = sun_and_sky(toward, sun_rays, 0, width)?;
+                    let of_sec = colour.powf(GAMMA);
+                    for (i, (share, second)) in shares.iter_mut().zip(reached(&seen, toward)).enumerate() {
                         *share = (*share + second) / 2.0;
+                        sky_dir_weighted[i] += toward * (seen[i][0] * luma(of_sec));
                     }
-                    seen.iter().map(|[sun, _]| colour.powf(GAMMA) * *sun).collect()
+                    seen.iter().map(|[sun, _]| of_sec * *sun).collect()
                 }
                 None => vec![Vec3::ZERO; count],
             };
@@ -1147,7 +1159,9 @@ pub(super) fn bake_lights(
                 &counts,
                 &seen.iter().map(|[_, sky]| Vec3::splat(*sky)).collect::<Vec<_>>(),
             );
-            let (of_sun, of_sky) = (sun.colour.powf(GAMMA), sun.sky.powf(GAMMA));
+            for (dir, sky_dir) in sky_dir_weighted.iter_mut().zip(&sky_dirs) {
+                *dir += *sky_dir * luma(of_sky);
+            }
             // The share of each room's upward texels that lie under the open
             // sky, and from it how far the room is under a roof.
             let mut floors: HashMap<String, (f32, f32)> = HashMap::new();
@@ -1254,7 +1268,7 @@ pub(super) fn bake_lights(
     };
 
     // The bounces. Each pass gathers from field a and field b at once.
-    let gather = |a: &[Vec3], b: &[Vec3], mode: u32, seed: u32| -> Result<Vec<[Vec3; 3]>, String> {
+    let gather = |a: &[Vec3], b: &[Vec3], mode: u32, seed: u32| -> Result<Vec<[Vec3; 4]>, String> {
         let field_a = flat(&field_of(&maps, &points, &counts, a));
         let field_b = flat(&field_of(&maps, &points, &counts, b));
         passes.write_fields(&field_a, &field_b);
@@ -1262,7 +1276,7 @@ pub(super) fn bake_lights(
         let read = gpu.read(&passes.results)?;
         Ok((0..count)
             .map(|i| {
-                [0, 1, 2].map(|k| Vec3::from_slice(&read[3 * i + k]))
+                [0, 1, 2, 3].map(|k| Vec3::from_slice(&read[4 * i + k]))
             })
             .collect())
     };
@@ -1276,12 +1290,13 @@ pub(super) fn bake_lights(
         passes.run_from(MODE_BOUNCE_NEW, probe_range, (0, BOUNCE_RAYS, seed), Vec3::Z, 0.0)?;
         let read = gpu.read(&passes.results)?;
         Ok((0..probe_range.1)
-            .map(|j| [1, 2].map(|k| Vec3::from_slice(&read[3 * (probe_first + j) + k])))
+            .map(|j| [1, 2].map(|k| Vec3::from_slice(&read[4 * (probe_first + j) + k])))
             .collect())
     };
-    let (bounce_a, bounce_b) = {
+    let (bounce_a, bounce_b, bounce_dir) = {
         let mut bounce_a = vec![Vec3::ZERO; count];
         let mut bounce_b = vec![Vec3::ZERO; count];
+        let mut bounce_dir = vec![Vec3::ZERO; count];
         for pass in 0..BOUNCES {
             let from_a: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_a[i]).collect();
             let from_b: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
@@ -1292,17 +1307,20 @@ pub(super) fn bake_lights(
                 &maps,
                 &points,
                 &counts,
-                &gathered.iter().map(|[a, _, _]| *a).collect::<Vec<_>>(),
+                &gathered.iter().map(|[a, _, _, _]| *a).collect::<Vec<_>>(),
             );
             bounce_b = smooth_values(
                 &maps,
                 &points,
                 &counts,
-                &gathered.iter().map(|[_, b, glow]| *b + *glow).collect::<Vec<_>>(),
+                &gathered.iter().map(|[_, b, glow, _]| *b + *glow).collect::<Vec<_>>(),
             );
+            if pass + 1 == BOUNCES {
+                bounce_dir = gathered.iter().map(|[_, _, _, dir]| *dir).collect();
+            }
             lap(format!("bounce {}", pass + 1), &mut times);
         }
-        (bounce_a, bounce_b)
+        (bounce_a, bounce_b, bounce_dir)
     };
     // The lamps' light on the probes: direct, and what the texels lit by
     // them and their bounces send back (kept apart for `probes-hybrid.txt`).
@@ -1317,6 +1335,7 @@ pub(super) fn bake_lights(
         .map(|j| probe_direct[j] + probe_bounce_lamps[j])
         .collect();
     // The sun's and the sky's light with its own bounces.
+    let mut sun_bounce_dir = vec![Vec3::ZERO; count];
     let sun_light: Vec<Vec3> = if let Some(sun) = &options.sun {
         // What a bounce ray takes from a skylight is the light that falls
         // on it from above, whatever its lightmap holds (`w` is 2). The
@@ -1339,8 +1358,11 @@ pub(super) fn bake_lights(
                 &maps,
                 &points,
                 &counts,
-                &gathered.iter().map(|[_, b, _]| *b).collect::<Vec<_>>(),
+                &gathered.iter().map(|[_, b, _, _]| *b).collect::<Vec<_>>(),
             );
+            if pass + 1 == BOUNCES {
+                sun_bounce_dir = gathered.iter().map(|[_, _, _, dir]| *dir).collect();
+            }
             lap(format!("the sun's bounce {}", pass + 1), &mut times);
         }
         let from: Vec<Vec3> = (0..count).map(|i| sky_light[i] + bounced[i]).collect();
@@ -1371,7 +1393,7 @@ pub(super) fn bake_lights(
         // taken from the stored lightmaps, for the area's entry in
         // `data/lights/bake.toml`.
         let open: Vec<usize> = {
-            let seen = sun_and_sky(Vec3::Z, 0, SKY_RAYS, 0.0)?;
+            let (seen, _) = sun_and_sky(Vec3::Z, 0, SKY_RAYS, 0.0)?;
             (0..count)
                 .filter(|&i| points[i].inside && counts[i] && seen[i][1] >= FIT_OPEN)
                 .collect()
@@ -1383,7 +1405,7 @@ pub(super) fn bake_lights(
             for turn in (0..360).step_by(15) {
                 let (up, around) = ((elevation as f32).to_radians(), (turn as f32).to_radians());
                 let toward = Vec3::new(up.cos() * around.cos(), up.cos() * around.sin(), up.sin());
-                let seen = sun_and_sky(toward, 1, 0, 0.0)?;
+                let (seen, _) = sun_and_sky(toward, 1, 0, 0.0)?;
                 let mean_seen = open.iter().map(|&i| seen[i][0]).sum::<f32>() / open.len().max(1) as f32;
                 let (mut both, mut of_seen, mut of_stored) = (0.0f32, 0.0f32, 0.0f32);
                 let (mut lit, mut lit_texels, mut shaded, mut shaded_texels) = (Vec3::ZERO, 0, Vec3::ZERO, 0);
@@ -1776,13 +1798,32 @@ pub(super) fn bake_lights(
     };
     lap("levels".into(), &mut times);
 
+    let raw_dir: Vec<Vec3> = (0..count)
+        .map(|i| {
+            let scale = rooms_b.scale[points[i].map];
+            (direct_dir[i] + bounce_dir[i]) * scale + sky_dir_weighted[i] + sun_bounce_dir[i]
+        })
+        .collect();
+    let smoothed_dir = smooth_values(&maps, &points, &counts, &raw_dir);
+    let mut dir_vecs = Vec::with_capacity(count);
+    let mut dir_strengths = Vec::with_capacity(count);
+    for (i, &vec) in smoothed_dir.iter().enumerate() {
+        let bevy_n = Vec3::new(points[i].normal.x, points[i].normal.z, -points[i].normal.y);
+        let bevy_v = Vec3::new(vec.x, vec.z, -vec.y);
+        let mag = bevy_v.length();
+        let unit = if mag > 1e-5 { bevy_v / mag } else { bevy_n };
+        let strength = (mag / luma(shown_b[i]).max(1e-4)).clamp(0.0, 1.0);
+        dir_vecs.push(unit);
+        dir_strengths.push(strength);
+    }
+
     write_sets(
         resolver,
         (&maps, &points, &counts),
         &unwalked,
         folder,
         &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
-        sunlit.as_deref(),
+        (sunlit.as_deref(), Some((&dir_vecs[..], &dir_strengths[..]))),
         options.stored_backdrop,
     )?;
     // A set baked earlier into the same folder may hold a `fill.txt` or a

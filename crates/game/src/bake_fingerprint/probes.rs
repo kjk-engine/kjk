@@ -680,7 +680,7 @@ fn tolerant_matching_resaved_mdl_and_placeable() -> Result<String, String> {
             model(
                 "crate01",
                 vec![node([0.0; 3])],
-                vec![mesh(0, &corners, &[0, 3, 2, 0, 2, 1], None, "crate")],
+                vec![mesh(0, &corners, &[3, 2, 1, 3, 1, 0], None, "crate")],
             )
         } else {
             model(
@@ -751,5 +751,19 @@ fn tolerant_matching_resaved_mdl_and_placeable() -> Result<String, String> {
     check(
         refused.matching.is_empty() && refused.placeables.is_empty() && refused.placeables_differ,
         format!("expected moved geometry/placeable to fail: {refused:?}"),
+    )?;
+
+    // Directional companion maps (`*.dir.png`) must never enter `set_lightmaps`.
+    let temp_dir = std::env::temp_dir().join(format!("kjk-dir-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    std::fs::write(temp_dir.join("room_lm0.klm"), b"klm").map_err(|e| e.to_string())?;
+    std::fs::write(temp_dir.join("room_lm0.dir.png"), b"dir").map_err(|e| e.to_string())?;
+    std::fs::write(temp_dir.join("room_lm1.png"), b"png").map_err(|e| e.to_string())?;
+    let maps = super::set_lightmaps(&temp_dir);
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    check(
+        maps == BTreeSet::from(["room_lm0".to_string(), "room_lm1".to_string()]),
+        format!("unexpected set_lightmaps: {maps:?}"),
     )
 }

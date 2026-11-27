@@ -43,6 +43,10 @@ pub struct TextureFacts {
     /// `bumpmaptexture`: its alpha is then a mask, not coverage (reone
     /// `MeshSceneNode::isTransparent`).
     pub bumpmap: Option<String>,
+    /// `bumpmapscaling`: optional scalar intensity for `bumpmaptexture`.
+    pub bump_scale: Option<f32>,
+    /// `isbumpmap 1`: true when this texture itself is declared as a bump map.
+    pub is_bumpmap: bool,
     /// A `blending` value that is not one of the three spellings xoreos
     /// matches exactly (it compares case-sensitively).
     pub odd_blending: Option<String>,
@@ -96,12 +100,16 @@ impl TextureFacts {
             Some(other) => (Blending::Default, Some(other.to_string())),
         };
         // A bool as xoreos reads it: "1", or true/yes/y/on in any case.
-        let decal = joined("decal").is_some_and(|value| {
-            value == "1"
-                || ["true", "yes", "y", "on"]
-                    .iter()
-                    .any(|word| value.eq_ignore_ascii_case(word))
-        });
+        let bool_flag = |keyword: &str| {
+            joined(keyword).is_some_and(|value| {
+                value == "1"
+                    || ["true", "yes", "y", "on"]
+                        .iter()
+                        .any(|word| value.eq_ignore_ascii_case(word))
+            })
+        };
+        let decal = bool_flag("decal");
+        let is_bumpmap = bool_flag("isbumpmap");
         let name = |keyword: &str| {
             joined(keyword)
                 .map(|value| value.trim().to_ascii_lowercase())
@@ -116,6 +124,10 @@ impl TextureFacts {
             sort_key: None,
             envmap: name("envmaptexture").or_else(|| name("bumpyshinytexture")),
             bumpmap: name("bumpmaptexture"),
+            bump_scale: txi
+                .number("bumpmapscaling")
+                .filter(|scale| scale.is_finite() && *scale >= 0.0),
+            is_bumpmap,
             odd_blending,
             cycle: txi
                 .cycle_frames()
@@ -375,6 +387,49 @@ impl TextureIr {
         self.faces.iter_mut().for_each(&mut change);
         self.frame_mips.iter_mut().for_each(&mut change);
     }
+}
+
+/// Returns true when a bump/normal texture looks like an RGB tangent-space
+/// normal map (predominantly blue Z+ normals around `(128, 128, 255)`) rather
+/// than a grayscale heightmap where `R == G == B`.
+pub fn looks_like_tangent_normal_map(ir: &TextureIr) -> bool {
+    if ir.cube || ir.mips.is_empty() || ir.encoding == Encoding::Rgba16Float {
+        return false;
+    }
+    let decoded;
+    let rgba: &[u8] = match ir.encoding {
+        Encoding::Rgba8 => &ir.mips[0],
+        Encoding::Bc1 | Encoding::Bc1Holes | Encoding::Bc3 => {
+            decoded = ir.decoded();
+            let Some(first) = decoded.mips.first() else {
+                return false;
+            };
+            first
+        }
+        Encoding::Rgba16Float => return false,
+    };
+    let texels = rgba.as_chunks::<4>().0;
+    if texels.is_empty() {
+        return false;
+    }
+    let step = (texels.len() / 256).max(1);
+    let mut sum_r = 0u64;
+    let mut sum_g = 0u64;
+    let mut sum_b = 0u64;
+    let mut count = 0u64;
+    for px in texels.iter().step_by(step).take(256) {
+        sum_r += u64::from(px[0]);
+        sum_g += u64::from(px[1]);
+        sum_b += u64::from(px[2]);
+        count += 1;
+    }
+    if count == 0 {
+        return false;
+    }
+    let mean_r = sum_r as f32 / count as f32;
+    let mean_g = sum_g as f32 / count as f32;
+    let mean_b = sum_b as f32 / count as f32;
+    mean_b > 175.0 && (mean_b - mean_r.max(mean_g)) > 45.0
 }
 
 /// An RGBA8 level of `width` × `height` at half its size (one texel at

@@ -42,6 +42,7 @@ const GROUPS: &[Group] = &[
     ("cut-out surfaces", kjk_game::material::cutout_probes),
     ("texture sort key", kjk_game::material::sort_key_probes),
     ("transparency hints", kjk_game::material::hint_probes),
+    ("pbr material", kjk_game::material::pbr_probes),
     ("item_keys", kjk_game::pick_view::probes),
     ("action_bar", kjk_game::bar_view::probes::probes),
     ("power_wheel", kjk_game::wheel_view::probes::probes),
