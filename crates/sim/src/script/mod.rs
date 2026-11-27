@@ -1863,13 +1863,16 @@ impl Library {
             .unwrap_or(Talent::default())
     }
 
-    /// Whether `spells.2da` row `row` is used on enemies (`Talent::hostile`),
-    /// or `None` for a row past the table.
-    pub fn hostile(&self, row: u16) -> Option<bool> {
+    /// `spells.2da` `hostile` and `category` facts for `row`, or `None` for a
+    /// row past the table.
+    pub fn spell_facts(&self, row: u16) -> Option<crate::combat::choose::SpellFacts> {
         self.talents
             .spells
             .get(usize::from(row))
-            .map(|talent| talent.hostile)
+            .map(|talent| crate::combat::choose::SpellFacts {
+                hostile: talent.hostile,
+                category: talent.category,
+            })
     }
 
     /// The menu that offers power `row`, where its impact script can run:

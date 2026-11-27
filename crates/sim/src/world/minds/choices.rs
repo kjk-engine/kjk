@@ -44,9 +44,9 @@ pub(super) struct Chooser<'a> {
     /// What a power costs it (hundredths of a Force point).
     pub cost: &'a dyn Fn(u16) -> Option<i32>,
     pub scripted: ai::Scripted<'a>,
-    /// The talent facts' `hostile` for a row, where the scripts' library
-    /// has the row.
-    pub hostile: &'a dyn Fn(u16) -> Option<bool>,
+    /// The talent facts' `hostile` and `category` for a row, where the
+    /// scripts' library has the row.
+    pub spell_facts: &'a dyn Fn(u16) -> Option<choose::SpellFacts>,
     /// The powers each power needs (`spells.2da` `prerequisites`), where a
     /// script library is loaded.
     pub prerequisites: Option<&'a BTreeMap<u16, [Option<u16>; 2]>>,
@@ -78,7 +78,7 @@ impl Chooser<'_> {
             .filter(|&row| force::of_row(row).is_none_or(|(power, _)| self.power_ready(power)))
             .filter(|&row| choose::wise_for(row, health(self.fighter, self.sheet)))
             .filter_map(|row| {
-                let (kind, droids_only) = choose::kind_of(row, (self.hostile)(row))?;
+                let (kind, droids_only) = choose::kind_of(row, (self.spell_facts)(row))?;
                 let at_enemy = matches!(kind, Kind::Disable | Kind::Damage | Kind::AreaDamage);
                 let reach = ai::power_reach(row, self.scripted);
                 let works = |&(distance, mark): &(f32, choose::Mark)| {
@@ -199,7 +199,7 @@ impl Chooser<'_> {
                     Cast::Hold(used.button(), 1)
                 };
                 let (kind, droids_only) =
-                    choose::kind_of(carried.row, (self.hostile)(carried.row))?;
+                    choose::kind_of(carried.row, (self.spell_facts)(carried.row))?;
                 let option = Option_ {
                     choice: if grenade {
                         Choice::Grenade(carried.row)

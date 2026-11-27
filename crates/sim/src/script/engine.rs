@@ -1889,11 +1889,13 @@ impl Engine<'_> {
     /// chooser (`combat::choose`) and dropped. Only a talent that `who`'s
     /// own AI run queues can be dropped. A talent that another script
     /// queues, such as a conversation's, is kept. A droid's own weapon
-    /// (`spells::droid_weapon`) is kept, because the chooser does not offer
-    /// droid weapons yet.
+    /// (`spells::droid_weapon`), custom enemy-only powers (`Menu::None`),
+    /// custom mod item-spells (`items::use_of(row).is_none()`), and any other
+    /// row the chooser cannot classify or cast are kept for scripts so they are
+    /// never silently dropped.
     ///
     /// The engine chooses a party member's Force powers, grenades and feat
-    /// lines. So a Force power, an item spell or a feat line of a party
+    /// lines. So a handled Force power, item spell or feat line of a party
     /// member is dropped. This is true however the script made the talent,
     /// by name (`TalentSpell`) or by search (`GetCreatureTalentBest`). A
     /// party member's healing item (a medpac, or a repair kit for a droid)
@@ -1901,8 +1903,8 @@ impl Engine<'_> {
     /// heals.
     ///
     /// The engine also chooses the Force powers, items and feat lines of
-    /// every other creature. Such a talent of such a creature, its healing
-    /// items too, is dropped when the script that began its AI run
+    /// every other creature. Such a handled talent of such a creature, its
+    /// healing items too, is dropped when the script that began its AI run
     /// (`Event::ai_script`) is one of the games' generic combat scripts
     /// (`generic_combat_script`). A boss's own script is not in that list,
     /// so the boss still casts its set pieces.
@@ -1914,7 +1916,7 @@ impl Engine<'_> {
     /// it chooses nothing.
     fn leaves_talent_to_chooser(&self, who: ObjectId, talent: Use) -> bool {
         use crate::combat::bar::FeatLine;
-        use crate::combat::{items, spells};
+        use crate::combat::{choose, force, items, spells};
         if self.event.ai != Some(who) {
             return false;
         }
@@ -1928,11 +1930,23 @@ impl Engine<'_> {
         match talent {
             Use::Feat(row) => FeatLine::of(row).is_some() && (party || generic()),
             Use::Power(row) if spells::droid_weapon(row) => false,
-            Use::Power(row) if party => !matches!(
-                items::use_of(row),
-                Some(items::Use::Heal { .. } | items::Use::Squad { .. })
-            ),
-            Use::Power(_) => generic(),
+            Use::Power(row) => {
+                let handled = spells::kind_of_row(row).is_some()
+                    || items::use_of(row).is_some()
+                    || (force::scripted(Some(self.library), row)
+                        && choose::kind_of(row, self.library.spell_facts(row)).is_some());
+                if !handled {
+                    return false;
+                }
+                if party {
+                    !matches!(
+                        items::use_of(row),
+                        Some(items::Use::Heal { .. } | items::Use::Squad { .. })
+                    )
+                } else {
+                    generic()
+                }
+            }
         }
     }
 

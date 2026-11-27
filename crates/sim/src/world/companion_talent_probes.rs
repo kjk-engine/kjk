@@ -66,6 +66,8 @@ const POWER: u16 = K1_FORCE_POWERS[0];
 const MEDPAC: u16 = ITEM_ABILITY_MED_PACK;
 const STUN_RAY: u16 = DROID_ITEM_STUN_RAY_1;
 const SHIELD: u16 = DROID_ITEM_ENERGY_SHIELD_1;
+const MOD_UNHANDLED: u16 = 350;
+const MOD_POWER: u16 = 351;
 
 /// The feat both creatures have (a `feat.2da` row).
 const FEAT: u16 = 8;
@@ -129,6 +131,8 @@ const GENERIC_POWER: &str = "k_def_probe_power";
 const GENERIC_FEAT: &str = "k_def_probe_feat";
 const GENERIC_MEDPAC: &str = "k_def_probe_medpac";
 const GENERIC_STUN_RAY: &str = "k_def_probe_stun_ray";
+const GENERIC_MOD_UNHANDLED: &str = "k_def_probe_mod_unhandled";
+const GENERIC_MOD_POWER: &str = "k_def_probe_mod_power";
 const BOSS_SCRIPTS: [&str; 1] = [
     // A Sith on the Star Forge (`k_sta_darkjedi3`), from its own
     // user-defined event.
@@ -192,6 +196,8 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
         (GENERIC_FEAT, used(found(FEATS), pc())),
         (GENERIC_MEDPAC, used(named(MEDPAC), Expr::Me)),
         (GENERIC_STUN_RAY, used(named(STUN_RAY), pc())),
+        (GENERIC_MOD_UNHANDLED, used(named(MOD_UNHANDLED), pc())),
+        (GENERIC_MOD_POWER, used(named(MOD_POWER), pc())),
         (IMPACT, Vec::new()),
     ]
     .into_iter()
@@ -296,9 +302,11 @@ struct Seen {
 fn run(case: &Case) -> Result<Seen, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    let size = usize::from(POWER.max(MEDPAC).max(STUN_RAY).max(SHIELD)) + 1;
+    let size = usize::from(POWER.max(MEDPAC).max(STUN_RAY).max(SHIELD).max(MOD_POWER)) + 1;
     data.force_costs = vec![0; size];
     data.force_costs[usize::from(POWER)] = 1;
+    data.force_costs[usize::from(MOD_UNHANDLED)] = 1;
+    data.force_costs[usize::from(MOD_POWER)] = 1;
     use crate::combat::sheet::factions;
     data.repute = crate::module::Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
     let [x, y, z] = data.entry.position;
@@ -314,9 +322,13 @@ fn run(case: &Case) -> Result<Seen, String> {
         };
         let at = [x + 1.5 * (n as f32 + 1.0), y, z];
         let own = caller == case.caller;
+        let mut sheet = jedi(case.droid && own, case.gunner && own);
+        if own && matches!(case.script, GENERIC_MOD_UNHANDLED | GENERIC_MOD_POWER) {
+            sheet.powers = sheet.powers.with(MOD_UNHANDLED).with(MOD_POWER);
+        }
         data.placements.push(Placement::Own(ObjectData {
             scripts: hooks,
-            ..ObjectData::creature(tag, tag, at, jedi(case.droid && own, case.gunner && own))
+            ..ObjectData::creature(tag, tag, at, sheet)
         }));
     }
     let mut spells = vec![Talent::default(); size];
@@ -332,8 +344,24 @@ fn run(case: &Case) -> Result<Seen, String> {
         maxcr: 1,
         ..Talent::default()
     };
+    spells[usize::from(MOD_UNHANDLED)] = Talent {
+        category: POWERS as u16,
+        maxcr: 1,
+        hostile: true,
+        reach_dm: 300,
+        ..Talent::default()
+    };
+    spells[usize::from(MOD_POWER)] = Talent {
+        category: POWERS as u16,
+        maxcr: 1,
+        hostile: true,
+        reach_dm: 300,
+        menu: crate::script::Menu::Hostile,
+        ..Talent::default()
+    };
     let mut impacts = vec![String::new(); size];
     impacts[usize::from(MEDPAC)] = IMPACT.to_string();
+    impacts[usize::from(MOD_POWER)] = IMPACT.to_string();
     let mut feats = vec![Talent::default(); usize::from(FEAT) + 1];
     feats[usize::from(FEAT)] = Talent {
         category: FEATS as u16,
@@ -535,10 +563,22 @@ const ENEMY: Case = Case {
     caller: Caller::Foe,
     ..PLAIN
 };
-const ENEMY_CASES: [Case; 11] = [
+const ENEMY_CASES: [Case; 13] = [
     Case {
         name: "generic_power_dropped",
         script: GENERIC_POWER,
+        wanted: |seen| !seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "generic_mod_unhandled_kept",
+        script: GENERIC_MOD_UNHANDLED,
+        wanted: |seen| seen.talent,
+        ..ENEMY
+    },
+    Case {
+        name: "generic_mod_power_dropped",
+        script: GENERIC_MOD_POWER,
         wanted: |seen| !seen.talent,
         ..ENEMY
     },

@@ -797,6 +797,11 @@ crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force j
 crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc
 crates/sim/src/combat/spells.rs ROWS_BY_KIND  # the rulebook's spells.2da rows of each kind, a list of rules
+crates/sim/src/combat/choose.rs CAT_AREA  # spells.2da category area-of-effect bit for classifying mod powers
+crates/sim/src/combat/choose.rs CAT_DAMAGE  # spells.2da category damage bit for classifying mod powers
+crates/sim/src/combat/choose.rs CAT_DEBUFF  # spells.2da category debuff bit for classifying mod powers
+crates/sim/src/combat/choose.rs CAT_DISABLE  # spells.2da category disable bit for classifying mod powers
+crates/sim/src/combat/choose.rs CAT_HEAL  # spells.2da category heal bit for classifying mod powers
 crates/sim/src/combat/choose.rs ROWS_BY_REASON  # the rulebook's spells.2da rows of each buff reason, a list of rules
 crates/sim/src/combat/choose.rs MELEE_ORDER  # the melee feat lines in the order of preference, no number
 crates/sim/src/combat/choose.rs GUN_ORDER  # the gun feat lines in the order of preference, no number

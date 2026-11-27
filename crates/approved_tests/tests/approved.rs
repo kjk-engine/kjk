@@ -4733,7 +4733,7 @@ fn enemy_talents() {
     probed(
         "enemy talents",
         &sim::companion_talent_probes::enemy_probes(),
-        12,
+        14,
     );
 }
 
@@ -5905,7 +5905,7 @@ fn choice_kinds() {
 #[test]
 fn choice_scores() {
     use sim::combat::choose::{
-        Choice, ChoiceWhy, Foes, Kind, Option_, Scene, Target, choose, kind_of, score,
+        Choice, ChoiceWhy, Foes, Kind, Option_, Scene, SpellFacts, Target, choose, kind_of, score,
         score_with_why,
     };
     const STUN: u16 = 46;
@@ -6616,30 +6616,61 @@ fn choice_scores() {
         )),
         "staggered target out of reach scores stagger damage with staggered reason"
     );
+    let fact = |hostile: bool, category: u16| Some(SpellFacts { hostile, category });
     let kinds = [
         (
             "a listed row wins over the flag",
             STUN,
-            Some(true),
+            fact(true, 0),
             Some((Kind::Disable, false)),
         ),
         (
             "a listed droids-only row",
             DROID_STUN,
-            Some(false),
+            fact(false, 0),
             Some((Kind::Disable, true)),
         ),
         (
             "an unlisted hostile row",
             UNLISTED,
-            Some(true),
+            fact(true, 0),
             Some((Kind::Damage, false)),
+        ),
+        (
+            "an unlisted hostile damage row",
+            UNLISTED,
+            fact(true, 0x1101),
+            Some((Kind::Damage, false)),
+        ),
+        (
+            "an unlisted hostile area damage row",
+            UNLISTED,
+            fact(true, 0x2101),
+            Some((Kind::AreaDamage, false)),
+        ),
+        (
+            "an unlisted hostile disable row",
+            UNLISTED,
+            fact(true, 0x1201),
+            Some((Kind::Disable, false)),
+        ),
+        (
+            "an unlisted hostile debuff row",
+            UNLISTED,
+            fact(true, 0x1011),
+            Some((Kind::Disable, false)),
         ),
         (
             "an unlisted friendly row",
             UNLISTED,
-            Some(false),
+            fact(false, 0x1808),
             Some((Kind::Buff, false)),
+        ),
+        (
+            "an unlisted friendly heal row",
+            UNLISTED,
+            fact(false, 0x2441),
+            Some((Kind::Heal, false)),
         ),
         ("an unlisted row without facts", UNLISTED, None, None),
         // A row of the games' own that no kind lists is never a choice,
@@ -6647,28 +6678,33 @@ fn choice_scores() {
         (
             "affect mind, a named row in no kind list, friendly",
             AFFECT_MIND,
-            Some(false),
+            fact(false, 0),
             None,
         ),
         (
             "affect mind, a named row in no kind list, hostile",
             AFFECT_MIND,
-            Some(true),
+            fact(true, 0),
             None,
         ),
         // The games' own rows that the engine does not name and the
         // rulebook never lets a character choose (`ai.choices.kinds.never`).
-        ("force camouflage, friendly", CAMOUFLAGE, Some(false), None),
+        (
+            "force camouflage, friendly",
+            CAMOUFLAGE,
+            fact(false, 0),
+            None,
+        ),
         (
             "battle precognition, friendly",
             BATTLE_PRECOGNITION,
-            Some(false),
+            fact(false, 0),
             None,
         ),
         (
             "breath control, friendly",
             BREATH_CONTROL,
-            Some(false),
+            fact(false, 0),
             None,
         ),
     ];

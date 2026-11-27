@@ -165,6 +165,21 @@ fn in_time(reason: Reason, scene: &Scene) -> bool {
     }
 }
 
+/// What `spells.2da` says about a row (`Talent::hostile` and
+/// `Talent::category`), used to classify unlisted mod powers (`kind_of`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpellFacts {
+    pub hostile: bool,
+    pub category: u16,
+}
+
+/// `spells.2da` `category` bits used to classify unlisted mod powers.
+const CAT_AREA: u16 = 0x2000;
+const CAT_DAMAGE: u16 = 0x0100;
+const CAT_DISABLE: u16 = 0x0200;
+const CAT_HEAL: u16 = 0x0400;
+const CAT_DEBUFF: u16 = 0x0010;
+
 /// The kind of `row`, and whether the row works only on droids. The
 /// rulebook's table decides when it lists the row. A row of the games' own
 /// that the engine names (`spells::NAMED`) and the table does not list has
@@ -172,19 +187,35 @@ fn in_time(reason: Reason, scene: &Scene) -> bool {
 /// Sight are such rows. So is a row of the games' own that the engine does
 /// not name and the rulebook lists as never chosen (`ai.choices.kinds.never`),
 /// such as Force Camouflage and Breath Control. Any other row comes from a
-/// mod. A hostile mod row
-/// is a plain damage power and a friendly one is a plain buff. `hostile` is
-/// `None` when there are no talent facts for the row, and then the row has
-/// no kind.
-pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
+/// mod and is classified from `facts` (`spells.2da` `hostilesetting` and
+/// `category`): friendly heals become `Heal`, other friendly powers become
+/// `Buff`, hostile area-damage rows become `AreaDamage`, pure hostile
+/// disables/debuffs become `Disable`, and all other hostile rows become
+/// `Damage`. `facts` is `None` when there are no talent facts for the row,
+/// and then the row has no kind.
+pub fn kind_of(row: u16, facts: Option<SpellFacts>) -> Option<(Kind, bool)> {
     use crate::combat::spells::NAMED;
     kind_of_row(row).or_else(|| {
         let named = NAMED.iter().any(|&(_, named)| named == row);
         if named || choices::kinds::NEVER.contains(&row) {
             return None;
         }
-        hostile.map(|hostile| {
-            let kind = if hostile { Kind::Damage } else { Kind::Buff };
+        facts.map(|SpellFacts { hostile, category }| {
+            let kind = if !hostile {
+                if category & CAT_HEAL != 0 {
+                    Kind::Heal
+                } else {
+                    Kind::Buff
+                }
+            } else if category & CAT_AREA != 0 && category & CAT_DAMAGE != 0 {
+                Kind::AreaDamage
+            } else if (category & CAT_DISABLE != 0 || category & CAT_DEBUFF != 0)
+                && category & CAT_DAMAGE == 0
+            {
+                Kind::Disable
+            } else {
+                Kind::Damage
+            };
             (kind, false)
         })
     })

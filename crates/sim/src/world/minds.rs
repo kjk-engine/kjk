@@ -1805,7 +1805,7 @@ fn run_chooser(
     let fighter_now = *fighter;
     let me_id = ctx.own.id;
     let distance = |other: &MotionState| math::length(math::sub(other.origin, ctx.ps.origin));
-    let hostile_row = |row: u16| ctx.library.and_then(|library| library.hostile(row));
+    let spell_facts = |row: u16| ctx.library.and_then(|library| library.spell_facts(row));
     // Its side: the party for a party member, else its faction outside the party.
     let side =
         |entry: &Seen| entry.party == ctx.in_party && (ctx.in_party || entry.faction == ctx.mine);
@@ -1836,7 +1836,7 @@ fn run_chooser(
         },
         cost: ctx.cost,
         scripted: ctx.scripted,
-        hostile: &hostile_row,
+        spell_facts: &spell_facts,
         prerequisites: ctx.library.map(|library| &library.classes().prerequisites),
         fallen: ctx
             .seen
