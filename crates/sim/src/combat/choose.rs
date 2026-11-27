@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use rules::ai::choices;
 use rules::ai::choices::feats;
 use rules::ai::choices::reasons;
+use rules::ai::choices::scores;
 use rules::ai::choices::wait_ms;
 
 use crate::combat::bar::FeatLine;
@@ -148,14 +149,20 @@ pub fn fits(reason: Reason, scene: &Scene) -> bool {
 }
 
 /// Whether a buff with `reason` may be used at `scene`'s moment of the
-/// fight. Every buff may be used in the first `ai.choices.opening_ms`
-/// (5000 ms) of the fight. After that, only a buff for an intense fight
-/// may be used, and only while no buff for an intense fight runs on the
-/// character. So the character keeps one such buff up and does not spend
-/// its Force points on a second one.
+/// fight. Plain buffs (`Reason::Always`: Force Aura, stims, energy shields,
+/// and unlisted friendly powers) are used in the first
+/// `ai.choices.opening_ms` (15000 ms) of a fight. Tactical buffs that answer a
+/// specific threat (`Energy`, `Physical`, `ForceUsers`, `Blade`) may be used
+/// at any time while their reason holds. Intense-fight buffs (`Reason::Intense`)
+/// are used only while no buff of that reason runs on the character, so the
+/// character keeps one up at a time and does not spend Force points stacking
+/// a second one.
 fn in_time(reason: Reason, scene: &Scene) -> bool {
-    let opening = scene.fight_ms < choices::OPENING_MS;
-    opening || (reason == Reason::Intense && !scene.intense_buff)
+    match reason {
+        Reason::Energy | Reason::Physical | Reason::ForceUsers | Reason::Blade => true,
+        Reason::Intense => !scene.intense_buff,
+        Reason::Always => scene.fight_ms < choices::OPENING_MS,
+    }
 }
 
 /// The kind of `row`, and whether the row works only on droids. The
@@ -186,7 +193,6 @@ pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
 /// How good `option` is now, from 0 to 1. A score of 0 means the character
 /// has no reason to use it.
 pub fn score(option: &Option_, scene: &Scene) -> f32 {
-    let yes = |reason: bool| if reason { 1.0 } else { 0.0 };
     let item = matches!(option.choice, Choice::Item(_));
     // A companion uses no medpac, stim or shield of its own choice. It uses
     // a medpac only when its own combat script picks one.
@@ -209,26 +215,69 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
         }
         Kind::Buff => {
             let reason = reason_of(option.choice);
-            yes(in_time(reason, scene) && fits(reason, scene) && !option.running)
+            if in_time(reason, scene) && fits(reason, scene) && !option.running {
+                if reason == Reason::Always {
+                    scores::PLAIN_BUFF
+                } else {
+                    scores::COUNTER_BUFF
+                }
+            } else {
+                0.0
+            }
         }
         Kind::Disable | Kind::Damage | Kind::AreaDamage => {
             let Some(target) = &scene.target else {
                 return 0.0;
             };
-            let blast =
-                matches!(option.choice, Choice::Grenade(_)) || option.kind == Kind::AreaDamage;
-            if blast && !worth_a_blast(option, scene, target) {
-                return 0.0;
-            }
             // A choice that works only on droids is wasted on a living target.
             if option.droids_only && !target.droid {
                 return 0.0;
             }
+            let enemies = u32::from(target.hostiles_near) + 1;
+            let cluster_score = if enemies > choices::CLUSTER_TARGETS {
+                scores::CLUSTER_LARGE
+            } else {
+                scores::CLUSTER
+            };
+            let single_damage = || {
+                if target.staggered {
+                    scores::STAGGER_DAMAGE
+                } else if !target.in_reach {
+                    scores::FAR_DAMAGE
+                } else {
+                    0.0
+                }
+            };
+            // A disable that is not made for droids does not work on a droid.
+            let disable_allowed = !target.disabled && (option.droids_only || !target.droid);
+            if matches!(option.choice, Choice::Grenade(_)) {
+                if !worth_a_grenade(scene, target) {
+                    return 0.0;
+                }
+                return match option.kind {
+                    Kind::Disable if !disable_allowed => 0.0,
+                    _ => cluster_score,
+                };
+            }
             match option.kind {
-                // A disable that is not made for droids does not work on a droid.
-                Kind::Disable => yes(!target.disabled && (option.droids_only || !target.droid)),
-                Kind::Damage => yes(!target.in_reach || target.staggered),
-                Kind::AreaDamage => 1.0,
+                Kind::Disable => {
+                    if disable_allowed {
+                        scores::DISABLE
+                    } else {
+                        0.0
+                    }
+                }
+                Kind::Damage => single_damage(),
+                // Area Force powers (Force Storm, Death Field, Force Scream,
+                // Destroy Droid) have no friendly fire, so they do not avoid
+                // allies and also hit a single out-of-reach or staggered target.
+                Kind::AreaDamage => {
+                    if enemies >= choices::CLUSTER_TARGETS {
+                        cluster_score
+                    } else {
+                        single_damage()
+                    }
+                }
                 Kind::Heal | Kind::Buff => 0.0,
             }
         }
@@ -331,14 +380,14 @@ fn heal_score(health: f32) -> f32 {
     choices::THRESHOLD + (1.0 - choices::THRESHOLD) * hurt
 }
 
-/// Whether a blast around `target` hits enough enemies and none of the
-/// character's allies. A companion throws a grenade only in an intense fight.
-fn worth_a_blast(option: &Option_, scene: &Scene, target: &Target) -> bool {
+/// Whether a grenade blast around `target` hits enough enemies and none of
+/// the character's allies. A companion throws a grenade only in an intense
+/// fight.
+fn worth_a_grenade(scene: &Scene, target: &Target) -> bool {
     let enemies = u32::from(target.hostiles_near) + 1;
-    let grenade = matches!(option.choice, Choice::Grenade(_));
     enemies >= choices::CLUSTER_TARGETS
         && target.allies_near == 0
-        && !(grenade && scene.companion && !scene.intense)
+        && !(scene.companion && !scene.intense)
 }
 
 /// The best option whose score passes the threshold. A heal that passes is
@@ -582,12 +631,7 @@ pub fn fire_reason(
 /// Power Attack is the strong style, Critical Strike the medium style and
 /// Flurry the fast style. A gun line has none.
 pub fn style_of(line: FeatLine) -> Option<Style> {
-    match line {
-        FeatLine::PowerAttack => Some(Style::Strong),
-        FeatLine::CriticalStrike => Some(Style::Medium),
-        FeatLine::Flurry => Some(Style::Fast),
-        FeatLine::PowerBlast | FeatLine::RapidShot | FeatLine::SniperShot => None,
-    }
+    crate::combat::picks::style_of(line)
 }
 
 /// Whether a style or line that the chooser changed at `changed_at` (sim
@@ -699,8 +743,10 @@ impl SideKind {
 
 /// The kind of `choice` that a side waits for. A grenade is a grenade
 /// whatever its row. A power or an item has the kind the rulebook gives its
-/// row (`ai.choices.kinds`). A power that damages a single target, and a
-/// row the rulebook does not list, such as a mod's, have none.
+/// row (`ai.choices.kinds`). Only shared intense-fight buffs (`Reason::Intense`)
+/// wait on allies; personal buffs, stims and energy shields do not. A power
+/// that damages a single target, and a row the rulebook does not list, such
+/// as a mod's, have none.
 pub fn side_kind(choice: Choice) -> Option<SideKind> {
     let row = match choice {
         Choice::Grenade(_) => return Some(SideKind::Grenade),
@@ -710,8 +756,12 @@ pub fn side_kind(choice: Choice) -> Option<SideKind> {
         Kind::AreaDamage => Some(SideKind::Area),
         Kind::Disable => Some(SideKind::Disable),
         Kind::Heal => Some(SideKind::Heal),
-        Kind::Buff => Some(SideKind::Buff),
-        Kind::Damage => None,
+        Kind::Buff
+            if matches!(choice, Choice::Power(_)) && reason_of(choice) == Reason::Intense =>
+        {
+            Some(SideKind::Buff)
+        }
+        Kind::Buff | Kind::Damage => None,
     }
 }
 

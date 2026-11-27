@@ -4800,6 +4800,16 @@ fn choice_side_waits() {
             );
         }
     }
+    use sim::combat::choose::{Choice, side_kind};
+    use sim::combat::spells::{
+        FORCE_POWER_FORCE_VALOR, FORCE_POWER_SPEED_BURST, ITEM_ABILITY_ENERGY_SHIELD,
+    };
+    assert_eq!(
+        side_kind(Choice::Power(FORCE_POWER_FORCE_VALOR)),
+        Some(SideKind::Buff)
+    );
+    assert_eq!(side_kind(Choice::Power(FORCE_POWER_SPEED_BURST)), None);
+    assert_eq!(side_kind(Choice::Item(ITEM_ABILITY_ENERGY_SHIELD)), None);
     probed(
         "enemy side waits",
         &sim::enemy_choice_probes::side_wait_probes(),
@@ -5898,6 +5908,7 @@ fn choice_scores() {
     const STUN: u16 = 46;
     const DROID_STUN: u16 = 47;
     const LIGHTNING: u16 = 35;
+    const DEATH_FIELD: u16 = 11;
     const STORM: u16 = 25;
     const HEAL: u16 = 28;
     const VALOR: u16 = 22;
@@ -6036,15 +6047,58 @@ fn choice_scores() {
             Scores,
         ),
         (
-            "storm, one target",
+            "storm, one target, out of reach",
             offer(Choice::Power(STORM)),
             enemy,
+            Scores,
+        ),
+        (
+            "storm, one target, in reach",
+            offer(Choice::Power(STORM)),
+            at(Target {
+                in_reach: true,
+                ..foe
+            }),
             Zero,
+        ),
+        (
+            "storm, one target, staggered in reach",
+            offer(Choice::Power(STORM)),
+            at(Target {
+                in_reach: true,
+                staggered: true,
+                ..foe
+            }),
+            Scores,
         ),
         (
             "storm, two targets",
             offer(Choice::Power(STORM)),
             at(pair),
+            Scores,
+        ),
+        (
+            "storm, two targets, ally near",
+            offer(Choice::Power(STORM)),
+            at(Target {
+                allies_near: 1,
+                ..pair
+            }),
+            Scores,
+        ),
+        (
+            "death field, one target, out of reach",
+            offer(Choice::Power(DEATH_FIELD)),
+            enemy,
+            Scores,
+        ),
+        (
+            "death field, two targets, ally near",
+            offer(Choice::Power(DEATH_FIELD)),
+            at(Target {
+                allies_near: 1,
+                ..pair
+            }),
             Scores,
         ),
         (
@@ -6205,9 +6259,15 @@ fn choice_scores() {
         ),
         // Force Aura's reason is always true. It keeps the opening's rule.
         (
-            "buff at 6000 ms",
+            "buff at 6000 ms (still in opening)",
             offer(Choice::Power(AURA)),
             opening(6000),
+            Scores,
+        ),
+        (
+            "buff at 20000 ms (after opening)",
+            offer(Choice::Power(AURA)),
+            opening(20_000),
             Zero,
         ),
         (
@@ -6234,12 +6294,13 @@ fn choice_scores() {
             Scores,
         ),
         (
-            "unlisted buff at 6000 ms",
+            "unlisted buff at 20000 ms",
             unlisted_buff,
-            opening(6000),
+            opening(20_000),
             Zero,
         ),
-        // Each reason, true and false, in the opening.
+        // Each reason, true and false, in the opening, and tactical buffs
+        // after the opening too.
         (
             "energy resistance, an enemy with energy damage",
             offer(Choice::Power(RESIST_ENERGY)),
@@ -6260,16 +6321,16 @@ fn choice_scores() {
             Zero,
         ),
         (
-            "energy resistance, an enemy with energy damage, at 6000 ms",
+            "energy resistance, an enemy with energy damage, at 20000 ms",
             offer(Choice::Power(RESIST_ENERGY)),
             Scene {
                 foes: Foes {
                     energy: true,
                     ..Foes::default()
                 },
-                ..opening(6000)
+                ..opening(20_000)
             },
-            Zero,
+            Scores,
         ),
         (
             "barrier, an enemy with physical damage",
@@ -6385,7 +6446,7 @@ fn choice_scores() {
                 intense_buff: true,
                 ..opening(1000)
             },
-            Scores,
+            Zero,
         ),
         (
             "valor, intense, already running",
@@ -6442,20 +6503,30 @@ fn choice_scores() {
         "a heal scores higher the lower the ally's health is"
     );
     assert_eq!(choose(&[], &enemy, 0.0), None, "no options");
-    let tie = [offer(Choice::Power(LIGHTNING)), offer(Choice::Power(STUN))];
+    let tie = [
+        offer(Choice::Power(RESIST_ENERGY)),
+        offer(Choice::Power(STUN)),
+    ];
+    let energy_opening = Scene {
+        foes: Foes {
+            energy: true,
+            ..Foes::default()
+        },
+        ..opening(1000)
+    };
     let stun_or_heal = [offer(Choice::Power(STUN)), heal];
     let picks = [
         (
             "a tie, pick 0.0",
             &tie[..],
-            enemy,
+            energy_opening,
             0.0,
-            Choice::Power(LIGHTNING),
+            Choice::Power(RESIST_ENERGY),
         ),
         (
             "a tie, pick 0.999",
             &tie[..],
-            enemy,
+            energy_opening,
             0.999,
             Choice::Power(STUN),
         ),
@@ -6477,6 +6548,35 @@ fn choice_scores() {
     for (name, options, scene, pick, expected) in picks {
         assert_eq!(choose(options, &scene, pick), Some(expected), "{name}");
     }
+    let cluster_three = at(Target {
+        hostiles_near: 2,
+        ..foe
+    });
+    assert_eq!(
+        choose(
+            &[
+                offer(Choice::Power(LIGHTNING)),
+                offer(Choice::Power(STUN)),
+                offer(Choice::Power(STORM)),
+            ],
+            &cluster_three,
+            0.0,
+        ),
+        Some(Choice::Power(STORM)),
+        "3-enemy Force Storm outranks Stun and single-target Lightning"
+    );
+    assert_eq!(
+        choose(
+            &[
+                offer(Choice::Power(AURA)),
+                offer(Choice::Power(RESIST_ENERGY))
+            ],
+            &energy_opening,
+            0.0,
+        ),
+        Some(Choice::Power(RESIST_ENERGY)),
+        "counter-buff Energy Resistance outranks generic Force Aura"
+    );
     let kinds = [
         (
             "a listed row wins over the flag",
@@ -6677,6 +6777,9 @@ fn choice_specials() {
         .map(Special::long)
         .collect();
     assert_eq!(long, [false, true, false, false, true, false], "long moves");
+    use sim::combat::saber::Style;
+    assert!(!Special::JumpAttack.long_for(Some(Style::Dual)));
+    assert!(Special::JumpAttack.long_for(Some(Style::Staff)));
     // A special move that began at 5 seconds missed unless the fighter hit
     // its target at or after then.
     use sim::combat::pace::{SpecialWhy, long_allowed, missed};
@@ -6977,7 +7080,7 @@ fn feat_choices() {
 /// approval)
 #[test]
 fn special_choices() {
-    probed("special choices", &sim::special_choice_probes::probes(), 13);
+    probed("special choices", &sim::special_choice_probes::probes(), 14);
 }
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how

@@ -8,9 +8,8 @@
 # own weapon are kept. A talent from any other script is kept, so a boss's
 # own scripts still cast their set pieces.
 #
-# The list comes from the survey of 19 November 2026
-# (.superpowers/sdd/2026-11-19-combat-ai-choices-part-2/survey.md in the
-# worktree). It is the designer's call and waits for the owner.
+# The list comes from the survey of 19 November 2026. It is the
+# designer's call and waits for the owner.
 #
 # The stock event scripts that most creatures use, such as
 # k_def_combend01, k_def_damage01 and k_def_attacked01.

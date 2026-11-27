@@ -804,3 +804,4 @@ crates/sim/src/combat/choose.rs GUN_FALLBACK  # the gun feat lines in the order 
 crates/sim/src/combat/spells.rs RAISES_THE_FALLEN  # Revitalize's spells.2da rows, a list of table rows
 crates/sim/src/action.rs PLAY  # a player action's wire tag
 crates/sim/src/script/party.rs NPC_AISTYLE_MELEE_ATTACK  # the scripts' own constant for an AI style, no number the game plays by
+crates/sim/src/combat/picks.rs SINGLE_BLADE_BIT  # a bit flag in Picks::player for a single blade's style, no number the game plays by

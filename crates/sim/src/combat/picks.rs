@@ -39,6 +39,10 @@ use crate::wire::{DecodeError, Reader, Writer};
 /// How many gun types there are (`Blaster`).
 const GUNS: usize = 7;
 
+/// Bit in `Picks::player` for a single blade whose style was picked by the
+/// player on the action bar (`Picks::set`).
+const SINGLE_BLADE_BIT: u16 = 1 << (GUNS + 3);
+
 /// A melee feat line two blades or a double-bladed weapon carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Melee {
@@ -305,6 +309,8 @@ impl Picks {
         let changed = Self::put(sheet, hand, row, true);
         if let Some(slot) = slot(sheet, hand) {
             sheet.picks.player |= slot.bit();
+        } else if Self::switches_to(sheet, hand, line).is_some() {
+            sheet.picks.player |= SINGLE_BLADE_BIT;
         }
         changed
     }
@@ -317,7 +323,10 @@ impl Picks {
 
     /// Whether the player picked the line of the weapon in `hand`.
     pub fn player_picked(sheet: &Sheet, hand: u8) -> bool {
-        slot(sheet, hand).is_some_and(|slot| sheet.picks.player & slot.bit() != 0)
+        let bit = slot(sheet, hand)
+            .map(Slot::bit)
+            .or_else(|| single_blade(sheet, hand).then_some(SINGLE_BLADE_BIT));
+        bit.is_some_and(|bit| sheet.picks.player & bit != 0)
     }
 
     /// The combat AI's choice (`combat::choose::feat_line`): makes the line

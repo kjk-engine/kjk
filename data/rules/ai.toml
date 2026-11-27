@@ -1793,14 +1793,78 @@ detail = "The lower that character's hit points are, the higher the heal scores.
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::choose::score"
 
+[choices.scores]
+title = "Scores by Kind and Situation"
+summary = """
+Each non-heal choice that passes its checks scores between {ai.choices.threshold:bare}
+and 1 so tactical plays outrank fallback attacks while equal situations tie
+within {ai.choices.tie:bare} and stay varied.
+"""
+
+[choices.scores.cluster_large]
+name = "Large Cluster Score"
+value = 0.96
+range = [0.0, 1.0]
+summary = "A grenade or area Force power hitting more than {ai.choices.cluster_targets:bare} enemies scores {ai.choices.scores.cluster_large:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.cluster]
+name = "Cluster Score"
+value = 0.84
+range = [0.0, 1.0]
+summary = "A grenade or area Force power hitting {ai.choices.cluster_targets:bare} enemies scores {ai.choices.scores.cluster:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.disable]
+name = "Disable Score"
+value = 0.8
+range = [0.0, 1.0]
+summary = "A disabling power on a standing target scores {ai.choices.scores.disable:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.counter_buff]
+name = "Counter Buff Score"
+value = 0.8
+range = [0.0, 1.0]
+summary = "A buff that answers a specific threat in the fight scores {ai.choices.scores.counter_buff:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.stagger_damage]
+name = "Staggered Target Damage Score"
+value = 0.78
+range = [0.0, 1.0]
+summary = "A damage power used on a staggered target scores {ai.choices.scores.stagger_damage:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.far_damage]
+name = "Out-of-Reach Damage Score"
+value = 0.65
+range = [0.0, 1.0]
+summary = "A damage power used on an out-of-reach target scores {ai.choices.scores.far_damage:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
+[choices.scores.plain_buff]
+name = "Plain Buff Score"
+value = 0.65
+range = [0.0, 1.0]
+summary = "A generic buff, stim or energy shield with no special threat reason scores {ai.choices.scores.plain_buff:bare}."
+source = "combat AI review of 27 November 2026"
+see = "sim::combat::choose::score"
+
 [choices.opening_ms]
 name = "Opening of a Fight"
 type = "u64"
-value = 5000
+value = 15000
 unit = "ms"
 range = [0, 60000]
-summary = "A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first {ai.choices.opening_ms:s} of a fight, and only when that effect is not already running. A buff whose reason is an intense fight is the one exception. It may also be used after the opening while the fight is intense, when no other buff of that reason runs on the character (`ai.choices.reasons.intense`)."
-source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+summary = "A plain buff, a stim or an energy shield is used only in the first {ai.choices.opening_ms:s} of a fight when not already running. Tactical buffs that answer an enemy's damage, Force powers or melee fighting may be used at any time while their reason holds. An intense-fight buff is kept up one at a time (`ai.choices.reasons.intense`)."
+source = "the designer's call of 18 November 2026, updated 27 November 2026"
 see = "sim::combat::choose::score"
 
 [choices.keep_items]
@@ -1863,13 +1927,13 @@ source = "the designer's call of 19 November 2026"
 see = "sim::combat::choose::side_wait_ms"
 
 [choices.side_wait_ms.buff]
-name = "Wait After an Ally's Buff"
+name = "Wait After an Ally's Shared Buff"
 type = "u64"
 value = 3000
 unit = "ms"
 range = [0, 120000]
-summary = "A character uses a buff, a stim or a shield only when no ally it can see has used one in the last {ai.choices.side_wait_ms.buff:s}."
-source = "the designer's call of 19 November 2026"
+summary = "A character uses a shared intense-fight buff such as Force Valor, Battle Meditation or Inspire Followers only when no ally it can see has used one in the last {ai.choices.side_wait_ms.buff:s}. Personal buffs, stims and energy shields do not wait on allies."
+source = "the designer's call of 19 November 2026, updated 27 November 2026"
 see = "sim::combat::choose::side_wait_ms"
 
 [choices.intense_strength_share]
@@ -2041,7 +2105,7 @@ labels = [
     "ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3", "DROID_ITEM_PLASMA_THROWER",
     "DROID_ITEM_TOXIN_EMITTER", "DROID_ITEM_BIO_ASSAULT_SPRAY"
 ]
-summary = "These Force powers, grenades, rockets and droid weapons hurt every enemy in an area. A character uses one only when at least {ai.choices.cluster_targets:bare} enemies stand inside the area and none of its allies do. Their rows in `spells.2da` are {ai.choices.kinds.area_damage:bare}."
+summary = "These Force powers, grenades, rockets and droid weapons hurt enemies in an area. Grenades require at least {ai.choices.cluster_targets:bare} enemies inside the blast with no allies inside. Area Force powers have no friendly fire, so they hit clusters without checking for allies and also work on a single out-of-reach or staggered target. Their rows in `spells.2da` are {ai.choices.kinds.area_damage:bare}."
 source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
 see = "sim::combat::spells::kind_of_row"
 
@@ -2218,7 +2282,7 @@ labels = [
     "FORCE_POWER_INSPIRE_FOLLOWERS_IV", "FORCE_POWER_INSPIRE_FOLLOWERS_V",
     "FORCE_POWER_INSPIRE_FOLLOWERS_VI"
 ]
-summary = "Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). In the first {ai.choices.opening_ms:s} of the fight, a character may use any of them. After that, a character uses one only while no buff of this list runs on it, so it keeps one of them up at a time. Their rows in `spells.2da` are {ai.choices.reasons.intense:bare}."
+summary = "Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). A character uses one only while no buff of this list runs on it, so it keeps one of them up at a time. Their rows in `spells.2da` are {ai.choices.reasons.intense:bare}."
 source = "the owner's call of 19 November 2026"
 see = "sim::combat::choose::fits"
 
@@ -2361,9 +2425,19 @@ labels = ["lunge", "kata", "flip_slash", "leap", "jump_attack", "spin"]
 unit = "ms"
 range = [0, 10000]
 summary = "How long each special move that a fighter starts itself plays, from Jedi Academy's animation of it: the lunge {ai.choices.specials.length_ms[0]:s}, the longest kata (the two-weapon one) {ai.choices.specials.length_ms[1]:s}, the flip attack {ai.choices.specials.length_ms[2]:s}, the strong style's leap {ai.choices.specials.length_ms[3]:s}, the longest jump attack (the staff's) {ai.choices.specials.length_ms[4]:s} and the longest spin (the staff's) {ai.choices.specials.length_ms[5]:s}."
-detail = "The other katas take 2.45 to 4.0 seconds, the two-weapon jump attack 2.1 seconds and the two-weapon spin 2.05 seconds. A move counts by its longest form."
+detail = "The other katas take 2.45 to 4.0 seconds, the two-weapon jump attack 2.1 seconds and the two-weapon spin 2.05 seconds."
 source = "Jedi Academy's models/players/_humanoid/animation.cfg, frames and frame rate of each move's animation"
-see = "sim::combat::pace::Special::long"
+see = "sim::combat::pace::Special::long_for"
+
+[choices.specials.dual_jump_attack_ms]
+name = "Length of Two-Weapon Jump Attack"
+type = "u64"
+value = 2100
+unit = "ms"
+range = [0, 10000]
+summary = "The two-weapon style's jump attack plays for {ai.choices.specials.dual_jump_attack_ms:s}, so it counts as a short move rather than a long move."
+source = "Jedi Academy's models/players/_humanoid/animation.cfg, DUAL_JUMPATTACK"
+see = "sim::combat::pace::Special::long_for"
 
 [choices.specials.long_from_ms]
 name = "Long Special Move"

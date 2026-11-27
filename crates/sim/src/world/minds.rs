@@ -15,10 +15,11 @@
 //! lasts. **Choose** its task (`ai::Task`).
 //! **Route** with its `Walker` over the navigation mesh, through doors it
 //! can open. **Act**: the command for this step, as a player's hands
-//! would send it, with its script's talents. A companion chooses its own
-//! powers and grenades on a look tick (`combat::choose`). On a stage
-//! without scripts every creature chooses its own powers, items and
-//! grenades in the same way. A blade wielder
+//! would send it, with its script's non-generic talents. A companion chooses
+//! its own powers, grenades and feats on a look tick (`combat::choose`), and
+//! an enemy on a generic combat script chooses its own powers, items,
+//! grenades and feats in the same way. On a stage without scripts every
+//! creature chooses its own powers, items and grenades. A blade wielder
 //! paced as JA's Jedi (`fight`, `combat::pace`), a gunner as its troopers
 //! (`shoot`, `combat::troop`), each deciding on its think ticks and turning
 //! at its rate; a blade in a scene that can block holds off in some windows
@@ -700,9 +701,10 @@ pub(super) fn think(
             == Some(&crate::script::party::NPC_AISTYLE_MELEE_ATTACK);
         let tag = facts.map_or("", |facts| facts.tag.as_str());
         let kit_now = crate::combat::saber::Kit::of(&me);
-        // A melee weapon that is not a lightsaber, and a second or third
-        // rank of a melee feat attack (`pace::elite`).
-        let melee_in_hand = matches!(in_hand.delivery, Delivery::Melee | Delivery::Baton);
+        // A melee weapon that is not a lightsaber (swords and vibroblades;
+        // batons use KOTOR's baton strikes rather than saber pacing), and a
+        // second or third rank of a melee feat attack (`pace::elite`).
+        let melee_in_hand = in_hand.delivery == Delivery::Melee;
         let second_rank = {
             use crate::combat::sheet::feats;
             [
@@ -969,10 +971,7 @@ pub(super) fn think(
                 let paced = close == mind::Attack::Swing
                     && reach.is_none()
                     && !kotor
-                    && matches!(
-                        weapon.delivery,
-                        Delivery::Melee | Delivery::Saber(_) | Delivery::Baton
-                    );
+                    && matches!(weapon.delivery, Delivery::Melee | Delivery::Saber(_));
                 paced_fight = paced;
                 // A target off the walkable floor: it strikes up at it, jumps
                 // onto its perch, pushes it off, shoots it or hides.
@@ -1440,7 +1439,12 @@ pub(super) fn think(
             && calm
             && engaged
             && looking;
-        if !talent_ends_step && chooses && ready {
+        if !talent_ends_step
+            && chooses
+            && ready
+            && fighter.pack.using.is_none()
+            && fighter.pack.queued.is_none()
+        {
             let fighter_now = *fighter;
             let hostile_row = |row: u16| library.and_then(|library| library.hostile(row));
             // Its side. A party member's side is the party. Any other
@@ -1565,7 +1569,11 @@ pub(super) fn think(
                     // medpac chosen on it.
                     choose::Choice::Item(row) if !own_choice => fighter.pack.queued = Some(row),
                     _ => {
-                        cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice);
+                        if cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice)
+                            && matches!(option.choice, choose::Choice::Power(_))
+                        {
+                            note_power(spaced, &mut fighter.mind, (id.0, &own), now);
+                        }
                     }
                 }
                 // A grenade's row is queued for the throw.

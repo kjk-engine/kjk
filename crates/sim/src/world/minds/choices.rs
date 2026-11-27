@@ -398,6 +398,9 @@ pub(super) fn feat_change(
     sight: &FeatSight,
 ) -> Option<(FeatLine, FeatWhy, FeatChange)> {
     let hand = fighter.hand;
+    if Picks::player_picked(sheet, hand) {
+        return None;
+    }
     let kit = Kit::of(sheet);
     if let Some(blade) = kit.blade(hand).filter(|_| kit.forced_style(hand).is_none()) {
         let singles = kit.singles(blade);
@@ -409,9 +412,6 @@ pub(super) fn feat_change(
         return (in_use != Some(style)).then_some((line, why, FeatChange::Style(style)));
     }
     let melee = picks::chooses_melee(sheet, hand)?;
-    if Picks::player_picked(sheet, hand) {
-        return None;
-    }
     let (line, why) = choose::feat_line(sight, !melee, |line| line.known(sheet).is_some())?;
     let row = line.known(sheet)?;
     (Picks::in_use(sheet, hand) != Some(line)).then_some((line, why, FeatChange::Line(row)))
@@ -476,10 +476,20 @@ pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
             "the target is out of reach".to_string()
         }
         Kind::Damage => "the target is staggered".to_string(),
-        Kind::AreaDamage => format!(
-            "{} enemies stand in the blast",
-            scene.target.map_or(0, |target| target.hostiles_near + 1)
-        ),
+        Kind::AreaDamage
+            if scene.target.is_some_and(|target| {
+                u32::from(target.hostiles_near) + 1 >= rules::ai::choices::CLUSTER_TARGETS
+            }) =>
+        {
+            format!(
+                "{} enemies stand in the blast",
+                scene.target.map_or(0, |target| target.hostiles_near + 1)
+            )
+        }
+        Kind::AreaDamage if scene.target.is_some_and(|target| target.staggered) => {
+            "the target is staggered".to_string()
+        }
+        Kind::AreaDamage => "the target is out of reach".to_string(),
     };
     eprintln!(
         "choice {} ms {tag} {:?} {:?} score {:.2}: {reason}",

@@ -9,10 +9,11 @@
 //!   gunners stand and fire, moving to another spot only when their target
 //!   goes out of sight (`combat::troop`); saber and
 //!   melee fighters route to it and swing within reach, a blade wielder
-//!   paced as JA's Jedi (`combat::pace`). An enemy casts what its script
-//!   chooses (`k_ai_master`'s talents). A companion chooses its own powers
-//!   and grenades (`combat::choose`). On a stage without scripts, every
-//!   creature chooses its own powers, items and grenades.
+//!   paced as JA's Jedi (`combat::pace`). A companion chooses its own
+//!   powers, grenades and feat lines (`combat::choose`), and an enemy on a
+//!   generic combat script chooses its own powers, items, grenades and
+//!   feats as well. On a stage without scripts, every creature chooses its
+//!   own powers, items and grenades.
 //! - **Chase** to where it last saw its target, for `CHASE_MS`.
 //! - **Follow** its leader (a companion of a seat) when nothing else calls,
 //!   and come back to it before straying `LEASH` away.
@@ -280,7 +281,7 @@ fn intense_until_kept() -> Result<String, String> {
         feat_at: 4_000,
         ..Mind::default()
     };
-    mind.pace.escape = 2;
+    mind.pace.escape = crate::combat::pace::EscapeKind::Cartwheel;
     mind.pace.escape_side = 1;
     mind.pace.escape_since = 5_000;
     mind.pace.escape_after = 6_000;
@@ -311,7 +312,7 @@ fn intense_until_kept() -> Result<String, String> {
         Ok(read)
     };
     let mut still = mind;
-    still.pace.escape = 0;
+    still.pace.escape = crate::combat::pace::EscapeKind::None;
     still.pace.escape_side = 0;
     still.pace.escape_since = 0;
     still.pace.escape_after = 0;

@@ -590,6 +590,55 @@ fn no_special_at_a_leaving_target() -> Result<String, String> {
     )
 }
 
+/// A Boss breaking a long block still starts a special move when the blocking
+/// target drifts slowly back (`Skip::NoReason`), and is still stopped when
+/// the target retreats faster than `leaving_m_s`.
+fn boss_breaks_block_on_slow_drift() -> Result<String, String> {
+    use crate::combat::pace::{Dice, Keys, Pace, SpecialWhy, Tier, Told};
+    let slow_back = 1.0 / collision::UNIT;
+    let fast_back = 2.0 / collision::UNIT;
+    let run = |away: f32| -> Option<SpecialWhy> {
+        let mut pace = Pace::default();
+        let mut sight = crate::trace::duelling_probes::duel_sight(60.0);
+        sight.tier = Tier::Boss;
+        sight.duel = true;
+        sight.style = Some(crate::combat::saber::Style::Medium);
+        sight.foe_away = away;
+        let clear = |_: i8, _: i8| true;
+        for step in 0..60u64 {
+            let now = 1000 + step * crate::combat::pace::THINK_MS;
+            sight.blocking = step >= 15;
+            let mut dice = Dice::new(now, SimId(1));
+            let (_, reaction) = pace.decide(&sight, now, &mut dice, &clear);
+            pace.finish(
+                Keys::default(),
+                &sight,
+                reaction,
+                now,
+                &mut dice,
+                &clear,
+                0.0,
+                1.0,
+            );
+            if let Some(Told::Special(_, why)) = pace.take_told()
+                && sight.blocking
+            {
+                return Some(why);
+            }
+            if !sight.blocking {
+                pace.special = 0;
+            }
+        }
+        None
+    };
+    let slow = run(slow_back);
+    let fast = run(fast_back);
+    check(
+        slow == Some(SpecialWhy::BreaksBlock) && fast.is_none(),
+        format!("slow drift {slow:?}, fast leaving {fast:?}"),
+    )
+}
+
 pub fn probes() -> Checks {
     let mut checks: Checks = CASES
         .iter()
@@ -601,6 +650,10 @@ pub fn probes() -> Checks {
     checks.push((
         "no_special_at_a_leaving_target",
         no_special_at_a_leaving_target(),
+    ));
+    checks.push((
+        "boss_breaks_block_on_slow_drift",
+        boss_breaks_block_on_slow_drift(),
     ));
     checks
 }

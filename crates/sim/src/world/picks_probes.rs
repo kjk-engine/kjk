@@ -550,6 +550,14 @@ fn steered() -> Result<String, String> {
     if line_changed || !Picks::player_picked(&gun, 0) {
         wrong.push(format!("a click on the line in use changed {line_changed}"));
     }
+    // Choosing a single-blade feat style on the action bar marks the single
+    // blade so the AI keeps it, while `Picks::steer` still leaves single
+    // blades alone.
+    let mut single_picked = holding(Delivery::Saber(SaberShape::Single), 1, &BLADE_LINES);
+    let _ = Picks::set(&mut single_picked, 0, FeatLine::Flurry);
+    if !Picks::player_picked(&single_picked, 0) {
+        wrong.push("single-blade action bar feat did not mark player_picked".into());
+    }
     check(wrong.is_empty(), format!("wrong: {wrong:?}"))
 }
 
