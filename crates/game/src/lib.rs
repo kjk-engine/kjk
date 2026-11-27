@@ -152,6 +152,7 @@ pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub use ui_view::hide_probes;
 pub mod catalogue_view;
+pub mod gui_tree;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;

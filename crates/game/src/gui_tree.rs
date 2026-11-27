@@ -80,13 +80,18 @@ fn control(
     links: &[FocusLink],
     bodies: &mut BTreeMap<(TextureId, u32, u32), Option<u32>>,
 ) -> Value {
-    let moves = links.iter().find(|(tag, _)| *tag == mark.tag).map(|(_, to)| {
-        json!({ "up": to[0], "down": to[1], "left": to[2], "right": to[3] })
-    });
+    let moves = links
+        .iter()
+        .find(|(tag, _)| *tag == mark.tag)
+        .map(|(_, to)| json!({ "up": to[0], "down": to[1], "left": to[2], "right": to[3] }));
     let words: Vec<Value> = (mark.words.iter())
         .map(|words| {
             let rect = in_window(words.rect, placed);
-            let key = (words.texture, words.font.height.to_bits(), placed.0.to_bits());
+            let key = (
+                words.texture,
+                words.font.height.to_bits(),
+                placed.0.to_bits(),
+            );
             let body = *bodies
                 .entry(key)
                 .or_insert_with(|| body(assets, words.texture, &words.font, placed.0));
@@ -132,7 +137,10 @@ fn round(value: f32) -> f64 {
 /// its texture is not loaded or it has none of those letters.
 fn body(assets: &GuiAssets, texture: TextureId, font: &Font, scale: f32) -> Option<u32> {
     let pixels = assets.pixels(texture)?;
-    let (du, dv) = (0.5 / pixels.width.max(1) as f32, 0.5 / pixels.height.max(1) as f32);
+    let (du, dv) = (
+        0.5 / pixels.width.max(1) as f32,
+        0.5 / pixels.height.max(1) as f32,
+    );
     let mut list = DrawList::default();
     let mut x = 1.0;
     for &byte in BODY {
@@ -175,8 +183,14 @@ fn bare_picture(assets: &GuiAssets, layers: &[Layer<'_>], window: (u32, u32)) ->
     for layer in layers {
         let mut list = layer.list.clone();
         list.quads.retain(|quad| !fonts.contains(&quad.texture));
-        let drawn = raster(&list, &|id| assets.pixels(id), window.0, window.1, [0, 0, 0, 0]);
-        crate::gui_verbs::over(&mut image, &drawn);
+        let drawn = raster(
+            &list,
+            &|id| assets.pixels(id),
+            window.0,
+            window.1,
+            [0, 0, 0, 0],
+        );
+        over(&mut image, &drawn);
     }
     image
 }
@@ -186,7 +200,10 @@ fn bare_picture(assets: &GuiAssets, layers: &[Layer<'_>], window: (u32, u32)) ->
 fn background(image: &[u8], window: (u32, u32), rect: [f32; 4]) -> Value {
     let [l, t, w, h] = rect;
     let (x0, y0) = (l.max(0.0) as u32, t.max(0.0) as u32);
-    let (x1, y1) = (((l + w).min(window.0 as f32)) as u32, ((t + h).min(window.1 as f32)) as u32);
+    let (x1, y1) = (
+        ((l + w).min(window.0 as f32)) as u32,
+        ((t + h).min(window.1 as f32)) as u32,
+    );
     let luminance = |p: &[u8]| {
         let [r, g, b] = ui::draw::LUMINANCE;
         r * f32::from(p[0]) + g * f32::from(p[1]) + b * f32::from(p[2])
@@ -208,5 +225,22 @@ fn background(image: &[u8], window: (u32, u32), rect: [f32; 4]) -> Value {
     match (darkest, lightest) {
         (Some(darkest), Some(lightest)) => json!({ "darkest": darkest, "lightest": lightest }),
         _ => Value::Null,
+    }
+}
+
+/// `top`, drawn over nothing (its colour already carries its alpha), laid
+/// over `image`, which ends opaque.
+pub fn over(image: &mut [u8], top: &[u8]) {
+    for (pixel, drawn) in image
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(top.as_chunks::<4>().0)
+    {
+        let alpha = f32::from(drawn[3]) / 255.0;
+        for k in 0..3 {
+            pixel[k] = (f32::from(drawn[k]) + f32::from(pixel[k]) * (1.0 - alpha)).min(255.0) as u8;
+        }
+        pixel[3] = 255;
     }
 }

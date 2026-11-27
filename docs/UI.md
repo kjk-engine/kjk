@@ -898,6 +898,103 @@ Running and checking:
     type` and `ui back` reach the screens. A dump has the fact `catalogue`,
     with the size, the mode, where the image stands in the window and the
     focused control.
+- **Working with the catalogue** (`kjk_game::catalogue_view`, its module
+  `collab`). Five things let an agent and the owner work on a story together.
+  - **The agent bridge.** When the catalogue starts, it creates three files
+    in the run's folder, under `catalogue/`, and prints their paths. The
+    state file `state.json` is kept up to date while the catalogue runs. The
+    command file `commands.txt` is read by the catalogue about ten times a
+    second. The log `log.jsonl` has one line for each change. The pointer
+    `kjk-artifacts/catalogue-bridge.json` names the three files of the
+    catalogue that started last, so an agent can find a catalogue that the
+    owner opened in a window. The agent never touches that window. It reads
+    the state file and appends lines to the command file.
+  - **The state file** is one JSON object. The state file is written whole
+    and renamed into place, so a reader never sees half of it. It is written
+    again only when something in it changed. Its `revision` counts the
+    writes. Its fields are `story` (`MODULE/NAME`), `game`, `size`, `device`
+    (the size's pixels), `factor`, `mode`, `focus` (the focused control's
+    tag), `screens` (the open screens, bottom first), `outlines`,
+    `backdrop`, `recording` (its `steps` so far and the `saved` stories),
+    `commands_read` (how many command lines the catalogue has read),
+    `last_command` (the last line, with `ok` and an `error` when it failed)
+    `tree_current` and `tree`. The `tree` is the control tree of a recent
+    frame in the format of "Control trees", with one difference: `back` is
+    null, because asking what Back does would close a screen. It is built
+    again when the frame's controls change, but at most every 0.4 seconds,
+    because it draws the screens a second time to read the colours behind
+    the words. `tree_current` is true when the tree is of the frame the
+    other fields describe. An agent that needs the tree of a change reads the
+    state file again until `tree_current` is true. The colours of the words
+    can be a moment old while a control's focus pulses.
+  - **The command file** takes one command on each line. The catalogue reads
+    a line only when it ends with a newline, and ignores empty lines and
+    lines that start with `#`. The commands are `open MODULE/STORY`, `size
+    NAME`, `mode fit|pixel|seen`, `step STEP` (any step of `Staged::step`, such
+    as `step press BTN_GAMEPLAY`), `outlines on|off`, `backdrop
+    plain|stripes` and `save [NAME]`. A command that fails does not stop the
+    others. The state file's `last_command` and a line of the log with the
+    change `refused` say why.
+  - **The log** has one JSON object on each line, with `n` (the line's
+    number), `seconds` (since the catalogue started), `source`, `change` and
+    `detail`. The sources are `keyboard`, `mouse`, `pad`, `console` (a `ui`
+    command of a run's script), `agent` (the command file) and `disk` (a
+    reload). The changes are `story`, `size`, `mode`, `backdrop`, `outlines`,
+    `step` (a step taken, whether the owner's input made it or an agent
+    asked for it), `save`, `reload` and `refused`.
+  - **Saving a tryout as a story.** The input of the owner on the live
+    screen is recorded as steps, from the moment the story opened. A key
+    press becomes `key Down` and the other moves of `Staged::step`. Enter
+    on the focused control becomes `press TAG`, with the tag of that
+    control. A click becomes `press TAG`, with the tag of the focusable
+    control under the pointer, and a click on nothing is not recorded. The
+    wheel becomes `hover TAG` and `scroll N`, where the control is the one
+    under the pointer. Typing becomes `type TEXT`. When the pointer moved the
+    focus onto a control and a later key depends on it, a `hover TAG` step
+    comes first. A step that an agent asked for is recorded too, so the
+    replay matches the screen. Raw key names and pad chords are not
+    recorded, and neither is a click on a row of a list (it is recorded as
+    a press of the whole list). `F11` or LB with the D-pad's down button, or the command `save`,
+    appends the recording to the end of the story file of the open story's
+    module, as a new story called `Tryout 2026-11-27 21:04` (UTC). The new story has the open story's screen,
+    games, captures and error, and its steps are the open story's steps
+    followed by the recorded ones. The owner can rename it in the file
+    later. Before it writes the story, the catalogue stages it again from its
+    steps and compares the controls with those on screen (their tags, places
+    and focus). The line of the log for `save` says `replays`. When the replay differs,
+    nothing is written, and the log's line says the first difference. The recording goes on after a save, and it ends when
+    the story opens again. `hover TAG` is a step of `Staged::step` that
+    moves the pointer to the middle of a control.
+  - **Hot reload.** The catalogue looks every half second at the open
+    story's file in `data/ui/stories`, the folder `data/ui/captures` and
+    `data/ui/tokens.json`. When one changed, it reads the story again, stages
+    it again at the same size and takes the steps of the tryout once more.
+    The window shows the result. A story file that does not parse, or that
+    no longer has the story, is reported in the log as `reload refused` and
+    the old screen stays. Saving a tryout does not reload. The files
+    watched are listed in `sources` in `collab/reload.rs`. The override
+    layouts of https://github.com/kjk-engine/roadmap/issues/25 are added to
+    that list, so their change reloads the story the same way. Today the
+    tokens file changes nothing that is drawn, because the screens read their
+    palettes from the code, so a change there only stages the story again.
+  - **Outlines.** `F9` or LB with A (`LB+South`), or `outlines on|off`,
+    draws a frame around every control of the current frame, each with its
+    tag in a black box. The frames of each open screen have their own
+    colour, and the focused control's frame is orange and twice as thick. The
+    frames are drawn from the same marks as the control tree. Their lines
+    and tags are sized in the window's pixels, so they read the same in
+    every mode. The text beside a frame comes from `label` in
+    `collab/outline.rs`, where the lint of
+    https://github.com/kjk-engine/roadmap/issues/24 adds the numbers of the
+    rules a control breaks.
+  - **Backdrops.** `F10` or LB with the D-pad's up button, or `backdrop
+    plain|stripes`, changes the backdrop behind the screens. Plain is black,
+    as the catalogue has always been. Stripes are diagonal bands of two greys,
+    so that the see-through parts of a KOTOR panel show something to judge.
+    A third backdrop, a frame of play, is not there yet. The captures of play
+    hold no pixels, and a picture of a world needs a scene to be loaded, which
+    costs too much for a backdrop. A third entry joins `Backdrop::ALL` in
+    `collab/backdrop.rs` once a still is cheap to get.
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
   2025.10). They hold the screens' palettes, which are the source of the
   colours in the code (the probe `palette_tokens` fails when a palette

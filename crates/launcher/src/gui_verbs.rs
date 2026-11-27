@@ -155,8 +155,8 @@ pub(crate) fn render_screen(
     let links = stack.focus_links(vm);
     let focus = stack.focused().map(str::to_string);
     let back = back(stack, assets, vm, quiet);
-    let layers: Vec<crate::gui_tree::Layer<'_>> = (shown_layers.iter())
-        .map(|layer| crate::gui_tree::Layer {
+    let layers: Vec<kjk_game::gui_tree::Layer<'_>> = (shown_layers.iter())
+        .map(|layer| kjk_game::gui_tree::Layer {
             screen: &layer.screen,
             layout: &layer.layout,
             list: &layer.list,
@@ -171,7 +171,7 @@ pub(crate) fn render_screen(
     if let Some(capture) = capture {
         shown["capture"] = capture.into();
     }
-    let tree = crate::gui_tree::tree(assets, shown, &layers, size, (&links, focus.as_deref()), back);
+    let tree = kjk_game::gui_tree::tree(assets, shown, &layers, size, (&links, focus.as_deref()), back);
     write_tree(path, &tree)?;
     Ok(path.to_path_buf())
 }
@@ -202,22 +202,7 @@ fn write_tree(png: &Path, tree: &serde_json::Value) -> Result<(), String> {
     std::fs::write(&path, text + "\n").map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// `top`, drawn over nothing (its colour already carries its alpha), laid
-/// over `image`, which ends opaque.
-pub(crate) fn over(image: &mut [u8], top: &[u8]) {
-    for (pixel, drawn) in image
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .zip(top.as_chunks::<4>().0)
-    {
-        let alpha = f32::from(drawn[3]) / 255.0;
-        for k in 0..3 {
-            pixel[k] = (f32::from(drawn[k]) + f32::from(pixel[k]) * (1.0 - alpha)).min(255.0) as u8;
-        }
-        pixel[3] = 255;
-    }
-}
+pub(crate) use kjk_game::gui_tree::over;
 
 pub fn sweep(discovery: &Discovery, game: Option<&str>, out: Option<PathBuf>) -> ExitCode {
     let games: Vec<Game> = match game {
@@ -294,13 +279,13 @@ fn drawn_at_rest(discovery: &Discovery, game: Game, folder: &Path) -> Result<usi
         let path = folder.join(format!("{name}.png"));
         save(&path, &draw(&assets, &list, size.0, size.1), size.0, size.1)?;
         let links = ui::screen::layout_links(&gui);
-        let layer = crate::gui_tree::Layer {
+        let layer = kjk_game::gui_tree::Layer {
             screen: &name,
             layout: &name,
             list: &list,
         };
         let shown = serde_json::json!({ "game": game.key(), "layout": name });
-        let tree = crate::gui_tree::tree(
+        let tree = kjk_game::gui_tree::tree(
             &assets,
             shown,
             &[layer],

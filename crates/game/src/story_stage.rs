@@ -166,7 +166,8 @@ impl Staged {
         }
     }
 
-    /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `key MOVE` a
+    /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `hover TAG` the
+    /// pointer onto the middle of a control; `key MOVE` a
     /// screen move, `Down`, `Activate`; `raw NAME` a key, mouse button or
     /// pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad KIND`
     /// the pad played with, its hints shown, `xbox`, `playstation`,
@@ -335,6 +336,28 @@ impl Staged {
                 };
                 stack.step(assets, vm, &moved);
             }
+            Some(("hover", tag)) => {
+                let frame = stack.step(assets, vm, quiet);
+                let list = frame
+                    .layers
+                    .last()
+                    .ok_or(format!("{step:?}: no screen is open"))?;
+                let mark = (list.marks.iter().rev())
+                    .find(|mark| mark.tag == tag)
+                    .ok_or(format!("{step:?}: the top screen has no control {tag}"))?;
+                let (scale, [x, y]) = list.placed(quiet.window);
+                let [left, top, width, height] = mark.rect;
+                *pointer = [
+                    x + (left + width / 2.0) * scale,
+                    y + (top + height / 2.0) * scale,
+                ];
+                let moved = ui::input::UiInput {
+                    pointer: Some(*pointer),
+                    moved: true,
+                    ..quiet.clone()
+                };
+                stack.step(assets, vm, &moved);
+            }
             Some(("scroll", notches)) => {
                 let notches: f32 = notches
                     .parse()
@@ -349,7 +372,7 @@ impl Staged {
             }
             _ => {
                 return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
+                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `hover TAG`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
                 ));
             }
         }

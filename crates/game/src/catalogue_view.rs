@@ -29,6 +29,10 @@ use ui::virtual_screen::{
 };
 use vfs::Game;
 
+use collab::{Collab, Tool};
+
+mod collab;
+
 use crate::lifecycle_view::OverlayCamera;
 use crate::scene::FrameSize;
 use crate::sound::{Added, Now};
@@ -64,13 +68,22 @@ enum Action {
     NextSize,
     /// The next of the three ways to show the image.
     NextMode,
+    /// A frame around every control, with its tag.
+    Outlines,
+    /// The next backdrop behind the screen.
+    Backdrop,
+    /// The tryout so far, saved as a story.
+    SaveTryout,
 }
 
 /// The catalogue's keys: what they do, the keyboard key and the pad chord.
 /// Later keys of the catalogue join this table.
-const KEYS: [(Action, &str, &str); 2] = [
+const KEYS: [(Action, &str, &str); 5] = [
     (Action::NextSize, "F6", "LB+North"),
     (Action::NextMode, "F7", "LB+West"),
+    (Action::Outlines, "F9", "LB+South"),
+    (Action::Backdrop, "F10", "LB+DPadUp"),
+    (Action::SaveTryout, "F11", "LB+DPadDown"),
 ];
 
 /// What the catalogue opens on.
@@ -147,6 +160,9 @@ struct Catalogue {
     placement: Placement,
     /// The screens as the last frame drew them.
     layers: Vec<DrawList>,
+    /// The screen module and the layout of each of `layers`.
+    names: Vec<(String, String)>,
+    collab: Collab,
     /// What `ui` commands of the console left for the next frame's input.
     scripted: Vec<Vec<String>>,
     scripted_hold: Option<[f32; 2]>,
@@ -184,6 +200,8 @@ impl Catalogue {
                 pan: [0.0; 2],
             },
             layers: Vec::new(),
+            names: Vec::new(),
+            collab: Collab::new(start),
             scripted: Vec::new(),
             scripted_hold: None,
             dragging: None,
@@ -249,6 +267,9 @@ impl Catalogue {
         match action {
             Action::NextSize => self.set_size(self.size + 1),
             Action::NextMode => self.set_mode(self.mode.next()),
+            Action::Outlines => collab::act(self, Tool::Outlines),
+            Action::Backdrop => collab::act(self, Tool::Backdrop),
+            Action::SaveTryout => collab::act(self, Tool::SaveTryout),
         }
     }
 
@@ -320,6 +341,7 @@ impl Catalogue {
             Ok(staged) => {
                 info!(target: "catalogue", story = self.start.story.name, "opened again, its last screen closed");
                 self.staged = staged;
+                self.collab.restaged();
             }
             Err(why) => {
                 warn!(target: "catalogue", "{why}");
@@ -369,7 +391,11 @@ fn step(
     pads: crate::pad::Pads,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<&Camera, With<WindowCamera>>,
-    (frame, time): (Option<Res<FrameSize>>, Res<Time>),
+    (frame, time, run): (
+        Option<Res<FrameSize>>,
+        Res<Time>,
+        Option<Res<console::RunFolder>>,
+    ),
     (mut requests, mut now, mut added, mut facts): (
         ResMut<UiRequests>,
         ResMut<Now>,
@@ -386,9 +412,16 @@ fn step(
     ) {
         cat.window = window;
     }
+    collab::begin(
+        cat,
+        run.as_ref().map(|run| run.0.as_path()),
+        time.delta_secs(),
+    );
     for request in std::mem::take(&mut requests.0) {
+        cat.collab.source = "console";
         cat.request(&request);
     }
+    let scripted = !cat.scripted.is_empty();
     let size = cat.size();
     let mut input = gather(
         keys.as_deref(),
@@ -414,6 +447,11 @@ fn step(
         let pad = format!("{PAD_RAW}{pad}");
         if let Some(at) = input.raw.iter().position(|raw| raw == key || *raw == pad) {
             chord |= input.raw[at] == pad;
+            cat.collab.source = match (input.raw[at] == pad, scripted) {
+                (true, _) => "pad",
+                (_, true) => "console",
+                _ => "keyboard",
+            };
             input.raw.remove(at);
             cat.act(action);
         }
@@ -478,6 +516,16 @@ fn step(
     input.window = size.window();
     input.scale_factor = size.factor;
 
+    let from = collab::source_of(
+        keys.as_deref()
+            .is_some_and(|keys| keys.get_just_pressed().next().is_some()),
+        input.click || input.wheel != 0.0,
+        pads.iter().any(|(pad, sticks)| {
+            pad.digital().get_just_pressed().next().is_some() || sticks.left.length() > STICK
+        }),
+        scripted,
+    );
+    collab::before(cat, &input, from);
     let live = cat.staged.live(&input);
     for why in &live.refusals {
         debug!(target: "ui", "refused: {why}");
@@ -491,10 +539,14 @@ fn step(
     for intent in &live.intents {
         debug!(target: "catalogue", ?intent, "the screen asked for");
     }
+    cat.names = (live.shown.iter())
+        .map(|shown| (shown.screen.clone(), shown.layout.clone()))
+        .collect();
     cat.layers = live.shown.into_iter().map(|shown| shown.list).collect();
     if !cat.reopen_failed && !cat.staged.stack.is_open() && cat.staged.over.is_none() {
         cat.restage();
     }
+    collab::end(cat, &input, time.delta_secs());
     if facts.wanted() {
         facts.0.insert(
             "catalogue".into(),
@@ -680,12 +732,13 @@ fn paint(
     }
     // The screens' quads, made again when the screens or the size changed.
     let assets = &cat.staged.assets;
+    let composed = collab::composed(&cat);
     let released = painting.drawn.forget_released(assets);
-    if painting.drawn.remake(&cat.layers, virtual_window) || released {
+    if painting.drawn.remake(&composed, virtual_window) || released {
         painting.fresh = REDRAWN;
         painting.drawn.paint_runs(
             &mut commands,
-            &cat.layers,
+            &composed,
             (virtual_window, assets),
             (&mut *meshes, &mut *materials, &mut *images),
             None,
