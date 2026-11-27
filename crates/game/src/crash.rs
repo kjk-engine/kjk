@@ -241,7 +241,7 @@ impl bevy::app::Plugin for DeviceLostPlugin {
 
     fn finish(&self, app: &mut bevy::app::App) {
         if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
-            render_app.add_systems(bevy::render::RenderStartup, watch_device);
+            render_app.add_systems(bevy::render::RenderStartup, (watch_device, hold_queue));
             #[cfg(feature = "probes")]
             render_app.add_systems(bevy::render::Render, probe_lose_device);
         }
@@ -264,6 +264,54 @@ fn watch_device(device: bevy::prelude::Res<bevy::render::renderer::RenderDevice>
             }
             on_device_lost(format!("{reason:?} {text}"));
         });
+}
+
+/// How long the game waits for the graphics card to finish its last frames
+/// as it closes (`QueueAtExit`).
+const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The render queue, held so that the game closes without a crash when the
+/// graphics card has not finished its last frames.
+///
+/// As the render world is dropped, wgpu waits up to 6.3 seconds for the last
+/// frame the game sent, and then panics if the frame is still not done. On
+/// macOS this happens when the game closes while its window is hidden behind
+/// another app: about two closes in five ended in that panic. The resource
+/// holds its own handle to the queue. When it is dropped, it waits up to
+/// `EXIT_WAIT` for the graphics card. If the card finishes, the handle is let
+/// go and wgpu closes the queue as usual. If it does not, the handle is never
+/// let go, so wgpu never closes the queue and never panics. The program ends
+/// right after, and the system frees what the queue kept.
+#[derive(bevy::prelude::Resource)]
+struct QueueAtExit(Option<(wgpu::Device, wgpu::Queue)>);
+
+fn hold_queue(
+    mut commands: bevy::prelude::Commands,
+    device: bevy::prelude::Res<bevy::render::renderer::RenderDevice>,
+    queue: bevy::prelude::Res<bevy::render::renderer::RenderQueue>,
+) {
+    let held = (device.wgpu_device().clone(), (**queue.0).clone());
+    commands.insert_resource(QueueAtExit(Some(held)));
+}
+
+impl Drop for QueueAtExit {
+    fn drop(&mut self) {
+        let Some((device, queue)) = self.0.take() else {
+            return;
+        };
+        let waited = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(EXIT_WAIT),
+        });
+        if let Err(error) = waited {
+            bevy::log::warn!(
+                "the graphics card did not finish its last frames within {} s as the game \
+                 closed ({error}), so the game leaves the render queue open",
+                EXIT_WAIT.as_secs()
+            );
+            std::mem::forget(queue);
+        }
+    }
 }
 
 fn on_device_lost(reason: String) -> ! {
