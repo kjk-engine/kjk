@@ -170,11 +170,7 @@ fn wanted_rule(scripted: bool, settings: Option<&crate::settings::Settings>, alo
 
 /// The settings values of the lobby's Cheats row
 /// (`ui::screens::options::CHEAT_RULES`), by rule.
-const RULE_KEYS: [(Rule, &str); 3] = [
-    (Rule::Off, "off"),
-    (Rule::Host, "host"),
-    (Rule::All, "all"),
-];
+const RULE_KEYS: [(Rule, &str); 3] = [(Rule::Off, "off"), (Rule::Host, "host"), (Rule::All, "all")];
 
 /// The rule a value of the Cheats row names. Any other value is Host only,
 /// the row's default.
@@ -1036,7 +1032,10 @@ fn run_lines(
                     Effect::Start(start) => {
                         let at_menu = facts.menu;
                         let session = match start {
-                            commands::Start::Warp { module: name, arrival } if !at_menu => {
+                            commands::Start::Warp {
+                                module: name,
+                                arrival,
+                            } if !at_menu => {
                                 later.0 = Some((name, arrival, WARP_WAIT_FRAMES));
                                 if let Some(outgoing) = outgoing.as_mut() {
                                     outgoing.0.push(Action::Cheat(CheatOrder::Warped));

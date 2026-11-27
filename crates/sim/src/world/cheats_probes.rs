@@ -262,7 +262,13 @@ fn warp_marks() -> Result<String, String> {
     let guest_marked = guest_first.cheats().used;
     let (mut world, _) = ground(1, false)?;
     let before = world.snapshot().goods.gold;
-    let (after, told) = under(&mut world, 1, Rule::Host, &[cheat(0, CheatOrder::Warped)], 2);
+    let (after, told) = under(
+        &mut world,
+        1,
+        Rule::Host,
+        &[cheat(0, CheatOrder::Warped)],
+        2,
+    );
     let marked = world.cheats().used;
     check(
         marked

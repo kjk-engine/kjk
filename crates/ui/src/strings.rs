@@ -334,8 +334,7 @@ pub const LOBBY_CHANGE_SAVE: &str = "Change Save";
 pub const LOBBY_START: &str = "Start Game";
 pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
 pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
-pub const LOBBY_SETTINGS_GUEST: &str =
-    "The host chooses the saber rules, the collision, whether chosen replies are shown and who can use cheats.";
+pub const LOBBY_SETTINGS_GUEST: &str = "The host chooses the saber rules, the collision, whether chosen replies are shown and who can use cheats.";
 pub const LOBBY_OTHER_GAME: &str =
     "Choose a save of the same game. To host the other game, leave the lobby and host again.";
 /// The word before a character's level in a lobby slot ("Soldier, level 4").

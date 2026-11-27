@@ -576,9 +576,9 @@ pub fn place_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
         Place::ScriptOnly => Some(Refusal::new(
             "This command works only in a command script (--cmds).",
         )),
-        Place::Menu if facts.lobby => Some(Refusal::new(
-            "Leave the lobby before using this command.",
-        )),
+        Place::Menu if facts.lobby => {
+            Some(Refusal::new("Leave the lobby before using this command."))
+        }
         Place::Menu if !facts.menu => Some(Refusal::new(
             "Quit to the main menu before using this command.",
         )),

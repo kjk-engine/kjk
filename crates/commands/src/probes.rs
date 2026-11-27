@@ -514,20 +514,35 @@ fn session() -> Result<String, String> {
     cases(
         &[
             (("warp TAR_M02AA", &menu), warp(None)),
-            (("warp tar_m02aa from_m02ab", &story()), warp(Some("from_m02ab"))),
+            (
+                ("warp tar_m02aa from_m02ab", &story()),
+                warp(Some("from_m02ab")),
+            ),
             (("warp tar_m02aa", &guest), host_only.clone()),
-            (("warp tar_m02aa", &off), refused("Cheats are off in this game.")),
+            (
+                ("warp tar_m02aa", &off),
+                refused("Cheats are off in this game."),
+            ),
             (("warp tar_m02aa", &lobby), leave.clone()),
-            (("warp tar_m02aa", &loading), refused("Wait for the area to finish loading.")),
+            (
+                ("warp tar_m02aa", &loading),
+                refused("Wait for the area to finish loading."),
+            ),
             (("sandbox", &menu), started(Start::Sandbox)),
-            (("sandbox", &story()), refused("Quit to the main menu before using this command.")),
+            (
+                ("sandbox", &story()),
+                refused("Quit to the main menu before using this command."),
+            ),
             (("sandbox", &lobby), leave.clone()),
             (("load 0003", &menu), started(Start::Load("0003".into()))),
             (("load 0003", &story()), started(Start::Load("0003".into()))),
             (("load 0003", &guest), host_only),
             (("load 0003", &lobby), leave),
             (("host", &menu), started(Start::Host(None))),
-            (("host 0003", &menu), started(Start::Host(Some("0003".into())))),
+            (
+                ("host 0003", &menu),
+                started(Start::Host(Some("0003".into()))),
+            ),
             (
                 ("join 10.0.0.2:29170 Mia", &menu),
                 started(Start::Join {
@@ -535,7 +550,10 @@ fn session() -> Result<String, String> {
                     name: Some("Mia".into()),
                 }),
             ),
-            (("join 10.0.0.2", &guest), refused("Quit to the main menu before using this command.")),
+            (
+                ("join 10.0.0.2", &guest),
+                refused("Quit to the main menu before using this command."),
+            ),
             (("saves", &lobby), Ok(vec![Effect::Saves])),
             (("mods", &guest), Ok(vec![Effect::Mods])),
         ],
