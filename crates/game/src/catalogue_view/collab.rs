@@ -95,6 +95,13 @@ impl Collab {
         }
     }
 
+    /// Another story of `module` opened: its file is the one watched, and
+    /// what was recorded of the last tryout goes.
+    pub fn opened(&mut self, module: &str) {
+        self.watch.take(module);
+        self.restaged();
+    }
+
     /// The story opened again: what was recorded of the last tryout goes.
     pub fn restaged(&mut self) {
         self.recorder.clear();
@@ -267,6 +274,8 @@ fn open(cat: &mut Catalogue, wanted: &str) -> Result<(), String> {
     cat.staged = Catalogue::stage(&cat.discovery, &start, cat.size())?;
     cat.start = start;
     cat.reopen_failed = false;
+    cat.listing = false;
+    cat.recentre = true;
     cat.collab.watch.take(&cat.start.module);
     cat.collab.restaged();
     Ok(())
@@ -283,6 +292,11 @@ fn step(cat: &mut Catalogue, step: &str, source: &str) -> Result<(), String> {
 /// The open story read from disk and staged again, the steps of the tryout
 /// taken once more.
 fn reload(cat: &mut Catalogue, changed: &[String]) {
+    if cat.listing {
+        cat.show_list();
+        log(cat, "disk", "reload", json!({ "changed": changed }));
+        return;
+    }
     let wanted = format!("{}/{}", cat.start.module, cat.start.story.name);
     let story: Result<Story, String> =
         ui::catalogue::read_all(&ui::catalogue::folder()).and_then(|files| {

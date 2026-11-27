@@ -1042,6 +1042,25 @@ pub struct SaveView {
     pub when: String,
 }
 
+/// One screen module of the UI catalogue as its list shows it: its status
+/// in the audit and its stories.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogueScreen {
+    pub module: String,
+    pub status: String,
+    pub stories: Vec<CatalogueStory>,
+}
+
+/// A story of the catalogue's list: its name, and the games (`k1`, `tsl`) it
+/// is drawn on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogueStory {
+    pub name: String,
+    pub games: Vec<String>,
+}
+
 /// The whole party down (I30 P13): whether this player hosts, whose Load
 /// loads the latest save for everyone.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1560,6 +1579,9 @@ pub struct ViewModel {
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,
+    /// The screens of the UI catalogue and their stories, for the catalogue's
+    /// own list (`screens::catalogue_list`).
+    pub catalogue: Vec<CatalogueScreen>,
     /// A new game's row: the module it starts in and that area's name.
     pub new_game: SaveView,
     /// The campaigns a new game may begin: the games installed, K1's first

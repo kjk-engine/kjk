@@ -510,6 +510,9 @@ fn stand_ins(
             })
             .collect();
     }
+    if name.split(':').next() == Some("catalogue_list") {
+        vm.catalogue = catalogue_list()?;
+    }
     if name == "lobby" {
         vm.lobby = Some(stand_in_lobby(assets, game, 0, 0, false));
     }
@@ -949,4 +952,22 @@ fn stand_in_bench(assets: &mut GuiAssets, lab: bool) -> ui::vm::WorkbenchView {
         None,
         (&carried, false),
     )
+}
+
+/// The catalogue's stories as its list shows them.
+fn catalogue_list() -> Result<Vec<ui::vm::CatalogueScreen>, String> {
+    let files = ui::catalogue::read_all(&ui::catalogue::folder())?;
+    Ok(files
+        .into_iter()
+        .map(|file| ui::vm::CatalogueScreen {
+            module: file.module,
+            status: file.status,
+            stories: (file.stories.into_iter())
+                .map(|story| ui::vm::CatalogueStory {
+                    name: story.name,
+                    games: story.games,
+                })
+                .collect(),
+        })
+        .collect())
 }

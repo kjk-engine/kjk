@@ -74,13 +74,16 @@ enum Action {
     Backdrop,
     /// The tryout so far, saved as a story.
     SaveTryout,
+    /// Back to the list of stories.
+    List,
 }
 
 /// The catalogue's keys: what they do, the keyboard key and the pad chord.
 /// Later keys of the catalogue join this table.
-const KEYS: [(Action, &str, &str); 5] = [
+const KEYS: [(Action, &str, &str); 6] = [
     (Action::NextSize, "F6", "LB+North"),
     (Action::NextMode, "F7", "LB+West"),
+    (Action::List, "F8", "LB+East"),
     (Action::Outlines, "F9", "LB+South"),
     (Action::Backdrop, "F10", "LB+DPadUp"),
     (Action::SaveTryout, "F11", "LB+DPadDown"),
@@ -94,6 +97,8 @@ pub struct Start {
     pub game: Game,
     /// The size it opens at, by name (`ui::catalogue::SIZES`).
     pub size: &'static str,
+    /// It opens on the list of stories, with the cursor on `story`.
+    pub list: bool,
 }
 
 pub struct CataloguePlugin {
@@ -110,11 +115,15 @@ impl Plugin for CataloguePlugin {
                 .filter(|value| *value > 0.0)
                 .unwrap_or(default)
         };
+        let overridden = settings
+            .value(DISPLAY_SETTING)
+            .and_then(|value| value.parse::<f32>().ok())
+            .filter(|value| *value > 0.0);
         let display = (
-            number(DISPLAY_SETTING, DISPLAY_DENSITY),
+            overridden.unwrap_or(DISPLAY_DENSITY),
             number(DISTANCE_SETTING, OWNER_DISTANCE_CM),
         );
-        match Catalogue::open(&self.start, display) {
+        match Catalogue::open(&self.start, display, overridden) {
             Ok(catalogue) => {
                 app.insert_resource(catalogue);
             }
@@ -131,7 +140,7 @@ impl Plugin for CataloguePlugin {
             .init_resource::<Painting>()
             .add_systems(
                 Update,
-                (step, paint)
+                (read_density, step, paint)
                     .chain()
                     .after(console::ConsoleQueue)
                     .after(crate::pad::Settled),
@@ -154,6 +163,13 @@ struct Catalogue {
     /// The owner's display: its pixels to the inch, and the owner's
     /// distance from it in centimetres.
     display: (f32, f32),
+    /// The setting that overrides the display's density, and what the
+    /// system says of the monitor the window is on.
+    density_setting: Option<f32>,
+    density_system: Option<f32>,
+    /// The image was just shown at another size or mode, or is new: it is
+    /// to be centred on the focused control once a frame is drawn.
+    recentre: bool,
     /// The window as the camera that shows the image last saw it: its
     /// logical size, and its physical pixels to each logical one.
     window: ((f32, f32), f32),
@@ -171,18 +187,29 @@ struct Catalogue {
     sticks: Held,
     last_pointer: Option<Vec2>,
     rows: Rows,
-    /// The story could not be opened again, so it is not tried each frame.
+    /// The list or a story could not be opened, so it is not tried each
+    /// frame.
     reopen_failed: bool,
+    /// The screen is the list of stories, not a story.
+    listing: bool,
 }
 
 impl Catalogue {
-    fn open(start: &Start, display: (f32, f32)) -> Result<Catalogue, String> {
+    fn open(
+        start: &Start,
+        display: (f32, f32),
+        density_setting: Option<f32>,
+    ) -> Result<Catalogue, String> {
         let discovery = crate::discover();
         let size = SIZES
             .iter()
             .position(|size| size.name == start.size)
             .ok_or(format!("{}: no such size", start.size))?;
-        let staged = Catalogue::stage(&discovery, start, SIZES[size])?;
+        let staged = if start.list {
+            Catalogue::stage_list(&discovery, start, SIZES[size])?
+        } else {
+            Catalogue::stage(&discovery, start, SIZES[size])?
+        };
         let window = SIZES[size].window();
         let mut catalogue = Catalogue {
             start: start.clone(),
@@ -192,6 +219,9 @@ impl Catalogue {
             mode: Mode::Fit,
             pan: [0.0; 2],
             display,
+            density_setting,
+            density_system: None,
+            recentre: true,
             window: (window, 1.0),
             placement: Placement {
                 origin: [0.0; 2],
@@ -209,6 +239,7 @@ impl Catalogue {
             last_pointer: None,
             rows: Rows::default(),
             reopen_failed: false,
+            listing: start.list,
         };
         catalogue.placement = catalogue.placed();
         Ok(catalogue)
@@ -227,6 +258,80 @@ impl Catalogue {
             (&story.steps, story.error.clone(), capture),
             (size.pixels, size.factor),
         )
+    }
+
+    /// The list of stories, with its cursor on the story of `start`.
+    fn stage_list(discovery: &vfs::Discovery, start: &Start, size: Size) -> Result<Staged, String> {
+        let at = format!("{}/{}", start.module, start.story.name);
+        stage(
+            discovery,
+            (start.game, &format!("catalogue_list:{at}")),
+            (&[], None, None),
+            (size.pixels, size.factor),
+        )
+    }
+
+    /// The list of stories shown, its cursor on the story that was open.
+    fn show_list(&mut self) {
+        match Catalogue::stage_list(&self.discovery, &self.start, self.size()) {
+            Ok(staged) => {
+                info!(target: "catalogue", "the list of stories");
+                self.staged = staged;
+                self.collab.restaged();
+                self.listing = true;
+                self.pan = [0.0; 2];
+                self.recentre = true;
+            }
+            Err(why) => {
+                warn!(target: "catalogue", "{why}");
+                self.reopen_failed = true;
+            }
+        }
+    }
+
+    /// The story `module/name` of the list opened live, on the game shown
+    /// when it is drawn on it, else on its first game.
+    fn open_story(&mut self, module: &str, name: &str) {
+        let found = ui::catalogue::read_all(&ui::catalogue::folder()).and_then(|files| {
+            let file = files.into_iter().find(|file| file.module == module);
+            file.and_then(|file| {
+                let story = file.stories.into_iter().find(|story| story.name == name)?;
+                Some((file.module, story))
+            })
+            .ok_or(format!("{module}/{name}: no such story"))
+        });
+        let (module, story) = match found {
+            Ok(found) => found,
+            Err(why) => return warn!(target: "catalogue", "{why}"),
+        };
+        let key = self.start.game.key();
+        let game = if story.games.iter().any(|game| game == key) {
+            Some(self.start.game)
+        } else {
+            story.games.first().and_then(|game| Game::from_key(game))
+        };
+        let Some(game) = game else {
+            return warn!(target: "catalogue", "{}: no game to draw it on", story.name);
+        };
+        let start = Start {
+            module,
+            story,
+            game,
+            size: self.start.size,
+            list: false,
+        };
+        match Catalogue::stage(&self.discovery, &start, self.size()) {
+            Ok(staged) => {
+                info!(target: "catalogue", story = start.story.name, "opened from the list");
+                self.start = start;
+                self.staged = staged;
+                self.collab.opened(&self.start.module);
+                self.listing = false;
+                self.pan = [0.0; 2];
+                self.recentre = true;
+            }
+            Err(why) => warn!(target: "catalogue", "{why}"),
+        }
     }
 
     fn size(&self) -> Size {
@@ -251,15 +356,60 @@ impl Catalogue {
         })
     }
 
+    /// The density the display has: the setting, else the system's, else
+    /// the default.
+    fn resolve_density(&mut self) {
+        self.display.0 = (self.density_setting)
+            .or(self.density_system)
+            .unwrap_or(DISPLAY_DENSITY);
+    }
+
+    /// The image panned so that the focused control, or the image's middle
+    /// when nothing is focused, is in the middle of the window.
+    fn centre(&mut self) {
+        self.recentre = false;
+        let size = self.size();
+        let window = size.window();
+        let focused = self.layers.last().and_then(|list| {
+            let mark = list.marks.iter().find(|mark| mark.focused)?;
+            let (scale, at) = if list.fill {
+                ui::draw::fill(window, list.size)
+            } else {
+                ui::draw::fit(window, list.size)
+            };
+            Some([
+                (at[0] + (mark.rect[0] + mark.rect[2] / 2.0) * scale) * size.factor,
+                (at[1] + (mark.rect[1] + mark.rect[3] / 2.0) * scale) * size.factor,
+            ])
+        });
+        let point = focused.unwrap_or([size.pixels.0 as f32 / 2.0, size.pixels.1 as f32 / 2.0]);
+        let flat = place(&View {
+            mode: self.mode,
+            image: size.pixels,
+            window: self.window.0,
+            window_factor: self.window.1,
+            seen: self.seen(),
+            pan: [0.0; 2],
+        });
+        self.pan = [
+            point[0] * flat.scale - self.window.0.0 / 2.0,
+            point[1] * flat.scale - self.window.0.1 / 2.0,
+        ];
+        self.placement = self.placed();
+        self.pan = self.placement.pan;
+    }
+
     fn set_size(&mut self, size: usize) {
         self.size = size % SIZES.len();
         self.pan = [0.0; 2];
+        self.recentre = true;
         info!(target: "catalogue", size = self.size().name, "size");
     }
 
     fn set_mode(&mut self, mode: Mode) {
         self.mode = mode;
         self.pan = [0.0; 2];
+        self.recentre = true;
         info!(target: "catalogue", mode = mode.name(), "mode");
     }
 
@@ -270,6 +420,7 @@ impl Catalogue {
             Action::Outlines => collab::act(self, Tool::Outlines),
             Action::Backdrop => collab::act(self, Tool::Backdrop),
             Action::SaveTryout => collab::act(self, Tool::SaveTryout),
+            Action::List => self.show_list(),
         }
     }
 
@@ -293,9 +444,17 @@ impl Catalogue {
                 (Ok(x), Ok(y)) => self.pan = [x, y],
                 _ => warn!(target: "console", "ui catalogue pan X Y: window pixels"),
             },
+            ["catalogue", "density", "system"] => {
+                self.density_setting = None;
+                self.density_system = crate::display_density::of(None);
+                self.resolve_density();
+            }
             ["catalogue", "density", value] => match value.parse::<f32>() {
-                Ok(value) if value > 0.0 => self.display.0 = value,
-                _ => warn!(target: "console", "ui catalogue density N: pixels to the inch"),
+                Ok(value) if value > 0.0 => {
+                    self.density_setting = Some(value);
+                    self.resolve_density();
+                }
+                _ => warn!(target: "console", "ui catalogue density N|system: pixels to the inch"),
             },
             ["catalogue", "distance", value] => match value.parse::<f32>() {
                 Ok(value) if value > 0.0 => self.display.1 = value,
@@ -332,21 +491,6 @@ impl Catalogue {
                 self.scripted.push(request.to_vec());
             }
             other => warn!(target: "console", "ui: {other:?} is not a request of the catalogue"),
-        }
-    }
-
-    /// The story opened again, as the stack's last screen closed.
-    fn restage(&mut self) {
-        match Catalogue::stage(&self.discovery, &self.start, self.size()) {
-            Ok(staged) => {
-                info!(target: "catalogue", story = self.start.story.name, "opened again, its last screen closed");
-                self.staged = staged;
-                self.collab.restaged();
-            }
-            Err(why) => {
-                warn!(target: "catalogue", "{why}");
-                self.reopen_failed = true;
-            }
         }
     }
 }
@@ -536,21 +680,31 @@ fn step(
         (&mut now, &mut added),
         &mut cat.rows,
     );
+    let mut picked = None;
     for intent in &live.intents {
         debug!(target: "catalogue", ?intent, "the screen asked for");
+        if let ui::intent::Intent::OpenStory(module, name) = intent {
+            picked = Some((module.clone(), name.clone()));
+        }
     }
     cat.names = (live.shown.iter())
         .map(|shown| (shown.screen.clone(), shown.layout.clone()))
         .collect();
     cat.layers = live.shown.into_iter().map(|shown| shown.list).collect();
-    if !cat.reopen_failed && !cat.staged.stack.is_open() && cat.staged.over.is_none() {
-        cat.restage();
+    if cat.recentre && !cat.layers.is_empty() {
+        cat.centre();
+    }
+    if let Some((module, name)) = picked {
+        cat.open_story(&module, &name);
+    } else if !cat.reopen_failed && !cat.staged.stack.is_open() && cat.staged.over.is_none() {
+        cat.show_list();
     }
     collab::end(cat, &input, time.delta_secs());
     if facts.wanted() {
         facts.0.insert(
             "catalogue".into(),
             serde_json::json!({
+                "listing": cat.listing,
                 "story": format!("{}/{}", cat.start.module, cat.start.story.name),
                 "game": cat.start.game.key(),
                 "size": size.name,
@@ -565,11 +719,39 @@ fn step(
                 "pan": cat.placement.pan,
                 "seen": cat.seen(),
                 "display_density": cat.display.0,
+                "display_density_system": cat.density_system,
+                "display_density_setting": cat.density_setting,
                 "owner_distance_cm": cat.display.1,
                 "screens": cat.staged.stack.screens().map(|screen| screen.0).collect::<Vec<_>>(),
                 "focused": cat.staged.stack.focused(),
             }),
         );
+    }
+}
+
+/// The density of the monitor the window is on, read again twice a second
+/// and when the window moves to another monitor.
+fn read_density(
+    mut cat: ResMut<Catalogue>,
+    windows: Query<Entity, With<PrimaryWindow>>,
+    mut frames: Local<u32>,
+    _main: bevy::ecs::system::NonSendMarker,
+) {
+    *frames += 1;
+    if *frames % 30 != 1 {
+        return;
+    }
+    let Ok(entity) = windows.single() else {
+        return;
+    };
+    let density = bevy::winit::WINIT_WINDOWS.with_borrow(|windows| {
+        let window = windows.get_window(entity)?;
+        crate::display_density::of(Some(window))
+    });
+    if density != cat.density_system && density.is_some() {
+        info!(target: "catalogue", density, "the display's density, from the system");
+        cat.density_system = density;
+        cat.resolve_density();
     }
 }
 

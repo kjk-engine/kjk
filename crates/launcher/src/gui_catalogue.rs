@@ -31,6 +31,7 @@ pub fn start(
     game: Option<&str>,
 ) -> Result<kjk_game::catalogue_view::Start, String> {
     let files = stories()?;
+    let story_given = story;
     let size = Size::named(at).ok_or(format!("{at}: no such size"))?;
     let (module, story) = match story {
         Some(wanted) => {
@@ -61,6 +62,7 @@ pub fn start(
         story,
         game,
         size: size.name,
+        list: story_given.is_none(),
     })
 }
 

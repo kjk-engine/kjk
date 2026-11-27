@@ -367,6 +367,8 @@ pub enum Intent {
     /// The party fallen (I30 P13): the host loads its latest save, for
     /// every seat.
     ReloadLatest,
+    /// The catalogue's list picked a story: its screen module and its name.
+    OpenStory(String, String),
     /// Leave the program.
     Quit,
 }

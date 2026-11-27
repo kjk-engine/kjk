@@ -850,8 +850,8 @@ Running and checking:
   `ui::virtual_screen`). `kjk gui catalogue [--story MODULE/STORY] [--at
   SIZE] [--game k1|tsl]` opens the game on one story, live. The story is
   `MODULE/NAME`, where the name may be the story's slug, such as
-  `options/gameplay-page`. Without `--story` it opens the first story of the
-  first module. `--at` names the size it opens at (`1080p` by default).
+  `options/gameplay-page`. Without `--story` it opens on the list of
+  stories (below). `--at` names the size it opens at (`1080p` by default).
   `--headless --cmds '…'` work as for any run (docs/RUN.md).
   - **The virtual screen.** The story is staged with
     `kjk_game::story_stage::Staged` in a window of the chosen size and scale
@@ -860,7 +860,24 @@ Running and checking:
     size, through the same material the game uses (`ui_material`). The
     window shows that image. The screen takes the mouse, the keyboard and a
     pad. It runs in real time and plays its sounds. When its last screen
-    closes, the story opens again.
+    closes, the catalogue goes back to the list of stories.
+  - **The list of stories** (`ui::screens::catalogue_list`). The list is a
+    screen of KOTOR's own skin, drawn on the save list's layout, so it
+    follows the game that is shown (KOTOR 1 or KOTOR 2) and works with the
+    mouse, the keyboard and a pad. It has a row for each screen module, with
+    the module's status from its story file on the right, and under it a row
+    for each of the module's stories, written after a dash. The panel on the
+    right names the module and its status, and the games the pointed story is
+    drawn on. Open, or the pad's A on a row, opens the story live with its
+    steps taken. Open on a module's row opens the module's first story. A
+    story that is not drawn on the game shown opens on its first game. The
+    list has a story file of its own, `catalogue_list`, as the approved test
+    `ui_catalogue` asks of every screen. The stories come from
+    `ui::catalogue::read_all`, through the view model's `catalogue`.
+  - **Back to the list.** `F8` or the pad chord LB with B (`LB+East`) goes
+    back to the list from any story. The list opens with its cursor on the
+    story that was open. The story that was open stays the one the next
+    chord returns to.
   - **The three modes.** Fit scales the whole image to fit the window and
     leaves black bars. Pixel for pixel shows one pixel of the image as one
     pixel of the display. As seen scales the image so that a pixel of the
@@ -873,10 +890,26 @@ Running and checking:
     `4k-tv`, 27 inches at 60 cm for `4k-monitor`, 20 inches at 60 cm for
     `4x3` and 34 inches at 70 cm for `ultrawide`. On a display of 254 pixels
     to the inch seen from 60 cm, a Steam Deck pixel covers about 2.02 pixels
-    of the display and a pixel of the 4K TV about 0.76. The display's
-    density and the owner's distance come from the settings
-    `catalogue.display_density` (110 by default) and `catalogue.distance_cm`
-    (60 by default) until the operating system's own size is read.
+    of the display and a pixel of the 4K TV about 0.76. The owner's distance
+    is the setting `catalogue.distance_cm` (60 by default).
+  - **The display's density** (`kjk_game::display_density`). The catalogue
+    asks the operating system how big the monitor the window is on is, and
+    divides the monitor's pixels by its width. On macOS it reads
+    `CGDisplayScreenSize` and the width in pixels of the display's current
+    mode. On Windows it reads the monitor's raw dpi (`GetDpiForMonitor` with
+    `MDT_RAW_DPI`), which comes from the size the monitor reports. It reads
+    again twice a second, so a window moved to a second monitor takes that
+    monitor's density. The setting `catalogue.display_density` overrides
+    the system's reading when it is set. When the system reports nothing, as
+    in a headless run, or on a platform other than the two, the density is
+    110. `ui catalogue density N` sets the override from a script, and `ui
+    catalogue density system` removes it and reads the main display. A dump
+    shows the density used, the system's reading and the setting.
+  - **Opening a large image.** When the image is larger than the window in
+    pixel for pixel or as seen, the window opens centred on the focused
+    control, or on the middle of the image when nothing has focus. It does
+    the same after a change of size or mode, and when a story opens. Panning
+    starts from there.
   - **Panning.** When the image is larger than the window, which pixel for
     pixel and as seen make it on a large device, the right mouse button
     dragged or the pad's right stick moves the window over it.
@@ -885,10 +918,16 @@ Running and checking:
     virtual window's logical pixels, so a click lands on the control it is
     over. A pointer in the black bars is not over the screen.
   - **Keys.** `F6` or the pad chord LB with Y (`LB+North`) changes to the
-    next of the six sizes, and `F7` or LB with X (`LB+West`) to the next
-    mode. A size change keeps the screen as it is: the stack is stepped in
+    next of the six sizes, `F7` or LB with X (`LB+West`) to the next mode,
+    and `F8` or LB with B (`LB+East`) back to the list of stories. A size change keeps the screen as it is: the stack is stepped in
     the new window and lays itself out again. The keys are the table `KEYS`
     in `catalogue_view.rs`, one row for each, with a key and a chord.
+  - **A pad alone.** Every step works with a pad and nothing else. The d-pad
+    moves through the list, A opens a story, the screen takes the pad as in
+    play, LB with Y changes size, LB with X changes mode, the right stick pans
+    an image larger than the window, and LB with B goes back to the list. A
+    headless run does this with `ui nav up|down|activate` for the d-pad and A,
+    and `ui raw Pad:LB+North` (or `LB+West`, `LB+East`) for the chords.
   - **Console.** `ui catalogue size NAME|next`, `ui catalogue mode
     fit|pixel|seen|next`, `ui catalogue pan X Y`, `ui catalogue density N`
     and `ui catalogue distance CM` do the same from a script. The `ui`
