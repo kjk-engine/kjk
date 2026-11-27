@@ -170,7 +170,10 @@ pub fn run(options: RunOptions) -> AppExit {
         ));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
-            primary_window: Some(game_window()),
+            primary_window: Some(Window {
+                mode: crate::display::opening_mode(),
+                ..game_window()
+            }),
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
