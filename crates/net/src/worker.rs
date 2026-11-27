@@ -4,13 +4,68 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+
+/// An opaque handle allowing a caller to wait for an in-flight background
+/// job without holding a lock on the session.
+#[derive(Clone, Debug)]
+pub struct PendingSignal {
+    inner: Arc<(Mutex<u64>, Condvar)>,
+    target: u64,
+}
+
+impl PendingSignal {
+    /// Blocks until the signalled job finishes (or its worker panics).
+    pub fn wait(self) {
+        let (lock, cv) = &*self.inner;
+        let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        while *guard < self.target {
+            guard = cv.wait(guard).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug)]
+pub(crate) struct WaitSignal(Arc<(Mutex<u64>, Condvar)>);
+
+impl WaitSignal {
+    pub(crate) fn new() -> Self {
+        Self(Arc::new((Mutex::new(0), Condvar::new())))
+    }
+
+    pub(crate) fn pending(&self, target: u64) -> PendingSignal {
+        PendingSignal {
+            inner: self.0.clone(),
+            target,
+        }
+    }
+
+    pub(crate) fn finish(&self, target: u64) {
+        let (lock, cv) = &*self.0;
+        let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if *guard < target {
+            *guard = target;
+        }
+        cv.notify_all();
+    }
+}
+
+pub(crate) struct NotifyOnDrop {
+    pub signal: WaitSignal,
+    pub target: u64,
+}
+
+impl Drop for NotifyOnDrop {
+    fn drop(&mut self) {
+        self.signal.finish(self.target);
+    }
+}
 
 type Job = Box<dyn FnOnce() + Send>;
 
 pub(crate) struct Worker {
     name: &'static str,
-    jobs: Mutex<Option<Sender<Job>>>,
+    jobs: Mutex<(Option<Sender<Job>>, u64, Option<WaitSignal>)>,
 }
 
 /// A job's result, once the worker has finished it. It is `None` when the
@@ -20,13 +75,14 @@ pub(crate) struct Queued<T> {
     // A `Receiver` alone is not `Sync`, and a client must be.
     result: Mutex<Receiver<T>>,
     landed: Option<Option<T>>,
+    signal: PendingSignal,
 }
 
 impl Worker {
     pub(crate) const fn new(name: &'static str) -> Worker {
         Worker {
             name,
-            jobs: Mutex::new(None),
+            jobs: Mutex::new((None, 0, None)),
         }
     }
 
@@ -37,17 +93,24 @@ impl Worker {
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Option<Queued<T>> {
         let (done, result) = channel();
-        let job: Job = Box::new(move || {
-            let _ = done.send(work());
-        });
-        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
-        if jobs.is_none() {
-            *jobs = start(self.name);
+        let mut state = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.0.is_none() {
+            state.0 = start(self.name);
         }
-        jobs.as_ref()?.send(job).ok()?;
+        state.1 += 1;
+        let target = state.1;
+        let signal = state.2.get_or_insert_with(WaitSignal::new).clone();
+        let pending = signal.pending(target);
+        let job: Job = Box::new(move || {
+            let _notify = NotifyOnDrop { signal, target };
+            let value = work();
+            let _ = done.send(value);
+        });
+        state.0.as_ref()?.send(job).ok()?;
         Some(Queued {
             result: Mutex::new(result),
             landed: None,
+            signal: pending,
         })
     }
 }
@@ -80,6 +143,10 @@ impl<T> Queued<T> {
             }
         }
         self.landed.is_some()
+    }
+
+    pub(crate) fn pending(&self) -> PendingSignal {
+        self.signal.clone()
     }
 
     pub(crate) fn wait(self) -> Option<T> {

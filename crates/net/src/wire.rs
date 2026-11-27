@@ -54,8 +54,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// selection screen's table carries each companion's alignment
 /// (`Roster::good_evil`). 12: a seat may give the Debug Mode character
 /// page's orders (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), and a
-/// host may open that page for a seat (`Screen::DebugTerminal`).
-pub const PROTOCOL_VERSION: u16 = 12;
+/// host may open that page for a seat (`Screen::DebugTerminal`). 13: save
+/// copies use 16 KiB parts, transport hardens acks/MTU, and frames use
+/// updated encoding.
+pub const PROTOCOL_VERSION: u16 = 13;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

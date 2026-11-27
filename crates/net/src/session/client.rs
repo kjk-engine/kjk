@@ -64,7 +64,7 @@ use crate::codec::{
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
 use crate::wire::{self, Class, Header, WireError, frame};
-use crate::worker::{Queued, Worker};
+use crate::worker::{PendingSignal, Queued, Worker};
 use crate::{NetTime, Peer};
 
 /// The most ticks prediction runs past the newest authority snapshot.
@@ -535,6 +535,7 @@ struct Session {
     rebaser: Rebaser,
     /// The live world's new ticks, stepped beside the frames.
     beside: Beside,
+    starting_rebase: bool,
     rebased_at: Option<NetTime>,
     observed: u64,
     differs: bool,
@@ -920,6 +921,7 @@ impl Client {
             rebuilding: None,
             rebaser: Rebaser::new(self.config.rebase_on),
             beside: Beside::new(self.config.rebase_on),
+            starting_rebase: false,
             rebased_at: None,
             observed: 0,
             differs: false,
@@ -994,7 +996,7 @@ impl Client {
             return;
         };
         if fragment.count == 1 {
-            self.take_payload(now, fragment.bytes, false);
+            self.take_payload(now, fragment.bytes, false, true);
             return;
         }
         let rebuilding =
@@ -1037,15 +1039,29 @@ impl Client {
                 return;
             };
             let whole: Vec<u8> = held.parts.into_iter().flatten().flatten().collect();
-            self.take_payload(now, &whole, false);
+            self.take_payload(now, &whole, false, true);
         }
     }
 
-    /// Rebuilds a snapshot payload, and returns its tick. The tick may be
-    /// one held already, or one being rebuilt on a thread
-    /// (`ClientConfig::rebuild_beside`).
-    fn take_payload(&mut self, now: NetTime, bytes: &[u8], reliable: bool) -> Option<u64> {
-        self.land_rebuild(true);
+    /// Rebuilds a snapshot payload, and returns its tick when rebuilt
+    /// immediately (`None` while building asynchronously on a thread).
+    fn take_payload(
+        &mut self,
+        now: NetTime,
+        bytes: &[u8],
+        reliable: bool,
+        allow_beside: bool,
+    ) -> Option<u64> {
+        self.land_rebuild(false);
+        let State::Connected(session) = &mut self.state else {
+            return None;
+        };
+        if session.rebuilding.is_some() {
+            if !reliable && self.config.rebuild_beside {
+                return None;
+            }
+            self.land_rebuild(true);
+        }
         let State::Connected(session) = &mut self.state else {
             return None;
         };
@@ -1092,9 +1108,11 @@ impl Client {
             reliable,
             newest: session.ring.newest().map(|newest| newest.tick),
         };
-        if !reliable && self.config.rebuild_beside {
+        if allow_beside && self.config.rebuild_beside {
             match session.ring.begin(payload.frame) {
-                Ok(Begun::New { header, base, .. }) => {
+                Ok(Begun::New {
+                    header: _, base, ..
+                }) => {
                     let frame: Arc<[u8]> = payload.frame.into();
                     let (given, given_base) = (frame.clone(), base.clone());
                     let thread = REBUILDS.run(move || rebuild_frame(&given, given_base.as_deref()));
@@ -1105,7 +1123,7 @@ impl Client {
                             base,
                             after,
                         });
-                        return Some(header.tick);
+                        return None;
                     }
                 }
                 Ok(Begun::Held(_)) => {}
@@ -1169,7 +1187,12 @@ impl Client {
                 return;
             }
         }
+        let now = after.now;
+        let reliable = after.reliable;
         take_rebuilt(session, after);
+        if reliable && session.play.is_none() {
+            self.try_start(now);
+        }
     }
 
     /// Waits for a frame still being rebuilt on a thread
@@ -1216,11 +1239,13 @@ impl Client {
     }
 
     fn take_message(&mut self, now: NetTime, message: Message<'_>) {
-        // These messages only tell the player something. Every other
-        // message may read or replace the snapshots the client keeps.
-        let told = matches!(
+        // These messages only tell the player something, or rebuild on
+        // their own thread. Every other message may read or replace the
+        // snapshots the client keeps.
+        let needs_settled_ring = !matches!(
             message,
-            Message::Notice(_)
+            Message::Snapshot(_)
+                | Message::Notice(_)
                 | Message::Screen(_)
                 | Message::Sound(_)
                 | Message::Explosion(_)
@@ -1229,7 +1254,7 @@ impl Client {
                 | Message::Start
                 | Message::Closed(_)
         );
-        if !told {
+        if needs_settled_ring {
             self.land_rebuild(true);
         }
         let State::Connected(session) = &mut self.state else {
@@ -1255,12 +1280,12 @@ impl Client {
                 self.events.push_back(ClientEvent::NeedLevel(request));
             }
             Message::Snapshot(payload) => {
-                if self.take_payload(now, payload, true).is_some() {
+                if self.take_payload(now, payload, true, true).is_some() {
                     self.try_start(now);
                 }
             }
             Message::Installing { request, payload } => {
-                let tick = self.take_payload(now, payload, true);
+                let tick = self.take_payload(now, payload, true, false);
                 let State::Connected(session) = &mut self.state else {
                     return;
                 };
@@ -1268,6 +1293,7 @@ impl Client {
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
                 session.running = false;
+                session.starting_rebase = false;
                 session.install = Some(Install {
                     before,
                     announced: None,
@@ -1279,11 +1305,12 @@ impl Client {
                 self.events.push_back(ClientEvent::Installing(request));
             }
             Message::Hold { payload } => {
-                let tick = self.take_payload(now, payload, true);
+                let tick = self.take_payload(now, payload, true, false);
                 let State::Connected(session) = &mut self.state else {
                     return;
                 };
                 session.running = false;
+                session.starting_rebase = false;
                 let held = tick
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
@@ -1320,6 +1347,7 @@ impl Client {
                     session.install = None;
                 }
                 session.running = true;
+                session.starting_rebase = false;
                 session.clocks.restart();
                 if let Some(play) = &mut session.play {
                     play.started = false;
@@ -1595,6 +1623,58 @@ impl Client {
     // -----------------------------------------------------------------
     // Frames.
 
+    /// Prepares for `frame(now, input)` without holding a lock across any
+    /// background rebuild, prediction step, or initial rewind. Callers
+    /// sharing `Client` behind a mutex call this in a loop, dropping the
+    /// lock to call `signal.wait()` whenever `Some(signal)` is returned.
+    pub fn prepare_frame(&mut self, now: NetTime) -> Option<PendingSignal> {
+        self.land_rebuild(false);
+        let State::Connected(session) = &mut self.state else {
+            return None;
+        };
+        if let Some(rebuilding) = &mut session.rebuilding {
+            return Some(rebuilding.thread.pending());
+        }
+        let session = &mut **session;
+        let link = session.link.stats();
+        if link.rtt_samples > 0 {
+            session.clocks.rtt_us = link.rtt_us as i64;
+            session.clocks.rtt_min_us = link.rtt_min_us as i64;
+        }
+        if let Some(signal) = session.beside.pending() {
+            return Some(signal);
+        }
+        if !session.running {
+            return None;
+        }
+        if session.starting_rebase {
+            if let Some(signal) = session.rebaser.pending() {
+                return Some(signal);
+            }
+            return None;
+        }
+        let started = session.play.as_ref().is_some_and(|p| p.started);
+        if !started && session.clocks.host_offset().is_some() && session.play.is_some() {
+            session.clocks.start();
+            let standing = tick_at(session.rate, session.clocks.predicted_at(now));
+            if let Some(play) = session.play.as_mut() {
+                play.started = true;
+                play.made = play.made.max(standing);
+                play.first = play.made + 1;
+                self.events
+                    .push_back(ClientEvent::Playing { tick: play.made });
+            }
+            session.fresh = false;
+            session.starting_rebase = true;
+            if session.rebaser.wait().is_some() {
+                session.stats.rewinds_dropped += 1;
+            }
+            start_rebase(session, now);
+            return session.rebaser.pending();
+        }
+        None
+    }
+
     /// One frame at `now` with the input sampled for it: the last frame's
     /// steps land, the clocks move on, a rewind lands or starts (`rebase`),
     /// the ticks the predicted clock passed get their commands (each
@@ -1619,7 +1699,10 @@ impl Client {
         let started = session.play.as_ref()?.started;
         let mut stepped = 0;
         if session.running {
-            if !started && session.clocks.host_offset().is_some() {
+            if session.starting_rebase {
+                session.starting_rebase = false;
+                finish_starting_rebase(session, now);
+            } else if !started && session.clocks.host_offset().is_some() {
                 session.clocks.start();
                 // The first command is for the tick after the one the
                 // clock stands in: the host steps those before it.
@@ -2120,6 +2203,20 @@ fn start_rebase(session: &mut Session, now: NetTime) {
     session.rebaser.start(job);
     session.rebased_at = Some(now);
     session.differs = false;
+}
+
+/// Finishes a starting rebase started by `Client::prepare_frame`.
+fn finish_starting_rebase(session: &mut Session, now: NetTime) {
+    let lost = session.rebaser.lost;
+    match session.rebaser.wait() {
+        Some(Some(done)) => apply(session, done, true),
+        Some(None) => {
+            if !failed(session, lost) {
+                rebase_now(session, now);
+            }
+        }
+        None => rebase_now(session, now),
+    }
 }
 
 /// The clocks (re)started: prediction starts from the newest authority

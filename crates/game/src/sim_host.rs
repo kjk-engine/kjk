@@ -2790,8 +2790,7 @@ fn advance(
             Driver::Pilot => false,
         }
         && authority.last.paused_by.is_none()
-        && authority.declined.is_empty()
-        && !authority.solo.hosting();
+        && authority.declined.is_empty();
     let mut orders = Vec::new();
     let last_due = due.last().map(|(tick, _)| *tick);
     let module = authority.world.level().name().to_owned();
@@ -2899,8 +2898,36 @@ fn advance(
             (_, _, own) => own,
         };
         authority.solo.command(tick, own);
+        let hosting = authority.solo.hosting();
         let snapshot = match &mut authority.source {
             Source::Live { recorder } => {
+                if beside && batched && hosting {
+                    let prepare = Prepare {
+                        hash: crate::solo::net_audit_enabled(),
+                        split: false,
+                        check: false,
+                    };
+                    orders.push(Order {
+                        tick,
+                        input: TickInput::default(),
+                        msec,
+                        prepare,
+                        live: Some(crate::sim_worker::LiveInput {
+                            hosted: authority.solo.shared_hosted(),
+                            paused_by: authority.last.paused_by,
+                        }),
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
+                    Stepper::send(
+                        &mut authority.world,
+                        &mut authority.stepper,
+                        std::mem::take(&mut orders),
+                        authority.lifecycle.is_some(),
+                    );
+                    break;
+                }
                 // What the server has (the player's), and the pilot for the
                 // seats no client drives.
                 let mut input = authority.solo.commands_for(tick, authority.last.paused_by);
@@ -2912,13 +2939,12 @@ fn advance(
                     }
                 }
                 if beside && (batched || last_due == Some(tick)) {
-                    // A host's tick is hashed on the step thread, and
-                    // split there when a frame can be made of it. A solo
-                    // host's tick that its own client checks is split on a
-                    // thread of its own.
-                    let hosting = authority.solo.hosting();
+                    // A host's tick is hashed on the step thread (when
+                    // auditing), and split there when a frame can be made
+                    // of it. A solo host's tick that its own client checks
+                    // is split on a thread of its own.
                     let prepare = Prepare {
-                        hash: hosting,
+                        hash: hosting && crate::solo::net_audit_enabled(),
                         split: hosting && authority.solo.sends_on(tick),
                         check: !hosting && authority.solo.checks_on(tick),
                     };
@@ -2927,6 +2953,7 @@ fn advance(
                         input,
                         msec,
                         prepare,
+                        live: None,
                     });
                     if last_due != Some(tick) {
                         continue;

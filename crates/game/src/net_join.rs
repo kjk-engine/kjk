@@ -53,6 +53,7 @@ const REJOIN: Duration = Duration::from_secs(45);
 pub struct Joining {
     client: Shared<Client>,
     net: Option<NetThread>,
+    host: Peer,
     /// The host's level (the stage the run loaded), and the host's seat
     /// for this player.
     pub request: LevelRequest,
@@ -76,6 +77,13 @@ impl Joining {
     /// The client, locked from the net thread.
     fn client(&self) -> MutexGuard<'_, Client> {
         lock(&self.client)
+    }
+
+    /// Wakes the net thread immediately so outbound packets leave without delay.
+    fn wake(&self) {
+        if let Some(net) = &self.net {
+            net.wake();
+        }
     }
 }
 
@@ -296,7 +304,7 @@ fn attempt_through_lobby(
         crate::solo::now(),
         ClientConfig {
             link: net::link::Config::default(),
-            audit: true,
+            audit: crate::solo::net_audit_enabled(),
             keep: true,
             rejoin_us: REJOIN.as_micros() as u64,
             key,
@@ -305,6 +313,7 @@ fn attempt_through_lobby(
             // while this seat's body agrees (issue 229).
             rebase_on: net::session::client::RebaseOn::Thread,
             rebase_every_us: net::session::client::REBASE_EVERY_US,
+            rebuild_beside: true,
             ..ClientConfig::default()
         },
     )
@@ -358,6 +367,7 @@ fn attempt_through_lobby(
                     return Ok(Joining {
                         client,
                         net: Some(net),
+                        host,
                         request,
                         seat,
                         seats,
@@ -479,8 +489,9 @@ pub fn install(
     lifecycle: Option<Lifecycle>,
 ) {
     let folder = app.resource::<RunFolder>().0.clone();
-    let rebuilt = std::fs::File::create(folder.join("rebuilt.txt"))
-        .ok()
+    let rebuilt = crate::solo::net_audit_enabled()
+        .then(|| std::fs::File::create(folder.join("rebuilt.txt")).ok())
+        .flatten()
         .map(std::io::BufWriter::new);
     // Until the host's snapshots come, the stage's own start is shown.
     let first = Presented::new(start);
@@ -616,21 +627,27 @@ pub(crate) fn advance(
     let unseen = picture
         .as_deref()
         .is_some_and(|picture| picture.holds(loading.committed));
+    let mut woke = false;
     let events: Vec<ClientEvent> = {
         let mut client = joined.joining.client();
         client.hold_loaded(unseen);
         if let Some(outgoing) = outgoing.as_deref_mut() {
             for action in outgoing.0.drain(..) {
                 client.act(action);
+                woke = true;
             }
         }
         if joined.provide {
             joined.provide = false;
             log_built(&joined.level);
             client.provide_level(now, Ok(joined.level.clone()));
+            woke = true;
         }
         std::iter::from_fn(|| client.poll_event()).collect()
     };
+    if woke {
+        joined.joining.wake();
+    }
     for event in events {
         match event {
             ClientEvent::Installing(request) => {
@@ -794,6 +811,7 @@ pub(crate) fn advance(
                 client.hold_loaded(picture.is_some());
                 client.provide_level(now, Ok(prepared.plan.level.clone()));
                 drop(client);
+                joined.joining.wake();
                 joined.generation += 1;
                 let mut body = None;
                 let scene = prepared.scene.is_some();
@@ -820,6 +838,7 @@ pub(crate) fn advance(
             Err(error) => {
                 error!(target: "net", "cannot plan the host's module: {error}");
                 joined.joining.client().provide_level(now, Err(error));
+                joined.joining.wake();
                 loading.active = false;
             }
         }
@@ -880,13 +899,25 @@ pub(crate) fn advance(
         aim: camera_aim.0,
         ..command
     };
+    // Wait for any background rebuild / step / initial rewind OUTSIDE
+    // `Mutex<Client>` so `kjk-net` can keep receiving and stamping packets.
+    loop {
+        let pending = lock(&joined.joining.client).prepare_frame(now);
+        let Some(signal) = pending else {
+            break;
+        };
+        signal.wait();
+    }
     // The frame makes its commands with the client locked (the net thread
     // waits); the client steps no world in it (issue 229).
+    let perf_lock = crate::perf::enabled().then(Instant::now);
     let mut client = lock(&joined.joining.client);
     // The view reads no prediction before the tick it last followed.
     client.set_view_from(own.followed.unwrap_or(0));
     let span = info_span!("net.frame").entered();
+    let frame_t = crate::perf::enabled().then(Instant::now);
     let frame = client.frame(now, command);
+    let stepped = frame.as_ref().map_or(0, |f| f.stepped);
     drop(span);
     if let Some(frame) = frame {
         // The same snapshots, not ones of the same ticks: an install's
@@ -917,11 +948,11 @@ pub(crate) fn advance(
     let kept = client.take_snapshots();
     presented.1 = kept.rebuilt;
     own.fresh = kept.predicted;
-    if let Some(file) = &mut joined.rebuilt {
-        for (epoch, tick, hash) in client.take_audit() {
-            let _ = writeln!(file, "{epoch} {tick} {hash}");
-        }
-    }
+    let audit = if joined.rebuilt.is_some() {
+        client.take_audit()
+    } else {
+        Vec::new()
+    };
 
     if joined.feel.frame() {
         crate::net_feel::sample_player(&mut joined.feel, &client);
@@ -931,8 +962,35 @@ pub(crate) fn advance(
     let clock = client.clock();
     let seat = client.seat();
     drop(client);
+    if let Some(t) = perf_lock {
+        crate::perf::counter(
+            "net.join",
+            &[
+                ("mutex_hold_us", t.elapsed().as_secs_f64() * 1e6),
+                ("keyframes", stats.keyframes as f64),
+            ],
+        );
+    }
+    if let Some(t) = frame_t {
+        crate::perf::counter(
+            "net.join_frame",
+            &[("rebuild_ms", t.elapsed().as_secs_f64() * 1000.0)],
+        );
+    }
+    if stepped > 0 {
+        joined.joining.wake();
+    }
+    if let Some(file) = &mut joined.rebuilt {
+        for (epoch, tick, hash) in audit {
+            let _ = writeln!(file, "{epoch} {tick} {hash}");
+        }
+    }
+    let path = match joined.joining.host {
+        Peer::Steam(_) => "steam",
+        _ => "udp",
+    };
     joined.facts = serde_json::json!({
-            "path": "udp",
+            "path": path,
             "recv_buffer": joined.joining.recv_buffer,
             "seat": seat.map(|seat| seat.0),
             "ended": joined.ended,

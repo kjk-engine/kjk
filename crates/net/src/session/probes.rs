@@ -2151,6 +2151,38 @@ pub fn seat_probes() -> crate::probes::Probes {
         matches!(joined, Some(Ok(_))),
         format!("{joined:?}"),
     );
+
+    // Hold when the client already confirmed newest: emits a tiny stub, never a keyframe.
+    let hold_stub = loaded_host().and_then(|(mut server, mut hand, snapshot)| {
+        let now = NetTime(10_000);
+        while server.poll_transmit(now).is_some() {}
+        let before_kf = server.stats().connections.first()?.stats.keyframes;
+        let before_bytes = server.stats().connections.first()?.link.bytes_sent;
+        server.hold();
+        let mut saw_hold = false;
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            if to == hand.at {
+                let _ = hand.link.receive(now, &bytes);
+            }
+        }
+        for msg in hand.link.take_messages() {
+            if let Ok(Message::Hold { payload }) = Message::decode(&msg) {
+                saw_hold = !payload.is_empty();
+            }
+        }
+        let after_kf = server.stats().connections.first()?.stats.keyframes;
+        let after_bytes = server.stats().connections.first()?.link.bytes_sent;
+        let sent = after_bytes.saturating_sub(before_bytes);
+        Some((saw_hold, sent, after_kf - before_kf, snapshot.tick))
+    });
+    probes.check(
+        "hold: confirmed client receives stub without keyframe",
+        "issuing Hold when a client already confirmed newest sends < 128 B and 0 keyframes",
+        hold_stub
+            .as_ref()
+            .is_some_and(|&(saw_hold, sent, kf, _)| saw_hold && sent < 128 && kf == 0),
+        format!("{hold_stub:?}"),
+    );
     probes
 }
 

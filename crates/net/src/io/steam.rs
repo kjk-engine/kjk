@@ -34,7 +34,7 @@ pub const APP_ID: u32 = 480;
 /// The channel kjk's datagrams travel on.
 const CHANNEL: u32 = 0;
 /// The most messages taken from Steam at once.
-const BATCH: usize = 64;
+const BATCH: usize = 512;
 /// The rich presence key that marks a kjk host among app 480's players.
 const MARK: &str = "kjk";
 

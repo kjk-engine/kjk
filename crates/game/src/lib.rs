@@ -353,7 +353,16 @@ pub fn listen_socket(
     address: std::net::SocketAddr,
     steam: bool,
 ) -> Result<net::io::Socket, String> {
-    let udp = net::io::Udp::bind(address, solo::clock())
+    listen_socket_for(address, steam, 3)
+}
+
+/// Like `listen_socket`, sizing socket buffers for `seats`.
+pub fn listen_socket_for(
+    address: std::net::SocketAddr,
+    steam: bool,
+    seats: u8,
+) -> Result<net::io::Socket, String> {
+    let udp = net::io::Udp::bind_with(address, solo::clock(), net::io::SocketConfig::host(seats))
         .map_err(|error| format!("listen on {address}: {error}"))?;
     // A host no IPv4 player can reach would wait for players who all time
     // out (issue 340).
@@ -379,7 +388,7 @@ pub fn host_session(
     let socket = match spec.lobby {
         Some(open) => solo::Listening::Lobby(Box::new(open)),
         None => solo::Listening::Socket(Box::new(net::netem::Netem::new(
-            listen_socket(spec.address, spec.steam)?,
+            listen_socket_for(spec.address, spec.steam, spec.seats)?,
             spec.conditions,
         ))),
     };

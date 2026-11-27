@@ -52,7 +52,7 @@
 //! after waits one part at most. A copy over `MAX_SAVE_PARTS` parts is
 //! refused; a player with `MAX_QUEUED_COPIES` waiting is left out.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ use super::msg::{
     ClockReport, Commands, FRAGMENT, Fragment, InstallRequest, LevelRequest, MAX_FRAGMENTS,
     MAX_SAVE_PARTS, Message, SAVE_PART, SavePart, Welcome, put_payload_body, put_payload_head,
 };
-use crate::codec::{Confirmed, SERVER_RING, ServerRing, Stepped, encode_frame};
+use crate::codec::{Confirmed, FrameHeader, SERVER_RING, ServerRing, Stepped, encode_frame};
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
 use crate::wire::{self, Class, frame};
@@ -304,6 +304,69 @@ impl SeatState {
 struct Base {
     stepped: Stepped,
     commands: TickInput,
+    /// `true` when seeded by `installed()` before the client confirmed or
+    /// rebuilt it; `false` when sent on the reliable channel as a keyframe.
+    from_install: bool,
+}
+
+/// An off-lock snapshot encoding job extracted from `Server::poll_encode_job`.
+#[derive(Debug)]
+pub struct EncodeJob {
+    peer: Peer,
+    epoch: u16,
+    encode_gen: u64,
+    newest: Stepped,
+    base: Option<Base>,
+    applied_now: TickInput,
+    since_us: u64,
+    every: u8,
+}
+
+impl EncodeJob {
+    /// Whether this job encodes a full keyframe rather than a delta.
+    pub fn is_keyframe(&self) -> bool {
+        self.base.is_none()
+    }
+
+    /// Encodes and compresses the snapshot frame without holding any lock.
+    pub fn run(self) -> EncodedJob {
+        let mut frame = Vec::new();
+        encode_frame(
+            self.epoch,
+            &self.newest,
+            self.base.as_ref().map(|base| &base.stepped),
+            &mut frame,
+        );
+        let empty = TickInput::default();
+        let base_commands = self.base.as_ref().map_or(&empty, |base| &base.commands);
+        let mut body_bytes = Vec::new();
+        put_payload_body(&mut body_bytes, &frame, &self.applied_now, base_commands);
+        EncodedJob {
+            peer: self.peer,
+            epoch: self.epoch,
+            encode_gen: self.encode_gen,
+            newest: self.newest,
+            base_tick: self.base.map(|base| base.stepped.tick),
+            applied_now: self.applied_now,
+            since_us: self.since_us,
+            every: self.every,
+            body_bytes,
+        }
+    }
+}
+
+/// The finished bytes of an `EncodeJob`, ready for `Server::finish_encode`.
+#[derive(Debug)]
+pub struct EncodedJob {
+    peer: Peer,
+    epoch: u16,
+    encode_gen: u64,
+    newest: Stepped,
+    base_tick: Option<u64>,
+    applied_now: TickInput,
+    since_us: u64,
+    every: u8,
+    body_bytes: Vec<u8>,
 }
 
 /// A connection's counts and measures.
@@ -348,6 +411,8 @@ struct Connection {
     pinned: Option<Base>,
     /// A snapshot waits to go.
     due: bool,
+    /// An off-lock encode job is currently running for this connection.
+    encoding: bool,
     every: u8,
     /// The current window: when it began, and the link's sent and lost
     /// counts then.
@@ -410,6 +475,19 @@ pub struct ServerStats {
     pub strays: u64,
 }
 
+/// A peer-connection entry stored in the `MAX_SEATS` slab.
+struct Slot {
+    peer: Peer,
+    conn: Connection,
+}
+
+fn empty_slab() -> Box<[Option<Slot>]> {
+    std::iter::repeat_with(|| None)
+        .take(usize::from(sim::MAX_SEATS))
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
 /// The host's half of the session (see the module docs).
 pub struct Server {
     config: ServerConfig,
@@ -420,7 +498,12 @@ pub struct Server {
     in_process_every: u8,
     handshake: handshake::Server,
     outbox: VecDeque<(Peer, Vec<u8>)>,
-    connections: BTreeMap<Peer, Connection>,
+    /// Connections indexed by seat (`0..MAX_SEATS`). Never iterate `peer_to_slot`.
+    connections: Box<[Option<Slot>]>,
+    /// Fast `Peer -> slot` index; lookups only (deterministic iteration uses `connections`).
+    peer_to_slot: HashMap<Peer, usize>,
+    poll_cursor: usize,
+    encode_gen: u64,
     seats: Vec<SeatState>,
     ring: ServerRing,
     epoch: u16,
@@ -458,7 +541,10 @@ impl Server {
             handshake: handshake::Server::new(config.secret, config.join_key),
             config,
             outbox: VecDeque::new(),
-            connections: BTreeMap::new(),
+            connections: empty_slab(),
+            peer_to_slot: HashMap::new(),
+            poll_cursor: 0,
+            encode_gen: 0,
             in_process: Vec::new(),
             in_process_every: 1,
             seats,
@@ -479,6 +565,22 @@ impl Server {
             lobby: None,
             host_seat: 0,
         }
+    }
+
+    fn connection(&self, peer: Peer) -> Option<&Connection> {
+        let slot = *self.peer_to_slot.get(&peer)?;
+        self.connections
+            .get(slot)?
+            .as_ref()
+            .map(|entry| &entry.conn)
+    }
+
+    fn connection_mut(&mut self, peer: Peer) -> Option<&mut Connection> {
+        let slot = *self.peer_to_slot.get(&peer)?;
+        self.connections
+            .get_mut(slot)?
+            .as_mut()
+            .map(|entry| &mut entry.conn)
     }
 
     /// A co-op lobby with no world yet. Players handshake as usual and take
@@ -506,23 +608,23 @@ impl Server {
             return;
         }
         let lobby = Box::new(lobby.clone());
-        for connection in self.connections.values_mut() {
+        for slot in self.connections.iter_mut().flatten() {
             let message = Message::Lobby {
-                slot: connection.seat.0,
+                slot: slot.conn.seat.0,
                 lobby: lobby.clone(),
             };
-            let _ = connection.link.send_reliable(&message.to_bytes());
+            let _ = slot.conn.link.send_reliable(&message.to_bytes());
         }
     }
 
     /// Each lobby player's round trip time in milliseconds, by slot.
     pub fn lobby_delays(&self) -> Vec<(usize, u16)> {
-        (self.connections.iter())
-            .filter(|(peer, _)| !self.in_process.contains(peer))
-            .map(|(_, connection)| {
-                let ms = connection.link.stats().rtt_us / 1000;
+        (self.connections.iter().flatten())
+            .filter(|slot| !self.in_process.contains(&slot.peer))
+            .map(|slot| {
+                let ms = slot.conn.link.stats().rtt_us / 1000;
                 (
-                    usize::from(connection.seat.0),
+                    usize::from(slot.conn.seat.0),
                     u16::try_from(ms).unwrap_or(u16::MAX),
                 )
             })
@@ -537,8 +639,8 @@ impl Server {
         }
         self.lobby = Some(Lobby::Starting);
         let start = Message::Start.to_bytes();
-        for connection in self.connections.values_mut() {
-            let _ = connection.link.send_reliable(&start);
+        for slot in self.connections.iter_mut().flatten() {
+            let _ = slot.conn.link.send_reliable(&start);
         }
     }
 
@@ -546,11 +648,12 @@ impl Server {
     /// disconnected.
     pub fn close_lobby(&mut self, now: NetTime, reason: &str) {
         let closed = Message::Closed(reason.to_string()).to_bytes();
-        let peers: Vec<Peer> = self.connections.keys().copied().collect();
-        for peer in peers {
-            if let Some(connection) = self.connections.get_mut(&peer) {
-                let _ = connection.link.send_reliable(&closed);
-            }
+        for idx in 0..self.connections.len() {
+            let Some(slot) = self.connections[idx].as_mut() else {
+                continue;
+            };
+            let peer = slot.peer;
+            let _ = slot.conn.link.send_reliable(&closed);
             self.end(now, peer, Refusal::Kicked(reason.to_string()), true);
         }
     }
@@ -587,19 +690,44 @@ impl Server {
         for seat in &mut self.seats {
             seat.vacate(None);
         }
-        for (peer, connection) in &mut self.connections {
-            connection.seat = seat_of(usize::from(connection.seat.0));
-            if let Some(seat) = self.seats.get_mut(usize::from(connection.seat.0)) {
-                seat.vacate(Some(*peer));
+        let old = std::mem::replace(&mut self.connections, empty_slab());
+        self.peer_to_slot.clear();
+        let mut overflow = Vec::new();
+        for mut slot in old.into_vec().into_iter().flatten() {
+            slot.conn.seat = seat_of(usize::from(slot.conn.seat.0));
+            let idx = usize::from(slot.conn.seat.0);
+            if idx < self.connections.len() && self.connections[idx].is_none() {
+                if idx < count {
+                    self.seats[idx].vacate(Some(slot.peer));
+                }
+                self.peer_to_slot.insert(slot.peer, idx);
+                self.connections[idx] = Some(slot);
+            } else {
+                overflow.push(slot);
             }
         }
-        let peers: Vec<Peer> = self.connections.keys().copied().collect();
-        for peer in peers {
-            let Some(connection) = self.connections.get_mut(&peer) else {
-                continue;
+        for mut slot in overflow {
+            let peer = slot.peer;
+            let why = Refusal::Full {
+                seats: self.config.seats,
             };
-            let theirs = connection.theirs.take();
-            let refused = if usize::from(connection.seat.0) >= count {
+            for bytes in super::goodbye(&mut slot.conn.link, now, &why) {
+                self.outbox.push_back((peer, bytes));
+            }
+            self.events.push_back(ServerEvent::Left {
+                peer,
+                seat: slot.conn.seat,
+                why,
+            });
+        }
+        for idx in 0..self.connections.len() {
+            let (peer, seat, theirs) = {
+                let Some(slot) = self.connections[idx].as_mut() else {
+                    continue;
+                };
+                (slot.peer, slot.conn.seat, slot.conn.theirs.take())
+            };
+            let refused = if usize::from(seat.0) >= count {
                 Some(Refusal::Full {
                     seats: self.config.seats,
                 })
@@ -610,13 +738,13 @@ impl Server {
                 self.end(now, peer, why, true);
                 continue;
             }
-            let Some(connection) = self.connections.get_mut(&peer) else {
+            let Some(slot) = self.connections[idx].as_ref() else {
                 continue;
             };
-            let (seat, token, name) = (connection.seat, connection.token, connection.name.clone());
+            let (seat, token, name) = (slot.conn.seat, slot.conn.token, slot.conn.name.clone());
             let welcome = self.welcome(seat, token);
-            if let Some(connection) = self.connections.get_mut(&peer) {
-                let _ = connection.link.send_reliable(&welcome);
+            if let Some(slot) = self.connections[idx].as_mut() {
+                let _ = slot.conn.link.send_reliable(&welcome);
             }
             self.events
                 .push_back(ServerEvent::Joined { peer, seat, name });
@@ -681,12 +809,12 @@ impl Server {
 
     fn tell(&mut self, seat: Seat, message: &Message) {
         let message = message.to_bytes();
-        if let Some(connection) = self
+        if let Some(slot) = self
             .connections
-            .values_mut()
-            .find(|connection| connection.seat == seat)
+            .get_mut(usize::from(seat.0))
+            .and_then(Option::as_mut)
         {
-            let _ = connection.link.send_reliable(&message);
+            let _ = slot.conn.link.send_reliable(&message);
         }
     }
 
@@ -714,20 +842,20 @@ impl Server {
         self.next_copy = self.next_copy.wrapping_add(1);
         let blob: Arc<[u8]> = Arc::from(blob);
         let mut sent = CopySent::default();
-        for (peer, connection) in &mut self.connections {
-            if Some(*peer) == except || !connection.joined {
+        for slot in self.connections.iter_mut().flatten() {
+            if Some(slot.peer) == except || !slot.conn.joined {
                 continue;
             }
-            if connection.copies.len() >= MAX_QUEUED_COPIES {
-                sent.left_out.push(connection.seat);
+            if slot.conn.copies.len() >= MAX_QUEUED_COPIES {
+                sent.left_out.push(slot.conn.seat);
                 continue;
             }
-            connection.copies.push_back(Outbound {
+            slot.conn.copies.push_back(Outbound {
                 copy,
                 blob: blob.clone(),
                 next: 0,
             });
-            sent.to.push(connection.seat);
+            sent.to.push(slot.conn.seat);
         }
         sent.to.sort();
         sent.left_out.sort();
@@ -767,6 +895,7 @@ impl Server {
         let host = &self.config.credentials;
         let stances = &self.config.stances;
         let connections = &self.connections;
+        let peer_to_slot = &self.peer_to_slot;
         let in_process = &self.in_process;
         let free = self.free_seat(from).is_some();
         let reserved = &self.reserved;
@@ -774,9 +903,10 @@ impl Server {
         let outcome = self
             .handshake
             .receive(now, from, bytes, |peer, session, theirs| {
-                if connections
+                if peer_to_slot
                     .get(&peer)
-                    .is_some_and(|connection| connection.link.session() == session)
+                    .and_then(|&slot| connections[slot].as_ref())
+                    .is_some_and(|slot| slot.conn.link.session() == session)
                 {
                     return Ok(());
                 }
@@ -846,7 +976,7 @@ impl Server {
             let own = [0, usize::from(self.host_seat)];
             return own.into_iter().chain(all).find(|&index| free(index));
         }
-        let waiting = (self.in_process.iter()).any(|own| !self.connections.contains_key(own));
+        let waiting = (self.in_process.iter()).any(|own| !self.peer_to_slot.contains_key(own));
         let kept = |index: usize| {
             waiting && (index < self.in_process.len() || index == usize::from(self.host_seat))
         };
@@ -866,22 +996,26 @@ impl Server {
         let first = self.seats.first();
         if self.lobby.is_some()
             || first.is_none_or(|seat| seat.occupant.is_some())
+            || self.connections[0].is_some()
             || (self.reserved.iter()).any(|reserved| reserved.seat == Seat(0))
         {
             return;
         }
         let Some((peer, from)) = (self.in_process.iter())
-            .find_map(|own| Some((*own, self.connections.get(own)?.seat)))
+            .find_map(|own| Some((*own, self.connection(*own)?.seat)))
             .filter(|(_, seat)| *seat != Seat(0))
         else {
             return;
         };
-        if let Some(seat) = self.seats.get_mut(usize::from(from.0)) {
+        let from_idx = usize::from(from.0);
+        if let Some(seat) = self.seats.get_mut(from_idx) {
             seat.vacate(None);
         }
         self.seats[0].vacate(Some(peer));
-        if let Some(connection) = self.connections.get_mut(&peer) {
-            connection.seat = Seat(0);
+        if let Some(mut slot) = self.connections.get_mut(from_idx).and_then(Option::take) {
+            slot.conn.seat = Seat(0);
+            self.connections[0] = Some(slot);
+            self.peer_to_slot.insert(peer, 0);
         }
         self.host_seat = 0;
         self.events.push_back(ServerEvent::Moved {
@@ -908,7 +1042,7 @@ impl Server {
     /// token stays the seat's), else the first free seat with a new token
     /// (a retry of one already open changes nothing).
     fn open(&mut self, now: NetTime, peer: Peer, session: u64, credentials: &Credentials) {
-        if let Some(open) = self.connections.get(&peer) {
+        if let Some(open) = self.connection(peer) {
             if open.link.session() == session {
                 return;
             }
@@ -945,6 +1079,14 @@ impl Server {
                 None => return,
             },
         };
+        if let Some(prev) = self.peer_to_slot.get(&peer).copied()
+            && prev != index
+        {
+            self.end(now, peer, Refusal::Kicked("connected again".into()), false);
+        }
+        if let Some(old_slot) = self.connections[index].take() {
+            self.peer_to_slot.remove(&old_slot.peer);
+        }
         let name = credentials.name.clone();
         let seat = Seat(index as u8);
         self.seats[index].vacate(Some(peer));
@@ -963,9 +1105,9 @@ impl Server {
             }
             Some(Lobby::Gathering) => {}
         }
-        self.connections.insert(
+        self.connections[index] = Some(Slot {
             peer,
-            Connection {
+            conn: Connection {
                 link,
                 seat,
                 token,
@@ -975,6 +1117,7 @@ impl Server {
                 confirmed: Confirmed::default(),
                 pinned: None,
                 due: false,
+                encoding: false,
                 every: base_every(&self.config, self.in_process_every(peer), peer),
                 window: (now, 0, 0),
                 clean_since: now,
@@ -985,7 +1128,8 @@ impl Server {
                 copies: VecDeque::new(),
                 theirs: self.lobby.is_some().then(|| credentials.clone()),
             },
-        );
+        });
+        self.peer_to_slot.insert(peer, index);
         self.events.push_back(match self.lobby {
             Some(_) => ServerEvent::LobbyJoined { slot: index, name },
             None => ServerEvent::Joined { peer, seat, name },
@@ -998,22 +1142,31 @@ impl Server {
     fn join_waiting(&mut self) {
         if self.phase != Phase::Running
             || self.ring.newest().is_none()
-            || self.connections.values().all(|c| c.joined)
+            || self
+                .connections
+                .iter()
+                .flatten()
+                .all(|slot| slot.conn.joined)
         {
             return;
         }
         let level = Message::Level(self.level.clone()).to_bytes();
-        for connection in self.connections.values_mut().filter(|c| !c.joined) {
-            connection.joined = true;
-            connection.confirmed = Confirmed::default();
-            connection.pinned = None;
-            connection.due = true;
-            let _ = connection.link.send_reliable(&level);
+        for slot in self
+            .connections
+            .iter_mut()
+            .flatten()
+            .filter(|slot| !slot.conn.joined)
+        {
+            slot.conn.joined = true;
+            slot.conn.confirmed = Confirmed::default();
+            slot.conn.pinned = None;
+            slot.conn.due = true;
+            let _ = slot.conn.link.send_reliable(&level);
         }
     }
 
     fn session(&mut self, now: NetTime, from: Peer, bytes: &[u8]) {
-        let Some(connection) = self.connections.get_mut(&from) else {
+        let Some(connection) = self.connection_mut(from) else {
             self.strays += 1;
             return;
         };
@@ -1055,9 +1208,15 @@ impl Server {
 
     fn take_message(&mut self, from: Peer, message: Message<'_>) {
         let epoch = self.epoch;
-        let Some(connection) = self.connections.get_mut(&from) else {
+        let phase = self.phase;
+        let lobby = self.lobby;
+        let Some(&slot_idx) = self.peer_to_slot.get(&from) else {
             return;
         };
+        let Some(slot) = self.connections[slot_idx].as_mut() else {
+            return;
+        };
+        let connection = &mut slot.conn;
         match message {
             Message::Loaded {
                 epoch: theirs,
@@ -1091,12 +1250,12 @@ impl Server {
                 connection.pinned = None;
                 connection.confirmed = Confirmed::default();
             }
-            Message::Choose { pick, swap } if self.lobby == Some(Lobby::Gathering) => {
+            Message::Choose { pick, swap } if lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
                 self.events
                     .push_back(ServerEvent::LobbyChoose { slot, pick, swap });
             }
-            Message::Ready(on) if self.lobby == Some(Lobby::Gathering) => {
+            Message::Ready(on) if lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
                 self.events.push_back(ServerEvent::LobbyReady { slot, on });
             }
@@ -1105,7 +1264,7 @@ impl Server {
             // a module is coming in.
             Message::Action(action)
                 if connection.loaded == Some(epoch)
-                    && !matches!(self.phase, Phase::Installing { .. }) =>
+                    && !matches!(phase, Phase::Installing { .. }) =>
             {
                 self.actions.push((connection.seat, action));
             }
@@ -1115,9 +1274,13 @@ impl Server {
 
     fn take_commands(&mut self, now: NetTime, from: Peer, commands: &Commands) {
         let (epoch, running, last) = (self.epoch, self.phase == Phase::Running, self.last);
-        let Some(connection) = self.connections.get_mut(&from) else {
+        let Some(&slot_idx) = self.peer_to_slot.get(&from) else {
             return;
         };
+        let Some(slot) = self.connections[slot_idx].as_mut() else {
+            return;
+        };
+        let connection = &mut slot.conn;
         if commands.epoch == epoch
             && let Some(tick) = commands.confirmed
         {
@@ -1182,12 +1345,13 @@ impl Server {
         let mut input = TickInput::default();
         let running = self.phase == Phase::Running;
         for (index, seat) in self.seats.iter_mut().enumerate() {
-            let Some(peer) = seat.occupant else {
+            let Some(_peer) = seat.occupant else {
                 continue;
             };
-            let Some(connection) = self.connections.get_mut(&peer) else {
+            let Some(slot_entry) = self.connections.get_mut(index).and_then(Option::as_mut) else {
                 continue;
             };
+            let connection = &mut slot_entry.conn;
             if !running {
                 continue;
             }
@@ -1293,7 +1457,9 @@ impl Server {
         self.cache.clear();
         self.join_waiting();
         let slot = (tick % SEAT_BUFFER as u64) as usize;
-        for (peer, connection) in &mut self.connections {
+        for slot_entry in self.connections.iter_mut().flatten() {
+            let peer = slot_entry.peer;
+            let connection = &mut slot_entry.conn;
             // The seat's command for this tick: how long before the step
             // it came (its slack).
             if let Some(applied) = self.seats[usize::from(connection.seat.0)].applied[slot]
@@ -1311,9 +1477,9 @@ impl Server {
             }
             let in_process = self
                 .in_process
-                .contains(peer)
+                .contains(&peer)
                 .then_some(self.in_process_every);
-            let base = base_every(&self.config, in_process, *peer);
+            let base = base_every(&self.config, in_process, peer);
             adapt(connection, now, base);
             if connection.joined && tick.is_multiple_of(u64::from(connection.every)) {
                 connection.due = true;
@@ -1328,6 +1494,7 @@ impl Server {
         let Some(newest) = self.ring.newest().cloned() else {
             return;
         };
+        self.encode_gen = self.encode_gen.wrapping_add(1);
         self.phase = Phase::Installing { tick: newest.tick };
         self.actions.clear();
         for seat in &mut self.seats {
@@ -1355,6 +1522,7 @@ impl Server {
         let Some(newest) = self.ring.newest().cloned() else {
             return;
         };
+        self.encode_gen = self.encode_gen.wrapping_add(1);
         self.phase = Phase::Held { tick: newest.tick };
         for seat in &mut self.seats {
             seat.clear();
@@ -1380,32 +1548,48 @@ impl Server {
 
     /// Every joined client gets `newest`'s snapshot in the message `wrap`
     /// makes of its payload; none is due a frame until the world runs.
+    ///
+    /// When a client has already confirmed `newest` (or received a reliable
+    /// keyframe for it), emit a minimal header-only stub (~13 B) so
+    /// `Client::take_payload` matches `ClientRing::holds` without re-sending
+    /// a full keyframe.
     fn stop_clients(&mut self, newest: &Stepped, wrap: impl Fn(&[u8]) -> Vec<u8>) {
-        let peers: Vec<Peer> = self.connections.keys().copied().collect();
-        for peer in peers {
-            let Some(connection) = self.connections.get_mut(&peer) else {
-                continue;
-            };
+        let ring = &self.ring;
+        let applied = &self.applied;
+        let epoch = self.epoch;
+        for slot in self.connections.iter_mut().flatten() {
+            let connection = &mut slot.conn;
             if !connection.joined {
                 continue;
             }
             connection.due = false;
+            connection.encoding = false;
             // Reports of commands before the stop mean nothing after.
             connection.report = ClockReport::default();
             connection.report_due = false;
-            // A client that confirmed `newest` itself gets it whole, as
-            // `encode_frame` makes a frame against a baseline not older.
-            let base = baseline(&self.ring, &self.applied, connection)
-                .filter(|base| base.stepped.tick < newest.tick);
+            let already_holds = connection.confirmed == Confirmed(Some((epoch, newest.tick)))
+                || connection
+                    .pinned
+                    .as_ref()
+                    .is_some_and(|pin| pin.stepped.tick == newest.tick && !pin.from_install);
             let mut payload = Vec::new();
             put_payload_head(&mut payload, 0, connection.every);
-            body(
-                newest,
-                base.as_ref(),
-                &self.applied,
-                self.epoch,
-                &mut payload,
-            );
+            if already_holds {
+                let mut header = Vec::new();
+                FrameHeader {
+                    epoch,
+                    tick: newest.tick,
+                    baseline: None,
+                    check: newest.check(),
+                }
+                .write(&mut header);
+                let empty = TickInput::default();
+                put_payload_body(&mut payload, &header, &empty, &empty);
+            } else {
+                let base = baseline(ring, applied, connection)
+                    .filter(|base| base.stepped.tick < newest.tick);
+                body(newest, base.as_ref(), applied, epoch, &mut payload);
+            }
             let _ = connection.link.send_reliable(&wrap(&payload));
         }
     }
@@ -1415,8 +1599,10 @@ impl Server {
         self.phase = Phase::Running;
         self.last = Some((tick, now));
         let resume = Message::Resume { tick }.to_bytes();
-        for connection in self.connections.values_mut().filter(|c| c.joined) {
-            let _ = connection.link.send_reliable(&resume);
+        for slot in self.connections.iter_mut().flatten() {
+            if slot.conn.joined {
+                let _ = slot.conn.link.send_reliable(&resume);
+            }
         }
         self.events.push_back(ServerEvent::Resumed { tick, late });
     }
@@ -1442,6 +1628,7 @@ impl Server {
     pub fn installed(&mut self, now: NetTime, announcement: Announcement, after: &Snapshot) {
         let tick = after.tick;
         self.epoch = self.epoch.wrapping_add(1);
+        self.encode_gen = self.encode_gen.wrapping_add(1);
         self.actions.clear();
         self.ring.begin_epoch(self.epoch);
         let first = Stepped::new(after);
@@ -1455,14 +1642,18 @@ impl Server {
             announcement: announcement.clone(),
         }
         .to_bytes();
-        for connection in self.connections.values_mut().filter(|c| c.joined) {
-            connection.pinned = Some(Base {
-                stepped: first.clone(),
-                commands: commands.clone(),
-            });
-            connection.confirmed = Confirmed::default();
-            connection.due = false;
-            let _ = connection.link.send_reliable(&message);
+        for slot in self.connections.iter_mut().flatten() {
+            if slot.conn.joined {
+                slot.conn.pinned = Some(Base {
+                    stepped: first.clone(),
+                    commands: commands.clone(),
+                    from_install: true,
+                });
+                slot.conn.confirmed = Confirmed::default();
+                slot.conn.due = false;
+                slot.conn.encoding = false;
+                let _ = slot.conn.link.send_reliable(&message);
+            }
         }
         self.level = LevelRequest::Module(announcement);
         self.phase = Phase::Waiting { tick, since: now };
@@ -1481,8 +1672,9 @@ impl Server {
         let late: Vec<Peer> = self
             .connections
             .iter()
-            .filter(|(_, c)| c.joined && c.loaded != Some(epoch))
-            .map(|(peer, _)| *peer)
+            .flatten()
+            .filter(|slot| slot.conn.joined && slot.conn.loaded != Some(epoch))
+            .map(|slot| slot.peer)
             .collect();
         if !late.is_empty() && now.since(since) < self.config.load_wait_us {
             return false;
@@ -1493,112 +1685,298 @@ impl Server {
     }
 
     // -----------------------------------------------------------------
-    // Sending.
+    // Sending & off-lock encoding.
+
+    /// Extracts the next snapshot encode job without running compression
+    /// under lock. Cache hits are enqueued directly; cache misses and
+    /// keyframes return `Some(EncodeJob)`.
+    pub fn poll_encode_job(&mut self, now: NetTime) -> Option<EncodeJob> {
+        self.poll_encode_job_excluding(now, None)
+    }
+
+    /// Like `poll_encode_job`, skipping `exclude` (e.g. an in-process
+    /// loopback client driven on the game thread).
+    pub fn poll_encode_job_excluding(
+        &mut self,
+        now: NetTime,
+        exclude: Option<Peer>,
+    ) -> Option<EncodeJob> {
+        if self.phase != Phase::Running {
+            return None;
+        }
+        let newest = self.ring.newest()?.clone();
+        let len = self.connections.len();
+        let since_us = self.last.map_or(0, |(_, at)| now.since(at));
+        for turn in 0..len {
+            let idx = (self.poll_cursor + turn) % len;
+            let Some(slot) = self.connections[idx].as_mut() else {
+                continue;
+            };
+            if Some(slot.peer) == exclude || !slot.conn.due || slot.conn.encoding {
+                continue;
+            }
+            slot.conn.due = false;
+            let base = baseline(&self.ring, &self.applied, &slot.conn);
+            if base
+                .as_ref()
+                .is_some_and(|base| base.stepped.tick >= newest.tick)
+            {
+                continue;
+            }
+            if let Some(base) = &base
+                && let Some((_, cached_bytes)) = self
+                    .cache
+                    .iter()
+                    .find(|(at, _)| *at == Some(base.stepped.tick))
+            {
+                let mut payload = std::mem::take(&mut self.scratch);
+                let whole = enqueue_delta(
+                    &mut slot.conn,
+                    newest.tick,
+                    since_us,
+                    cached_bytes,
+                    &mut payload,
+                );
+                self.scratch = payload;
+                if whole {
+                    attach_clock_report(&mut slot.conn, &mut self.scratch);
+                }
+                continue;
+            }
+            slot.conn.encoding = true;
+            let peer = slot.peer;
+            let every = slot.conn.every;
+            let applied_now = applied_at(&self.applied, newest.tick)
+                .cloned()
+                .unwrap_or(TickInput::default());
+            return Some(EncodeJob {
+                peer,
+                epoch: self.epoch,
+                encode_gen: self.encode_gen,
+                newest,
+                base,
+                applied_now,
+                since_us,
+                every,
+            });
+        }
+        None
+    }
+
+    /// Commits a finished `EncodedJob` back into `Server`, caching deltas
+    /// and enqueueing frames onto the connection's `Link`.
+    pub fn finish_encode(&mut self, done: EncodedJob) {
+        let Some(&slot_idx) = self.peer_to_slot.get(&done.peer) else {
+            return;
+        };
+        let Some(slot) = self.connections[slot_idx].as_mut() else {
+            return;
+        };
+        slot.conn.encoding = false;
+        if done.epoch != self.epoch
+            || done.encode_gen != self.encode_gen
+            || self.phase != Phase::Running
+        {
+            return;
+        }
+        match done.base_tick {
+            None => {
+                let mut payload = std::mem::take(&mut self.scratch);
+                payload.clear();
+                put_payload_head(&mut payload, done.since_us, done.every);
+                payload.extend_from_slice(&done.body_bytes);
+                let sent_ok = slot
+                    .conn
+                    .link
+                    .send_reliable(&Message::Snapshot(&payload).to_bytes())
+                    .is_ok();
+                self.scratch = payload;
+                if sent_ok {
+                    slot.conn.stats.keyframes += 1;
+                    let should_pin = slot.conn.confirmed
+                        != Confirmed(Some((self.epoch, done.newest.tick)))
+                        && slot
+                            .conn
+                            .pinned
+                            .as_ref()
+                            .is_none_or(|pin| pin.stepped.tick < done.newest.tick);
+                    if should_pin {
+                        slot.conn.pinned = Some(Base {
+                            stepped: done.newest,
+                            commands: done.applied_now,
+                            from_install: false,
+                        });
+                    }
+                }
+            }
+            Some(base_tick) => {
+                let mut payload = std::mem::take(&mut self.scratch);
+                let whole = enqueue_delta(
+                    &mut slot.conn,
+                    done.newest.tick,
+                    done.since_us,
+                    &done.body_bytes,
+                    &mut payload,
+                );
+                self.scratch = payload;
+                if whole {
+                    attach_clock_report(&mut slot.conn, &mut self.scratch);
+                }
+                if self
+                    .ring
+                    .newest()
+                    .is_some_and(|newest| newest.tick == done.newest.tick)
+                    && !self.cache.iter().any(|(at, _)| *at == Some(base_tick))
+                {
+                    self.cache.push((Some(base_tick), done.body_bytes));
+                }
+            }
+        }
+    }
 
     /// The next datagram to send at `now`. Call until `None`.
     pub fn poll_transmit(&mut self, now: NetTime) -> Option<(Peer, Vec<u8>)> {
-        if let Some(out) = self.outbox.pop_front() {
-            return Some(out);
+        self.poll_transmit_inner(now, None, true)
+    }
+
+    /// Drains ready datagrams at `now` for peers other than `exclude`
+    /// without encoding uncached snapshots under lock (`poll_encode_job` +
+    /// `finish_encode` handle snapshot encoding off-lock).
+    pub fn poll_transmit_prepared(
+        &mut self,
+        now: NetTime,
+        exclude: Option<Peer>,
+    ) -> Option<(Peer, Vec<u8>)> {
+        self.poll_transmit_inner(now, exclude, false)
+    }
+
+    /// Transmits only for `target` (used by `Solo::pump()` to service the
+    /// host's local loopback client without touching remote peers).
+    pub fn poll_transmit_for(&mut self, now: NetTime, target: Peer) -> Option<Vec<u8>> {
+        if let Some(at) = self.outbox.iter().position(|(peer, _)| *peer == target) {
+            return self.outbox.remove(at).map(|(_, bytes)| bytes);
         }
         self.expire(now);
-        let peers: Vec<Peer> = self.connections.keys().copied().collect();
-        for peer in peers {
-            let sent = self.send_snapshot(now, peer);
-            let connection = self.connections.get_mut(&peer)?;
-            // The report rides with the snapshot, never in a packet of its own.
-            if sent && connection.report_due {
-                connection.report_due = false;
-                self.scratch.clear();
-                connection.report.encode(&mut self.scratch);
-                let _ = connection
-                    .link
-                    .queue_unreliable(frame::CLOCK, &self.scratch);
-                connection.report = ClockReport::default();
+        let slot_idx = *self.peer_to_slot.get(&target)?;
+        let sent = self.send_snapshot_slot(now, slot_idx, true);
+        let slot = self.connections[slot_idx].as_mut()?;
+        if sent {
+            attach_clock_report(&mut slot.conn, &mut self.scratch);
+        }
+        feed_copy(&mut slot.conn);
+        slot.conn.link.poll_transmit(now)
+    }
+
+    fn poll_transmit_inner(
+        &mut self,
+        now: NetTime,
+        exclude: Option<Peer>,
+        sync_encode: bool,
+    ) -> Option<(Peer, Vec<u8>)> {
+        match exclude {
+            None => {
+                if let Some(out) = self.outbox.pop_front() {
+                    return Some(out);
+                }
             }
-            feed_copy(connection);
-            if let Some(bytes) = connection.link.poll_transmit(now) {
+            Some(skip) => {
+                if let Some(at) = self.outbox.iter().position(|(peer, _)| *peer != skip) {
+                    return self.outbox.remove(at);
+                }
+            }
+        }
+        self.expire(now);
+        let len = self.connections.len();
+        for turn in 0..len {
+            let idx = (self.poll_cursor + turn) % len;
+            let Some(peer) = self.connections[idx].as_ref().map(|slot| slot.peer) else {
+                continue;
+            };
+            if Some(peer) == exclude {
+                continue;
+            }
+            let sent = self.send_snapshot_slot(now, idx, sync_encode);
+            let Some(slot) = self.connections[idx].as_mut() else {
+                continue;
+            };
+            if sent {
+                attach_clock_report(&mut slot.conn, &mut self.scratch);
+            }
+            feed_copy(&mut slot.conn);
+            if let Some(bytes) = slot.conn.link.poll_transmit(now) {
+                self.poll_cursor = (idx + 1) % len;
                 return Some((peer, bytes));
             }
         }
         None
     }
 
-    /// Queues the newest snapshot for `peer` if one is due; whether one
-    /// went unreliably (a report may ride with it).
-    fn send_snapshot(&mut self, now: NetTime, peer: Peer) -> bool {
-        let Some(connection) = self.connections.get_mut(&peer) else {
+    /// Queues the newest snapshot for `connections[slot_idx]` if one is
+    /// due; returns whether an unreliable snapshot frame was queued (a
+    /// clock report may ride with it).
+    fn send_snapshot_slot(&mut self, now: NetTime, slot_idx: usize, sync_encode: bool) -> bool {
+        let Some(slot) = self.connections[slot_idx].as_mut() else {
             return false;
         };
-        if !connection.due || self.phase != Phase::Running {
+        if !slot.conn.due || slot.conn.encoding || self.phase != Phase::Running {
             return false;
         }
-        connection.due = false;
         let Some(newest) = self.ring.newest() else {
+            slot.conn.due = false;
             return false;
         };
-        let base = baseline(&self.ring, &self.applied, connection);
+        let base = baseline(&self.ring, &self.applied, &slot.conn);
         let since = self.last.map_or(0, |(_, at)| now.since(at));
         let Some(base) = base else {
+            if !sync_encode {
+                return false;
+            }
+            slot.conn.due = false;
             // Nothing it holds: a keyframe, pinned as its baseline.
             let mut payload = Vec::new();
-            put_payload_head(&mut payload, since, connection.every);
+            put_payload_head(&mut payload, since, slot.conn.every);
             body(newest, None, &self.applied, self.epoch, &mut payload);
-            if connection
+            if slot
+                .conn
                 .link
                 .send_reliable(&Message::Snapshot(&payload).to_bytes())
                 .is_ok()
             {
-                connection.stats.keyframes += 1;
-                connection.pinned = Some(Base {
+                slot.conn.stats.keyframes += 1;
+                slot.conn.pinned = Some(Base {
                     stepped: newest.clone(),
                     commands: applied_at(&self.applied, newest.tick)
                         .cloned()
                         .unwrap_or(TickInput::default()),
+                    from_install: false,
                 });
             }
             return false;
         };
         if base.stepped.tick >= newest.tick {
+            slot.conn.due = false;
             return false;
         }
         let key = Some(base.stepped.tick);
         let cached = match self.cache.iter().position(|(at, _)| *at == key) {
             Some(at) => at,
-            None => {
+            None if sync_encode => {
                 let mut bytes = Vec::new();
                 body(newest, Some(&base), &self.applied, self.epoch, &mut bytes);
                 self.cache.push((key, bytes));
                 self.cache.len() - 1
             }
+            None => return false,
         };
+        slot.conn.due = false;
         let mut payload = std::mem::take(&mut self.scratch);
-        payload.clear();
-        put_payload_head(&mut payload, since, connection.every);
-        payload.extend_from_slice(&self.cache[cached].1);
-        let count = payload.len().div_ceil(FRAGMENT);
-        let whole = count <= MAX_FRAGMENTS;
-        if whole {
-            let mut out = Vec::with_capacity(FRAGMENT + 16);
-            for (index, bytes) in payload.chunks(FRAGMENT).enumerate() {
-                out.clear();
-                Fragment {
-                    tick: newest.tick,
-                    index,
-                    count,
-                    bytes,
-                }
-                .encode(&mut out);
-                let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &out);
-            }
-            connection.stats.snapshots += 1;
-            connection.stats.fragments += count as u64 - 1;
-        } else if connection
-            .link
-            .send_reliable(&Message::Snapshot(&payload).to_bytes())
-            .is_ok()
-        {
-            connection.stats.reliable_deltas += 1;
-        }
+        let whole = enqueue_delta(
+            &mut slot.conn,
+            newest.tick,
+            since,
+            &self.cache[cached].1,
+            &mut payload,
+        );
         self.scratch = payload;
         whole
     }
@@ -1611,20 +1989,18 @@ impl Server {
         if self.reserved.len() < kept {
             self.host_takes_first_seat();
         }
-        let ended: Vec<(Peer, Refusal)> = self
-            .connections
-            .iter()
-            .filter_map(|(peer, c)| {
-                let why = match c.link.broken() {
+        for idx in 0..self.connections.len() {
+            let reason = self.connections[idx].as_ref().and_then(|slot| {
+                let why = match slot.conn.link.broken() {
                     Some(reason) => Refusal::Kicked(format!("broke the protocol: {reason}")),
-                    None if c.link.timed_out(now) => Refusal::Timeout,
+                    None if slot.conn.link.timed_out(now) => Refusal::Timeout,
                     None => return None,
                 };
-                Some((*peer, why))
-            })
-            .collect();
-        for (peer, why) in ended {
-            self.close(now, peer, why);
+                Some((slot.peer, why))
+            });
+            if let Some((peer, why)) = reason {
+                self.close(now, peer, why);
+            }
         }
     }
 
@@ -1635,7 +2011,7 @@ impl Server {
         if !self.in_process.contains(&peer) {
             self.in_process.push(peer);
         }
-        if let Some(connection) = self.connections.get_mut(&peer) {
+        if let Some(connection) = self.connection_mut(peer) {
             connection.link.set_in_process();
         }
     }
@@ -1647,9 +2023,9 @@ impl Server {
     pub fn set_in_process_every(&mut self, every: u8) {
         self.in_process_every = every.max(1);
         let peers = &self.in_process;
-        for (peer, connection) in &mut self.connections {
-            if peers.contains(peer) {
-                connection.every = self.in_process_every;
+        for slot in self.connections.iter_mut().flatten() {
+            if peers.contains(&slot.peer) {
+                slot.conn.every = self.in_process_every;
             }
         }
     }
@@ -1669,9 +2045,10 @@ impl Server {
     /// Ends every connection with `Refusal::HostQuit` (the host shuts
     /// down): the packets that say so come from `poll_transmit`.
     pub fn shutdown(&mut self, now: NetTime) {
-        let peers: Vec<Peer> = self.connections.keys().copied().collect();
-        for peer in peers {
-            self.close(now, peer, Refusal::HostQuit);
+        for idx in 0..self.connections.len() {
+            if let Some(peer) = self.connections[idx].as_ref().map(|slot| slot.peer) {
+                self.close(now, peer, Refusal::HostQuit);
+            }
         }
     }
 
@@ -1680,32 +2057,35 @@ impl Server {
     /// is free at once. In the lobby no seat is kept: the slot and its
     /// companion are free at once.
     fn end(&mut self, now: NetTime, peer: Peer, why: Refusal, tell: bool) {
-        let Some(mut connection) = self.connections.remove(&peer) else {
+        let Some(slot_idx) = self.peer_to_slot.remove(&peer) else {
             return;
         };
-        if let Some(seat) = self.seats.get_mut(usize::from(connection.seat.0)) {
+        let Some(mut slot) = self.connections[slot_idx].take() else {
+            return;
+        };
+        if let Some(seat) = self.seats.get_mut(usize::from(slot.conn.seat.0)) {
             seat.vacate(None);
         }
         if why == Refusal::Timeout && self.lobby.is_none() {
             self.reserved.push(Reserved {
-                token: connection.token,
-                seat: connection.seat,
+                token: slot.conn.token,
+                seat: slot.conn.seat,
                 until: now.plus(RECONNECT_US),
             });
         }
         self.host_takes_first_seat();
         if tell {
-            for bytes in super::goodbye(&mut connection.link, now, &why) {
+            for bytes in super::goodbye(&mut slot.conn.link, now, &why) {
                 self.outbox.push_back((peer, bytes));
             }
         }
         self.events.push_back(match self.lobby {
             Some(_) => ServerEvent::LobbyLeft {
-                slot: usize::from(connection.seat.0),
+                slot: usize::from(slot.conn.seat.0),
             },
             None => ServerEvent::Left {
                 peer,
-                seat: connection.seat,
+                seat: slot.conn.seat,
                 why,
             },
         });
@@ -1718,12 +2098,13 @@ impl Server {
         }
         let running = self.phase == Phase::Running;
         self.connections
-            .values()
-            .filter_map(|c| {
-                if c.due && running {
+            .iter()
+            .flatten()
+            .filter_map(|slot| {
+                if slot.conn.due && !slot.conn.encoding && running {
                     Some(NetTime(0))
                 } else {
-                    c.link.next_deadline()
+                    slot.conn.link.next_deadline()
                 }
             })
             .min()
@@ -1735,16 +2116,20 @@ impl Server {
             connections: self
                 .connections
                 .iter()
-                .map(|(peer, c)| ConnectionView {
-                    peer: *peer,
-                    seat: c.seat,
-                    name: c.name.clone(),
-                    loaded: c.loaded,
-                    every: c.every,
-                    link: c.link.stats(),
-                    stats: c.stats,
-                    window_bytes: c.link.window_bytes(),
-                    held_bytes: c.link.held_bytes(),
+                .flatten()
+                .map(|slot| {
+                    let c = &slot.conn;
+                    ConnectionView {
+                        peer: slot.peer,
+                        seat: c.seat,
+                        name: c.name.clone(),
+                        loaded: c.loaded,
+                        every: c.every,
+                        link: c.link.stats(),
+                        stats: c.stats,
+                        window_bytes: c.link.window_bytes(),
+                        held_bytes: c.link.held_bytes(),
+                    }
                 })
                 .collect(),
             ring: self.ring.len(),
@@ -1767,6 +2152,53 @@ impl Server {
     }
 }
 
+fn attach_clock_report(connection: &mut Connection, scratch: &mut Vec<u8>) {
+    if connection.report_due {
+        connection.report_due = false;
+        scratch.clear();
+        connection.report.encode(scratch);
+        let _ = connection.link.queue_unreliable(frame::CLOCK, scratch);
+        connection.report = ClockReport::default();
+    }
+}
+
+fn enqueue_delta(
+    connection: &mut Connection,
+    tick: u64,
+    since_us: u64,
+    body_bytes: &[u8],
+    payload: &mut Vec<u8>,
+) -> bool {
+    payload.clear();
+    put_payload_head(payload, since_us, connection.every);
+    payload.extend_from_slice(body_bytes);
+    let count = payload.len().div_ceil(FRAGMENT);
+    let whole = count <= MAX_FRAGMENTS;
+    if whole {
+        let mut out = Vec::with_capacity(FRAGMENT + 16);
+        for (index, bytes) in payload.chunks(FRAGMENT).enumerate() {
+            out.clear();
+            Fragment {
+                tick,
+                index,
+                count,
+                bytes,
+            }
+            .encode(&mut out);
+            let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &out);
+        }
+        connection.stats.snapshots += 1;
+        connection.stats.fragments += count as u64 - 1;
+    } else if connection
+        .link
+        .send_reliable(&Message::Snapshot(payload).to_bytes())
+        .is_ok()
+    {
+        connection.stats.reliable_deltas += 1;
+    }
+    whole
+}
+
 /// The commands the authority applied at `tick`, if still kept.
 fn applied_at(applied: &VecDeque<(u64, TickInput)>, tick: u64) -> Option<&TickInput> {
     let front = applied.front()?.0;
@@ -1786,6 +2218,7 @@ fn baseline(
         applied_at(applied, stepped.tick).map(|commands| Base {
             stepped: stepped.clone(),
             commands: commands.clone(),
+            from_install: false,
         })
     });
     match (confirmed, &connection.pinned) {
@@ -1896,12 +2329,13 @@ fn check(
 /// The connection holding the seat `token` keeps, but for one in this
 /// process (the host's own player never hands its seat over).
 fn holder<'a>(
-    connections: &'a BTreeMap<Peer, Connection>,
+    connections: &'a [Option<Slot>],
     in_process: &[Peer],
     token: u64,
 ) -> Option<(Peer, &'a Connection)> {
     connections
         .iter()
-        .find(|(at, connection)| connection.token == token && !in_process.contains(at))
-        .map(|(at, connection)| (*at, connection))
+        .flatten()
+        .find(|slot| slot.conn.token == token && !in_process.contains(&slot.peer))
+        .map(|slot| (slot.peer, &slot.conn))
 }

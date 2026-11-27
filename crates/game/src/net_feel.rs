@@ -104,7 +104,7 @@ pub fn sample_host(feel: &mut Feel, server: &net::session::ServerStats) {
     for c in server
         .connections
         .iter()
-        .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
+        .filter(|c| !matches!(c.peer, net::Peer::Local(_)))
     {
         // The mean slack of the commands since the last sample.
         let now = (c.stats.slack_sum_us, c.stats.commands);
@@ -115,6 +115,7 @@ pub fn sample_host(feel: &mut Feel, server: &net::session::ServerStats) {
             ("jitter_ms", c.link.jitter_us as f64 / 1000.0),
             ("loss_percent", c.link.loss_ppm as f64 / 10_000.0),
             ("interval_ticks", f64::from(c.every)),
+            ("keyframes", c.stats.keyframes as f64),
         ];
         if commands > 0 {
             gauges.push(("slack_ms", (now.0 - sum) as f64 / commands as f64 / 1000.0));

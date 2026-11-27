@@ -43,8 +43,8 @@ use net::io::{Loopback, Socket};
 use net::link::Config;
 use net::netem::Netem;
 use net::session::{
-    Cause, Client, ClientConfig, ClientEvent, InstallRequest, LevelRequest, Server, ServerConfig,
-    ServerEvent,
+    Cause, Client, ClientConfig, ClientEvent, EncodeJob, EncodedJob, InstallRequest, LevelRequest,
+    Server, ServerConfig, ServerEvent,
 };
 use net::{NetTime, Peer, Transport};
 use sim::action::Action;
@@ -52,6 +52,14 @@ use sim::{Announcement, Command, Level, Seat, Snapshot, TickInput, TickRate};
 
 use crate::net_feel::{self, Feel};
 use crate::net_thread::{Endpoint, NetThread, Shared, lock};
+
+/// Whether per-tick snapshot hash audit logs (`hashes.txt` / `rebuilt.txt`)
+/// and `Prepare::hash` / `ClientConfig::audit` are enabled. Off by default
+/// so live co-op avoids hashing every snapshot twice and flushing logs under
+/// lock; `cargo xtask duo` and `lobby` set `KJK_NET_AUDIT=1`.
+pub fn net_audit_enabled() -> bool {
+    std::env::var_os("KJK_NET_AUDIT").is_some_and(|v| !v.is_empty() && v != "0")
+}
 
 /// Rounds of moving datagrams a pump makes at most (each round moves all
 /// that is waiting; a handshake and a join take a handful).
@@ -70,6 +78,8 @@ pub struct Hosted {
     server: Server,
     host_end: Loopback,
     waiting: VecDeque<(Peer, Vec<u8>)>,
+    /// Players' actions held back while a break holds, for the tick that ends it.
+    after_break: Vec<(Seat, Action)>,
 }
 
 impl Hosted {
@@ -86,6 +96,41 @@ impl Hosted {
         }
         moved
     }
+
+    /// Moves only what the server has for the host's own loopback client,
+    /// leaving remote peers' encoding and transmission to `NetThread`.
+    fn route_local(&mut self, now: NetTime) -> bool {
+        let target = self.host_end.remote();
+        let mut moved = false;
+        while let Some(bytes) = self.server.poll_transmit_for(now, target) {
+            self.host_end.send(target, &bytes);
+            moved = true;
+        }
+        moved
+    }
+
+    pub(crate) fn server(&self) -> &Server {
+        &self.server
+    }
+
+    pub(crate) fn commands_for(&mut self, tick: u64, paused_by: Option<Seat>) -> TickInput {
+        let mut input = self.server.commands_for(tick);
+        let mut actions = std::mem::take(&mut self.after_break);
+        actions.extend(self.server.actions());
+        let ends = paused_by.is_none_or(|by| {
+            actions.iter().any(|(seat, action)| {
+                *action == Action::Resume && sim::party::may_resume(by, *seat)
+            })
+        });
+        for (seat, action) in actions {
+            if ends || action == Action::Resume || sim::party::passes_break(seat, &action) {
+                input.act(seat, action);
+            } else {
+                self.after_break.push((seat, action));
+            }
+        }
+        input
+    }
 }
 
 impl Endpoint for Hosted {
@@ -94,10 +139,11 @@ impl Endpoint for Hosted {
     }
 
     fn poll_transmit(&mut self, now: NetTime) -> Option<(Peer, Vec<u8>)> {
-        if self.waiting.is_empty() {
-            self.route(now);
+        if let Some(out) = self.waiting.pop_front() {
+            return Some(out);
         }
-        self.waiting.pop_front()
+        self.server
+            .poll_transmit_prepared(now, Some(self.host_end.remote()))
     }
 
     fn next_deadline(&self) -> Option<NetTime> {
@@ -106,6 +152,15 @@ impl Endpoint for Hosted {
         } else {
             Some(NetTime(0))
         }
+    }
+
+    fn poll_encode_job(&mut self, now: NetTime) -> Option<EncodeJob> {
+        self.server
+            .poll_encode_job_excluding(now, Some(self.host_end.remote()))
+    }
+
+    fn finish_encode(&mut self, done: EncodedJob) {
+        self.server.finish_encode(done);
     }
 }
 
@@ -141,9 +196,6 @@ pub struct Solo {
     explosions: Vec<sim::notice::Explosion>,
     /// The socket's receive buffer, as the OS gave it.
     recv_buffer: Option<usize>,
-    /// The players' actions held back while a break holds, for the tick
-    /// that ends it (`commands_for`).
-    after_break: Vec<(Seat, Action)>,
 }
 
 /// What a host listens with: its socket (or the co-op lobby already
@@ -203,6 +255,7 @@ impl OpenNet {
             server,
             host_end,
             waiting: VecDeque::new(),
+            after_break: Vec::new(),
         }));
         let net = NetThread::spawn(socket, hosted.clone(), clock())
             .map_err(|error| format!("the net thread: {error}"))?;
@@ -258,7 +311,9 @@ impl OpenNet {
 
     /// Runs `work` on the lobby's server, locked.
     pub fn with_server<R>(&self, work: impl FnOnce(&mut Server) -> R) -> R {
-        work(&mut lock(&self.hosted).server)
+        let out = work(&mut lock(&self.hosted).server);
+        self.net.wake();
+        out
     }
 }
 
@@ -414,6 +469,7 @@ impl Solo {
                     server,
                     host_end,
                     waiting: VecDeque::new(),
+                    after_break: Vec::new(),
                 }));
                 let net = socket
                     .map(|socket| NetThread::spawn(socket, hosted.clone(), clock()))
@@ -422,7 +478,7 @@ impl Solo {
                 (hosted, client_end, net, address, recv_buffer)
             }
         };
-        let mut hashes = hosting
+        let mut hashes = (hosting && net_audit_enabled())
             .then(|| std::fs::File::create(folder.join("hashes.txt")).ok())
             .flatten()
             .map(std::io::BufWriter::new);
@@ -454,7 +510,7 @@ impl Solo {
                 link: Config::loopback(),
                 audit: false,
                 key: join_key,
-                rebuild_beside: !hosting,
+                rebuild_beside: true,
                 ..ClientConfig::default()
             },
         )
@@ -478,8 +534,19 @@ impl Solo {
             sounds: Vec::new(),
             explosions: Vec::new(),
             recv_buffer,
-            after_break: Vec::new(),
         })
+    }
+
+    /// Wakes the net thread (if hosting) so newly queued outbound packets
+    /// leave without waiting for the sleep interval.
+    fn wake(&self) {
+        if let Some(net) = &self.net {
+            net.wake();
+        }
+    }
+
+    pub(crate) fn shared_hosted(&self) -> Shared<Hosted> {
+        self.hosted.clone()
     }
 
     /// The address players join, when hosting.
@@ -498,6 +565,7 @@ impl Solo {
     pub fn pump(&mut self) {
         let _span = bevy::log::info_span!("net.pump").entered();
         let now = self.now();
+        let hosting = self.net.is_some();
         let mut hosted = lock(&self.hosted);
         hosted.server.can_step(now);
         for _ in 0..PUMP_ROUNDS {
@@ -506,7 +574,11 @@ impl Solo {
                 self.client_end.send(to, &bytes);
                 moved = true;
             }
-            moved |= hosted.route(now);
+            moved |= if hosting {
+                hosted.route_local(now)
+            } else {
+                hosted.route(now)
+            };
             while let Some(datagram) = hosted.host_end.recv_at(now) {
                 hosted
                     .server
@@ -582,12 +654,15 @@ impl Solo {
     /// Called every frame.
     pub fn hold(&mut self, held: bool) {
         let now = self.now();
-        let mut hosted = lock(&self.hosted);
-        if held {
-            hosted.server.hold();
-        } else {
-            hosted.server.release(now);
+        {
+            let mut hosted = lock(&self.hosted);
+            if held {
+                hosted.server.hold();
+            } else {
+                hosted.server.release(now);
+            }
         }
+        self.wake();
     }
 
     /// Whether a resume waits for the next tick: while a break holds, the
@@ -634,23 +709,7 @@ impl Solo {
     /// resumes and the first seat's leader and solo mode changes
     /// (`sim::party::passes_break`): the rest wait for the tick that ends it.
     pub fn commands_for(&mut self, tick: u64, paused_by: Option<Seat>) -> TickInput {
-        let mut hosted = lock(&self.hosted);
-        let mut input = hosted.server.commands_for(tick);
-        let mut actions = std::mem::take(&mut self.after_break);
-        actions.extend(hosted.server.actions());
-        let ends = paused_by.is_none_or(|by| {
-            actions.iter().any(|(seat, action)| {
-                *action == Action::Resume && sim::party::may_resume(by, *seat)
-            })
-        });
-        for (seat, action) in actions {
-            if ends || action == Action::Resume || sim::party::passes_break(seat, &action) {
-                input.act(seat, action);
-            } else {
-                self.after_break.push((seat, action));
-            }
-        }
-        input
+        lock(&self.hosted).commands_for(tick, paused_by)
     }
 
     /// The ticks `inputs` were made for were not stepped: a tick before
@@ -677,24 +736,28 @@ impl Solo {
     pub fn notice(&mut self, seat: Seat, text: &str) {
         lock(&self.hosted).server.notice(seat, text);
         self.pump();
+        self.wake();
     }
 
     /// Opens a screen a script asked for on `seat`'s player's side.
     pub fn screen(&mut self, seat: Seat, screen: sim::notice::Screen) {
         lock(&self.hosted).server.screen(seat, screen);
         self.pump();
+        self.wake();
     }
 
     /// Plays a sound a script played on `seat`'s player's side.
     pub fn sound(&mut self, seat: Seat, sound: sim::notice::Sound) {
         lock(&self.hosted).server.sound(seat, sound);
         self.pump();
+        self.wake();
     }
 
     /// Shows a mine that went off on `seat`'s player's side.
     pub fn explosion(&mut self, seat: Seat, explosion: sim::notice::Explosion) {
         lock(&self.hosted).server.explosion(seat, explosion);
         self.pump();
+        self.wake();
     }
 
     /// Sends a save copy (`saves::copies::pack`) to every player but this
@@ -709,6 +772,7 @@ impl Solo {
             hosted.server.save_copy(copy, Some(own))
         };
         self.pump();
+        self.wake();
         sent
     }
 
@@ -756,6 +820,7 @@ impl Solo {
             .stepped_shared(now, input, snapshot.clone());
         self.log_hash(snapshot);
         self.pump();
+        self.wake();
     }
 
     /// `stepped` with the snapshot hashed already, and split when a frame
@@ -784,6 +849,7 @@ impl Solo {
             let _ = writeln!(file, "{epoch} {tick} {hash}");
         }
         self.pump();
+        self.wake();
     }
 
     /// Whether this is a host players join over the network: its steps
@@ -811,16 +877,20 @@ impl Solo {
     /// A module starts to load: the client stops with the host. Actions
     /// held for a break's end name the old module's objects: dropped.
     pub fn installing(&mut self, request: &session::Request) {
-        self.after_break.clear();
         self.level_owed = false;
-        lock(&self.hosted).server.installing(InstallRequest {
-            game: request.game.clone(),
-            module: request.module.clone(),
-            arrival: request.arrival.clone().unwrap_or(String::new()),
-            seats: request.seats,
-            players: request.players,
-        });
+        {
+            let mut hosted = lock(&self.hosted);
+            hosted.after_break.clear();
+            hosted.server.installing(InstallRequest {
+                game: request.game.clone(),
+                module: request.module.clone(),
+                arrival: request.arrival.clone().unwrap_or(String::new()),
+                seats: request.seats,
+                players: request.players,
+            });
+        }
         self.pump();
+        self.wake();
     }
 
     /// The host committed `level`'s install (`after`): the client commits
@@ -838,6 +908,7 @@ impl Solo {
         self.pump();
         // Loaded here; `pump` resumes once the other players are too.
         self.pump();
+        self.wake();
     }
 
     /// Writes a stepped snapshot's epoch, tick and hash, when hosting.
@@ -888,6 +959,7 @@ impl Solo {
         let now = self.now();
         lock(&self.hosted).server.abandon_install(now);
         self.pump();
+        self.wake();
     }
 
     /// What the session did, for dumps.
@@ -926,7 +998,7 @@ impl Solo {
         for c in server
             .connections
             .iter()
-            .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
+            .filter(|c| !matches!(c.peer, net::Peer::Local(_)))
         {
             self.players.insert(
                 c.peer,

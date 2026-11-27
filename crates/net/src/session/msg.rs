@@ -96,11 +96,11 @@ const CLOSED: u8 = 20;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
-/// message after it (an install, a notice) waits for one part at most: a
-/// quarter second at the default budget.
-pub const SAVE_PART: usize = 64 * 1024;
+/// message after it (an install, a notice) waits for one part at most:
+/// ~62 ms at the default budget.
+pub const SAVE_PART: usize = 16 * 1024;
 /// The most parts of one save copy: 32 MiB.
-pub const MAX_SAVE_PARTS: usize = 512;
+pub const MAX_SAVE_PARTS: usize = 2048;
 
 /// One part of a save copy (I30 P17): copy `copy`'s part `part` of
 /// `parts`; every part but the last carries `SAVE_PART` bytes. The bytes

@@ -16,7 +16,10 @@ mod udp;
 
 #[cfg(feature = "steam")]
 pub use steam::{Steam, SteamStats};
-pub use udp::{Udp, UdpStats};
+pub use udp::{
+    LARGE_RECV_BUFFER, LARGE_SEND_BUFFER, RECV_BUFFER, SEND_BUFFER, SocketConfig, Udp, UdpStats,
+    Waker,
+};
 
 use crate::netem::{Conditions, Shaper, ShaperStats};
 use crate::{Datagram, MAX_DATAGRAM, NetTime, Peer, Transport};
@@ -44,6 +47,7 @@ pub struct Socket {
     /// Steam is read first next (they take turns).
     #[cfg(feature = "steam")]
     steam_next: bool,
+    waker: Waker,
 }
 
 impl Socket {
@@ -55,6 +59,7 @@ impl Socket {
             steam: None,
             #[cfg(feature = "steam")]
             steam_next: false,
+            waker: Waker::new(),
         }
     }
 
@@ -65,7 +70,13 @@ impl Socket {
             udp: None,
             steam: Some(steam),
             steam_next: true,
+            waker: Waker::new(),
         }
+    }
+
+    /// A wakeup handle that interrupts `wait()` immediately.
+    pub fn waker(&self) -> Waker {
+        self.waker.clone()
     }
 
     /// This socket with Steam beside its UDP.
@@ -121,8 +132,8 @@ impl Socket {
         false
     }
 
-    /// Waits until a datagram is ready on the UDP end or `timeout` passes;
-    /// with Steam beside it, `STEAM_POLL` at most.
+    /// Waits until a datagram is ready on the UDP end, `waker` fires, or
+    /// `timeout` passes; with Steam beside it, `STEAM_POLL` at most.
     pub fn wait(&self, timeout: Duration) {
         #[cfg(feature = "steam")]
         let timeout = if self.has_steam() {
@@ -131,8 +142,8 @@ impl Socket {
             timeout
         };
         match &self.udp {
-            Some(udp) => udp.wait(timeout),
-            None => std::thread::sleep(timeout),
+            Some(udp) => udp.wait_with(timeout, Some(&self.waker)),
+            None => self.waker.wait_alone(timeout),
         }
     }
 

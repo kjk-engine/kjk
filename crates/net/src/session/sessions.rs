@@ -37,9 +37,9 @@ use crate::netem::Conditions;
 /// Clocks must settle within this after each start (µs).
 pub const CONVERGE_US: u64 = 2_000_000;
 /// The longest an install may reach a player after the host's, with a
-/// save copy going out ahead of it: one part (64 KiB, a quarter second at
-/// the link's budget), round trips and a retransmit under loss.
-pub const INSTALL_BEHIND_COPY_US: u64 = 800_000;
+/// save copy going out ahead of it: one part (16 KiB, ~62 ms at the
+/// link's budget), round trips and a retransmit under loss.
+pub const INSTALL_BEHIND_COPY_US: u64 = 180_000;
 
 /// What a session's checks expect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
