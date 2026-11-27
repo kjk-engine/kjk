@@ -782,7 +782,8 @@ Running and checking:
   `COMBAT.md`); only the main menu opens that page.
 - The Interface page (`options_interface`) is kjk's own. KOTOR 2 has no
   such page. The graphics page opens it from the unused force speed box,
-  drawn as a button. The page is a list of option rows on the Feedback
+  drawn as a button (or added one row below the grass box when a
+  pre-Aspyr or modded graphics layout lacks `CB_FORCESPEED`). The page is a list of option rows on the Feedback
   page's layout (`optfeedback`), under the title "Interface", with the
   Feedback page's description box, Default button and Close button. Any
   options page can be built as such a list (`screens::options::Line`). A

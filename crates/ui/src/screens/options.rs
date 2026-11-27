@@ -10,7 +10,8 @@
 //! page is ours, on the graphics page's layout, opened from the gameplay
 //! page in its unused difficulty button's place. The Interface page is
 //! ours too. It is a list on the feedback page's layout, opened from the
-//! graphics page in its unused force speed box's place. The sabers' page is
+//! graphics page in its unused force speed box's place (or a button added
+//! below the grass box when a pre-Aspyr or modded layout lacks it). The sabers' page is
 //! ours as well, another list on the feedback page's layout, opened from
 //! the gameplay page in its unused "reverse" box's place. Its rows are the
 //! saber rules a session played here plays by (`docs/SABER-RULES.md`), the
@@ -584,6 +585,10 @@ enum Reshape {
     Stack((&'static str, &'static str), &'static [&'static str]),
     /// A control moved under another.
     Under(&'static str, &'static str),
+    /// A copy of a control (`from`) placed one row's pitch below it
+    /// (`screens::copy_below`), only when the layout has no control
+    /// tagged `tag` yet.
+    BelowIfMissing(&'static str, &'static str),
     /// A control drawn as another is.
     Like(&'static str, &'static str),
 }
@@ -593,8 +598,9 @@ enum Reshape {
 /// reads as the guns' own; the gameplay page's ways to the camera page and
 /// to the sabers' page and the graphics page's way to the Interface page
 /// framed buttons, as Mouse Settings and Advanced Options are, not check
-/// boxes.
-const RESHAPED: [(&str, Reshape); 5] = [
+/// boxes (first copying `CB_GRASS` into `CB_FORCESPEED`'s slot when a
+/// pre-Aspyr or modded graphics layout lacks it).
+const RESHAPED: [(&str, Reshape); 6] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -611,6 +617,10 @@ const RESHAPED: [(&str, Reshape); 5] = [
         Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
     ),
     ("options_gameplay", Reshape::Like("CB_REVERSE", "BTN_MOUSE")),
+    (
+        "options_graphics",
+        Reshape::BelowIfMissing("CB_GRASS", "CB_FORCESPEED"),
+    ),
     (
         "options_graphics",
         Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
@@ -1516,6 +1526,11 @@ impl Screen for Page {
                 }
                 Reshape::Under(tag, after) => {
                     crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
+                }
+                Reshape::BelowIfMissing(from, tag) => {
+                    if gui.find(tag).is_none() {
+                        crate::screens::copy_below(gui, from, tag);
+                    }
                 }
                 Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
             }

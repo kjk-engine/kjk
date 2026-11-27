@@ -2366,6 +2366,44 @@ pub(super) fn interface_options() -> Vec<Check> {
     let mut graphics = opened("options_graphics", &mut assets, &vm);
     press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
     let reached = graphics.top().map(|screen| screen.0);
+    // A pre-Aspyr or modded optgraphics layout has no CB_FORCESPEED; the
+    // graphics page adds the Interface button below CB_GRASS and threads
+    // focus between CB_GRASS and BTN_RESOLUTION, while the controller page
+    // on the same layout does not add it.
+    let mut pre_aspyr_assets = Fake::new();
+    pre_aspyr_assets.layouts.insert(
+        "optgraphics",
+        root(
+            800,
+            600,
+            vec![
+                Control {
+                    kind: Kind::CheckBox,
+                    ..linked("CB_SHADOWS", 6, 196, 8, 7)
+                },
+                Control {
+                    kind: Kind::CheckBox,
+                    ..linked("CB_GRASS", 7, 240, 6, 5)
+                },
+                linked("BTN_RESOLUTION", 5, 435, 7, 8),
+                linked("BTN_ADVANCED", 8, 470, 5, 6),
+                super::vm_screens::label("LB_DESC", 134),
+            ],
+        ),
+    );
+    let mut pre_aspyr = opened("options_graphics", &mut pre_aspyr_assets, &vm);
+    let pre_aspyr_label = pre_aspyr.text_of("CB_FORCESPEED", &vm);
+    pre_aspyr.step(&mut pre_aspyr_assets, &vm, &keys(&[Key::Down]));
+    pre_aspyr.step(&mut pre_aspyr_assets, &vm, &keys(&[Key::Down]));
+    let pre_aspyr_help = pre_aspyr
+        .state_of("LB_DESC", &vm)
+        .and_then(|state| state.text);
+    pre_aspyr.step(&mut pre_aspyr_assets, &vm, &keys(&[Key::Down]));
+    pre_aspyr.step(&mut pre_aspyr_assets, &vm, &keys(&[Key::Up]));
+    pre_aspyr.step(&mut pre_aspyr_assets, &vm, &keys(&[Key::Activate]));
+    let pre_aspyr_reached = pre_aspyr.top().map(|screen| screen.0);
+    let controller = opened("options_controller", &mut pre_aspyr_assets, &vm);
+    let controller_has_forcespeed = controller.state_of("CB_FORCESPEED", &vm).is_some();
     let mut page = opened("options_interface", &mut assets, &vm);
     let title = page
         .text_of("LBL_TITLE", &vm)
@@ -2484,6 +2522,32 @@ pub(super) fn interface_options() -> Vec<Check> {
             &format!("the graphics page opens the Interface page: {reached:?}"),
             reached == Some("options_interface"),
         )
+        .and_then(|()| {
+            expect(
+                &format!("pre-Aspyr optgraphics adds Interface button: {pre_aspyr_label:?}"),
+                pre_aspyr_label == Some(crate::strings::bytes(crate::strings::INTERFACE)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                "pre-Aspyr optgraphics shows Interface help on focus",
+                pre_aspyr_help == Some(crate::strings::bytes(crate::strings::INTERFACE_HELP)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "pre-Aspyr optgraphics navigates Down/Up to Interface and opens it: {pre_aspyr_reached:?}"
+                ),
+                pre_aspyr_reached == Some("options_interface"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                "options_controller does not synthesize CB_FORCESPEED",
+                !controller_has_forcespeed,
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("the page's title is its own: {title:?}"),
