@@ -296,7 +296,7 @@ fn warp_marks() -> Result<String, String> {
     check(
         marked
             && after.goods.gold == before
-            && told == [(Seat(0), Outcome::Done)]
+            && told.is_empty()
             && !guest_marked
             && guest_told == [(Seat(1), Outcome::HostOnly)],
         format!(
