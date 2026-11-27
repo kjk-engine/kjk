@@ -227,13 +227,11 @@ pub fn probes() -> sim::probe::Checks {
         ("a report keeps the mark and the log", {
             let mut log = ConsoleLog::default();
             log.push("> god".into(), false);
-            log.echo(&[
-                "The console command was carried out.".into(),
-                "Saved.".into(),
-            ]);
+            log.push("God mode switched.".into(), false);
+            log.echo(&["Cheats are off in this game.".into(), "Saved.".into()]);
             let text = super::report_text(Some(true), &log);
             check(
-                text == "cheats used: yes\n> god\nThe console command was carried out.\n",
+                text == "cheats used: yes\n> god\nGod mode switched.\nCheats are off in this game.\n",
                 format!("{text:?}"),
             )
         }),

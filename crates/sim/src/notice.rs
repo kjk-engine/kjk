@@ -782,8 +782,8 @@ pub enum Notice {
     /// executables set the sound system's music volume, which no save
     /// keeps. Told to the host alone, whose sound the executables set.
     MusicVolume(u32),
-    /// What became of the seat's cheat order (`world::cheats`), told to
-    /// that seat's player.
+    /// Why the seat's cheat order was refused (`world::cheats`), told to
+    /// that seat's player. An order carried out sends no notice.
     Cheat(crate::cheats::Outcome),
 }
 

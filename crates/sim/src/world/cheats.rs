@@ -16,8 +16,9 @@
 //! - The first order carried out outside an arena level marks the game as
 //!   cheated (`Cheats::used`). The mark never goes away again, and a save
 //!   keeps it.
-//! - Each order sends its seat's player a notice (`Notice::Cheat`) that
-//!   says whether it was carried out or why not.
+//! - An order that is refused sends its seat's player a notice
+//!   (`Notice::Cheat`) that says why. An order carried out sends none: the
+//!   console has already printed what the command does.
 
 use script_ncs::vm::ObjectId;
 
@@ -186,8 +187,9 @@ pub(super) fn orders(
         if outcome == Outcome::Done {
             carried = true;
             cheats.used |= !arena;
+        } else {
+            tell(out, own, outcome);
         }
-        tell(out, own, outcome);
     }
     carried
 }
@@ -216,7 +218,9 @@ fn carry(
             Outcome::Done
         }
         CheatOrder::Credits(amount) => {
-            state.gold = (*amount).clamp(0, limits::CREDITS_MOST);
+            let total = i64::from(state.gold) + i64::from(*amount);
+            let total = total.clamp(0, i64::from(limits::CREDITS_MOST));
+            state.gold = i32::try_from(total).unwrap_or(limits::CREDITS_MOST);
             Outcome::Done
         }
         CheatOrder::Xp(total) => {

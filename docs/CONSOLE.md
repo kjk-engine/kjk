@@ -127,15 +127,9 @@ It works while a game is loaded. Changes the game. Example: `giveitem g_w_lghtsb
 
 ### `givecredits AMOUNT`
 
-Adds this many credits to the party's credits.
+Adds this many credits to the party's credits, as the original games' givecredits does. The party never has more credits than the console's limit.
 
 It works while a game is loaded. Changes the game. Example: `givecredits 500`
-
-### `credits AMOUNT`
-
-Sets the party's credits to this amount.
-
-It works while a game is loaded. Changes the game. Example: `credits 10000`
 
 ### `addexp AMOUNT`
 
