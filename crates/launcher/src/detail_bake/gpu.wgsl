@@ -106,9 +106,9 @@ const BACK_SHARE: f32 = 0.4;
 // How far the back of a surface counts for `counts` (metres).
 const WALL_NEAR: f32 = 1.0;
 const TAU: f32 = 6.2831853;
-// The share of a light a surface facing away from it still takes
-// (`COMBAT_WRAP` in `odyssey.wgsl`).
-const WRAP: f32 = 0.3;
+// Lambert cosine falloff with zero back-face wrap (`WRAP = 0.0`) for crisp
+// fixture directionality and relief in linear HDR lightmaps.
+const WRAP: f32 = 0.0;
 // Within `NEAR_LAMP_FROM` of a light nothing shadows it, and beyond
 // `NEAR_LAMP_TO` everything does (metres).
 const NEAR_LAMP_FROM: f32 = 0.5;

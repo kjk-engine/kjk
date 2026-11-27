@@ -163,6 +163,9 @@ impl StoredTexels {
         let data = stored.mips.first()?;
         let rgba = match stored.encoding {
             Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone()),
+            Encoding::Rgba16Float => {
+                asset_odyssey::lightmap::decode_rgba16f(data, width, height)
+            }
             Encoding::Bc1 | Encoding::Bc1Holes => {
                 fmt_odyssey::dxt::decode(data, width, height, false)
             }

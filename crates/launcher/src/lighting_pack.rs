@@ -465,8 +465,9 @@ fn write_zip(path: &Path, sets: &[Set]) -> Result<(usize, u64), String> {
             .filter(|name| {
                 // A backdrop's lightmap the game makes from the player's own.
                 let lower = name.to_ascii_lowercase();
-                !lower
-                    .strip_suffix(".png")
+                !(lower
+                    .strip_suffix(".klm")
+                    .or_else(|| lower.strip_suffix(".png")))
                     .is_some_and(|stem| backdrop.contains(stem))
             })
             .collect();
@@ -475,7 +476,8 @@ fn write_zip(path: &Path, sets: &[Set]) -> Result<(usize, u64), String> {
             let source = set.path.join(&name);
             let bytes =
                 std::fs::read(&source).map_err(|error| format!("{}: {error}", source.display()))?;
-            let options = if name.to_ascii_lowercase().ends_with(".png") {
+            let lower = name.to_ascii_lowercase();
+            let options = if lower.ends_with(".png") || lower.ends_with(".klm") {
                 stored
             } else {
                 deflated

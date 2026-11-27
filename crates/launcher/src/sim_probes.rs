@@ -36,6 +36,7 @@ const GROUPS: &[Group] = &[
     ("legacy blend", kjk_game::legacy_blend_probes),
     ("tonemapping", kjk_game::rolloff::probes),
     ("gpu load check", kjk_game::load_check_probes),
+    ("klm lightmap", klm_lightmap_probes),
     ("ui material", kjk_game::ui_material::probes),
     ("cut-out surfaces", kjk_game::material::cutout_probes),
     ("texture sort key", kjk_game::material::sort_key_probes),
@@ -301,6 +302,21 @@ fn gathering() -> sim::probe::Checks {
             .as_ref()
             .map(|source| source as &dyn asset_odyssey::module::Source),
     )
+}
+
+/// `.klm` linear HDR lightmap codec, padded mips, and `Encoding::Rgba16Float`.
+fn klm_lightmap_probes() -> sim::probe::Checks {
+    asset_odyssey::lightmap::probes()
+        .into_iter()
+        .map(|(name, passed)| {
+            let result = if passed {
+                Ok("ok".into())
+            } else {
+                Err("klm lightmap probe failed".into())
+            };
+            (name, result)
+        })
+        .collect()
 }
 
 /// Creatures' speeds and head arc (`session::speed_probes`), with K1's own

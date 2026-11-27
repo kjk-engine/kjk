@@ -9,6 +9,7 @@ pub mod font;
 pub mod grass;
 pub mod hooks;
 pub mod item;
+pub mod lightmap;
 pub mod made;
 pub mod map;
 pub mod minigame;

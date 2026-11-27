@@ -87,6 +87,9 @@ const LIGHTMAPPED: u32 = 2;
 /// `odyssey.wgsl`). The grass's shader doubles its lightmap too, so that
 /// grass is as bright as the ground it grows on.
 const BAKED: u32 = 4;
+/// The grass's lightmap holds linear HDR radiance (`.klm`), not gamma 2.2
+/// half-gain stored values.
+const LINEAR_LIGHTMAP: u32 = 8;
 /// How far the bounds stand out round the tufts, in quad sizes, at the
 /// least: a top edge 1.2 quads tall.
 const REACH_QUADS: f32 = 1.2;
@@ -363,7 +366,12 @@ fn bounds(tufts: &[Tuft], quad: f32, wind: f32) -> Aabb {
 
 /// The area's parameters for a patch, its lightmap's flag set when it has
 /// one.
-fn params(grass: &SceneGrass, scene: &LoadedScene, lightmapped: bool) -> GrassParams {
+fn params(
+    grass: &SceneGrass,
+    scene: &LoadedScene,
+    lightmapped: bool,
+    linear_lightmap: bool,
+) -> GrassParams {
     let colour = |rgb: Vec3| rgb.extend(1.0);
     let mut flags = 0;
     if scene.fog.is_some() {
@@ -374,6 +382,9 @@ fn params(grass: &SceneGrass, scene: &LoadedScene, lightmapped: bool) -> GrassPa
     }
     if scene.baked {
         flags |= BAKED;
+    }
+    if linear_lightmap {
+        flags |= LINEAR_LIGHTMAP;
     }
     let wind = Vec2::ONE.normalize() * grass.wind;
     GrassParams {
@@ -427,8 +438,14 @@ fn spawn(
                     .clone(),
             )
         });
+        let linear_lightmap = patch.lightmap.as_ref().is_some_and(|name| {
+            loaded
+                .textures
+                .get(name)
+                .is_some_and(|t| t.encoding == asset_odyssey::texture::Encoding::Rgba16Float)
+        });
         let material = materials.add(GrassMaterial {
-            params: params(grass, loaded, lightmap.is_some()),
+            params: params(grass, loaded, lightmap.is_some(), linear_lightmap),
             art: Some(art.clone()),
             lightmap,
             clock: CLOCK,

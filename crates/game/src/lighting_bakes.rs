@@ -84,6 +84,7 @@ const CHECKS: &str = "lighting-check-v4";
 pub fn shipped(file: &str) -> bool {
     let file = file.to_ascii_lowercase();
     file.ends_with(".png")
+        || file.ends_with(".klm")
         || matches!(
             file.as_str(),
             "fill.txt"
@@ -1097,7 +1098,10 @@ fn zipped_areas(zip: &Path) -> Result<BTreeMap<String, Zipped>, Failure> {
             continue;
         };
         let area = area.to_string();
-        if let Some(stem) = file.strip_suffix(".png") {
+        if let Some(stem) = file
+            .strip_suffix(".klm")
+            .or_else(|| file.strip_suffix(".png"))
+        {
             pngs.entry(area).or_default().insert(stem.to_string());
             continue;
         }

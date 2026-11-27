@@ -205,6 +205,10 @@ pub(crate) enum Verb {
         /// the lamps' set. It implies --placeables
         #[arg(long)]
         placeable_light: bool,
+        /// Minimum linear radiance floor in deep crevices for set `b` `.klm`
+        /// lightmaps (0.0 leaves areas dark where 3-bounce GI reaches zero)
+        #[arg(long, default_value_t = 0.0)]
+        ambient_floor: f32,
         /// Bake nothing. Print the fingerprint of each of the module's
         /// areas in the game files as they are now: the format, and the
         /// digests of the rooms and of the placeables. The game compares it
@@ -641,6 +645,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skylights,
             placeables,
             placeable_light,
+            ambient_floor,
             fingerprint,
             stamp,
             out,
@@ -709,6 +714,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     .collect(),
                 placeables: placeables || placeable_light,
                 placeable_light,
+                ambient_floor,
             };
             detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
         }

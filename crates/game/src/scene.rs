@@ -897,7 +897,9 @@ fn upload(texture: &TextureIr) -> Image {
     if let Some(fitted) = fit_to_gpu(texture, None) {
         return upload(&fitted);
     }
-    if texture.encoding != Encoding::Rgba8 && !BLOCKS_ON_GPU.load(Ordering::Relaxed) {
+    if !matches!(texture.encoding, Encoding::Rgba8 | Encoding::Rgba16Float)
+        && !BLOCKS_ON_GPU.load(Ordering::Relaxed)
+    {
         return upload(&texture.decoded());
     }
     let cube = texture.faces.len() == 6;
@@ -909,6 +911,7 @@ fn upload(texture: &TextureIr) -> Image {
     // Sampled as stored; the shader multiplies before converting.
     let format = match texture.encoding {
         Encoding::Rgba8 => TextureFormat::Rgba8Unorm,
+        Encoding::Rgba16Float => TextureFormat::Rgba16Float,
         Encoding::Bc1 | Encoding::Bc1Holes => TextureFormat::Bc1RgbaUnorm,
         Encoding::Bc3 => TextureFormat::Bc3RgbaUnorm,
     };
@@ -1625,6 +1628,9 @@ impl<'t> Spawner<'t> {
                     .and_then(|name| self.irs.get(name))
                     .is_some_and(|texture| !texture.facts.alpha);
                 let made = |surface| {
+                    let linear_lightmap = lightmap
+                        .and_then(|name| self.irs.get(name))
+                        .is_some_and(|texture| texture.encoding == Encoding::Rgba16Float);
                     OdysseyMaterial::new(
                         Vec4::ONE,
                         handle(texture),
@@ -1636,6 +1642,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
+                    .linear_lightmap(linear_lightmap)
                     .water_if(water.map(|(alpha, bump)| (handle(bump), alpha)))
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())
@@ -2516,7 +2523,7 @@ pub(crate) fn spawn_scene(
         loaded
             .textures
             .values()
-            .filter(|texture| texture.encoding != Encoding::Rgba8)
+            .filter(|texture| !matches!(texture.encoding, Encoding::Rgba8 | Encoding::Rgba16Float))
             .count(),
         loaded.missing.len(),
         refused.len()

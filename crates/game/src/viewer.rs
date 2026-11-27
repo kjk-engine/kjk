@@ -891,10 +891,14 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
         };
         let mut lightmaps = BTreeMap::new();
         for file in entries.flatten().map(|entry| entry.path()) {
-            if file.extension().is_some_and(|extension| extension == "png")
+            let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if (ext.eq_ignore_ascii_case("klm") || ext.eq_ignore_ascii_case("png"))
                 && let Some(name) = file.file_stem().and_then(|name| name.to_str())
             {
-                lightmaps.insert(name.to_ascii_lowercase(), file);
+                let key = name.to_ascii_lowercase();
+                if ext.eq_ignore_ascii_case("klm") || !lightmaps.contains_key(&key) {
+                    lightmaps.insert(key, file);
+                }
             }
         }
         let stamp = crate::bake_fingerprint::read(&path);
@@ -1633,6 +1637,8 @@ fn baked_lightmaps(
 /// Where the picture of a lightmap of the area comes from (`lightmap_source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Picture<'a> {
+    /// A linear HDR `.klm` lightmap made by the Phase 2+ baker.
+    Klm(&'a std::path::Path),
     /// The PNG the bake made of it, with the folder's fill and floor.
     Png(&'a std::path::Path),
     /// The player's stored lightmap at half its light, because the folder
@@ -1669,14 +1675,14 @@ fn lightmap_source<'a>(
         let fit = fit.as_deref().filter(|_| room);
         if let Some(path) = folder.lightmaps.get(key) {
             let fits = fit.is_none_or(|fit| fit.matching.contains(key));
-            return Some((
-                folder,
-                if fits {
-                    Picture::Png(path)
-                } else {
-                    Picture::FallBack
-                },
-            ));
+            let picture = if !fits {
+                Picture::FallBack
+            } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("klm")) {
+                Picture::Klm(path)
+            } else {
+                Picture::Png(path)
+            };
+            return Some((folder, picture));
         }
         if folder.stored.contains(key) {
             return Some((folder, Picture::Stored));
@@ -1705,7 +1711,23 @@ fn detail_baked(
     if texture.cube || texture.frames > 1 {
         return None;
     }
+    if let Picture::Klm(path) = source {
+        return match std::fs::read(path)
+            .ok()
+            .and_then(|bytes| asset_odyssey::lightmap::decode_klm(&bytes))
+        {
+            Some(klm) => Some(TextureIr {
+                facts: texture.facts.clone(),
+                ..klm
+            }),
+            None => {
+                warn!("baked lightmap {} does not read", path.display());
+                None
+            }
+        };
+    }
     let picture = match source {
+        Picture::Klm(_) => unreachable!(),
         Picture::Png(path) => image::open(path)
             .map(image::DynamicImage::into_rgba8)
             .map_err(|error| format!("baked lightmap {} does not read: {error}", path.display())),

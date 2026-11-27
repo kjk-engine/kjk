@@ -131,6 +131,8 @@ impl TextureFacts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoding {
     Rgba8,
+    /// Linear HDR RGBA16Float (`.klm` baked lightmaps).
+    Rgba16Float,
     /// DXT1 blocks as stored (BC1), none using its transparent texel.
     Bc1,
     /// DXT1 blocks as stored, some using their transparent texel: the games
@@ -287,7 +289,7 @@ impl TextureIr {
     /// formats.
     pub fn decoded(&self) -> TextureIr {
         let dxt5 = match self.encoding {
-            Encoding::Rgba8 => return self.clone(),
+            Encoding::Rgba8 | Encoding::Rgba16Float => return self.clone(),
             Encoding::Bc1 | Encoding::Bc1Holes => false,
             Encoding::Bc3 => true,
         };
@@ -344,14 +346,21 @@ impl TextureIr {
             fitted.height = (fitted.height >> 1).max(1);
         }
         let whole_blocks = fitted.width.is_multiple_of(4) && fitted.height.is_multiple_of(4);
-        if fitted.encoding != Encoding::Rgba8 && (!fits(&fitted) || !whole_blocks) {
+        if !matches!(fitted.encoding, Encoding::Rgba8 | Encoding::Rgba16Float)
+            && (!fits(&fitted) || !whole_blocks)
+        {
             fitted = fitted.decoded();
         }
         while !fits(&fitted) {
             let (width, height) = (fitted.width as usize, fitted.height as usize);
+            let is_f16 = fitted.encoding == Encoding::Rgba16Float;
             fitted.each_chain(|chain| {
                 chain.truncate(1);
-                chain[0] = halved(&chain[0], width, height);
+                chain[0] = if is_f16 {
+                    crate::lightmap::halve_rgba16f(&chain[0], width, height)
+                } else {
+                    halved(&chain[0], width, height)
+                };
             });
             fitted.width = (fitted.width >> 1).max(1);
             fitted.height = (fitted.height >> 1).max(1);

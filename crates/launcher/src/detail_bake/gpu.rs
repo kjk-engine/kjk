@@ -169,10 +169,8 @@ pub(crate) struct GpuOptions {
     /// the darker side of the original. A module asks for it in
     /// `data/lights/bake.toml` with `floor`.
     pub floor: Option<f32>,
-    /// Every room that has a lightmapped mesh is baked, as under a sun,
-    /// not only the rooms with a walkable face. Manaan's sea floor lies in
-    /// rooms no one walks on, and the pole lamps by the walkway lit none of
-    /// it (21 November 2026).
+    /// `placeable-light`: each vertex is lit as a texel is.
+    /// `ambient_floor`: minimum linear radiance floor for set `b` `.klm` texels.
     pub every_room: bool,
     /// A room with no walkable face shows its stored light in `b`, and not
     /// twice it. Taris's buildings beside a walkway glared at twice their
@@ -212,6 +210,9 @@ pub(crate) struct GpuOptions {
     /// Each vertex of each such mesh is a place of the passes, lit as a
     /// texel is, and set `b` gets `placeables.txt` (`write_placeables`).
     pub placeable_light: bool,
+    /// Minimum linear radiance floor in deep crevices for set `b` `.klm`
+    /// lightmaps (0.0 leaves unlit dark corners as 3-bounce GI leaves them).
+    pub ambient_floor: f32,
 }
 
 /// An area's sun and sky for set `b`. The games' files hold neither. The
@@ -1477,12 +1478,10 @@ pub(super) fn bake_lights(
             (&sun_light, &lamps_alone),
             &b_target,
             Some((options.least.unwrap_or(B_LEAST), b_most)),
-            &eased_level,
+            &stored_level,
         );
-        // A room whose lamps do not reach its level at the most scale takes
-        // an even light on every texel. Without it a floor far from every
-        // lamp is black. The even light alone shows `B_FILL_SHARE` of the
-        // room's level, and the lamps are scaled again to give the rest.
+        // Only rooms explicitly asking for `--fill-stored` take a stored-light fill;
+        // otherwise linear 3-bounce GI and `--ambient-floor` preserve natural contrast.
         let mut texels_of_room: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
         for &i in &counted {
             texels_of_room
@@ -1490,9 +1489,6 @@ pub(super) fn bake_lights(
                 .or_default()
                 .push(i);
         }
-        // What the fill shows at each texel for a fill of 1: the same
-        // everywhere, or the room's stored light with a mean of 1 over the
-        // room (`GpuOptions::fill_stored`).
         let mut pattern = vec![Vec3::ONE; count];
         let mut pattern_mean: HashMap<String, f32> = HashMap::new();
         if options.fill_stored {
@@ -1509,16 +1505,16 @@ pub(super) fn bake_lights(
                 }
             }
         }
-        let fill_most = if options.fill_stored { 4.0f32 } else { 1.0 };
+        let fill_most = 4.0f32;
         let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
         for room in &rooms.rooms {
-            if options.no_even || room.scale < b_most || room.after >= room.target {
+            if !options.fill_stored || options.no_even || room.scale < b_most || room.after >= room.target {
                 continue;
             }
             let (mut low, mut high) = (0.0f32, 1.0f32);
             for _ in 0..30 {
                 let middle = 0.5 * (low + high);
-                if luma(eased_level(Vec3::splat(middle))) < B_FILL_SHARE * room.target {
+                if luma(stored_level(Vec3::splat(middle))) < B_FILL_SHARE * room.target {
                     low = middle;
                 } else {
                     high = middle;
@@ -1532,7 +1528,7 @@ pub(super) fn bake_lights(
                     .iter()
                     .map(|&i| {
                         lit_weights[i]
-                            * luma(eased_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill))
+                            * luma(stored_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill))
                     })
                     .sum::<f32>()
                     / weight
@@ -1547,12 +1543,6 @@ pub(super) fn bake_lights(
                 }
             }
             let scale = 0.5 * (low + high);
-            // Where the lamps at their most scale still leave the room under
-            // its level, the even light gives the rest. Such a room is lit
-            // by the sky or by a skylight, which the bake does not have. The
-            // owner walked the Dantooine enclave on 18 November 2026 and
-            // said: "its too dark in the jedi masters area. i guess the sun
-            // isnt hitting it or something? its too dark overall everywhere".
             if mean_of(fill, scale) < room.target - 1e-4 {
                 let (mut low, mut high) = (fill, fill_most);
                 for _ in 0..30 {
@@ -1566,7 +1556,7 @@ pub(super) fn bake_lights(
                 fill = 0.5 * (low + high);
             }
             outln!(
-                "    {} takes an even light of {fill:.4} (linear) and its lamps x{scale:.3}: its level is {:.4}",
+                "    {} takes a stored fill of {fill:.4} (linear) and its lamps x{scale:.3}: its level is {:.4}",
                 room.name,
                 mean_of(fill, scale)
             );
@@ -1575,20 +1565,14 @@ pub(super) fn bake_lights(
         let even: Vec<Option<(f32, f32)>> = (maps.iter())
             .map(|map| even_of_room.get(&room_name(map)).copied())
             .collect();
+        let floor_lin = Vec3::splat(options.ambient_floor.max(0.0));
         let shown: Vec<Vec3> = (0..count)
             .map(|i| {
                 let map = points[i].map;
                 let (fill, scale) = even[map].unwrap_or((0.0, rooms.scale[map]));
-                eased_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill)
+                (sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill).max(floor_lin)
             })
             .collect();
-        // The files hold nothing of the stored lightmaps. A room's fill
-        // from its stored light is one number in `fill.txt`, and the game
-        // adds the stored light of the player's own files when it loads
-        // the lightmap (`detail_baked` in `crates/game/src/viewer.rs`).
-        // The owner asked on 21 November 2026: "do we need to hold bioware
-        // lightmap pixels? or could we load them from the game files
-        // instead".
         let mut fills: std::collections::BTreeMap<String, f32> = Default::default();
         for (room, (fill, _)) in &even_of_room {
             if let Some(mean) = pattern_mean.get(room) {
@@ -1600,32 +1584,21 @@ pub(super) fn bake_lights(
                 let map = points[i].map;
                 if fills.contains_key(&room_name(&maps[map])) {
                     let scale = even[map].map_or(rooms.scale[map], |(_, scale)| scale);
-                    eased_level(sun_light[i] + lamps_alone[i] * scale)
+                    (sun_light[i] + lamps_alone[i] * scale).max(floor_lin)
                 } else {
                     shown[i]
                 }
             })
             .collect();
-        // What the fill shows at each probe's place and each vertex: the
-        // pattern of the room's texel nearest it. The fill of a room from its
-        // stored light is the room's stored light times a number, so a texel
-        // in a dark corner takes less of it than one under a lamp. A vertex
-        // took the fill at the room's mean before, and in 411dxn the foot
-        // locker and the table were 4.01 and 3.48 of their floor, against
-        // 2.45 and 1.98 today.
         let nearest = nearest_texels(&maps, &points, &counted, &probe_at, &probe_maps);
         let probe_pattern = places_pattern(&pattern, &nearest, options.fill_stored);
-        // Each probe's light as its room shows it: the sun and the sky, the
-        // lamps at the room's scale, and the room's even light. The linear
-        // light before the curve is kept for the live sun
-        // (`write_probes_sun`).
         let probe_linear: Vec<Vec3> = (0..probe_range.1)
             .map(|j| {
                 let (fill, scale) = probe_maps[j].map_or((0.0, 1.0), |map| even[map].unwrap_or((0.0, rooms.scale[map])));
-                probe_sky[j] + probe_lamps[j] * scale + probe_pattern[j] * fill
+                (probe_sky[j] + probe_lamps[j] * scale + probe_pattern[j] * fill).max(floor_lin)
             })
             .collect();
-        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| eased_level(*light)).collect();
+        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| stored_level(*light)).collect();
         // `KJK_VERTEX_PARTS=<placeable>`: each part of the light on that
         // placeable's vertices, by the way they face, against the texels
         // around it that face the same way.
@@ -1720,7 +1693,7 @@ pub(super) fn bake_lights(
                 }
             })
             .collect();
-        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| eased_level(*light)).collect();
+        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| stored_level(*light)).collect();
         (rooms, shown, written, fills, probe_light, probe_linear, probe_stored)
     };
     lap("levels".into(), &mut times);
@@ -1777,7 +1750,7 @@ pub(super) fn bake_lights(
             if under.is_empty() {
                 continue;
             }
-            let floor = under.iter().map(|&i| luma(written_b[i])).sum::<f32>() / under.len() as f32;
+            let floor = under.iter().map(|&i| luma(stored_level(written_b[i]))).sum::<f32>() / under.len() as f32;
             if floor > 0.02 {
                 ratios.push(luma(probe_light[6 * k + 2]) / floor);
             }
@@ -2839,21 +2812,6 @@ fn debug_pictures(
     }
     let path = out.join("texels.txt");
     std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))
-}
-
-/// `b`'s stored level of a light: `stored_level`, eased above `B_KNEE` so
-/// that it never passes `B_KNEE + B_OVER`. A surface beside a lamp takes
-/// the lamp's light at its strongest and the room's scale on top, and
-/// would show white. Its colour keeps its hue.
-fn eased_level(light: Vec3) -> Vec3 {
-    let (knee, most) = (B_KNEE, B_OVER);
-    let level = stored_level(light);
-    let brightness = luma(level);
-    if brightness <= knee {
-        return level;
-    }
-    let over = brightness - knee;
-    level * ((knee + over * most / (most + over)) / brightness)
 }
 
 /// Each room's level, and the scale of each lightmap's light from the

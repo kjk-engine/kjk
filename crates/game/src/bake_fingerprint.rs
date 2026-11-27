@@ -634,7 +634,11 @@ pub fn set_lightmaps(set: &Path) -> BTreeSet<String> {
     };
     (entries.flatten())
         .filter_map(|entry| entry.file_name().to_str().map(str::to_ascii_lowercase))
-        .filter_map(|name| name.strip_suffix(".png").map(str::to_string))
+        .filter_map(|name| {
+            name.strip_suffix(".klm")
+                .or_else(|| name.strip_suffix(".png"))
+                .map(str::to_string)
+        })
         .filter(|name| !stored.contains(name))
         .collect()
 }

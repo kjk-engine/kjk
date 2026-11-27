@@ -354,6 +354,7 @@ name = "asset_odyssey"
 version = "0.0.0"
 dependencies = [
  "fmt_odyssey",
+ "lz4_flex",
 ]
 
 [[package]]

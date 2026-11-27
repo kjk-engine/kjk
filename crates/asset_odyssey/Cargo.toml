@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 fmt_odyssey.workspace = true
+lz4_flex.workspace = true
 
 [lints]
 workspace = true

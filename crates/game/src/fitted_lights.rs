@@ -517,6 +517,7 @@ fn texels(texture: &TextureIr, side: usize) -> Option<(usize, usize, Vec<[f32; 3
     let data = &texture.mips[level];
     let rgba = match texture.encoding {
         Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Rgba16Float => asset_odyssey::lightmap::decode_rgba16f(data, width, height)?,
         Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };

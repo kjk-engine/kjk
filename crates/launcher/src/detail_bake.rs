@@ -197,12 +197,16 @@ fn stamp_set(set: &Path, current: &kjk_game::bake_fingerprint::Current) -> Resul
     kjk_game::bake_fingerprint::write(set, &print)
 }
 
-/// Whether folder `set` holds a PNG, as a set of baked lightmaps does.
+/// Whether folder `set` holds a PNG or `.klm` lightmap, as a baked set does.
 fn holds_lightmaps(set: &Path) -> bool {
     std::fs::read_dir(set).is_ok_and(|entries| {
-        entries
-            .flatten()
-            .any(|entry| entry.path().extension().is_some_and(|extension| extension == "png"))
+        entries.flatten().any(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("png") || e.eq_ignore_ascii_case("klm"))
+        })
     })
 }
 
@@ -329,6 +333,7 @@ fn read_stored(resolver: &Resolver, name: &str) -> Option<Stored> {
     let data = texture.mips.first()?;
     let rgba = match texture.encoding {
         Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Rgba16Float => asset_odyssey::lightmap::decode_rgba16f(data, width, height)?,
         Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };
@@ -366,6 +371,7 @@ fn albedo(resolver: &Resolver, name: &str) -> Option<(Vec3, f32)> {
     let data = &texture.mips[level];
     let rgba = match texture.encoding {
         Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Rgba16Float => asset_odyssey::lightmap::decode_rgba16f(data, width, height)?,
         Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };
@@ -1123,11 +1129,10 @@ fn to_byte(v: f32) -> u8 {
 // lamp fits in the PNG. The game multiplies them back under
 // `KJK_FITTED_LIGHTS=baked` (`BAKED_GAIN` in `odyssey.wgsl`).
 
-/// The level a baked lightmap is stored at is its level over this.
+/// The level a baked PNG lightmap is stored at is its level over this.
 const GAIN: f32 = 2.0;
-/// How much of the fitted lights' sum the live trial adds
-/// (`FIGHT_GAIN_ENHANCED` in `odyssey.wgsl`).
-const LIVE_GAIN: f32 = 0.8;
+/// Full linear lamp contribution (`LIVE_GAIN = 1.0`, no empirical 0.8 attenuation).
+const LIVE_GAIN: f32 = 1.0;
 /// The curve the live trial's formula adds light on.
 const GAMMA: f32 = 2.2;
 /// A ray toward a light stops this far short of it (metres), so the
@@ -1243,7 +1248,7 @@ impl Fitted {
             return Vec3::ZERO;
         }
         let toward = to / distance.max(1e-4);
-        let facing = normal.map_or(1.0, |normal| 0.3 + 0.7 * normal.dot(toward).max(0.0));
+        let facing = normal.map_or(1.0, |normal| normal.dot(toward).max(0.0));
         let cone = if self.cone > 0.0 {
             0.33 + 0.67 * smooth(self.cone - 0.5, self.cone + 0.1, -self.aim.dot(toward))
         } else {
@@ -1290,10 +1295,9 @@ impl<'l> LightGrid<'l> {
     }
 }
 
-/// The live trial's added light as linear light on its curve:
-/// `(0.8 × S)^2.2`.
+/// Linear radiance directly from the lights' sum (no gamma ^2.2 distortion).
 fn direct(sum: Vec3) -> Vec3 {
-    (sum * LIVE_GAIN).max(Vec3::ZERO).powf(GAMMA)
+    (sum * LIVE_GAIN).max(Vec3::ZERO)
 }
 
 /// A light on the curve as a stored level.
@@ -1340,9 +1344,8 @@ fn fill(field: &mut [Option<Vec3>], w: usize, h: usize) {
     }
 }
 
-/// The field of `values`, one for each texel, kept where the texel counts
-/// and filled in around.
-fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Field {
+/// The raw uncovered field of `values` at counted texels (before gutter dilation).
+fn raw_field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Field {
     let mut field: Field = (maps.iter())
         .map(|map| vec![None; map.width * map.height * map.scale * map.scale])
         .collect();
@@ -1351,22 +1354,23 @@ fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3])
             field[point.map][point.texel] = Some(values[index]);
         }
     }
+    field
+}
+
+/// The field of `values`, one for each texel, kept where the texel counts
+/// and filled in around.
+fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Field {
+    let mut field = raw_field_of(maps, points, counts, values);
     for (map, values) in maps.iter().zip(&mut field) {
         fill(values, map.width * map.scale, map.height * map.scale);
     }
     field
 }
 
-/// Writes each set of shown levels into `folder/<name>` as PNG lightmaps,
-/// at 1 / `GAIN` of their level. A set that keeps the stored lightmap gives
-/// a texel no triangle reads half its stored value, and writes a sky's or a
-/// backdrop's lightmap at half its stored value. A set without it reads no
-/// stored texel.
-///
-/// `sunlit` is the share of the area's suns that reaches each texel, from 0
-/// to 1, where the area has a sun. A set that keeps no stored texel holds it
-/// as its alpha, and the game's shadows read it there (`room_shadow` in
-/// `odyssey.wgsl`). Without it the alpha is 1.
+/// Writes each set into `folder/<name>`. Sets keeping stored texels (`a/`)
+/// write PNGs at `1 / GAIN`; linear sets (`b/`) write `.klm` (`Rgba16Float`,
+/// LZ4-compressed, island-padded mipmaps) holding unclamped linear HDR RGB
+/// and sunlit share alpha.
 #[allow(clippy::type_complexity)]
 fn write_sets(
     resolver: &Resolver,
@@ -1384,50 +1388,57 @@ fn write_sets(
     for &(name, shown, keep_stored) in sets {
         let out = folder.join(name);
         std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
-        let field = field_of(maps, points, counts, shown);
-        for (number, (map, values)) in maps.iter().zip(&field).enumerate() {
-            let (w, h) = (map.width * map.scale, map.height * map.scale);
-            let mut picture = image::RgbaImage::new(w as u32, h as u32);
-            for y in 0..h {
-                for x in 0..w {
-                    let uv = Vec2::new((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
-                    let [r, g, b, a] = map.sample(uv);
-                    // A texel no triangle reads keeps half the stored light
-                    // in `a` and none in `b`.
-                    let value = values[y * w + x].unwrap_or(if keep_stored {
-                        Vec3::new(r, g, b) / 2.0
-                    } else {
-                        Vec3::ZERO
-                    });
-                    let [r, g, b] = (value / GAIN).to_array().map(to_byte);
-                    let a = if keep_stored {
-                        to_byte(a)
-                    } else {
-                        let share = sunlit.as_ref().and_then(|field| field[number][y * w + x]);
-                        to_byte(share.map_or(1.0, |share| share.x))
-                    };
-                    picture.put_pixel(x as u32, y as u32, image::Rgba([r, g, b, a]));
+        if !keep_stored {
+            let raw_field = raw_field_of(maps, points, counts, shown);
+            for (number, (map, raw_values)) in maps.iter().zip(&raw_field).enumerate() {
+                let (w, h) = (map.width * map.scale, map.height * map.scale);
+                let mut pixels = Vec::with_capacity(w * h);
+                let mut valid = Vec::with_capacity(w * h);
+                for y in 0..h {
+                    for x in 0..w {
+                        let share = sunlit
+                            .as_ref()
+                            .and_then(|field| field[number][y * w + x])
+                            .map_or(1.0, |share| share.x);
+                        match raw_values[y * w + x] {
+                            Some(value) => {
+                                pixels.push([value.x.max(0.0), value.y.max(0.0), value.z.max(0.0), share]);
+                                valid.push(true);
+                            }
+                            None => {
+                                pixels.push([0.0, 0.0, 0.0, share]);
+                                valid.push(false);
+                            }
+                        }
+                    }
                 }
+                let encoded = asset_odyssey::lightmap::encode_klm(w as u32, h as u32, &pixels, Some(&valid))
+                    .map_err(|error| format!("{}: {error}", map.name))?;
+                let path = out.join(format!("{}.klm", map.name));
+                std::fs::write(&path, encoded)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let _ = std::fs::remove_file(out.join(format!("{}.png", map.name)));
             }
-            let path = out.join(format!("{}.png", map.name));
-            picture
-                .save(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
+        } else {
+            let field = field_of(maps, points, counts, shown);
+            for (map, values) in maps.iter().zip(&field) {
+                let (w, h) = (map.width * map.scale, map.height * map.scale);
+                let mut picture = image::RgbaImage::new(w as u32, h as u32);
+                for y in 0..h {
+                    for x in 0..w {
+                        let uv = Vec2::new((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+                        let [r, g, b, a] = map.sample(uv);
+                        let value = values[y * w + x].unwrap_or(Vec3::new(r, g, b) / 2.0);
+                        let [r, g, b] = (value / GAIN).to_array().map(to_byte);
+                        picture.put_pixel(x as u32, y as u32, image::Rgba([r, g, b, to_byte(a)]));
+                    }
+                }
+                let path = out.join(format!("{}.png", map.name));
+                picture
+                    .save(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+            }
         }
-        // A sky's or a backdrop's lightmap is not baked. In a set that keeps
-        // the stored lightmap it shows half its stored light, as the live
-        // trial shows it. The lamps' set leaves it out, and the game then
-        // shows the stored lightmap at twice its light. With
-        // `stored_backdrop` the lamps' set shows it at its stored light, as
-        // the game shows it today. On Taris's walkways the buildings and
-        // trees glared at twice their light while the walkway, lit by its
-        // lamps alone, stayed dark. Elsewhere the owner walked the brighter
-        // backdrop, and it stays.
-        //
-        // The lamps' set holds no picture of such a lightmap, because it
-        // would be a copy of the game's own. It names the lightmap in
-        // `stored.txt`, and the game makes the same picture from the
-        // player's stored lightmap (`stored_fill::backdrop`).
         if !keep_stored {
             let stored_file = out.join(kjk_game::stored_fill::STORED_FILE);
             let _ = std::fs::remove_file(&stored_file);
@@ -1436,10 +1447,9 @@ fn write_sets(
                     .filter(|name| read_stored(resolver, name).is_some())
                     .map(String::as_str)
                     .collect();
-                // A set baked earlier into the same folder may hold their
-                // pictures.
                 for name in &named {
                     let _ = std::fs::remove_file(out.join(format!("{name}.png")));
+                    let _ = std::fs::remove_file(out.join(format!("{name}.klm")));
                 }
                 std::fs::write(&stored_file, kjk_game::stored_fill::stored_text(named))
                     .map_err(|error| format!("{}: {error}", stored_file.display()))?;

@@ -274,6 +274,8 @@ const WATER: u32 = 4194304u;
 // Drawn on an overlay/fade layer (`material::ON_TOP`), keeping stored
 // gamma-encoded values.
 const ON_TOP: u32 = 8388608u;
+// The lightmap holds true linear HDR radiance (`.klm`), skipping gamma decode and `BAKED_GAIN`.
+const LINEAR_LIGHTMAP: u32 = 16777216u;
 // Bits of `LightList::enhanced` (`material.rs`).
 const ENHANCED_BIT: u32 = 1u;
 const LINEAR_MAIN_BIT: u32 = 2u;
@@ -579,6 +581,12 @@ fn near_box_count(near: Near) -> u32 {
 
 fn no_casters() -> Near {
     return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u), NO_OWNER);
+}
+
+// Keep only character casters, dropping static placeable boxes when a baked
+// room's lightmap already holds those placeables' static shadows.
+fn characters_only(near: Near) -> Near {
+    return Near(near.count, near.at, 0u, near.box_at, near.owner);
 }
 
 // How far `position` lies outside a box (metres). It is less than 0 inside.
@@ -1548,8 +1556,12 @@ fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
 // lightmap knows it, and 1 elsewhere. A sun's shadow takes that share of the
 // sun's light alone: in the shade of a house the sun gives nothing, so a
 // character there blocks nothing of it.
-fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3<f32>, near: Near, sunlit: f32) -> vec3<f32> {
-    if near.count == 0u && near.boxes == 0u {
+fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3<f32>, near: Near, sunlit: f32, baked_room: bool) -> vec3<f32> {
+    var cast_near = near;
+    if baked_room {
+        cast_near = characters_only(near);
+    }
+    if cast_near.count == 0u && cast_near.boxes == 0u {
         return lighting;
     }
     var weights = vec3<f32>(FILL_WEIGHT);
@@ -1560,6 +1572,13 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
             continue;
         }
         let radius = light.position_radius.w;
+#ifdef FITTED_LIGHTS
+        // A baked room holds its local lamps in `.klm`/baked lightmaps and traces
+        // dynamic shadows via `fitted_lights`, leaving only suns here.
+        if baked_room && radius < SUN_RADIUS {
+            continue;
+        }
+#endif
         let to_light = light.position_radius.xyz - position;
         let distance = length(to_light);
         if distance >= radius {
@@ -1582,14 +1601,19 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
 #else
         let reaches = 1.0;
 #endif
-        blocked = blocked + weight * reaches * (1.0 - light_visibility(i, light, position, normal, near));
+        blocked = blocked + weight * reaches * (1.0 - light_visibility(i, light, position, normal, cast_near));
     }
     // The room's light, kept off a surface that faces up. Its weight is
     // the same whichever way each caster's source lies. It traces every
     // capsule and box near, so Shadows at Low leaves it out.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
-    if up > 0.0 && shadows.low == 0u {
-        let overhead = room_light_visibility(position, near);
+#ifdef FITTED_LIGHTS
+    let do_overhead = !baked_room && up > 0.0 && shadows.low == 0u;
+#else
+    let do_overhead = up > 0.0 && shadows.low == 0u;
+#endif
+    if do_overhead {
+        let overhead = room_light_visibility(position, cast_near);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));
     }
@@ -1597,9 +1621,9 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
     // `KJK_SHADOW_DEBUG=2`: red is the share of the light blocked, green
     // the weight of all the lights, blue how many characters are near.
     if shadows.debug == 2u {
-        return vec3<f32>(max3(blocked / weights), max3(weights), f32(near.count) / 6.0);
+        return vec3<f32>(max3(blocked / weights), max3(weights), f32(cast_near.count) / 6.0);
     }
-    let contact = mix(1.0, contact_shade(position, normal, near), CONTACT_KEPT);
+    let contact = mix(1.0, contact_shade(position, normal, cast_near), CONTACT_KEPT);
     return max(lighting - taken, lighting * ROOM_KEPT) * contact;
 }
 
@@ -1696,12 +1720,86 @@ const FITTED_BOUNCE: f32 = 0.3;
 // owner said of it on 18 November 2026: "this has a square shadow".
 const FITTED_BOX_SOURCE: f32 = 0.25;
 
+#ifdef RAY_QUERIES
+// Whether a candidate ray hit against `scene_rays` stops a fitted light's
+// ray from reaching `position`. Matches `fitted_visibility`'s fallback filter
+// (all near characters and castable boxes not containing the surface/light).
+fn ray_blocks_fitted(number: u32, position: vec3<f32>, direction: vec3<f32>, distance: f32, near: Near, ease: f32) -> bool {
+    if (number & RAY_ROOM) != 0u {
+        return false;
+    }
+    let model = number & RAY_MODEL;
+    if (number & RAY_PROP) == 0u {
+        let slot = (number >> 10u) & 63u;
+        var casters = near.at;
+        for (var k = 0u; k < near_count(near); k++) {
+            if casters[k] != slot {
+                continue;
+            }
+            let caster = caster_at(slot);
+            let gap = max(length(caster.sphere.xyz - position) - caster.sphere.w, 0.0);
+            return 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap) > ease;
+        }
+        return false;
+    }
+    if near.owner != NO_OWNER && model == (near.owner & RAY_MODEL) {
+        return false;
+    }
+    if (number & RAY_DOOR) != 0u {
+        return false;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near_box_count(near); k++) {
+        let near_box = near_box_at(placeables[k]);
+        if (near_box.z & RAY_MODEL) != model {
+            continue;
+        }
+        let b = box_at(near_box.x);
+        if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)
+            || box_distance(position + direction * distance, b) <= 0.0 {
+            continue;
+        }
+        let gap = max(length(b.centre.xyz - position) - b.centre.w, 0.0);
+        return 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap) > ease;
+    }
+    return false;
+}
+#endif
+
 #ifdef FITTED_LIGHTS
 // How much of a fitted light along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters and
-// placeables `near` it. Every one of them casts from it. It traces their
-// capsules and boxes as `cone_visibility` does, and reads no tile.
+// placeables `near` it. Every one of them casts from it. When hardware ray
+// queries are active, it traces `scene_rays`; otherwise it traces their
+// capsules and boxes as `cone_visibility` does.
 fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near) -> f32 {
+#ifdef RAY_QUERIES
+    if shadows.rays != 0u {
+        if near.count == 0u && near.boxes == 0u {
+            return 1.0;
+        }
+        let noise = ray_noise();
+        let side = normalize(select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(direction.x) > 0.9));
+        let across = normalize(cross(direction, side));
+        let up = cross(across, direction);
+        let turn = 6.2831853 * noise.y;
+        let offset = (across * cos(turn) + up * sin(turn)) * (sqrt(noise.x) * tan(source));
+        let way = direction + offset;
+        let length_of_way = length(way);
+        let toward = way / length_of_way;
+        let reach = min(distance * length_of_way, RAY_REACH);
+        var query: ray_query;
+        rayQueryInitialize(&query, scene_rays, RayDesc(RAY_FLAG_FORCE_NO_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, RAY_CASTERS, RAY_START, reach, position, toward));
+        while rayQueryProceed(&query) {
+            let hit = rayQueryGetCandidateIntersection(&query);
+            if ray_blocks_fitted(ray_number(hit.instance_custom_data, hit.geometry_index), position, direction, distance, near, noise.z) {
+                rayQueryConfirmIntersection(&query);
+            }
+        }
+        let hit = rayQueryGetCommittedIntersection(&query);
+        return select(1.0, 0.0, hit.kind != RAY_QUERY_INTERSECTION_NONE);
+    }
+#endif
     var casters = near.at;
     var kept = 1.0;
     for (var k = 0u; k < near_count(near); k++) {
@@ -2078,8 +2176,19 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     // stored at 1 / `BAKED_GAIN` of its level so a level above 1 fits.
     let baked_room = baked_trial && (params.flags & ROOM_LIGHTMAP) != 0u
         && (params.flags & HAS_LIGHTMAP) != 0u;
-    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
-        * select(dimmed, BAKED_GAIN, baked_room);
+    let is_linear_lm = (params.flags & HAS_LIGHTMAP) != 0u && (params.flags & LINEAR_LIGHTMAP) != 0u;
+    var baked = vec3<f32>(0.0);
+    var baked_linear_hdr = vec3<f32>(0.0);
+    if is_linear_lm {
+        // `.klm` stores true linear HDR radiance; apply AO linearly and keep HDR > 1.0 in `baked_linear_hdr`.
+        let ao_lin = mix(vec3<f32>(1.0), decode_22(room_kept), LIGHTMAP_OCCLUDED);
+        let lin = max(lightmap, vec3<f32>(0.0)) * ao_lin * select(dimmed, 1.0, baked_room);
+        baked_linear_hdr = max(lin - vec3<f32>(1.0), vec3<f32>(0.0));
+        baked = encode_22(min(lin, vec3<f32>(1.0)));
+    } else {
+        baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
+            * select(dimmed, BAKED_GAIN, baked_room);
+    }
     // Under the trial a surface without a lightmap keeps half of its own
     // glow where its texture is dull. Many doors glow at full white in place
     // of baked light, and they darken with the room. A bright texel, such as
@@ -2364,7 +2473,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             // the share of the area's suns that reaches the texel
             // (`detail_bake`'s `write_sets`).
             let sunlit = select(1.0, lightmap_texel.a, baked_room);
-            shaded = room_shadow(in.world_position.xyz, normalize(in.world_normal), room, lighting, near, sunlit);
+            shaded = room_shadow(in.world_position.xyz, normalize(in.world_normal), room, lighting, near, sunlit, baked_room);
         }
         if shadows.debug == 2u {
             return vec4<f32>(shaded, 1.0);
@@ -2401,11 +2510,10 @@ fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef FITTED_LIGHTS
         if !baked_room {
             fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, 1.0).lit * unshadowed;
-        } else if near.count != 0u || near.boxes != 0u {
-            // The bake holds the fittings' light, so a shadow takes the
-            // blocked fittings' share of it. The light bounced about the
-            // room stays.
-            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, lightmap_texel.a);
+        } else if near.count != 0u {
+            // The bake holds the fittings' light and static placeables' shadows,
+            // so only dynamic character casters shadow the fitted lights here.
+            let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, characters_only(near), lightmap_texel.a);
             // Where no fitting reaches, nothing is blocked.
             let whole = dot(given.whole, LUMA);
             if whole > 1e-4 {
@@ -2424,9 +2532,18 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                 // A glowing surface's own glow is not part of it: a lamp's
                 // tube shows as bright as it does under the live lights.
                 if linear_output {
-                    baked_over = (decode_22(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                    let over_lin = select(
+                        decode_22(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0),
+                        baked_linear_hdr,
+                        is_linear_lm
+                    );
+                    baked_over = over_lin * unshadowed * fitted_kept;
                 } else {
-                    let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                    let over = select(
+                        decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0),
+                        baked_linear_hdr,
+                        is_linear_lm
+                    ) * unshadowed * fitted_kept;
                     if max3(over) > 0.0 {
                         fight_added = encode(decode(fight_added) + over);
                     }
