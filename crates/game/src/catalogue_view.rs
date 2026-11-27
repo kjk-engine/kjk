@@ -29,8 +29,10 @@ use ui::virtual_screen::{
 };
 use vfs::Game;
 
+use chrome::{Chrome, Facts, Hints, Look};
 use collab::{Collab, Tool};
 
+mod chrome;
 mod collab;
 
 use crate::lifecycle_view::OverlayCamera;
@@ -76,17 +78,20 @@ enum Action {
     SaveTryout,
     /// Back to the list of stories.
     List,
+    /// The bar of the mode and the keys, hidden or shown.
+    HideBar,
 }
 
 /// The catalogue's keys: what they do, the keyboard key and the pad chord.
 /// Later keys of the catalogue join this table.
-const KEYS: [(Action, &str, &str); 6] = [
+const KEYS: [(Action, &str, &str); 7] = [
     (Action::NextSize, "F6", "LB+North"),
     (Action::NextMode, "F7", "LB+West"),
     (Action::List, "F8", "LB+East"),
     (Action::Outlines, "F9", "LB+South"),
     (Action::Backdrop, "F10", "LB+DPadUp"),
     (Action::SaveTryout, "F11", "LB+DPadDown"),
+    (Action::HideBar, "F12", "LB+DPadRight"),
 ];
 
 /// What the catalogue opens on.
@@ -179,6 +184,7 @@ struct Catalogue {
     /// The screen module and the layout of each of `layers`.
     names: Vec<(String, String)>,
     collab: Collab,
+    chrome: Chrome,
     /// What `ui` commands of the console left for the next frame's input.
     scripted: Vec<Vec<String>>,
     scripted_hold: Option<[f32; 2]>,
@@ -235,6 +241,7 @@ impl Catalogue {
             layers: Vec::new(),
             names: Vec::new(),
             collab: Collab::new(start),
+            chrome: Chrome::default(),
             scripted: Vec::new(),
             scripted_hold: None,
             dragging: None,
@@ -357,16 +364,65 @@ impl Catalogue {
         seen_scale((size, viewing(&size)), self.display)
     }
 
-    /// Where the image stands in the window now.
-    fn placed(&self) -> Placement {
-        place(&View {
+    /// What the bar says.
+    fn facts(&self) -> Facts {
+        Facts {
+            story: if self.listing {
+                "list of stories".to_string()
+            } else {
+                format!("{}/{}", self.start.module, self.start.story.name)
+            },
+            game: match self.start.game {
+                Game::Kotor1 => "KOTOR 1",
+                _ => "KOTOR 2",
+            },
+            look: self.look(),
+        }
+    }
+
+    fn look(&self) -> Look {
+        Look {
+            size: self.size(),
             mode: self.mode,
-            image: self.size().pixels,
-            window: self.window.0,
+            seen: self.seen(),
+            backdrop: self.collab.backdrop_name(),
+            outlines: self.collab.outlines(),
+        }
+    }
+
+    /// The part of the window the image is shown in: all of it but the bar.
+    fn area(&self) -> (f32, f32) {
+        let (window, factor) = self.window;
+        let bar = self.chrome.bar_height(&self.facts(), window.0, factor);
+        (window.0, (window.1 - bar).max(1.0))
+    }
+
+    /// Whether the device's frame is drawn: whenever the whole device is
+    /// shown, as it is in fit and as seen.
+    fn framed(&self) -> bool {
+        self.mode != Mode::Pixel
+    }
+
+    fn view(&self, pan: [f32; 2]) -> View {
+        let size = self.size();
+        View {
+            mode: self.mode,
+            image: size.pixels,
+            window: self.area(),
             window_factor: self.window.1,
             seen: self.seen(),
-            pan: self.pan,
-        })
+            pan,
+            margin: if self.framed() {
+                ui::device_frame::margin(&size)
+            } else {
+                [0.0; 4]
+            },
+        }
+    }
+
+    /// Where the image stands in the window now.
+    fn placed(&self) -> Placement {
+        place(&self.view(self.pan))
     }
 
     /// The density the display has: the setting, else the system's, else
@@ -396,20 +452,26 @@ impl Catalogue {
             ])
         });
         let point = focused.unwrap_or([size.pixels.0 as f32 / 2.0, size.pixels.1 as f32 / 2.0]);
-        let flat = place(&View {
-            mode: self.mode,
-            image: size.pixels,
-            window: self.window.0,
-            window_factor: self.window.1,
-            seen: self.seen(),
-            pan: [0.0; 2],
-        });
+        let flat = place(&self.view([0.0; 2]));
+        let area = self.area();
         self.pan = [
-            point[0] * flat.scale - self.window.0.0 / 2.0,
-            point[1] * flat.scale - self.window.0.1 / 2.0,
+            point[0] * flat.scale - area.0 / 2.0,
+            point[1] * flat.scale - area.1 / 2.0,
         ];
         self.placement = self.placed();
         self.pan = self.placement.pan;
+    }
+
+    /// The bar hidden or shown again. A notice says how to bring it back.
+    fn hide_bar(&mut self, hidden: bool) {
+        self.chrome.hidden = hidden;
+        self.recentre = true;
+        if hidden {
+            let key = self.chrome.key_of(Action::HideBar);
+            self.chrome
+                .say("Bar hidden", &format!("Press {key} to show it again."));
+        }
+        info!(target: "catalogue", hidden, "bar");
     }
 
     fn set_size(&mut self, size: usize) {
@@ -434,6 +496,7 @@ impl Catalogue {
             Action::Backdrop => collab::act(self, Tool::Backdrop),
             Action::SaveTryout => collab::act(self, Tool::SaveTryout),
             Action::List => self.show_list(),
+            Action::HideBar => self.hide_bar(!self.chrome.hidden),
         }
     }
 
@@ -453,6 +516,14 @@ impl Catalogue {
                 Some(mode) => self.set_mode(mode),
                 None => warn!(target: "console", "ui catalogue: {name} is not fit, pixel or seen"),
             },
+            ["catalogue", "bar", "show" | "hide" | "toggle"] => {
+                let hidden = match words[2] {
+                    "show" => false,
+                    "hide" => true,
+                    _ => !self.chrome.hidden,
+                };
+                self.hide_bar(hidden);
+            }
             ["catalogue", "pan", x, y] => match (x.parse(), y.parse()) {
                 (Ok(x), Ok(y)) => self.pan = [x, y],
                 _ => warn!(target: "console", "ui catalogue pan X Y: window pixels"),
@@ -501,6 +572,9 @@ impl Catalogue {
                 "nav" | "type" | "back" | "pointer" | "click" | "raw" | "down" | "drag" | "up",
                 ..,
             ] => {
+                if words[0] == "nav" {
+                    self.chrome.hints = Hints::Pad;
+                }
                 self.scripted.push(request.to_vec());
             }
             other => warn!(target: "console", "ui: {other:?} is not a request of the catalogue"),
@@ -604,6 +678,11 @@ fn step(
         let pad = format!("{PAD_RAW}{pad}");
         if let Some(at) = input.raw.iter().position(|raw| raw == key || *raw == pad) {
             chord |= input.raw[at] == pad;
+            cat.chrome.hints = if input.raw[at] == pad {
+                Hints::Pad
+            } else {
+                Hints::Keyboard
+            };
             cat.collab.source = match (input.raw[at] == pad, scripted) {
                 (true, _) => "pad",
                 (_, true) => "console",
@@ -620,7 +699,7 @@ fn step(
     // The image moved by the right mouse button dragged and by the right
     // stick, where it is larger than the window.
     let before = cat.placed();
-    let spare = before.spare(cat.window.0);
+    let spare = before.spare(cat.area());
     let pannable = spare[0] > 0.0 || spare[1] > 0.0;
     let dragged = mouse
         .as_deref()
@@ -661,9 +740,11 @@ fn step(
     // The pointer, from the window into the image, then into the virtual
     // window's logical pixels.
     if let Some(point) = input.pointer {
+        let in_bar = point[1] >= cat.area().1;
         input.pointer = cat
             .placement
             .to_image(point)
+            .filter(|_| !in_bar)
             .map(|pixel| [pixel[0] / size.factor, pixel[1] / size.factor]);
         if input.pointer.is_none() {
             input.click = false;
@@ -673,13 +754,25 @@ fn step(
     input.window = size.window();
     input.scale_factor = size.factor;
 
-    let from = collab::source_of(
+    let (keyboard, mouse_used, pad_used) = (
         keys.as_deref()
             .is_some_and(|keys| keys.get_just_pressed().next().is_some()),
-        input.click || input.wheel != 0.0,
+        input.click || input.wheel != 0.0 || input.moved,
         pads.iter().any(|(pad, sticks)| {
             pad.digital().get_just_pressed().next().is_some() || sticks.left.length() > STICK
         }),
+    );
+    if !scripted {
+        if pad_used {
+            cat.chrome.hints = Hints::Pad;
+        } else if keyboard || mouse_used {
+            cat.chrome.hints = Hints::Keyboard;
+        }
+    }
+    let from = collab::source_of(
+        keyboard,
+        input.click || input.wheel != 0.0,
+        pad_used,
         scripted,
     );
     collab::before(cat, &input, from);
@@ -704,6 +797,9 @@ fn step(
         .map(|shown| (shown.screen.clone(), shown.layout.clone()))
         .collect();
     cat.layers = live.shown.into_iter().map(|shown| shown.list).collect();
+    cat.chrome.look_for_font(&cat.layers);
+    let look = cat.look();
+    cat.chrome.watch(look, time.delta_secs());
     if cat.recentre && !cat.layers.is_empty() {
         cat.centre();
     }
@@ -730,6 +826,8 @@ fn step(
                 "image_size": cat.placement.size,
                 "image_scale": cat.placement.scale,
                 "pan": cat.placement.pan,
+                "bar_hidden": cat.chrome.hidden,
+                "framed": cat.framed(),
                 "seen": cat.seen(),
                 "display_density": cat.display.0,
                 "display_density_system": cat.density_system,
@@ -791,6 +889,10 @@ struct Painting {
     /// The `assets_replaced` the textures made so far belong to.
     assets: u32,
     made: Option<Made>,
+    /// The device's frame, the bar and the notice, drawn in the window over
+    /// the image's quad.
+    chrome: Drawn,
+    chrome_assets: u32,
     /// The still of the world behind the screens, when the backdrop is a
     /// frame of play and it is made.
     still: collab::Shown,
@@ -956,6 +1058,36 @@ fn paint(
             None,
             &mut visibility,
             SCREENS_LAYER,
+        );
+    }
+    // The frame, the bar and the notice, drawn in the window itself.
+    let factor = cat.window.1;
+    let mut lists = Vec::new();
+    if cat.framed() {
+        lists.push(ui::device_frame::draw(
+            &size,
+            &placement,
+            window,
+            2.0 / factor,
+        ));
+    }
+    lists.extend(cat.chrome.bar(&cat.facts(), window, factor));
+    lists.extend(cat.chrome.notice(window, factor));
+    if painting.chrome_assets != cat.assets_replaced {
+        painting.chrome_assets = cat.assets_replaced;
+        painting.chrome.forget_all();
+    }
+    painting.chrome.forget_released(assets);
+    let window_size = Vec2::new(window.0, window.1);
+    if painting.chrome.remake(&lists, window_size) {
+        painting.chrome.paint_runs(
+            &mut commands,
+            &lists,
+            (window_size, assets),
+            (&mut *meshes, &mut *materials, &mut *images),
+            None,
+            &mut visibility,
+            WINDOW_LAYER,
         );
     }
     if let Ok(mut camera) = cameras.get_mut(made.screens) {

@@ -73,6 +73,16 @@ pub struct Collab {
 }
 
 impl Collab {
+    /// Whether the outline view is on.
+    pub fn outlines(&self) -> bool {
+        self.outlines
+    }
+
+    /// The name of the backdrop behind the screens.
+    pub fn backdrop_name(&self) -> &'static str {
+        self.backdrop.name()
+    }
+
     pub fn new(start: &Start) -> Collab {
         Collab {
             bridge: None,

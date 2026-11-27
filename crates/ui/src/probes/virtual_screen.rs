@@ -75,6 +75,7 @@ fn view(mode: Mode, image: (u32, u32), window: (f32, f32), factor: f32) -> View 
         window_factor: factor,
         seen: 2.0,
         pan: [0.0; 2],
+        margin: [0.0; 4],
     }
 }
 
@@ -306,6 +307,71 @@ fn round_trip() -> Check {
     })
 }
 
+/// Fit leaves room for the device's frame, the frame has the device's real
+/// proportions, and a point on the frame is not a point of the image.
+fn frames() -> Check {
+    check("virtual_screen_frame", {
+        let deck = size("deck");
+        let [left, top, right, bottom] = crate::device_frame::margin(&deck);
+        let screen = crate::device_frame::screen_mm(&deck);
+        let per_mm = deck.pixels.0 as f32 / screen[0];
+        let body = [
+            (deck.pixels.0 as f32 + left + right) / per_mm,
+            (deck.pixels.1 as f32 + top + bottom) / per_mm,
+        ];
+        let mut result = expect(
+            &format!("a Steam Deck's body is 298 × 117 mm: {body:?}"),
+            (body[0] - 298.0).abs() < 0.5 && (body[1] - 117.0).abs() < 0.5,
+        );
+        for size in SIZES {
+            let margin = crate::device_frame::margin(&size);
+            let window = (1500.0, 900.0);
+            let placed = place(&View {
+                margin,
+                ..view(Mode::Fit, size.pixels, window, 1.0)
+            });
+            let reach = [
+                placed.origin[0] - margin[0] * placed.scale,
+                placed.origin[1] - margin[1] * placed.scale,
+                placed.origin[0] + placed.size[0] + margin[2] * placed.scale,
+                placed.origin[1] + placed.size[1] + margin[3] * placed.scale,
+            ];
+            let inside = reach[0] >= -1.0
+                && reach[1] >= -1.0
+                && reach[2] <= window.0 + 1.0
+                && reach[3] <= window.1 + 1.0;
+            let on_frame = placed.to_image([placed.origin[0] - 2.0, placed.origin[1] + 5.0]);
+            result = result.and_then(|()| {
+                expect(
+                    &format!(
+                        "{}: fit keeps the whole frame in the window: {reach:?}",
+                        size.name
+                    ),
+                    inside,
+                )
+            });
+            result = result.and_then(|()| {
+                expect(
+                    &format!(
+                        "{}: the frame beside the image is not the image: {on_frame:?}",
+                        size.name
+                    ),
+                    on_frame.is_none(),
+                )
+            });
+        }
+        result.map(|()| {
+            "a frame keeps the device's size, fits the window, and takes no clicks".into()
+        })
+    })
+}
+
 pub(super) fn all() -> Vec<Check> {
-    vec![seen_scales(), placements(), clicks_land(), round_trip()]
+    vec![
+        seen_scales(),
+        placements(),
+        clicks_land(),
+        round_trip(),
+        frames(),
+    ]
 }

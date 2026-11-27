@@ -919,9 +919,48 @@ Running and checking:
     over. A pointer in the black bars is not over the screen.
   - **Keys.** `F6` or the pad chord LB with Y (`LB+North`) changes to the
     next of the six sizes, `F7` or LB with X (`LB+West`) to the next mode,
-    and `F8` or LB with B (`LB+East`) back to the list of stories. A size change keeps the screen as it is: the stack is stepped in
-    the new window and lays itself out again. The keys are the table `KEYS`
-    in `catalogue_view.rs`, one row for each, with a key and a chord.
+    and `F8` or LB with B (`LB+East`) back to the list of stories. `F12` or
+    LB with the d-pad's right (`LB+DPadRight`) hides the status bar or shows
+    it again. A size change keeps the screen as it is: the stack is stepped
+    in the new window and lays itself out again. The keys are the table
+    `KEYS` in `catalogue_view.rs`, one row for each, with a key and a chord.
+  - **The status bar** (`kjk_game::catalogue_view::chrome`). A bar along the
+    bottom of the window always says which story is open and on which game,
+    the size, the mode, the backdrop, and whether the outlines are on. The
+    size is written as the device it stands for, for example "Steam Deck,
+    1280 × 800, held at 35 cm" (`ui::device_frame::describe`). The mode is
+    written in words: "Fit to the window", "Pixel for pixel", or "As seen,
+    2.02 times", which includes the scale. Under that, the bar lists every
+    key of the catalogue with what it does. It lists the keyboard's keys
+    when the keyboard or the mouse was used last, and the pad's chords when
+    the pad was used last, so "LB + Y" stands for the chord `LB+North`. The
+    bar is drawn in the window, in KOTOR's own font taken from the screens
+    on show, and never in the image. It takes room of its own: the image is
+    placed in the window above the bar, and a click on the bar does nothing.
+    Its letters are a whole number of the font's pixels to each display pixel,
+    about 34 display pixels tall, so they stay sharp and readable on a
+    Retina display. The bar does not change the picture, the control trees or
+    the bridge's state of the story.
+  - **Notices.** When the size, the mode or the backdrop changes, whatever
+    the cause, a notice in the middle of the window says what it changed to,
+    stays for 1.8 seconds, and then fades out in 0.6 seconds. Hiding the bar
+    gives a notice that says which key shows it again. `ui catalogue bar
+    show|hide|toggle` does the same from a script, and `ui nav` or a pad
+    chord switches the bar to the pad's chords.
+  - **The device frame** (`ui::device_frame`). In fit and as seen, the window
+    draws an outline of the device around the image: a Steam Deck's body of
+    298 × 117 mm with its d-pad, two sticks, four buttons and two trackpads,
+    a monitor with its bezel and stand, a TV with a thin bezel and two feet,
+    a 4:3 monitor with a wide bezel, or an ultrawide monitor. Each part is
+    measured in millimetres from the screen's corner, and the screen is the
+    size of the device's typical screen (`virtual_screen::viewing`), so the
+    body has the same scale as the image in as seen. The drawing is flat
+    shapes and outlines in neutral grey. Fit scales the image so that the
+    whole frame fits the window (`virtual_screen::View::margin`). As seen
+    keeps the real scale, so a frame larger than the window is cut by the
+    window's edge. Pixel for pixel draws no frame. A click on the frame is
+    not a click on the image, because the mapping only accepts points inside
+    the image.
   - **A pad alone.** Every step works with a pad and nothing else. The d-pad
     moves through the list, A opens a story, the screen takes the pad as in
     play, LB with Y changes size, LB with X changes mode, the right stick pans
@@ -929,8 +968,9 @@ Running and checking:
     headless run does this with `ui nav up|down|activate` for the d-pad and A,
     and `ui raw Pad:LB+North` (or `LB+West`, `LB+East`) for the chords.
   - **Console.** `ui catalogue size NAME|next`, `ui catalogue mode
-    fit|pixel|seen|next`, `ui catalogue pan X Y`, `ui catalogue density N`
-    and `ui catalogue distance CM` do the same from a script. The `ui`
+    fit|pixel|seen|next`, `ui catalogue bar show|hide|toggle`, `ui catalogue
+    pan X Y`, `ui catalogue density N` and `ui catalogue distance CM` do the
+    same from a script. The `ui`
     commands that move the pointer (`ui pointer X Y`, `ui click X Y`, `ui
     down`, `ui drag`, `ui up`) take points of the window, and the catalogue
     maps them as it maps the mouse. `ui press TAG`, `ui nav`, `ui raw`, `ui

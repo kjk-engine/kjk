@@ -117,6 +117,11 @@ pub struct View {
     /// How far the window's top left corner is into the shown image, in the
     /// window's logical pixels, when the image is larger than the window.
     pub pan: [f32; 2],
+    /// How far the device's frame reaches past the image on the left, top,
+    /// right and bottom, in the device's pixels (`device_frame::margin`).
+    /// Fit scales the image so that the frame fits the window too. It is
+    /// zero when no frame is drawn.
+    pub margin: [f32; 4],
 }
 
 /// Where the image stands in the window, in the window's logical pixels from
@@ -131,7 +136,8 @@ pub struct Placement {
     pub pan: [f32; 2],
 }
 
-/// Where the image stands in the window. An image larger than the window
+/// Where the image stands in the window. The frame around it, when there is
+/// one, is centred with it. An image larger than the window
 /// along an axis moves along it with `pan`, kept within the image. Along the
 /// other axes it stays in the middle. Its corner is on a whole physical pixel
 /// of the display, so that a pixel of the image is not drawn across two.
@@ -139,8 +145,13 @@ pub fn place(view: &View) -> Placement {
     let factor = view.window_factor.max(f32::EPSILON);
     let image = [view.image.0 as f32, view.image.1 as f32];
     let window = [view.window.0, view.window.1];
+    let margin = view.margin;
+    let extent = [
+        image[0] + margin[0] + margin[2],
+        image[1] + margin[1] + margin[3],
+    ];
     let scale = match view.mode {
-        Mode::Fit => (window[0] / image[0].max(1.0)).min(window[1] / image[1].max(1.0)),
+        Mode::Fit => (window[0] / extent[0].max(1.0)).min(window[1] / extent[1].max(1.0)),
         Mode::Pixel => 1.0 / factor,
         Mode::Seen => view.seen / factor,
     };
@@ -152,6 +163,8 @@ pub fn place(view: &View) -> Placement {
         if spare > 0.0 {
             pan[axis] = view.pan[axis].clamp(0.0, spare);
             origin[axis] = -pan[axis];
+        } else if extent[axis] * scale <= window[axis] + 0.01 {
+            origin[axis] = (window[axis] - extent[axis] * scale) / 2.0 + margin[axis] * scale;
         } else {
             origin[axis] = (window[axis] - size[axis]) / 2.0;
         }

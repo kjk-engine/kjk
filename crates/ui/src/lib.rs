@@ -4,6 +4,7 @@
 
 pub mod assets;
 pub mod catalogue;
+pub mod device_frame;
 pub mod draw;
 pub mod edit;
 pub mod feedback;
