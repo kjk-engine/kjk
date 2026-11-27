@@ -50,6 +50,10 @@ pub struct UiComposite {
     /// The screens are held back, and the window shows the world alone
     /// (the main menu waits for its 3D view: `gui_scene::hold_menu`).
     pub held: bool,
+    /// The screens are left out for this frame, and the window shows the
+    /// world alone with the brightness still applied (a photo mode
+    /// screenshot: `photo_mode::bare_shot`).
+    pub bare: bool,
 }
 
 impl UiComposite {
@@ -63,6 +67,7 @@ impl UiComposite {
             direction: 1.0,
             tint: [0.0; 3],
             held: false,
+            bare: false,
         }
     }
 }
@@ -200,7 +205,7 @@ fn composite(
         composite.gamma,
         composite.progress,
         composite.direction,
-        0.0,
+        if composite.bare { 1.0 } else { 0.0 },
         composite.tint[0],
         composite.tint[1],
         composite.tint[2],

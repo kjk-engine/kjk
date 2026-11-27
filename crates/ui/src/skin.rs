@@ -113,6 +113,7 @@ pub(crate) const TSL_LAYOUT: Palette = Palette {
     base: [0.101_96, 0.698_04, 0.549_02],
     hilight: [0.8, 0.8, 0.698_04],
     disabled: [0.050_98, 0.349_02, 0.270_59],
+    panel: crate::paint::TSL_PANEL,
 };
 
 /// The colours KOTOR 2's own code tints with (its text, highlight and
@@ -121,6 +122,7 @@ pub const TSL_ENGINE: Palette = Palette {
     base: [0.1, 0.7, 0.55],
     hilight: [0.7, 0.7, 0.6],
     disabled: [0.05, 0.35, 0.27],
+    panel: crate::paint::TSL_PANEL,
 };
 
 /// The colour of the interface's lines and text. It is the green that
@@ -139,6 +141,13 @@ pub fn interface_colour(recoloured: bool) -> [f32; 3] {
 /// pale highlight becomes KOTOR 1's yellow), any other as art (a neutral
 /// grey, as a progress bar's tint, stays grey).
 pub fn recolour_layout(color: [f32; 3]) -> [f32; 3] {
+    recolour_palette(color).unwrap_or_else(|| recolour(color))
+}
+
+/// KOTOR 1's colour for `color` when it is one of KOTOR 2's interface
+/// colours (the base, highlight or disabled colour of `Palette::TSL`,
+/// `TSL_LAYOUT` or `TSL_ENGINE`), or `None` for any other colour.
+pub fn recolour_palette(color: [f32; 3]) -> Option<[f32; 3]> {
     let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.03);
     let k1 = Palette::K1;
     [Palette::TSL, TSL_LAYOUT, TSL_ENGINE]
@@ -151,7 +160,7 @@ pub fn recolour_layout(color: [f32; 3]) -> [f32; 3] {
             ]
         })
         .find(|(from, _)| near(color, *from))
-        .map_or_else(|| recolour(color), |(_, to)| to)
+        .map(|(_, to)| to)
 }
 
 /// `recolour` over RGBA bytes.

@@ -490,7 +490,7 @@ fn loading_screen(
     picture: Res<Picture>,
 ) {
     let overlay = &mut *overlay;
-    let game = ui.is_some_and(|ui| ui.assets.is_some());
+    let game = ui.as_ref().is_some_and(|ui| ui.assets.is_some());
     // `wait loading_screen`: up, with the module's image.
     let drawn = if game {
         up(&loading)
@@ -583,10 +583,15 @@ fn loading_screen(
             .bar
             .as_ref()
             .map(|texture| images.add(scene::image(texture)));
+        // Without the bar's art, the bar is filled with the game's
+        // interface colour.
         let fill_color = if bar.is_some() {
             Vec4::ONE
         } else {
-            Vec4::new(0.0, 0.66, 0.98, 1.0)
+            let campaign = ui.as_ref().and_then(|ui| ui.vm.session.campaign);
+            let palette = campaign.map_or(ui::paint::Palette::K1, ui::paint::Palette::of);
+            let [r, g, b] = palette.base;
+            Vec4::new(r, g, b, 1.0)
         };
         let fill = part(
             &mut commands,
