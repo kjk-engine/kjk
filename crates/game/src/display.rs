@@ -231,7 +231,7 @@ pub fn opening_mode() -> WindowMode {
     let saved: std::collections::BTreeMap<String, String> = crate::settings::file()
         .and_then(|file| std::fs::read(file).ok())
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+        .unwrap_or_else(std::collections::BTreeMap::new);
     let get = |key: &str| saved.get(key).map_or("", String::as_str);
     let on_trial = trial_file().is_some_and(|file| file.exists());
     opening(
