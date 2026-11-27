@@ -3,8 +3,8 @@
 //! in its first module (K1's Endar Spire, TSL's Ebon Hawk), as `kjk play
 //! --made` makes it, and its sheet checked against the tables: the body its
 //! class takes of the portrait, level 1, the hit die and CON modifier, the
-//! skill points spent (K1's half of the class's and the INT modifier, TSL's
-//! whole, times 4), the feats its first level grants, no powers, and the
+//! skill points spent (at level 1 in K1 half of the class base plus the full
+//! INT modifier, in TSL whole, times 4), the feats its first level grants, no powers, and the
 //! globals a new game sets (TSL's `G_PC_LEVEL`, `G_PC_Align_Val`), and
 //! TSL's player feats and its powers open from level 0. A game
 //! not installed is skipped.
@@ -290,15 +290,16 @@ fn made(installer: &Installer, module: &str, (class, portrait): (u8, &str)) -> R
     let int = modifier(cell(&classes, row, "int")?);
     let base = cell(&classes, row, "skillpointbase")?;
     let whole = played.library.classes().whole_skill_points;
-    let halved = ((base + int) / 2).max(1) * 4;
+    let k1_first = (base / 2 + int).max(1) * 4;
     let points = if whole {
         (base + int).max(1) * 4
     } else {
-        halved
+        k1_first
     };
     // The recommended skills spend what the caps let them; TSL's more than
-    // K1's rule would give.
-    let spent_right = |spent: i64| spent <= points && (!whole || points == halved || spent > halved);
+    // K1's first-level rule when TSL's base is whole.
+    let spent_right =
+        |spent: i64| spent <= points && (!whole || points == k1_first || spent > k1_first);
     let snapshot = played.world.snapshot();
     let me = snapshot.own(sim::Seat(0)).ok_or("no player")?;
     let sheet = me.sheet.ok_or("no sheet")?;

@@ -17,9 +17,7 @@
 //!   portraits), abilities (`abchrgen`, the rulebook's creation points
 //!   and score range, a raise costing the score's modifier within
 //!   `RAISE_COST`, as the host checks them), skills
-//!   (`skchrgen`, (points + INT modifier) / 2, TSL's not halved, at least
-//!   1, times 4; a
-//!   class skill costs 1 a rank up to 4, another 2 up to 2; recommended:
+//!   (`skchrgen`, `rules::skill_points`, class skill costs 1 a rank up to 4, another 2 up to 2; recommended:
 //!   the class's skills in its order, each as high as the points go),
 //!   feats (`ftchrgen`: the class's first level's picks, listed as KOTOR's
 //!   feat chart, a chain a row (`sim::levels::Classes::chart`), each feat
@@ -38,8 +36,7 @@
 //! Level-up (`levelup`, a script's `ShowLevelUpGUI`) is the same screen
 //! on the player's character, titled Level Up: `leveluppnl` over `maincg`,
 //! abilities every fourth level (one point, a point a raise, past
-//! creation's 18), skills ((points + INT
-//! modifier) / 2, at least 1; up to the level and 3 ranks, half for
+//! creation's 18), skills (`rules::skill_points`; up to the level and 3 ranks, half for
 //! another class's), feats and powers (`pwrlvlup`) as the level offers
 //! them (hidden when it offers none), one needing another pick of the
 //! level open once that pick is made; nothing goes below what the
@@ -842,13 +839,19 @@ impl Chargen {
     fn skill_points(&self, vm: &ViewModel) -> (i32, i32) {
         let class = self.class(vm);
         let int = modifier(self.choices.abilities[3]);
-        let first = if self.levelling() { 1 } else { 4 };
         let whole = vm
             .chargen
             .as_ref()
             .is_some_and(|chargen| chargen.whole_skill_points);
-        let points = i32::from(class.skill_points) + int;
-        let mut total = if whole { points } else { points / 2 }.max(1) * first;
+        let mut total = rules::skill_points(
+            class.skill_points,
+            int,
+            whole,
+            !self.levelling(),
+            rules::progression::levels::K1_POINTS_DIVISOR,
+            rules::progression::levels::LEAST_SKILL_POINTS,
+            rules::progression::levels::FIRST_LEVEL_TIMES,
+        );
         if let Some(up) = vm.levelup.as_ref().filter(|_| self.levelling()) {
             total += i32::from(up.unspent);
         }
