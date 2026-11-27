@@ -142,6 +142,9 @@ fn tried(
     ));
     world.set_script_state(state);
     let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Stop>::new()));
+    // The debugger's observer, taken away when this is dropped: after the
+    // steps below, or when one of them panics.
+    let mut watching = None;
     if let Some(debug) = debug {
         let program = world
             .level()
@@ -150,7 +153,7 @@ fn tried(
             .map(|program| program as *const script_ncs::vm::Program)
             .ok_or("the script is not in the library")?;
         let stops = stops.clone();
-        script_ncs::vm::observe(Some(Box::new(move |watch| {
+        watching = Some(script_ncs::vm::observing(Box::new(move |watch| {
             if !std::ptr::eq(watch.program, program) {
                 return;
             }
@@ -174,7 +177,7 @@ fn tried(
         );
     }
 
-    script_ncs::vm::observe(None);
+    drop(watching);
     let report = world.script_report();
     outln!(
         "{script} ran for {named} in {module}, then {:.1} s stepped",
@@ -426,7 +429,7 @@ fn stop_at(debug: &script_ncs::compile::Debug, watch: &script_ncs::vm::Watch<'_>
             (
                 name.clone(),
                 ty.clone(),
-                cells(watch.stack, i64::from(*home) / 4, ty),
+                cells(watch.stack, debug.global_cell(*home, watch.bp), ty),
             )
         })
         .collect();

@@ -940,7 +940,7 @@ pub fn compile(discovery: &Discovery, game: &str, script: Option<&str>) -> ExitC
                 continue;
             }
             sources += 1;
-            let ours = match script_ncs::compile::compile(name, &source, &read_source, &catalog) {
+            let ours = match script_ncs::compile::compile_as_bioware(name, &source, &read_source, &catalog) {
                 Ok(ours) => ours,
                 Err(error) => {
                     let kind: String = error.what.split_whitespace().take(5).collect::<Vec<_>>().join(" ");

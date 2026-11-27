@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use fmt_odyssey::ncs::{Const, Ncs, Op, Pair, Ty as Cell};
 
-use super::Error;
 use super::parse::{Expr, Function, Item, Located, Param, Stmt, SwitchPart, Ty};
+use super::{Error, Leaving};
 use crate::asm::Asm;
 use crate::catalog::{self, Catalog};
 
@@ -18,6 +18,18 @@ fn size(ty: &Ty, structs: &BTreeMap<String, Vec<(Ty, String)>>) -> i32 {
             fields.iter().map(|(ty, _)| size(ty, structs)).sum()
         }),
         _ => 4,
+    }
+}
+
+/// What is wrong with `ty` when it is a struct that is not declared. Such
+/// a struct used to count as nothing at all, and a variable of it took no
+/// place on the stack.
+fn undeclared(ty: &Ty, structs: &BTreeMap<String, Vec<(Ty, String)>>) -> Option<String> {
+    match ty {
+        Ty::Struct(name) if !structs.contains_key(name) => {
+            Some(format!("the struct {name} is not declared"))
+        }
+        _ => None,
     }
 }
 
@@ -86,6 +98,10 @@ struct Scope<'a> {
     globals: BTreeMap<String, Var>,
     globals_size: i32,
     functions: BTreeMap<String, Function>,
+    /// How a `continue` and a `break` leave their blocks.
+    leaving: Leaving,
+    /// The `#define`s whose value is not one number or one string.
+    unread_defines: BTreeSet<String>,
 }
 
 /// One function being written.
@@ -109,6 +125,11 @@ struct Writer<'s, 'a> {
     file: String,
     function: String,
     noted: Vec<Vec<usize>>,
+    /// How many expressions are being written inside each other (`expr`).
+    expressions: usize,
+    /// Whether this is the code that sets the globals. There a global is
+    /// read only once it is set (`program`).
+    setting_globals: bool,
 }
 
 /// A type's name in a debug note: one word.
@@ -176,12 +197,9 @@ impl Writer<'_, '_> {
                 }
             }
             Ty::Struct(name) => {
-                let fields = self
-                    .scope
-                    .structs
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(Vec::new);
+                let Some(fields) = self.scope.structs.get(name).cloned() else {
+                    return self.error(format!("the struct {name} is not declared"));
+                };
                 for (ty, _) in fields {
                     self.reserve(&ty)?;
                 }
@@ -288,7 +306,22 @@ impl Writer<'_, '_> {
     }
 
     /// Pushes `expr`'s value and gives its type.
+    ///
+    /// An expression of operators in a row is written as deep as it is
+    /// long. The parser lets each row be `MOST_OPERATORS` long, and rows of
+    /// different operators lie in each other, so the depth is limited here
+    /// as well.
     fn expr(&mut self, expr: &Expr) -> Done<Ty> {
+        if self.expressions >= 2 * super::parse::MOST_OPERATORS {
+            return self.error("the expression is too long to write: split it into two");
+        }
+        self.expressions += 1;
+        let ty = self.expr_of(expr);
+        self.expressions -= 1;
+        ty
+    }
+
+    fn expr_of(&mut self, expr: &Expr) -> Done<Ty> {
         Ok(match expr {
             Expr::Int(v) => self.constant(Const::Int(*v), Ty::Int),
             Expr::Float(v) => self.constant(Const::Float(*v), Ty::Float),
@@ -301,6 +334,11 @@ impl Writer<'_, '_> {
             }
             Expr::Name(name) => {
                 if let Some(var) = self.find(name) {
+                    if self.setting_globals && matches!(var.home, Home::Global(_)) {
+                        return self.error(format!(
+                            "{name} is set further down, so it has no value to read here"
+                        ));
+                    }
                     let size = self.size(&var.ty);
                     self.copy_up(var.home, 0, size);
                     return Ok(var.ty);
@@ -314,6 +352,11 @@ impl Writer<'_, '_> {
                     _ => {}
                 }
                 let Some(constant) = self.scope.catalog.constant_named(name) else {
+                    if self.scope.unread_defines.contains(name) {
+                        return self.error(format!(
+                            "{name} is a #define that is not one number or one string"
+                        ));
+                    }
                     return self.error(format!("{name} is not known"));
                 };
                 match &constant.value {
@@ -476,60 +519,58 @@ impl Writer<'_, '_> {
             },
             _ => return self.error(format!("{mark} does not take {lt:?} and {rt:?}")),
         };
+        // Each operator takes only the pairs that the games' compiled
+        // scripts hold and the VM runs (`vm::Vm::arithmetic`, `compare`,
+        // `equal`). Any other pair is refused here. It used to compile and
+        // then fault when it ran, and some pairs were given the wrong
+        // result, which put every later place on the stack off.
+        //
+        // An int and a float mix in arithmetic and give a float. They do
+        // not mix in a comparison: none of the 380,000 comparisons in the
+        // two games' scripts compares an int with a float.
         let ints = matches!(pair, Pair::IntInt);
-        let (op, result) = match mark {
-            "==" => (Op::Equal(pair), I),
-            "!=" => (Op::NotEqual(pair), I),
-            "<" => (Op::Lt(pair), I),
-            ">" => (Op::Gt(pair), I),
-            "<=" => (Op::Leq(pair), I),
-            ">=" => (Op::Geq(pair), I),
-            "+" => {
-                let result = match (&lt, &rt) {
-                    (I, I) => I,
-                    (S, S) => S,
-                    (V, V) => V,
-                    _ => F,
+        let numbers = matches!(
+            pair,
+            Pair::IntInt | Pair::FloatFloat | Pair::IntFloat | Pair::FloatInt
+        );
+        let number = if ints { I } else { F };
+        let (op, result) = match (mark, pair) {
+            (
+                "==" | "!=",
+                Pair::IntInt
+                | Pair::FloatFloat
+                | Pair::StringString
+                | Pair::ObjectObject
+                | Pair::Struct(_)
+                | Pair::Engine(_),
+            ) => {
+                let op = if mark == "==" {
+                    Op::Equal(pair)
+                } else {
+                    Op::NotEqual(pair)
                 };
-                (Op::Add(pair), result)
+                (op, I)
             }
-            "-" => (
-                Op::Sub(pair),
-                if ints {
-                    I
-                } else if lt == V {
-                    V
-                } else {
-                    F
-                },
-            ),
-            "*" => {
-                let result = if ints {
-                    I
-                } else if lt == V || rt == V {
-                    V
-                } else {
-                    F
-                };
-                (Op::Mul(pair), result)
-            }
-            "/" => (
-                Op::Div(pair),
-                if ints {
-                    I
-                } else if lt == V {
-                    V
-                } else {
-                    F
-                },
-            ),
-            "%" if ints => (Op::Mod, I),
-            "&" if ints => (Op::BoolAnd, I),
-            "|" if ints => (Op::IncOr, I),
-            "^" if ints => (Op::ExcOr, I),
-            "<<" if ints => (Op::ShiftLeft, I),
-            ">>" if ints => (Op::ShiftRight, I),
-            ">>>" if ints => (Op::UShiftRight, I),
+            ("<", Pair::IntInt | Pair::FloatFloat) => (Op::Lt(pair), I),
+            (">", Pair::IntInt | Pair::FloatFloat) => (Op::Gt(pair), I),
+            ("<=", Pair::IntInt | Pair::FloatFloat) => (Op::Leq(pair), I),
+            (">=", Pair::IntInt | Pair::FloatFloat) => (Op::Geq(pair), I),
+            ("+", _) if numbers => (Op::Add(pair), number),
+            ("+", Pair::StringString) => (Op::Add(pair), S),
+            ("+", Pair::VectorVector) => (Op::Add(pair), V),
+            ("-", _) if numbers => (Op::Sub(pair), number),
+            ("-", Pair::VectorVector) => (Op::Sub(pair), V),
+            ("*", _) if numbers => (Op::Mul(pair), number),
+            ("*", Pair::VectorFloat | Pair::FloatVector) => (Op::Mul(pair), V),
+            ("/", _) if numbers => (Op::Div(pair), number),
+            ("/", Pair::VectorFloat) => (Op::Div(pair), V),
+            ("%", Pair::IntInt) => (Op::Mod, I),
+            ("&", Pair::IntInt) => (Op::BoolAnd, I),
+            ("|", Pair::IntInt) => (Op::IncOr, I),
+            ("^", Pair::IntInt) => (Op::ExcOr, I),
+            ("<<", Pair::IntInt) => (Op::ShiftLeft, I),
+            (">>", Pair::IntInt) => (Op::ShiftRight, I),
+            (">>>", Pair::IntInt) => (Op::UShiftRight, I),
             _ => return self.error(format!("{mark} does not take {lt:?} and {rt:?}")),
         };
         self.asm.op(op);
@@ -825,7 +866,16 @@ impl Writer<'_, '_> {
                                 offset: -4,
                                 size: 4,
                             });
-                            self.expr(case)?;
+                            // A case of another type was compared as the
+                            // switch's own type, which stopped the script
+                            // when it ran. One of three cells, a vector,
+                            // also put every later place on the stack off.
+                            let case_ty = self.expr(case)?;
+                            if case_ty != ty {
+                                return self.error(format!(
+                                    "a case of this switch is a {case_ty:?}, not a {ty:?}"
+                                ));
+                            }
                             self.asm.op(Op::Equal(pair));
                             self.top -= 4;
                             self.jump(Op::Jnz, &label);
@@ -863,27 +913,39 @@ impl Writer<'_, '_> {
                 self.movsp(-4);
             }
             Stmt::Break | Stmt::Continue => {
-                let Some(exit) = self.exits.last() else {
-                    return self.error("a break or a continue is outside a loop");
-                };
-                let target = if matches!(statement, Stmt::Break) {
-                    exit.broken.clone()
+                let breaks = matches!(statement, Stmt::Break);
+                // What the jump leaves: a break the innermost loop or
+                // switch, a continue the innermost loop, with any switch
+                // inside it.
+                let left = if breaks {
+                    self.exits.last()
                 } else {
-                    let Some(target) = self
-                        .exits
-                        .iter()
-                        .rev()
-                        .find_map(|exit| exit.continued.clone())
-                    else {
-                        return self.error("a continue is outside a loop");
-                    };
-                    target
+                    (self.exits.iter().rev()).find(|exit| exit.continued.is_some())
                 };
-                let (top, depth) = (self.top, exit.top);
-                // A continue, and a break out of a switch, pop nothing, as
-                // BioWare's compiler writes them: the locals of the blocks
-                // they leave stay on the stack.
-                let pops = matches!(statement, Stmt::Break) && exit.continued.is_some();
+                let Some(left) = left else {
+                    return self.error(if breaks {
+                        "a break is outside a loop or a switch"
+                    } else {
+                        "a continue is outside a loop"
+                    });
+                };
+                let in_loop = left.continued.is_some();
+                let target = match (&left.continued, breaks) {
+                    (Some(next), false) => next.clone(),
+                    _ => left.broken.clone(),
+                };
+                let (top, depth) = (self.top, left.top);
+                let pops = match self.scope.leaving {
+                    // The locals of the blocks it leaves are popped, and a
+                    // continue out of a switch pops the switch's value too.
+                    // Left on the stack, they put every later place of the
+                    // function off.
+                    Leaving::Clean => true,
+                    // BioWare's compiler pops them only for a break out of
+                    // a loop. A continue, and a break out of a switch, pop
+                    // nothing.
+                    Leaving::AsBioWare => breaks && in_loop,
+                };
                 if depth != top && pops {
                     self.asm.op(Op::MovSp(depth - top));
                 }
@@ -911,6 +973,12 @@ impl Writer<'_, '_> {
                         self.movsp(-size);
                     }
                     None => {
+                        if self.ret != Ty::Void {
+                            return self.error(format!(
+                                "the function returns a {:?}, so its return needs a value",
+                                self.ret
+                            ));
+                        }
                         if top != 0 {
                             self.asm.op(Op::MovSp(-top));
                         }
@@ -965,18 +1033,26 @@ fn default_of(text: &str, ty: catalog::Type) -> Option<Expr> {
     })
 }
 
-/// A `#define`'s value as an expression, where it is a number or a string.
+/// A `#define`'s value as an expression, where it is one number or one
+/// string and nothing more. A number may have a minus sign before it, which
+/// is made part of the number: the decompiler writes such a `#define` for a
+/// negative number a compiled script holds whole (`decompile`).
+///
+/// Any other value gives `None`. Before, only the first part was read:
+/// `1 + 2` was 1, and a minus sign before a string was dropped. The
+/// smallest int negated also stopped a debug build.
 fn define_value(text: &str) -> Option<Expr> {
+    use super::lexer::Tok;
     let tokens = super::lexer::lex(text.as_bytes(), "").ok()?;
-    let negative = matches!(tokens.first()?.tok, super::lexer::Tok::Mark("-"));
+    let negative = matches!(tokens.first()?.tok, Tok::Mark("-"));
     let at = usize::from(negative);
     let value = match &tokens.get(at)?.tok {
-        super::lexer::Tok::Int(v) => Expr::Int(if negative { -v } else { *v }),
-        super::lexer::Tok::Float(v) => Expr::Float(if negative { -v } else { *v }),
-        super::lexer::Tok::Str(v) => Expr::Str(v.clone()),
+        Tok::Int(v) => Expr::Int(if negative { v.wrapping_neg() } else { *v }),
+        Tok::Float(v) => Expr::Float(if negative { -v } else { *v }),
+        Tok::Str(v) if !negative => Expr::Str(v.clone()),
         _ => return None,
     };
-    Some(value)
+    matches!(tokens.get(at + 1)?.tok, Tok::End).then_some(value)
 }
 
 /// The program of `items` (the script's and its includes', in order).
@@ -984,6 +1060,7 @@ pub(super) fn program(
     name: &str,
     items: &[(String, Item)],
     catalog: &Catalog,
+    leaving: Leaving,
 ) -> Result<(Ncs, crate::compile::Debug), Error> {
     let mut scope = Scope {
         file: name.to_string(),
@@ -993,19 +1070,41 @@ pub(super) fn program(
         globals: BTreeMap::new(),
         globals_size: 0,
         functions: BTreeMap::new(),
+        leaving,
+        unread_defines: BTreeSet::new(),
     };
     // The globals' values, and the file each function is defined in.
     let mut globals: Vec<(String, Ty, Option<Expr>)> = Vec::new();
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     for (file, item) in items {
+        // A mistake in what the file declares. An item keeps no line.
+        let wrong = |what: String| Error {
+            file: file.clone(),
+            line: 0,
+            what,
+        };
         match item {
             Item::Include(_) => {}
-            Item::Define(name, value) => {
-                if let Some(value) = define_value(value) {
+            Item::Define(name, value) => match define_value(value) {
+                Some(value) => {
                     scope.constants.insert(name.clone(), value);
                 }
-            }
+                // Named where a script uses it, so that a file may hold a
+                // `#define` of another kind that nothing uses.
+                None => {
+                    scope.unread_defines.insert(name.clone());
+                }
+            },
             Item::Struct(name, fields) => {
+                // A field that is a struct is one declared before this one.
+                // So no struct holds itself, in a field or in a field's
+                // field. The size of one that did was worked out without
+                // end, and the compiler ran out of stack.
+                for (ty, field) in fields {
+                    if let Some(why) = undeclared(ty, &scope.structs) {
+                        return Err(wrong(format!("the struct {name}'s {field}: {why}")));
+                    }
+                }
                 scope.structs.insert(name.clone(), fields.clone());
             }
             Item::Global {
@@ -1014,10 +1113,21 @@ pub(super) fn program(
                 names,
             } => {
                 for (name, value) in names {
-                    let literal = matches!(
-                        value,
-                        Some(Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Vector(_))
-                    );
+                    // A number with a minus sign is a literal too. The
+                    // parser keeps the sign apart from the number
+                    // (`Parser::unary`), so `const int NONE = -1;` used to
+                    // become a global variable. The constant keeps the
+                    // sign apart as well, and each use of it is written as
+                    // `-1` is written anywhere else.
+                    let literal = match value {
+                        Some(Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Vector(_)) => {
+                            true
+                        }
+                        Some(Expr::Unary("-", number)) => {
+                            matches!(**number, Expr::Int(_) | Expr::Float(_))
+                        }
+                        _ => false,
+                    };
                     if *constant && literal {
                         scope
                             .constants
@@ -1028,13 +1138,40 @@ pub(super) fn program(
                 }
             }
             Item::Function(function) => {
+                let types = (std::iter::once(&function.ret))
+                    .chain(function.params.iter().map(|param| &param.ty));
+                for ty in types {
+                    if let Some(why) = undeclared(ty, &scope.structs) {
+                        return Err(wrong(format!("{}: {why}", function.name)));
+                    }
+                }
                 let had = scope.functions.get(&function.name);
                 // A definition takes the place of a prototype, keeping the
                 // prototype's defaults where it has none of its own.
                 let mut function = function.clone();
                 if let Some(had) = had {
+                    // A prototype and its definition agree in what they
+                    // take, and a function has one body. The later of two
+                    // used to take the earlier one's place without a word.
+                    //
+                    // What they return is not compared, and the body's is
+                    // taken. BioWare's compiler takes it so too: KOTOR 1's
+                    // `k_inc_ebonhawk` declares `void EBO_PlayTakeOff` and
+                    // defines it as returning a string, and four scripts
+                    // that include it compile to the game's bytes.
+                    let same = had.params.len() == function.params.len()
+                        && (had.params.iter().zip(&function.params)).all(|(a, b)| a.ty == b.ty);
+                    if !same {
+                        return Err(wrong(format!(
+                            "{} is declared twice, with other parameters the second time",
+                            function.name
+                        )));
+                    }
                     if function.body.is_none() {
                         continue;
+                    }
+                    if had.body.is_some() {
+                        return Err(wrong(format!("{} is defined twice", function.name)));
                     }
                     for (param, old) in function.params.iter_mut().zip(&had.params) {
                         if param.default.is_none() {
@@ -1076,6 +1213,10 @@ pub(super) fn program(
 
     let mut asm = Asm::default();
     let conditional = entry == "StartingConditional";
+    // The functions that the globals' values call, and the labels their code
+    // used up.
+    let mut globals_calls: Vec<String> = Vec::new();
+    let mut labels = 0usize;
     // The start: the globals set, then the entry called.
     if globals.is_empty() {
         if conditional {
@@ -1106,6 +1247,8 @@ pub(super) fn program(
             file: name.to_string(),
             function: "globals".into(),
             noted: vec![Vec::new()],
+            setting_globals: true,
+            expressions: 0,
         };
         for (global, ty, value) in &globals {
             writer.reserve(ty)?;
@@ -1122,6 +1265,20 @@ pub(super) fn program(
                 writer.copy_down(Home::Local(start), 0, size);
                 writer.movsp(-size);
             }
+            // A later global's value reads this one from the stack, where
+            // it lies as a local of this code. The globals are not yet
+            // found through `SaveBp`, which comes after the last of them,
+            // so a read as a global underflowed.
+            let Home::Global(start) = scope.globals[global].home else {
+                unreachable!("a global")
+            };
+            writer.locals[0].push((
+                global.clone(),
+                Var {
+                    ty: ty.clone(),
+                    home: Home::Local(start),
+                },
+            ));
         }
         writer.asm.op(Op::SaveBp);
         if conditional {
@@ -1147,13 +1304,17 @@ pub(super) fn program(
             globals_first,
             past,
         ));
+        globals_calls = std::mem::take(&mut writer.calls);
+        labels = writer.labels;
     }
 
     // The entry, then each function as the code first calls it, each one's
-    // own calls written before its caller's next.
-    let mut stack = vec![entry.to_string()];
+    // own calls written before its caller's next. After them come the
+    // functions that only the globals' values call. They used to be left
+    // out, and the call jumped to the start of the file.
+    let mut stack: Vec<String> = globals_calls.into_iter().rev().collect();
+    stack.push(entry.to_string());
     let mut written: BTreeSet<String> = BTreeSet::new();
-    let mut labels = 0usize;
     // Depth first: a function's own calls are written before the next
     // function its caller calls, as BioWare's compiler orders them.
     while let Some(next) = stack.pop() {
@@ -1192,6 +1353,8 @@ pub(super) fn program(
                 .unwrap_or_else(|| name.to_string()),
             function: next.clone(),
             noted: vec![Vec::new(), Vec::new()],
+            setting_globals: false,
+            expressions: 0,
         };
         // The parameters lie below the frame, the first nearest it.
         let mut at = 0;
@@ -1258,6 +1421,6 @@ pub(super) fn program(
             Home::Local(_) => None,
         })
         .collect();
-    let debug = crate::compile::Debug::of(&asm.debug, &ncs, globals_noted);
+    let debug = crate::compile::Debug::of(&asm.debug, &ncs, globals_noted, scope.globals_size);
     Ok((ncs, debug))
 }

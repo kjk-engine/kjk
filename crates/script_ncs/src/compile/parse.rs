@@ -124,10 +124,29 @@ pub enum Item {
     Function(Function),
 }
 
+/// How deep a source may nest. The parser calls itself for what lies inside
+/// a statement or an expression, and the code writer follows what it read
+/// as deep (`code::Writer`). Without a limit, a source nested deep enough
+/// ran the program's own stack out. Windows' main thread has 1 MB of it.
+///
+/// The costs are measured in a release build. A statement in a statement
+/// costs about 2.5 KB. An `else if` is one statement deeper than its `if`,
+/// and a block in an `if` is two: the `if` and its block. An expression in
+/// brackets, after a sign or as an argument costs about 4.9 KB. One more
+/// operator in a row costs about 1.1 KB. Each limit keeps its kind of
+/// nesting under about a third of that stack.
+pub(super) const MOST_NESTED_STATEMENTS: usize = 128;
+pub(super) const MOST_NESTED_EXPRESSIONS: usize = 32;
+pub(super) const MOST_OPERATORS: usize = 128;
+
 struct Parser<'t> {
     tokens: &'t [Token],
     at: usize,
     file: &'t str,
+    /// How many statements are being read inside each other, and how many
+    /// expressions.
+    statements: usize,
+    expressions: usize,
 }
 
 type Parsed<T> = Result<T, Error>;
@@ -340,8 +359,15 @@ impl Parser<'_> {
 
     fn statement(&mut self) -> Parsed<Located<Stmt>> {
         let line = self.line();
-        let item = self.statement_item()?;
-        Ok(Located { line, item })
+        if self.statements >= MOST_NESTED_STATEMENTS {
+            return self.error(format!(
+                "statements are nested more than {MOST_NESTED_STATEMENTS} deep"
+            ));
+        }
+        self.statements += 1;
+        let item = self.statement_item();
+        self.statements -= 1;
+        Ok(Located { line, item: item? })
     }
 
     fn statement_item(&mut self) -> Parsed<Stmt> {
@@ -524,9 +550,16 @@ impl Parser<'_> {
             return self.unary();
         }
         let mut left = self.binary(level + 1)?;
+        let mut operators = 0;
         'more: loop {
             for mark in Self::LEVELS[level] {
                 if self.is(mark) {
+                    operators += 1;
+                    if operators > MOST_OPERATORS {
+                        return self.error(format!(
+                            "an expression has more than {MOST_OPERATORS} operators in a row"
+                        ));
+                    }
                     self.at += 1;
                     let right = self.binary(level + 1)?;
                     left = Expr::Binary(mark, Box::new(left), Box::new(right));
@@ -537,7 +570,21 @@ impl Parser<'_> {
         }
     }
 
+    /// An operand. Every expression inside another passes here: one in
+    /// brackets, one after a sign, an argument of a call.
     fn unary(&mut self) -> Parsed<Expr> {
+        if self.expressions >= MOST_NESTED_EXPRESSIONS {
+            return self.error(format!(
+                "an expression is nested more than {MOST_NESTED_EXPRESSIONS} deep"
+            ));
+        }
+        self.expressions += 1;
+        let operand = self.operand();
+        self.expressions -= 1;
+        operand
+    }
+
+    fn operand(&mut self) -> Parsed<Expr> {
         for mark in ["!", "~", "-", "+"] {
             if self.eat(mark) {
                 let operand = self.unary()?;
@@ -637,6 +684,8 @@ pub fn parse(tokens: &[Token], file: &str) -> Result<Vec<Item>, Error> {
         tokens,
         at: 0,
         file,
+        statements: 0,
+        expressions: 0,
     }
     .items()
 }

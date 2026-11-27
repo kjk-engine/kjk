@@ -977,6 +977,313 @@ fn compiled(p: &mut Probes) {
         format!("{wrong:?}"),
     );
 
+    // Each operator takes only the pairs of types the games' scripts hold.
+    // Every legal pair here runs to its answer, one bit of 255 each.
+    let legal = build(
+        "int StartingConditional()\n\
+         {\n\
+             int n = 2;\n\
+             float f = 1.5;\n\
+             vector v = [1.0, 2.0, 3.0];\n\
+             string s = \"a\";\n\
+             object o = OBJECT_SELF;\n\
+             vector a = v * f;\n\
+             vector b = f * v;\n\
+             vector c = v / f;\n\
+             vector d = v + v - v;\n\
+             float g = n + f;\n\
+             float h = f * n;\n\
+             string t = s + s;\n\
+             int r = 0;\n\
+             if (a == b) r += 1;\n\
+             if (c != v) r += 2;\n\
+             if (d == v) r += 4;\n\
+             if (g > 3.0) r += 8;\n\
+             if (h <= 3.0) r += 16;\n\
+             if (t == \"aa\") r += 32;\n\
+             if (o == OBJECT_SELF) r += 64;\n\
+             if (n >= 2) r += 128;\n\
+             return r;\n\
+         }\n",
+    );
+    let got = legal.as_ref().map_err(ToString::to_string).and_then(|ncs| {
+        let (outcome, _) = p.run_ncs(ncs.clone());
+        outcome
+            .map(|finished| finished.returned)
+            .map_err(|fault| format!("{fault:?}"))
+    });
+    p.check(
+        "every legal pair of operand types compiles and runs",
+        got == Ok(Some(255)),
+        format!("{got:?}, wanted 255"),
+    );
+
+    // Any other pair is a mistake named when the script is compiled. Before,
+    // it compiled and faulted when it ran.
+    let refused = [
+        "string r = s - s;",
+        "string r = s * s;",
+        "object r = o + o;",
+        "struct pair r = p + p;",
+        "vector r = v + f;",
+        "vector r = v - f;",
+        "vector r = f / v;",
+        "int r = s < s;",
+        "int r = o > o;",
+        "int r = v <= v;",
+        "int r = p >= p;",
+        "int r = n < f;",
+        "int r = f >= n;",
+        "int r = n == f;",
+        "int r = f != n;",
+        "int r = v == f;",
+        "int r = n % f;",
+    ];
+    let compiled: Vec<&str> = (refused.iter())
+        .filter(|line| {
+            let source = format!(
+                "#include \"probe_inc\"\n\
+                 void main()\n\
+                 {{\n\
+                     int n; float f; vector v; string s; object o; struct pair p;\n\
+                     {line}\n\
+                 }}\n"
+            );
+            !build(&source).is_err_and(|error| error.what.contains("does not take"))
+        })
+        .copied()
+        .collect();
+    p.check(
+        "an operator refuses a pair of operand types the games never use",
+        compiled.is_empty(),
+        format!("compiled, or refused for another reason: {compiled:?}"),
+    );
+
+    // Globals: a function that only a global's value calls is written, a
+    // global's value reads an earlier global, and a `const` with a minus
+    // sign is a constant, which takes no place among the globals. The
+    // answer is 3 + (3 + 1) - 1.
+    let globals = build(
+        "const int NONE = -1;
+         int Three() { return 3; }
+         int nFirst = Three();
+         int nSecond = nFirst + 1;
+         int StartingConditional()
+         {
+             return nFirst + nSecond + NONE;
+         }
+",
+    );
+    let got = globals
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|ncs| {
+            // Two globals are set: one place reserved for each.
+            let reserved = (ncs.code.iter())
+                .take_while(|i| i.op != SaveBp)
+                .filter(|i| i.op == Rsadd(Ty::Int))
+                .count();
+            let (outcome, _) = p.run_ncs(ncs.clone());
+            outcome
+                .map(|finished| (finished.returned, reserved))
+                .map_err(|fault| format!("{fault:?}"))
+        });
+    p.check(
+        "globals set from a function and from each other, beside a negative constant",
+        // The conditional's own answer is reserved first, then the two
+        // globals, then the place for what `Three` returns.
+        got == Ok((Some(6), 4)),
+        format!("{got:?}, wanted 6 with 4 places reserved"),
+    );
+    let early = build(
+        "int nFirst = nSecond;
+int nSecond = 1;
+void main()
+{
+}
+",
+    );
+    p.check(
+        "a global's value cannot read a global set further down",
+        early
+            .as_ref()
+            .is_err_and(|error| error.what.contains("nSecond is set further down")),
+        format!("{early:?}"),
+    );
+
+    // A case of a switch has the switch's own type.
+    let cases = ["case \"one\":", "case [1.0, 2.0, 3.0]:", "case 1.0:"];
+    let compiled: Vec<&str> = (cases.iter())
+        .filter(|case| {
+            let source = format!(
+                "void main()
+{{
+    int n = 1;
+    switch (n) {{
+        {case} break;
+    }}
+}}
+"
+            );
+            !build(&source).is_err_and(|error| error.what.contains("a case of this switch is a"))
+        })
+        .copied()
+        .collect();
+    p.check(
+        "a switch refuses a case of another type",
+        compiled.is_empty(),
+        format!("compiled, or refused for another reason: {compiled:?}"),
+    );
+
+    // A continue and a break pop the locals of the blocks they leave: a
+    // continue in a loop's body that has a local, a continue in a switch in
+    // a loop, and a break out of a switch from a block that has a local.
+    // The sums are 0 + 2 + 6 + 8, then 3 and 30 more, then 1 more, and 7.
+    let leaving = "int StartingConditional()
+         {
+             int nSum = 0;
+             int i;
+             for (i = 0; i < 5; i++) {
+                 int n = i * 2;
+                 if (n == 4) continue;
+                 nSum += n;
+             }
+             for (i = 0; i < 4; i++) {
+                 switch (i) {
+                     case 1: { int nSkip = 100; continue; }
+                     default: nSum += 1;
+                 }
+                 nSum += 10;
+             }
+             switch (nSum) {
+                 case 49: { int nOne = 1; nSum += nOne; break; }
+                 default: nSum = -1;
+             }
+             int nAfter = 7;
+             return nSum + nAfter;
+         }
+";
+    let answer = |built: Result<Ncs, crate::compile::Error>| {
+        built.map_err(|error| error.to_string()).and_then(|ncs| {
+            let (outcome, _) = p.run_ncs(ncs);
+            outcome
+                .map(|finished| finished.returned)
+                .map_err(|fault| format!("{fault:?}"))
+        })
+    };
+    let clean = answer(build(leaving));
+    // BioWare's compiler pops nothing there, and the same source goes wrong.
+    let as_bioware = answer(crate::compile::compile_as_bioware(
+        "probe",
+        leaving.as_bytes(),
+        &include,
+        &catalog,
+    ));
+    p.check(
+        "a continue and a break pop the locals of the blocks they leave",
+        clean == Ok(Some(57)) && as_bioware != Ok(Some(57)),
+        format!("{clean:?}, wanted 57; laid out as BioWare's compiler does: {as_bioware:?}"),
+    );
+
+    // Mistakes in what a script declares, each named: a struct that holds
+    // itself, a struct that is not declared (as a local and as what a
+    // function returns), a return with no value in a function that has
+    // one, a function with two bodies, and a body whose parameters are not
+    // its prototype's.
+    let mistakes = [
+        (
+            "struct a { struct a next; };\nvoid main()\n{\n}\n",
+            "the struct a's next: the struct a is not declared",
+        ),
+        (
+            "void main()\n{\n    struct missing m;\n}\n",
+            "the struct missing is not declared",
+        ),
+        (
+            "struct missing Make();\nvoid main()\n{\n}\n",
+            "Make: the struct missing is not declared",
+        ),
+        (
+            "int Three()\n{\n    return;\n}\nvoid main()\n{\n    Three();\n}\n",
+            "its return needs a value",
+        ),
+        (
+            "int Three() { return 3; }\nint Three() { return 4; }\nvoid main()\n{\n}\n",
+            "Three is defined twice",
+        ),
+        (
+            "int Three(int n);\nint Three(float f) { return 3; }\nvoid main()\n{\n}\n",
+            "Three is declared twice, with other parameters the second time",
+        ),
+    ];
+    let unnamed: Vec<String> = (mistakes.iter())
+        .filter_map(|(source, wanted)| match build(source) {
+            Err(error) if error.what.contains(wanted) => None,
+            other => Some(format!("{wanted:?}: {other:?}")),
+        })
+        .collect();
+    // A prototype and its body that agree still compile, and the body keeps
+    // the prototype's default. What a body returns may differ from its
+    // prototype, as in KOTOR 1's `k_inc_ebonhawk`, and the body's is taken.
+    let agreed = build(
+        "int Twofold(int n = 2);\n\
+         void Counted(int n);\n\
+         int Twofold(int n) { return n * 2; }\n\
+         int Counted(int n) { return n; }\n\
+         int StartingConditional()\n\
+         {\n\
+             return Twofold() + Counted(0);\n\
+         }\n",
+    );
+    let agreed = agreed.map_err(|error| error.to_string()).and_then(|ncs| {
+        let (outcome, _) = p.run_ncs(ncs);
+        outcome
+            .map(|finished| finished.returned)
+            .map_err(|fault| format!("{fault:?}"))
+    });
+    p.check(
+        "a mistake in a struct, a return or a function's two declarations is named",
+        unnamed.is_empty() && agreed == Ok(Some(4)),
+        format!("not named: {unnamed:?}; a prototype with its body: {agreed:?}, wanted 4"),
+    );
+
+    // A `#define` is a constant when its value is one number or one
+    // string: 2 - 3, the smallest int whole, and a string. One of another
+    // kind is no constant, and is named where a script uses it. Unused, it
+    // is no mistake.
+    let defined = build(
+        "#define TWO 2\n\
+         #define LESS -3\n\
+         #define LEAST -2147483648\n\
+         #define NAME \"abc\"\n\
+         #define UNUSED 1 + 2\n\
+         int StartingConditional()\n\
+         {\n\
+             string s = NAME;\n\
+             if (s == \"abc\" && LEAST < 0) return TWO + LESS;\n\
+             return 0;\n\
+         }\n",
+    );
+    let defined = defined.map_err(|error| error.to_string()).and_then(|ncs| {
+        let least = ncs.code.iter().any(|i| i.op == int(i32::MIN));
+        let (outcome, _) = p.run_ncs(ncs);
+        outcome
+            .map(|finished| (finished.returned, least))
+            .map_err(|fault| format!("{fault:?}"))
+    });
+    let unread: Vec<&str> = ["SUM 1 + 2", "SUM -\"abc\"", "SUM", "SUM effect"]
+        .into_iter()
+        .filter(|define| {
+            let source = format!("#define {define}\nvoid main()\n{{\n    Record(SUM);\n}}\n");
+            !build(&source).is_err_and(|error| error.what.contains("SUM is a #define that is not"))
+        })
+        .collect();
+    p.check(
+        "a #define is one number or one string, and any other is named where it is used",
+        defined == Ok((Some(-1), true)) && unread.is_empty(),
+        format!("{defined:?}, wanted -1 with the smallest int whole; read as a value: {unread:?}"),
+    );
+
     // A debugger's view: the compiler's notes read back as written, and a
     // run watched line by line (`vm::observe`) shows a function's parameter
     // at each call, read where the notes put it.
@@ -990,7 +1297,7 @@ fn compiled(p: &mut Probes) {
             let program = Program::new(ncs.clone());
             let watched = debug.clone();
             let into = seen.clone();
-            vm::observe(Some(Box::new(move |watch| {
+            let watching = vm::observing(Box::new(move |watch| {
                 // At the start of Twice's line 3: its n.
                 if watched.line_at(watch.offset) == Some(("probe", 3))
                     && let (Some((start, _)), Some(n)) = (
@@ -1005,10 +1312,10 @@ fn compiled(p: &mut Probes) {
                         into.borrow_mut().push(*value);
                     }
                 }
-            })));
+            }));
             let mut host = Recorder::default();
             let ran = vm::run(&program, &p.routines, CALLER, &mut host);
-            vm::observe(None);
+            drop(watching);
             again.as_ref() == Ok(debug) && ran.is_ok()
         }
         Err(_) => false,
@@ -1018,6 +1325,211 @@ fn compiled(p: &mut Probes) {
         "a compiled script's debug notes read back, and a watched run shows a parameter at each call",
         noted && values == [0, 1, 2],
         format!("{:?}, the parameter {values:?}", debugged.as_ref().map(|(_, debug)| &debug.lines)),
+    );
+    // A debugger reads a global from where the globals end. A script that
+    // starts at StartingConditional keeps its answer below its globals, so
+    // counted from the stack's bottom its first global read as that answer.
+    let source = "int nFirst = 11;\nint nSecond = 22;\n\
+                  int StartingConditional()\n{\n    return nFirst + nSecond;\n}\n";
+    let debugged = crate::compile::compile_debug("probe", source.as_bytes(), &include, &catalog);
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(String, i32)>::new()));
+    let ran = match &debugged {
+        Ok((ncs, debug)) => {
+            let again = crate::compile::Debug::parse(&debug.write());
+            let program = Program::new(ncs.clone());
+            let watched = debug.clone();
+            let into = seen.clone();
+            let watching = vm::observing(Box::new(move |watch| {
+                // At the start of the conditional's line 5.
+                if watched.line_at(watch.offset) != Some(("probe", 5)) || !into.borrow().is_empty()
+                {
+                    return;
+                }
+                for (name, _, home) in &watched.globals {
+                    let at = watched.global_cell(*home, watch.bp);
+                    if let Some(Value::Int(value)) =
+                        usize::try_from(at).ok().and_then(|at| watch.stack.get(at))
+                    {
+                        into.borrow_mut().push((name.clone(), *value));
+                    }
+                }
+            }));
+            let mut host = Recorder::default();
+            let ran = vm::run(&program, &p.routines, CALLER, &mut host);
+            drop(watching);
+            again.as_ref() == Ok(debug) && ran.map(|finished| finished.returned) == Ok(Some(33))
+        }
+        Err(_) => false,
+    };
+    let mut values = seen.borrow().clone();
+    values.sort();
+    p.check(
+        "a watched conditional shows each global, read from where the globals end",
+        ran && values == [("nFirst".to_string(), 11), ("nSecond".to_string(), 22)],
+        format!("{values:?}, wanted nFirst 11 and nSecond 22"),
+    );
+    // A damaged script is refused by the decompiler with a reason, where
+    // it could stop the program before: a stack move by the smallest int, a
+    // run of 2000 steps, blocks nested 70 deep, and globals followed by a
+    // plain jump where the entry's call belongs.
+    let damaged = |ops: &[Op]| {
+        let mut asm = Asm::default();
+        asm.to(Op::Jsr, "body").op(Op::Retn).label("body");
+        for op in ops {
+            asm.op(op.clone());
+        }
+        asm.op(Op::Retn);
+        asm.build()
+    };
+    let mut steps = vec![Op::Rsadd(Ty::Int)];
+    steps.extend(std::iter::repeat_n(Op::IncSp(-4), 2000));
+    steps.push(Op::MovSp(-4));
+    // 70 ifs in each other, laid out as the compiler lays an if out. The
+    // compiler itself stops a source at 63.
+    let mut nested = Asm::default();
+    nested.to(Op::Jsr, "body").op(Op::Retn).label("body");
+    for deep in 0..70 {
+        nested.op(int(1)).to(Op::Jz, &format!("past {deep}"));
+    }
+    for deep in (0..70).rev() {
+        let past = format!("past {deep}");
+        nested.to(Op::Jmp, &past).label(&past);
+    }
+    nested.op(Op::Retn);
+    let mut jumped = Asm::default();
+    jumped
+        .to(Op::Jsr, "globals")
+        .op(Op::Retn)
+        .label("globals")
+        .op(Op::Rsadd(Ty::Int))
+        .op(Op::SaveBp)
+        .to(Op::Jmp, "entry")
+        .op(Op::RestoreBp)
+        .op(Op::MovSp(-4))
+        .op(Op::Retn)
+        .label("entry")
+        .op(Op::Retn);
+    let cases = [
+        (
+            "a stack move is larger than a stack",
+            damaged(&[Op::MovSp(i32::MIN)]),
+        ),
+        (
+            "its steps follow each other further than a script's do",
+            damaged(&steps),
+        ),
+        (
+            "its blocks are nested deeper than a script's are",
+            nested.build(),
+        ),
+        (
+            "the globals are not followed by the entry's call",
+            jumped.build(),
+        ),
+    ];
+    let unrefused: Vec<String> = (cases.into_iter())
+        .filter_map(|(wanted, ncs)| {
+            let read = crate::decompile::decompile(&ncs, &catalog).map_err(|error| error.what);
+            match read {
+                Err(why) if why.contains(wanted) => None,
+                other => Some(format!(
+                    "{wanted:?}: {:?}",
+                    other.map(|decompiled| decompiled.source.len())
+                )),
+            }
+        })
+        .collect();
+    // The compiler has limits of its own, for a source that would
+    // otherwise run the program's stack out: an `if` with its block 64 deep,
+    // an expression in 40 pairs of brackets, and 129 operators in a row.
+    // At 63 deep, in 20 pairs and with 128 operators, each compiles. The
+    // deepest source that compiles also reads back from its compiled form.
+    let blocks = |deep: usize| {
+        format!(
+            "void main()\n{{\n{}    Record(1);\n{}}}\n",
+            "    if (TRUE) {\n".repeat(deep),
+            "    }\n".repeat(deep)
+        )
+    };
+    let brackets = |deep: usize| {
+        format!(
+            "void main()\n{{\n    int n = {}1{};\n}}\n",
+            "(".repeat(deep),
+            ")".repeat(deep)
+        )
+    };
+    let row = |long: usize| {
+        format!(
+            "void main()\n{{\n    int n = 1{};\n}}\n",
+            " + 1".repeat(long)
+        )
+    };
+    let limits = [
+        (blocks(63), None),
+        (blocks(64), Some("statements are nested more than 128 deep")),
+        (brackets(20), None),
+        (
+            brackets(40),
+            Some("an expression is nested more than 32 deep"),
+        ),
+        (row(128), None),
+        (row(129), Some("more than 128 operators in a row")),
+    ];
+    let unlimited: Vec<String> = (limits.iter())
+        .filter_map(|(source, wanted)| match (build(source), wanted) {
+            (Ok(_), None) => None,
+            (Err(error), Some(wanted)) if error.what.contains(wanted) => None,
+            (other, wanted) => Some(format!(
+                "{wanted:?}: {:?}",
+                other.map(|ncs| ncs.code.len()).map_err(|error| error.what)
+            )),
+        })
+        .collect();
+    let deepest = build(&blocks(63))
+        .map_err(|error| error.to_string())
+        .and_then(|ncs| {
+            crate::decompile::decompile_checked("probe", &ncs, &catalog)
+                .map(|_| ())
+                .map_err(|error| error.what)
+        });
+    p.check(
+        "the compiler refuses a source nested or strung out past its limits",
+        unlimited.is_empty() && deepest == Ok(()),
+        format!("not as wanted: {unlimited:?}; the deepest read back: {deepest:?}"),
+    );
+    p.check(
+        "the decompiler refuses a damaged script with a reason",
+        unrefused.is_empty(),
+        format!("not refused, or for another reason: {unrefused:?}"),
+    );
+    // A string with bytes that print nothing, and a vector with a negative
+    // part, read back from their compiled form and compile to it again. The
+    // string holds a carriage return, the byte 1, and the letter 233 of the
+    // games' code page, which stays a letter.
+    let mut source = b"void main()\n{\n    string s = \"a\\rb\\x01c".to_vec();
+    source.push(0xe9);
+    source.extend_from_slice(b"d\";\n    vector v = [-1.0, 2.0, -0.5];\n}\n");
+    let odd = compile("probe", &source, &include, &catalog);
+    let held = odd.as_ref().is_ok_and(|ncs| {
+        (ncs.code.iter())
+            .any(|i| i.op == Op::Const(fmt_odyssey::ncs::Const::String(b"a\rb\x01c\xe9d".to_vec())))
+    });
+    let read = odd.map_err(|error| error.to_string()).and_then(|ncs| {
+        crate::decompile::decompile_checked("probe", &ncs, &catalog)
+            .map(|decompiled| decompiled.source)
+            .map_err(|error| error.what)
+    });
+    let has = |part: &[u8]| {
+        (read.as_ref()).is_ok_and(|source| source.windows(part.len()).any(|window| window == part))
+    };
+    p.check(
+        "a string's unprintable bytes and a vector's negative parts read back",
+        held && has(b"a\\rb\\x01c\xe9d") && has(b"[-1.0, 2.0, -0.5]"),
+        format!(
+            "the string compiled whole: {held}; read back: {:?}",
+            read.as_ref()
+                .map(|source| String::from_utf8_lossy(source).to_string())
+        ),
     );
     // What nwscript.nss says of a routine: the comment over its prototype.
     let notes = crate::catalog::notes(

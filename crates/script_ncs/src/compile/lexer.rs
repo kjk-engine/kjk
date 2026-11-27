@@ -138,9 +138,25 @@ pub fn lex(source: &[u8], file: &str) -> Result<Vec<Token>, Error> {
                             return Err(error(line, "a string does not end".into()));
                         };
                         at += 1;
+                        // `\x` and two hex digits is the byte they name,
+                        // which the decompiler writes for a byte that
+                        // prints nothing. Without two hex digits it is a
+                        // plain `x`, as any other letter after a backslash
+                        // is itself.
+                        let named = (escaped == b'x')
+                            .then(|| source.get(at..at + 2))
+                            .flatten()
+                            .and_then(|digits| std::str::from_utf8(digits).ok())
+                            .and_then(|digits| u8::from_str_radix(digits, 16).ok());
+                        if let Some(byte) = named {
+                            at += 2;
+                            string.push(byte);
+                            continue;
+                        }
                         string.push(match escaped {
                             b'n' => b'\n',
                             b't' => b'\t',
+                            b'r' => b'\r',
                             other => other,
                         });
                     }

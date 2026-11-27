@@ -10,6 +10,17 @@ use super::{Error, Program, Sig, Structs, Var, aggregate, field_name, of_cell, s
 use crate::catalog::{self, Catalog};
 use crate::compile::parse::{Expr, Function, Located, Param, Stmt, SwitchPart, Ty};
 
+/// How deep blocks may lie in each other, and how many steps (`++`, `--`)
+/// may be read inside each other. The games' scripts stay below it: every
+/// one of them still reads back. Reading goes as deep in the program's own
+/// stack, so a damaged script without this limit could run that stack out.
+///
+/// The limit is set by Windows' main thread, whose stack is 1 MB. Measured
+/// in a release build, a block in a block costs about 4.6 KB of stack, so
+/// about 215 of them fill it. 64 leaves most of that stack to the program
+/// that asked.
+const MOST_NESTED: usize = 64;
+
 type Done<T> = Result<T, Error>;
 
 /// What lies on the stack above the variables while a statement is read.
@@ -154,6 +165,8 @@ pub(super) struct Machine<'a> {
     backs: BTreeMap<usize, Vec<usize>>,
     named: usize,
     depth: usize,
+    /// How many steps (`++`, `--`) are being read inside each other (`step`).
+    steps: usize,
 }
 
 impl<'a> Machine<'a> {
@@ -190,6 +203,7 @@ impl<'a> Machine<'a> {
             backs: BTreeMap::new(),
             named: 0,
             depth: 0,
+            steps: 0,
         }
     }
 
@@ -474,7 +488,16 @@ impl<'a> Machine<'a> {
         }
         self.pc += 1;
         let before = self.stack.len();
-        self.eval()?;
+        // A step before its copy reads what follows, which may be another
+        // step. A damaged script could hold a run of them long enough for
+        // the program's own stack to run out.
+        if self.steps >= MOST_NESTED {
+            return self.fail("its steps follow each other further than a script's do");
+        }
+        self.steps += 1;
+        let read = self.eval();
+        self.steps -= 1;
+        read?;
         match self.stack.last() {
             Some(Entry::Val(read, _)) if self.stack.len() == before + 1 && *read == place => {
                 self.stack.pop();
@@ -504,7 +527,7 @@ impl<'a> Machine<'a> {
             if self.pc == over - 2
                 && let Some(Op::MovSp(by)) = self.op(self.pc)
                 && self.stack.len() == before + 1
-                && self.stack.last().map_or(0, Self::entry_size) == -*by
+                && Some(self.stack.last().map_or(0, Self::entry_size)) == by.checked_neg()
             {
                 self.pc += 1;
                 continue;
@@ -809,6 +832,12 @@ impl<'a> Machine<'a> {
         // Where the block's own variables start. Bytes, not a count: cells
         // of an outer block may become one vector while this one is read.
         let base = self.vars_top;
+        // A block in a block calls this again. A damaged script could nest
+        // them until the program's own stack ran out.
+        if self.depth >= MOST_NESTED {
+            self.parts = saved;
+            return self.fail("its blocks are nested deeper than a script's are");
+        }
         self.depth += 1;
         let result = self.run_inner(end, kind, base);
         self.depth -= 1;
@@ -855,7 +884,11 @@ impl<'a> Machine<'a> {
                 }
                 Op::Jmp(_) => self.jump_stmt()?,
                 Op::MovSp(by) => {
-                    if self.pop_stmt(-*by, end, kind, base)? {
+                    // The smallest int has no negative of its own.
+                    let Some(bytes) = by.checked_neg() else {
+                        return self.fail("a stack move is larger than a stack");
+                    };
+                    if self.pop_stmt(bytes, end, kind, base)? {
                         break;
                     }
                 }
@@ -1111,10 +1144,10 @@ impl<'a> Machine<'a> {
         let top = self.top();
         let count = self.prefix();
         if !self.global_mode && self.ret_size == bytes && top + offset == self.ret_at {
-            let follows = matches!(self.op(self.pc + 1), Some(Op::MovSp(by)) if -*by == top)
+            let follows = matches!(self.op(self.pc + 1), Some(Op::MovSp(by)) if by.checked_neg() == Some(top))
                 && matches!(self.op(self.pc + 2), Some(Op::Jmp(_)))
                 && self.targets.get(self.pc + 2) == Some(&Some(self.fn_end))
-                && matches!(self.op(self.pc + 3), Some(Op::MovSp(by)) if -*by == bytes);
+                && matches!(self.op(self.pc + 3), Some(Op::MovSp(by)) if by.checked_neg() == Some(bytes));
             if !follows {
                 return self.fail("a result is set outside a return");
             }
@@ -1138,7 +1171,7 @@ impl<'a> Machine<'a> {
         let declares = self.stack.len() == count + values
             && count >= cells
             && offset == -2 * bytes
-            && matches!(self.op(self.pc + 1), Some(Op::MovSp(by)) if -*by == bytes);
+            && matches!(self.op(self.pc + 1), Some(Op::MovSp(by)) if by.checked_neg() == Some(bytes));
         if !declares {
             return Ok(false);
         }
@@ -1316,7 +1349,9 @@ impl<'a> Machine<'a> {
         }
         let body_end = if params_size > 0 {
             match self.op(sig.end.wrapping_sub(2)) {
-                Some(Op::MovSp(by)) if -*by == params_size && sig.end >= sig.start + 2 => {
+                Some(Op::MovSp(by))
+                    if by.checked_neg() == Some(params_size) && sig.end >= sig.start + 2 =>
+                {
                     sig.end - 2
                 }
                 _ => return self.fail("a function does not pop its parameters"),

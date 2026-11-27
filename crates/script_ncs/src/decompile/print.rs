@@ -106,6 +106,15 @@ impl Printer {
                 b'\\' => out.push_str("\\\\"),
                 b'\n' => out.push_str("\\n"),
                 b'\t' => out.push_str("\\t"),
+                b'\r' => out.push_str("\\r"),
+                // Any other byte that prints nothing, as `\x` and its two
+                // hex digits. Written raw, a carriage return lasted only
+                // until an editor set the file's line ends, and the string
+                // was then another. A byte above 127 is a letter of the
+                // games' code page and stays as it is.
+                other if other < 0x20 || other == 0x7f => {
+                    out.push_str(&format!("\\x{other:02x}"));
+                }
                 other => out.push(char::from(other)),
             }
         }
@@ -121,10 +130,20 @@ impl Printer {
             Expr::Float(value) => (self.float(*value), TIGHT),
             Expr::Str(text) => (Self::string(text), TIGHT),
             Expr::Vector(parts) => {
-                if parts.iter().any(|part| part.is_sign_negative()) {
-                    self.fail("a vector literal with a negative part".into());
-                }
-                let parts: Vec<String> = parts.iter().map(|part| self.float(*part)).collect();
+                // A negative part is written with its sign inside the
+                // brackets, where the compiler reads it into the number
+                // (`Parser::primary`). Anywhere else a negative number has
+                // to be a `#define` (`float`), which a vector cannot hold.
+                let parts: Vec<String> = (parts.iter())
+                    .map(|part| match float_digits(*part) {
+                        Some(digits) if part.is_sign_negative() => format!("-{digits}"),
+                        Some(digits) => digits,
+                        None => {
+                            self.fail(format!("the float {part} has no literal"));
+                            "0.0".into()
+                        }
+                    })
+                    .collect();
                 (format!("[{}]", parts.join(", ")), TIGHT)
             }
             Expr::Name(name) => (name.clone(), TIGHT),

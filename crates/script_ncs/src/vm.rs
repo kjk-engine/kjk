@@ -412,6 +412,25 @@ pub fn observe(observer: Option<Observer>) {
     OBSERVER.with(|held| *held.borrow_mut() = observer);
 }
 
+/// Sets the observer of this thread's runs (`observe`) for as long as the
+/// value this gives lives. Dropping it takes the observer away, also when
+/// a run panics on the way. Taken away by a line after the runs, an
+/// observer stayed set through a panic.
+#[must_use = "the observer is taken away when this is dropped"]
+pub fn observing(observer: Observer) -> Observing {
+    observe(Some(observer));
+    Observing(())
+}
+
+/// An observer set by `observing`, taken away when this is dropped.
+pub struct Observing(());
+
+impl Drop for Observing {
+    fn drop(&mut self) {
+        observe(None);
+    }
+}
+
 /// Runs `program` from its start for `caller`.
 pub fn run(
     program: &Program,

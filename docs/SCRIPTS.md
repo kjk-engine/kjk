@@ -76,10 +76,25 @@ the games' own compiled scripts; nothing of them is in the repo.
   (`-6` is `6` negated). `a || b` tests `a` twice. A field is read by
   copying the whole struct up and destroying the rest.
 - BioWare's compiler pops nothing for a `continue` or for a `break` out
-  of a `switch`: the locals of the blocks they leave stay on the stack
-  (the floating mines' fault above). Ours does the same, so the games'
-  scripts run as they did; a new script should not declare locals in a
-  block it leaves that way.
+  of a `switch`. The locals of the blocks they leave stay on the stack,
+  and every later place of the function is off (the floating mines' fault
+  above). 12 of the two games' 13 914 different compiled scripts hold
+  this. Ours has two ways to write these jumps (`compile::Leaving`).
+  A script compiled to run, such as a project's in the level editor, pops
+  those locals, so a local in a loop's body with a `continue` works as
+  its source reads (`compile`). The compiler copies BioWare's fault only
+  to compare with the games' bytes: for `kjk script compile` and for the
+  proof of a decompiled script (`compile_as_bioware`). One of those 12
+  scripts copied into a project and saved is compiled the first way, so
+  its bytes differ from the game's and it no longer faults there.
+- The compiler and the decompiler each stop at a depth, so that no source
+  and no compiled script can run the program's own stack out. Windows gives
+  the main thread 1 MB of it. The compiler takes statements 128 deep (an
+  `if` with its block counts as two, so 63 of those in each other),
+  expressions 32 deep in brackets, signs and arguments, and 128 operators
+  in a row. The decompiler takes blocks 64 deep, which is deeper than the
+  compiler writes, and 64 steps (`++`, `--`) in a row. No script of either
+  game comes near any of these. Past a limit the mistake is named.
 - The level editor compiles a project's scripts when it saves
   (`LEVEL-EDIT.md`).
 - `kjk [--project P] try-script <game> <module> SCRIPT [--on TAG]

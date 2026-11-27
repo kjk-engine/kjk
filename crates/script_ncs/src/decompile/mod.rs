@@ -166,7 +166,10 @@ fn frame(
             0
         } else if to + 2 == end {
             match code[to].op {
-                Op::MovSp(by) if by < 0 => -by,
+                Op::MovSp(by) if by < 0 => match by.checked_neg() {
+                    Some(bytes) => bytes,
+                    None => continue,
+                },
                 _ => continue,
             }
         } else {
@@ -247,15 +250,20 @@ pub fn decompile(ncs: &Ncs, catalog: &Catalog) -> Result<Decompiled, Error> {
         None => (first, 0),
         Some(save) => {
             let call = save + 1 + usize::from(conditional);
-            let Some(Some(entry)) = targets.get(call) else {
-                return Err(fail(
-                    call,
-                    "the globals are not followed by the entry's call",
-                ));
+            // A call, and no other jump: a damaged script could hold a
+            // plain jump there, which was taken for the entry's call.
+            let entry = match (code.get(call).map(|at| &at.op), targets.get(call)) {
+                (Some(Op::Jsr(_)), Some(Some(entry))) => entry,
+                _ => {
+                    return Err(fail(
+                        call,
+                        "the globals are not followed by the entry's call",
+                    ));
+                }
             };
             let restore = (call..first_end).find(|at| matches!(code[*at].op, Op::RestoreBp));
             let globals_size = match restore.and_then(|at| code.get(at + 1)).map(|i| &i.op) {
-                Some(Op::MovSp(by)) => -*by,
+                Some(Op::MovSp(by)) => by.checked_neg().unwrap_or(0),
                 _ => 0,
             };
             (*entry, globals_size)
@@ -439,9 +447,11 @@ pub fn decompile_checked(name: &str, ncs: &Ncs, catalog: &Catalog) -> Result<Dec
     };
     let source = &decompiled.source;
     let again =
-        crate::compile::compile(name, source, &|_| None, catalog).map_err(|error| Error {
-            at: 0,
-            what: format!("the decompiled source does not compile: {error}"),
+        crate::compile::compile_as_bioware(name, source, &|_| None, catalog).map_err(|error| {
+            Error {
+                at: 0,
+                what: format!("the decompiled source does not compile: {error}"),
+            }
         })?;
     if again.write() != ncs.write() {
         let at = again
