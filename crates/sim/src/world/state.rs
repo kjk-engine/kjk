@@ -198,333 +198,114 @@ impl SimWorld {
     /// Refused when it holds more seats than `MAX_SEATS`, or a player or
     /// driver's seat is past them.
     pub fn from_snapshot(snapshot: &Snapshot, level: Level) -> Result<Self, InstallError> {
-        let past = (snapshot.seats_held > MAX_SEATS)
-            .then(|| Seat(snapshot.seats_held - 1))
-            .or_else(|| {
-                snapshot
-                    .entities
-                    .iter()
-                    .find_map(|entity| match entity.kind {
-                        Kind::Avatar(seat) if seat.0 >= MAX_SEATS => Some(seat),
-                        _ => entity
-                            .fighter
-                            .and_then(|fighter| fighter.mind.driver)
-                            .filter(|seat| seat.0 >= MAX_SEATS),
-                    })
-            });
-        if let Some(seat) = past {
-            return Err(InstallError::Seat(seat));
-        }
-        let place = level.place();
-        let same = match (&snapshot.place, &place) {
-            (None, None) => true,
-            (Some(a), Some(b)) => a == b,
-            _ => false,
-        };
-        if !same {
-            let name = |place: &Option<Place>| {
-                place
-                    .as_ref()
-                    .map_or_else(String::new, |place| place.module.clone())
-            };
-            return Err(InstallError::WrongLevel {
-                snapshot: name(&snapshot.place),
-                level: name(&place),
-            });
-        }
-        let instances = Instances::in_snapshot(&level, snapshot);
+        let instances = validate_snapshot(snapshot, &level)?;
         let mut world = World::new();
         world.register_disabling_component::<Away>();
-        world.insert_resource(Clock {
-            tick: snapshot.tick,
-            time_ms: snapshot.time_ms,
-            msec: 0,
-            reason: StepReason::Authority,
-        });
-        world.insert_resource(Streams {
-            shared: snapshot.shared,
-            authority: snapshot.authority,
-        });
-        world.insert_resource(NextId(snapshot.next_id));
-        world.insert_resource(SeatsHeld(snapshot.seats_held));
-        world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
-        world.insert_resource(super::DamageTaken(snapshot.damage_taken));
-        world.init_resource::<Inputs>();
-        world.init_resource::<Bumped>();
-        world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();
-        world.init_resource::<Driven>();
-        world.init_resource::<scene::Held>();
-        world.init_resource::<TorsoSent>();
-        world.insert_resource(history::History::starting(snapshot, &instances));
-        world.init_resource::<Hits>();
-        world.init_resource::<Heals>();
-        world.init_resource::<sabers::Blades>();
-        let mut scripts = scripts::Scripts::default();
-        scripts
-            .state
-            .take_told(snapshot, level.module().map(|module| &**module));
-        world.insert_resource(scripts);
-        world.init_resource::<scripts::Opened>();
-        world.init_resource::<scripts::Blocked>();
-        world.init_resource::<scripts::Closed>();
-        world.init_resource::<scripts::Clicked>();
-        world.init_resource::<crate::notice::Notices>();
-        world.init_resource::<containers::Containers>();
-        world.init_resource::<locks::Locks>();
-        world.init_resource::<objects::Battering>();
-        world.init_resource::<objects::Battered>();
-        world.init_resource::<traps::Shot>();
-        world.init_resource::<minigame::Struck>();
-        world.init_resource::<covert::Presses>();
-        world.init_resource::<scripts::Used>();
-        world.insert_resource(Talking(snapshot.talk.clone()));
-        world.insert_resource(Holding(snapshot.goods.clone()));
-        world.insert_resource(Progressed(snapshot.progress.clone()));
-        world.insert_resource(Personas(snapshot.personas.clone()));
-        world.insert_resource(minigame::Minigame(snapshot.minigame.clone()));
-        world.insert_resource(Tabled(snapshot.pazaak.clone()));
-        world.insert_resource(falls::Lost(snapshot.lost));
-        world.init_resource::<falls::Reviving>();
-        world.insert_resource(InCombat(snapshot.in_combat));
-        world.insert_resource(party::Embattled::default());
-        world.insert_resource(party::PartyState {
-            paused_by: snapshot.paused_by,
-            ready: snapshot.ready.clone(),
-            through: false,
-        });
-        world.insert_resource(drivers::Kept(snapshot.kept.clone()));
-        world.init_resource::<drivers::Phantoms>();
-        world.insert_resource(remote::Remotes(snapshot.remotes.clone()));
-        world.init_resource::<remote::Launched>();
-        world.init_resource::<party::Asked>();
-        world.init_resource::<party::Refused>();
-        world.init_resource::<party::Leaving>();
-        world.init_resource::<scripts::SpellsAt>();
-        world.init_resource::<scripts::Casts>();
-        world.init_resource::<scripts::LetGo>();
-        world.init_resource::<scripts::Ordered>();
-        world.init_resource::<scripts::Spent>();
-        world.init_resource::<scripts::ItemTalents>();
-        world.init_resource::<scripts::FeatTalents>();
-        world.init_resource::<scripts::WeaponSwaps>();
-        world.init_resource::<scripts::Rounds>();
-        world.init_resource::<scripts::StatesEnded>();
-        world.init_resource::<super::shut_in::DoorShut>();
-        world.insert_resource(Module {
-            place: snapshot.place.clone(),
-            pending: snapshot.transition.clone(),
-            stash: snapshot.stash.clone(),
-            sound: snapshot.area_sound.clone(),
-            fade: snapshot.fade,
-            world_fade_in: snapshot.world_fade_in,
-            video_effect: snapshot.video_effect,
-            instances: instances.clone(),
-            roster: snapshot.roster.clone(),
-            reconciled: None,
-            dropped_code: Vec::new(),
-            stances_gone: Vec::new(),
-            arrival_fallback: None,
-            explored: snapshot.explored.clone(),
-            visuals: snapshot.visuals.clone(),
-        });
-        world.insert_resource(Leaving(snapshot.departing.clone()));
-        for entity in &snapshot.entities {
-            if let Kind::Object(kind, index) = entity.kind
-                && (instances.kind(index) != Some(kind) || level.module.is_none())
-            {
-                return Err(InstallError::UnknownObject { id: entity.id });
-            }
-        }
+        populate_resources(&mut world, snapshot, &level, &instances);
         world.insert_resource(Static(level));
-        // The seats playing a creature: their own characters are benched
-        // (`switch`).
-        let driving: Vec<Seat> = snapshot
-            .entities
-            .iter()
-            .filter(|entity| matches!(entity.kind, Kind::Object(..)))
-            .filter_map(|entity| entity.fighter?.mind.driver)
-            .collect();
+        let driving = driving_seats(snapshot);
         let game = world.resource::<Static>().0.game();
         let tsl = game == crate::combat::passive::Game::Tsl;
         let away = switch::leaves_area(game);
         for entity in &snapshot.entities {
             let mut spawned = world.spawn(Id(entity.id));
-            match entity.kind {
-                Kind::Avatar(seat) => {
-                    // Decoding guarantees a player, a fighter and a sheet;
-                    // a hand-made snapshot without them stands at its
-                    // position as the dev soldier.
-                    let player = entity.player.unwrap_or_else(|| {
-                        MotionState::standing(scale(entity.position, 1.0 / UNIT), 0.0)
-                    });
-                    let mut sheet = entity.sheet.unwrap_or_else(Sheet::dev_soldier);
-                    // A player plays by its game's rules (`gear::Caps`), as
-                    // the session marks the sheets it reads.
-                    if tsl {
-                        sheet.flags |= flags::TSL;
-                    }
-                    let fighter = entity.fighter.unwrap_or_else(|| Fighter::of(&sheet));
-                    spawned.insert((Player(player), Fighting(fighter), PlayerSheet(sheet)));
-                    if driving.contains(&seat) {
-                        spawned.insert(Benched(seat));
-                        if away {
-                            spawned.insert(Away);
-                        }
-                    } else {
-                        spawned.insert(Avatar(seat));
-                    }
-                }
-                Kind::Wanderer => {
-                    spawned.insert((
-                        Wanderer {
-                            retarget_ms: entity.retarget_ms,
-                        },
-                        Motion {
-                            position: entity.position,
-                            velocity: entity.velocity,
-                        },
-                    ));
-                }
-                Kind::Missile => {
-                    // Decoding guarantees its flight; a hand-made snapshot
-                    // without one has nothing to fly.
-                    if let Some(missile) = entity.missile {
-                        spawned.insert(Bolt(missile));
-                    }
-                }
-                Kind::Object(kind, index) => {
-                    // What play made stands where it was made (its
-                    // template's facts stand nowhere); a creature's place
-                    // is its body's.
-                    let facts =
-                        instances
-                            .facts(index)
-                            .map(|facts| match instances.made_from(index) {
-                                Some(_) if kind != ObjectKind::Creature => Arc::new(ObjectData {
-                                    position: entity.position,
-                                    ..(**facts).clone()
-                                }),
-                                _ => facts.clone(),
-                            });
-                    spawned.insert((
-                        Object {
-                            kind,
-                            index,
-                            state: entity.object.unwrap_or(ObjectState::default()),
-                            facts,
-                        },
-                        Placed(entity.position),
-                    ));
-                    // A creature is a character: it moves and fights.
-                    if let (Some(player), Some(fighter)) = (entity.player, entity.fighter) {
-                        spawned.insert((Player(player), Fighting(fighter)));
-                        // A companion a guest drives is that seat's body
-                        // too (I30 P2): seat-keyed systems move it.
-                        if let Some(seat) = fighter.mind.driver {
-                            spawned.insert(Avatar(seat));
-                        }
-                    }
-                    if let Some(sheet) = entity.sheet {
-                        spawned.insert(PlayerSheet(sheet));
-                    }
-                }
-            }
-            if let Some(left_ms) = entity.life_ms {
-                spawned.insert(Lifetime {
-                    left_ms,
-                    going: entity.going,
-                });
-            }
+            sync_entity(&mut spawned, entity, &instances, &driving, tsl, away);
         }
-
-        let mut schedule = Schedule::default();
-        schedule.set_executor(SingleThreadedExecutor::new());
-        // A break first: while one holds, the rest of the step does not run
-        // (`party::running`).
-        schedule.add_systems(
-            (
-                party::breaks,
-                (
-                    drivers::assign.run_if(on_authority),
-                    minigame::steer,
-                    // A droid launches by the hold the step begins under.
-                    (
-                        scene::hold,
-                        remote::launch.run_if(on_authority),
-                        hold_talkers,
-                        restrict_seats,
-                        ready_grenades,
-                    )
-                        .chain(),
-                    (made_faces, minds::think.run_if(on_authority)).chain(),
-                    powers::force,
-                    (
-                        // The seats' stance set picks and the styles a
-                        // single blade's feat attacks switch to come before
-                        // the moves, whose saber step applies a queued set
-                        // or style.
-                        stances::picks,
-                        feat_styles::feat_styles,
-                        move_actors,
-                        remote::flight::fly,
-                        remote::kit::kit.run_if(on_authority),
-                    )
-                        .chain(),
-                    fire,
-                    sabers::sabers,
-                    // A grab reaches after the punches (`grapples`).
-                    (strikes::strikes, grapples::grapples).chain(),
-                    fly,
-                    // The fall reads the fight the hurts left.
-                    (
-                        hurt,
-                        objects::objects,
-                        party::combat,
-                        falls::falls.run_if(on_authority),
-                    )
-                        .chain(),
-                    (interact, party::ready).chain(),
-                    containers::containers,
-                    (
-                        locks::locks.run_if(on_authority),
-                        covert::covert.run_if(on_authority),
-                    )
-                        .chain(),
-                    wander,
-                    spawn_wanderers.run_if(on_authority),
-                    (integrate, charting::explore.run_if(on_authority)).chain(),
-                    expire,
-                    history::remember.run_if(on_authority),
-                    (
-                        (
-                            scripts::scripts,
-                            scene::hold,
-                            scripts::apply,
-                            locks::refused,
-                            super::shut_in::free_shut_in,
-                        )
-                            .chain()
-                            .run_if(on_authority),
-                        // Last, so a sheet any system changed this step has
-                        // its bar settled before the step's snapshot. The
-                        // host alone settles bars, and clients take them
-                        // from its snapshots.
-                        bars::settle.run_if(on_authority),
-                    )
-                        .chain(),
-                )
-                    .chain()
-                    .run_if(party::running),
-            )
-                .chain(),
-        );
+        let schedule = build_schedule();
         let rows = world.query_filtered::<EntityRow, bevy_ecs::query::Allow<Away>>();
         Ok(SimWorld {
             world,
             schedule,
             rows,
         })
+    }
+
+    /// Rebuilds the world in place from `snapshot` in `level`, reusing the
+    /// allocated ECS `World`, compiled `Schedule`, and query state.
+    pub fn restore_from(&mut self, snapshot: &Snapshot, level: &Level) -> Result<(), InstallError> {
+        let instances = validate_snapshot(snapshot, level)?;
+        let same_level = self.world.resource::<Static>().0.id() == level.id()
+            && Arc::ptr_eq(&self.world.resource::<Static>().0.placed, &level.placed);
+        let preserve_faces = same_level
+            && Arc::ptr_eq(
+                self.world.resource::<Module>().instances.made_shared(),
+                &snapshot.spawned,
+            );
+        if !same_level {
+            *self.world.resource_mut::<Static>() = Static(level.clone());
+        }
+        if !preserve_faces {
+            *self.world.resource_mut::<MadeFaces>() = MadeFaces::default();
+        }
+        populate_resources(&mut self.world, snapshot, level, &instances);
+
+        let mut target_ids: Vec<SimId> = snapshot.entities.iter().map(|e| e.id).collect();
+        target_ids.sort_unstable();
+        let mut existing: Vec<(SimId, Entity, u8)> = {
+            let mut q = self.world.query_filtered::<(
+                Entity,
+                &Id,
+                Option<&Object>,
+                Option<&Bolt>,
+                Option<&Wanderer>,
+            ), bevy_ecs::query::Allow<Away>>();
+            q.iter(&self.world)
+                .map(|(ent, id, obj, bolt, wand)| {
+                    let tag = if obj.is_some() {
+                        2
+                    } else if bolt.is_some() {
+                        3
+                    } else if wand.is_some() {
+                        1
+                    } else {
+                        0
+                    };
+                    (id.0, ent, tag)
+                })
+                .collect()
+        };
+        existing.sort_unstable_by_key(|(id, ..)| *id);
+
+        let mut keep = Vec::with_capacity(existing.len());
+        let mut remove = Vec::new();
+        for &(id, ent, tag) in &existing {
+            if target_ids.binary_search(&id).is_ok() {
+                keep.push((id, ent, tag));
+            } else {
+                remove.push(ent);
+            }
+        }
+        for ent in remove {
+            self.world.despawn(ent);
+        }
+
+        let driving = driving_seats(snapshot);
+        let game = self.world.resource::<Static>().0.game();
+        let tsl = game == crate::combat::passive::Game::Tsl;
+        let away = switch::leaves_area(game);
+        for entity in &snapshot.entities {
+            let new_tag = match entity.kind {
+                Kind::Avatar(_) => 0,
+                Kind::Wanderer => 1,
+                Kind::Object(..) => 2,
+                Kind::Missile => 3,
+            };
+            let matched = keep
+                .binary_search_by_key(&entity.id, |(id, ..)| *id)
+                .ok()
+                .map(|i| keep[i]);
+            let mut em = match matched {
+                Some((_, ent, old_tag)) if old_tag == new_tag => self.world.entity_mut(ent),
+                Some((_, ent, _)) => {
+                    self.world.despawn(ent);
+                    self.world.spawn(Id(entity.id))
+                }
+                None => self.world.spawn(Id(entity.id)),
+            };
+            sync_entity(&mut em, entity, &instances, &driving, tsl, away);
+        }
+        Ok(())
     }
 
     /// The state as plain values, entities ordered by id.
@@ -637,4 +418,328 @@ impl SimWorld {
         snapshot.screens.transit.refused = snapshot.transit_refusal(barred);
         snapshot
     }
+}
+
+fn validate_snapshot(snapshot: &Snapshot, level: &Level) -> Result<Instances, InstallError> {
+    let past = (snapshot.seats_held > MAX_SEATS)
+        .then(|| Seat(snapshot.seats_held - 1))
+        .or_else(|| {
+            snapshot
+                .entities
+                .iter()
+                .find_map(|entity| match entity.kind {
+                    Kind::Avatar(seat) if seat.0 >= MAX_SEATS => Some(seat),
+                    _ => entity
+                        .fighter
+                        .and_then(|fighter| fighter.mind.driver)
+                        .filter(|seat| seat.0 >= MAX_SEATS),
+                })
+        });
+    if let Some(seat) = past {
+        return Err(InstallError::Seat(seat));
+    }
+    let place = level.place();
+    let same = match (&snapshot.place, &place) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    };
+    if !same {
+        let name = |place: &Option<Place>| {
+            place
+                .as_ref()
+                .map_or_else(String::new, |place| place.module.clone())
+        };
+        return Err(InstallError::WrongLevel {
+            snapshot: name(&snapshot.place),
+            level: name(&place),
+        });
+    }
+    let instances = Instances::in_snapshot(level, snapshot);
+    for entity in &snapshot.entities {
+        if let Kind::Object(kind, index) = entity.kind
+            && (instances.kind(index) != Some(kind) || level.module.is_none())
+        {
+            return Err(InstallError::UnknownObject { id: entity.id });
+        }
+    }
+    Ok(instances)
+}
+
+fn driving_seats(snapshot: &Snapshot) -> Vec<Seat> {
+    snapshot
+        .entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, Kind::Object(..)))
+        .filter_map(|entity| entity.fighter?.mind.driver)
+        .collect()
+}
+
+fn populate_resources(
+    world: &mut World,
+    snapshot: &Snapshot,
+    level: &Level,
+    instances: &Instances,
+) {
+    world.insert_resource(Clock {
+        tick: snapshot.tick,
+        time_ms: snapshot.time_ms,
+        msec: 0,
+        reason: StepReason::Authority,
+    });
+    world.insert_resource(Streams {
+        shared: snapshot.shared,
+        authority: snapshot.authority,
+    });
+    world.insert_resource(NextId(snapshot.next_id));
+    world.insert_resource(SeatsHeld(snapshot.seats_held));
+    world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
+    world.insert_resource(super::DamageTaken(snapshot.damage_taken));
+    world.insert_resource(Inputs::default());
+    world.insert_resource(Bumped::default());
+    world.insert_resource(GrenadeHolsterKeys::default());
+    world.insert_resource(Driven::default());
+    world.insert_resource(scene::Held::default());
+    world.insert_resource(TorsoSent::default());
+    world.insert_resource(history::History::starting(snapshot, instances));
+    world.insert_resource(Hits::default());
+    world.insert_resource(Heals::default());
+    world.insert_resource(sabers::Blades::default());
+    let mut scripts = scripts::Scripts::default();
+    scripts
+        .state
+        .take_told(snapshot, level.module().map(|module| &**module));
+    world.insert_resource(scripts);
+    world.insert_resource(scripts::Opened::default());
+    world.insert_resource(scripts::Blocked::default());
+    world.insert_resource(scripts::Closed::default());
+    world.insert_resource(scripts::Clicked::default());
+    world.insert_resource(crate::notice::Notices::default());
+    world.insert_resource(containers::Containers::default());
+    world.insert_resource(locks::Locks::default());
+    world.insert_resource(objects::Battering::default());
+    world.insert_resource(objects::Battered::default());
+    world.insert_resource(traps::Shot::default());
+    world.insert_resource(minigame::Struck::default());
+    world.insert_resource(covert::Presses::default());
+    world.insert_resource(scripts::Used::default());
+    world.insert_resource(Talking(snapshot.talk.clone()));
+    world.insert_resource(Holding(snapshot.goods.clone()));
+    world.insert_resource(Progressed(snapshot.progress.clone()));
+    world.insert_resource(Personas(snapshot.personas.clone()));
+    world.insert_resource(minigame::Minigame(snapshot.minigame.clone()));
+    world.insert_resource(Tabled(snapshot.pazaak.clone()));
+    world.insert_resource(falls::Lost(snapshot.lost));
+    world.insert_resource(falls::Reviving::default());
+    world.insert_resource(InCombat(snapshot.in_combat));
+    world.insert_resource(party::Embattled::default());
+    world.insert_resource(party::PartyState {
+        paused_by: snapshot.paused_by,
+        ready: snapshot.ready.clone(),
+        through: false,
+    });
+    world.insert_resource(drivers::Kept(snapshot.kept.clone()));
+    world.insert_resource(drivers::Phantoms::default());
+    world.insert_resource(remote::Remotes(snapshot.remotes.clone()));
+    world.insert_resource(remote::Launched::default());
+    world.insert_resource(party::Asked::default());
+    world.insert_resource(party::Refused::default());
+    world.insert_resource(party::Leaving::default());
+    world.insert_resource(scripts::SpellsAt::default());
+    world.insert_resource(scripts::Casts::default());
+    world.insert_resource(scripts::LetGo::default());
+    world.insert_resource(scripts::Ordered::default());
+    world.insert_resource(scripts::Spent::default());
+    world.insert_resource(scripts::ItemTalents::default());
+    world.insert_resource(scripts::FeatTalents::default());
+    world.insert_resource(scripts::WeaponSwaps::default());
+    world.insert_resource(scripts::Rounds::default());
+    world.insert_resource(scripts::StatesEnded::default());
+    world.insert_resource(super::shut_in::DoorShut::default());
+    world.insert_resource(Module {
+        place: snapshot.place.clone(),
+        pending: snapshot.transition.clone(),
+        stash: snapshot.stash.clone(),
+        sound: snapshot.area_sound.clone(),
+        fade: snapshot.fade,
+        world_fade_in: snapshot.world_fade_in,
+        video_effect: snapshot.video_effect,
+        instances: instances.clone(),
+        roster: snapshot.roster.clone(),
+        reconciled: None,
+        dropped_code: Vec::new(),
+        stances_gone: Vec::new(),
+        arrival_fallback: None,
+        explored: snapshot.explored.clone(),
+        visuals: snapshot.visuals.clone(),
+    });
+    world.insert_resource(Leaving(snapshot.departing.clone()));
+}
+
+fn sync_entity(
+    em: &mut bevy_ecs::world::EntityWorldMut<'_>,
+    entity: &EntityState,
+    instances: &Instances,
+    driving: &[Seat],
+    tsl: bool,
+    away: bool,
+) {
+    match entity.kind {
+        Kind::Avatar(seat) => {
+            let player = entity
+                .player
+                .unwrap_or_else(|| MotionState::standing(scale(entity.position, 1.0 / UNIT), 0.0));
+            let mut sheet = entity.sheet.unwrap_or_else(Sheet::dev_soldier);
+            if tsl {
+                sheet.flags |= flags::TSL;
+            }
+            let fighter = entity.fighter.unwrap_or_else(|| Fighter::of(&sheet));
+            em.insert((Player(player), Fighting(fighter), PlayerSheet(sheet)));
+            if driving.contains(&seat) {
+                em.remove::<Avatar>();
+                em.insert(Benched(seat));
+                if away {
+                    em.insert(Away);
+                } else {
+                    em.remove::<Away>();
+                }
+            } else {
+                em.remove::<(Benched, Away)>();
+                em.insert(Avatar(seat));
+            }
+        }
+        Kind::Wanderer => {
+            em.insert((
+                Wanderer {
+                    retarget_ms: entity.retarget_ms,
+                },
+                Motion {
+                    position: entity.position,
+                    velocity: entity.velocity,
+                },
+            ));
+        }
+        Kind::Missile => {
+            if let Some(missile) = entity.missile {
+                em.insert(Bolt(missile));
+            } else {
+                em.remove::<Bolt>();
+            }
+        }
+        Kind::Object(kind, index) => {
+            let facts = instances
+                .facts(index)
+                .map(|facts| match instances.made_from(index) {
+                    Some(_) if kind != ObjectKind::Creature => Arc::new(ObjectData {
+                        position: entity.position,
+                        ..(**facts).clone()
+                    }),
+                    _ => facts.clone(),
+                });
+            em.insert((
+                Object {
+                    kind,
+                    index,
+                    state: entity.object.unwrap_or(ObjectState::default()),
+                    facts,
+                },
+                Placed(entity.position),
+            ));
+            if let (Some(player), Some(fighter)) = (entity.player, entity.fighter) {
+                em.insert((Player(player), Fighting(fighter)));
+                if let Some(seat) = fighter.mind.driver {
+                    em.insert(Avatar(seat));
+                } else {
+                    em.remove::<Avatar>();
+                }
+            } else {
+                em.remove::<(Player, Fighting, Avatar)>();
+            }
+            if let Some(sheet) = entity.sheet {
+                em.insert(PlayerSheet(sheet));
+            } else {
+                em.remove::<PlayerSheet>();
+            }
+        }
+    }
+    if let Some(left_ms) = entity.life_ms {
+        em.insert(Lifetime {
+            left_ms,
+            going: entity.going,
+        });
+    } else {
+        em.remove::<Lifetime>();
+    }
+}
+
+fn build_schedule() -> Schedule {
+    let mut schedule = Schedule::default();
+    schedule.set_executor(SingleThreadedExecutor::new());
+    schedule.add_systems(
+        (
+            party::breaks,
+            (
+                drivers::assign.run_if(on_authority),
+                minigame::steer,
+                (
+                    scene::hold,
+                    remote::launch.run_if(on_authority),
+                    hold_talkers,
+                    restrict_seats,
+                    ready_grenades,
+                )
+                    .chain(),
+                (made_faces, minds::think.run_if(on_authority)).chain(),
+                powers::force,
+                (
+                    stances::picks,
+                    feat_styles::feat_styles,
+                    move_actors,
+                    remote::flight::fly,
+                    remote::kit::kit.run_if(on_authority),
+                )
+                    .chain(),
+                fire,
+                sabers::sabers,
+                (strikes::strikes, grapples::grapples).chain(),
+                fly,
+                (
+                    hurt,
+                    objects::objects,
+                    party::combat,
+                    falls::falls.run_if(on_authority),
+                )
+                    .chain(),
+                (interact, party::ready).chain(),
+                containers::containers,
+                (
+                    locks::locks.run_if(on_authority),
+                    covert::covert.run_if(on_authority),
+                )
+                    .chain(),
+                wander,
+                spawn_wanderers.run_if(on_authority),
+                (integrate, charting::explore.run_if(on_authority)).chain(),
+                expire,
+                history::remember.run_if(on_authority),
+                (
+                    (
+                        scripts::scripts,
+                        scene::hold,
+                        scripts::apply,
+                        locks::refused,
+                        super::shut_in::free_shut_in,
+                    )
+                        .chain()
+                        .run_if(on_authority),
+                    bars::settle.run_if(on_authority),
+                )
+                    .chain(),
+            )
+                .chain()
+                .run_if(party::running),
+        )
+            .chain(),
+    );
+    schedule
 }

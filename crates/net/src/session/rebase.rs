@@ -96,6 +96,8 @@ pub(super) struct Job {
     /// What the world it replaces worked out (`SimWorld::worked_out`),
     /// when that world was home.
     pub worked: Option<WorkedOut>,
+    /// Recycled allocation from the previously replaced prediction world.
+    pub spare: Option<Box<SimWorld>>,
     pub seat: Seat,
     /// This seat's body in `base`.
     pub own_id: Option<SimId>,
@@ -133,7 +135,16 @@ pub(super) struct Done {
 pub(super) fn run(job: Job) -> Option<Done> {
     #[cfg(feature = "probes")]
     assert!(!job.die, "a rewind's thread dies (the probes asked)");
-    let mut world = SimWorld::from_snapshot(&job.base, job.level).ok()?;
+    let mut world = match job.spare {
+        Some(mut world) => {
+            if world.restore_from(&job.base, &job.level).is_ok() {
+                *world
+            } else {
+                SimWorld::from_snapshot(&job.base, job.level).ok()?
+            }
+        }
+        None => SimWorld::from_snapshot(&job.base, job.level).ok()?,
+    };
     if let Some(worked) = job.worked {
         world.use_worked_out(worked);
     }
@@ -353,6 +364,7 @@ pub(super) struct Rebaser {
     /// The job given and not landed yet.
     busy: bool,
     ready: Option<Option<Done>>,
+    spare: Option<Box<SimWorld>>,
     thread: Option<Worker<(u64, Job), Option<Done>>>,
     signal: WaitSignal,
     seq: u64,
@@ -367,11 +379,20 @@ impl Rebaser {
             on,
             busy: false,
             ready: None,
+            spare: None,
             thread: None,
             signal: WaitSignal::new(),
             seq: 0,
             lost: false,
         }
+    }
+
+    pub fn give_spare(&mut self, world: Box<SimWorld>) {
+        self.spare = Some(world);
+    }
+
+    pub fn take_spare(&mut self) -> Option<Box<SimWorld>> {
+        self.spare.take()
     }
 
     /// A job is under way or its result not taken yet.

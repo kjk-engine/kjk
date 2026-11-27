@@ -501,6 +501,9 @@ pub fn install(
     states.0.insert("world".into(), true);
     states.0.insert("loading".into(), false);
     let seat = joining.seat;
+    app.insert_resource(crate::sim_host::AuthoritySnapshot(
+        first.current_shared().clone(),
+    ));
     app.insert_resource(PresentedSnapshot(
         first.clone(),
         vec![first.current_shared().clone()],
@@ -580,6 +583,41 @@ fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
     }
 }
 
+impl Joined {
+    /// Live network facts + `feel` samples for bug reports (`report::make`)
+    /// before the run exits and writes `net.json` to disk.
+    pub fn live_net_json(&mut self) -> serde_json::Value {
+        let mut report = self.facts.clone();
+        report["feel"] = self.feel.report();
+        report
+    }
+
+    /// Non-blocking snapshot of client network counters for `net_graph`.
+    pub(crate) fn graph_sample(&self) -> Option<crate::net_graph::NetGraphSample> {
+        let client = self.joining.client.try_lock().ok()?;
+        let link = client.link_stats()?;
+        let stats = client.stats();
+        let clock = client.clock();
+        let path = match self.joining.host {
+            Peer::Steam(_) => "Steam P2P",
+            Peer::Addr(_) => "UDP Direct",
+            Peer::Local(_) => "Loopback",
+        };
+        Some(crate::net_graph::NetGraphSample {
+            rtt_ms: link.rtt_us as f64 / 1000.0,
+            jitter_ms: link.jitter_us as f64 / 1000.0,
+            loss_pct: link.loss_ppm as f64 / 10_000.0,
+            bytes_down: link.bytes_received,
+            bytes_up: link.bytes_sent,
+            snaps: stats.rebuilt,
+            rewinds: stats.rewinds,
+            lead_ticks: clock.map_or(0.0, |c| c.lead),
+            delay_ticks: clock.map_or(0.0, |c| c.delay),
+            path,
+        })
+    }
+}
+
 /// The loading screen's line while a joined player waits for the host's
 /// world.
 const WAITING_FOR_HOST: &str = "Waiting for the host";
@@ -588,7 +626,10 @@ const WAITING_FOR_HOST: &str = "Waiting for the host";
 pub(crate) fn advance(
     input: PlayerInput,
     mut joined: ResMut<Joined>,
-    mut presented: ResMut<PresentedSnapshot>,
+    (mut presented, mut authority): (
+        ResMut<PresentedSnapshot>,
+        ResMut<crate::sim_host::AuthoritySnapshot>,
+    ),
     mut own: ResMut<OwnView>,
     mut facts: ResMut<DumpFacts>,
     (mut loading, mut states, mut swap, mut commands, mut selected, mut replies): (
@@ -865,15 +906,19 @@ pub(crate) fn advance(
     }
     // A scripted run's screens answer into the script's command, as the
     // host's do (`Controls::scripted`).
-    let talk = own.presented.current().talk_for(joined.joining.seat);
+    let talk = authority.0.talk_for(joined.joining.seat);
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
     let scripted = matches!(joined.driver, Driver::Player(Some(_)));
-    if let Some(pick) = picked.filter(|_| scripted && talk.is_some()) {
-        joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
+    let mut dialog_action = None;
+    if let Some(pick) = picked.filter(|_| talk.is_some()) {
+        if scripted {
+            joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
+        } else {
+            dialog_action = Some(sim::action::Action::DialogPick(pick));
+        }
     }
     if let Some(actions) = &actions {
-        let picked = picked.filter(|_| !scripted);
-        joined.controls.update(actions, talk, picked);
+        joined.controls.update(actions, talk, None);
     }
     let bar = bar_use
         .as_deref()
@@ -916,6 +961,10 @@ pub(crate) fn advance(
     // waits); the client steps no world in it (issue 229).
     let perf_lock = crate::perf::enabled().then(Instant::now);
     let mut client = lock(&joined.joining.client);
+    let dialog_woke = dialog_action.is_some();
+    if let Some(action) = dialog_action {
+        client.act(action);
+    }
     // The view reads no prediction before the tick it last followed.
     client.set_view_from(own.followed.unwrap_or(0));
     let span = info_span!("net.frame").entered();
@@ -939,6 +988,9 @@ pub(crate) fn advance(
         }
         own.presented.set_alpha(frame.predicted.alpha());
         own.correction = frame.correction;
+    }
+    if let Some(snap) = client.authority_arc() {
+        authority.0 = snap;
     }
     // A break holds the host's world: the sounds wait with it, the beds go
     // on (`Waited`).
@@ -1001,7 +1053,7 @@ pub(crate) fn advance(
             &[("rebuild_ms", t.elapsed().as_secs_f64() * 1000.0)],
         );
     }
-    if stepped > 0 {
+    if stepped > 0 || dialog_woke {
         joined.joining.wake();
     }
     if let Some(file) = &mut joined.rebuilt {

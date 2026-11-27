@@ -56,8 +56,9 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// page's orders (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), and a
 /// host may open that page for a seat (`Screen::DebugTerminal`). 13: save
 /// copies use 16 KiB parts, transport hardens acks/MTU, and frames use
-/// updated encoding.
-pub const PROTOCOL_VERSION: u16 = 13;
+/// updated encoding. 14: seats send conversation picks reliably as
+/// `Action::DialogPick` (wire tag 74).
+pub const PROTOCOL_VERSION: u16 = 14;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

@@ -130,9 +130,13 @@ struct Reserved {
     until: NetTime,
 }
 /// Commands kept per seat, by tick.
-pub const SEAT_BUFFER: usize = 64;
+pub const SEAT_BUFFER: usize = 96;
 /// The longest snapshot interval the adaptive rate goes to.
 pub const MAX_EVERY: u8 = 8;
+/// Snapshot interval when all seats are idle and world state hasn't changed (~31 Hz).
+const IDLE_EVERY: u8 = 8;
+/// Consecutive unchanged idle ticks before throttling snapshot cadence.
+const IDLE_TICKS: u32 = 16;
 /// Rungs of the adaptive snapshot interval ladder (125 / n Hz).
 const EVERY_LADDER: [u8; 6] = [1, 2, 3, 4, 6, 8];
 /// Spacing between queued multi-fragment snapshot datagrams on a connection.
@@ -540,6 +544,8 @@ pub struct Server {
     /// connects: the first, unless a co-op lobby seated a guest there
     /// (`begin`).
     host_seat: u8,
+    /// Consecutive unchanged ticks with default commands and no actions.
+    idle_ticks: u32,
 }
 
 impl Server {
@@ -556,6 +562,7 @@ impl Server {
             encode_gen: 0,
             in_process: Vec::new(),
             in_process_every: 1,
+            idle_ticks: 0,
             seats,
             ring: ServerRing::new(0),
             epoch: 0,
@@ -1466,6 +1473,18 @@ impl Server {
 
     fn keep_stepped(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
         let tick = stepped.tick;
+        let was_idle = self.idle_ticks >= IDLE_TICKS;
+        let is_idle = input.actions().is_empty()
+            && input.iter().all(|(_, c)| *c == Command::default())
+            && self
+                .ring
+                .newest()
+                .is_some_and(|prev| world_content_eq(prev.parts(), stepped.parts()));
+        self.idle_ticks = if is_idle {
+            self.idle_ticks.saturating_add(1)
+        } else {
+            0
+        };
         while self.applied.back().is_some_and(|(last, _)| *last >= tick) {
             self.applied.pop_back();
         }
@@ -1478,6 +1497,9 @@ impl Server {
         self.cache.clear();
         self.join_waiting();
         let slot = (tick % SEAT_BUFFER as u64) as usize;
+        let in_process = &self.in_process;
+        let idle_ticks = self.idle_ticks;
+        let in_process_every = self.in_process_every;
         for slot_entry in self.connections.iter_mut().flatten() {
             let peer = slot_entry.peer;
             let connection = &mut slot_entry.conn;
@@ -1496,13 +1518,15 @@ impl Server {
                     connection.report_due = true;
                 }
             }
-            let in_process = self
-                .in_process
-                .contains(&peer)
-                .then_some(self.in_process_every);
+            let in_proc = in_process.contains(&peer);
+            let in_process = in_proc.then_some(in_process_every);
             let base = base_every(&self.config, in_process, peer);
             adapt(connection, now, base);
-            if connection.joined && tick.is_multiple_of(u64::from(connection.every)) {
+            let effective = effective_every(connection.every, in_proc, idle_ticks);
+            if connection.joined
+                && ((was_idle && idle_ticks == 0 && !in_proc)
+                    || tick.is_multiple_of(u64::from(effective)))
+            {
                 connection.due = true;
             }
         }
@@ -1753,12 +1777,18 @@ impl Server {
                     .iter()
                     .find(|(at, _)| *at == Some(base.stepped.tick))
             {
+                let every = effective_every(
+                    slot.conn.every,
+                    self.in_process.contains(&slot.peer),
+                    self.idle_ticks,
+                );
                 let mut payload = std::mem::take(&mut self.scratch);
                 let whole = enqueue_delta(
                     &mut slot.conn,
                     now,
                     newest.tick,
                     since_us,
+                    every,
                     cached_bytes,
                     &mut payload,
                 );
@@ -1770,7 +1800,11 @@ impl Server {
             }
             slot.conn.encoding = true;
             let peer = slot.peer;
-            let every = slot.conn.every;
+            let every = effective_every(
+                slot.conn.every,
+                self.in_process.contains(&peer),
+                self.idle_ticks,
+            );
             let applied_now = applied_at(&self.applied, newest.tick)
                 .cloned()
                 .unwrap_or(TickInput::default());
@@ -1841,6 +1875,7 @@ impl Server {
                     now,
                     done.newest.tick,
                     done.since_us,
+                    done.every,
                     &done.body_bytes,
                     &mut payload,
                 );
@@ -1997,12 +2032,18 @@ impl Server {
             None => return false,
         };
         slot.conn.due = false;
+        let every = effective_every(
+            slot.conn.every,
+            self.in_process.contains(&slot.peer),
+            self.idle_ticks,
+        );
         let mut payload = std::mem::take(&mut self.scratch);
         let whole = enqueue_delta(
             &mut slot.conn,
             now,
             newest.tick,
             since,
+            every,
             &self.cache[cached].1,
             &mut payload,
         );
@@ -2213,11 +2254,12 @@ fn enqueue_delta(
     now: NetTime,
     tick: u64,
     since_us: u64,
+    every: u8,
     body_bytes: &[u8],
     payload: &mut Vec<u8>,
 ) -> bool {
     payload.clear();
-    put_payload_head(payload, since_us, connection.every);
+    put_payload_head(payload, since_us, every);
     payload.extend_from_slice(body_bytes);
     let count = payload.len().div_ceil(FRAGMENT);
     let whole = count <= MAX_FRAGMENTS;
@@ -2327,15 +2369,31 @@ fn body(
     put_payload_body(out, &frame, commands, base_commands);
 }
 
+fn effective_every(every: u8, in_proc: bool, idle_ticks: u32) -> u8 {
+    if !in_proc && idle_ticks >= IDLE_TICKS {
+        every.max(IDLE_EVERY)
+    } else {
+        every
+    }
+}
+
+fn world_content_eq(a: &sim::Parts, b: &sim::Parts) -> bool {
+    a.tail == b.tail
+        && a.entities.len() == b.entities.len()
+        && a.tail_cold
+            .iter()
+            .zip(&b.tail_cold)
+            .all(|(x, y)| Arc::ptr_eq(x, y) || **x == **y)
+        && a.entities.iter().zip(&b.entities).all(|(x, y)| {
+            x.id == y.id && x.hot == y.hot && (Arc::ptr_eq(&x.cold, &y.cold) || *x.cold == *y.cold)
+        })
+}
+
 /// A connection's snapshot interval with nothing to slow it: every tick
 /// in-process (D7) unless the host set its own peers' (`in_process`), the
 /// configured one over a network.
-fn base_every(config: &ServerConfig, in_process: Option<u8>, peer: Peer) -> u8 {
-    match (in_process, peer) {
-        (Some(every), _) => every,
-        (None, Peer::Local(_)) => 1,
-        (None, Peer::Addr(_) | Peer::Steam(_)) => config.every.clamp(1, MAX_EVERY),
-    }
+fn base_every(config: &ServerConfig, in_process: Option<u8>, _peer: Peer) -> u8 {
+    in_process.unwrap_or_else(|| config.every.clamp(1, MAX_EVERY))
 }
 
 /// The adaptive snapshot interval (D7), judged every `WINDOW_US`: loss

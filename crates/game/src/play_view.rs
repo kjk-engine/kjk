@@ -471,13 +471,15 @@ struct View {
 }
 
 /// A joined player's own character, ahead of the host's snapshots: its
-/// predictions, how far ahead of the view's time they are shown, the
-/// correction, and the last one followed.
+/// predictions, its independent monotonic render clock, the correction,
+/// and the last one followed.
 #[derive(Default)]
 struct OwnTimeline {
     active: bool,
     history: Vec<Arc<Snapshot>>,
-    shift: f64,
+    render_ms: f64,
+    target_ms: f64,
+    started: bool,
     correction: [f32; 3],
     followed: Option<u64>,
     /// The bodies the own swing has met so far, and the contacts found
@@ -495,12 +497,13 @@ struct OwnTimeline {
 }
 
 impl OwnTimeline {
-    /// The own character at the view's time `ms`, while predictions come.
-    fn at(&self, me: Option<SimId>, ms: f64) -> Option<Own<'_>> {
+    /// The own character at its independent timeline's `render_ms`, while
+    /// predictions come.
+    fn at(&self, me: Option<SimId>) -> Option<Own<'_>> {
         Some(Own {
             id: me.filter(|_| self.active)?,
             history: &self.history,
-            ms: ms + self.shift,
+            ms: self.render_ms,
             correction: self.correction,
         })
     }
@@ -1006,9 +1009,8 @@ fn follow_camera(
 }
 
 impl View {
-    /// Follows the snapshots up to `ms` not followed yet: the own
-    /// character in its predictions, when there are some.
-    fn follow(&mut self, ms: f64) {
+    /// Follows remote snapshots up to `ms` not followed yet.
+    fn follow_remote(&mut self, ms: f64) {
         let own = self.me.filter(|_| self.own.active);
         let followed = self.followed;
         for snapshot in self
@@ -1019,19 +1021,25 @@ impl View {
             self.followed = Some(snapshot.tick);
             self.cast.follow((snapshot, &self.level), own, None);
         }
-        if own.is_none() {
+    }
+
+    /// Follows own predicted snapshots up to `own_ms` not followed yet,
+    /// keeping predicted blade/shot sparks aligned to displayed remote
+    /// targets at `self.render_ms`.
+    fn follow_own(&mut self, own_ms: f64) {
+        let Some(me) = self.me.filter(|_| self.own.active) else {
             return;
-        }
+        };
         let followed = self.own.followed;
-        let until = ms + self.own.shift;
+        let lead = own_ms - self.render_ms;
         let own_history = &self.own.history;
         for (at, snapshot) in own_history.iter().enumerate() {
-            if followed.is_some_and(|f| snapshot.tick <= f) || snapshot.time_ms as f64 > until {
+            if followed.is_some_and(|f| snapshot.tick <= f) || snapshot.time_ms as f64 > own_ms {
                 continue;
             }
             self.own.followed = Some(snapshot.tick);
-            self.cast.follow((snapshot, &self.level), None, own);
-            if let (Some(me), Some(before)) = (own, at.checked_sub(1)) {
+            self.cast.follow((snapshot, &self.level), None, Some(me));
+            if let Some(before) = at.checked_sub(1) {
                 let correction = Vec3::from_array(self.own.correction);
                 let fired = shots::shots(&own_history[before], snapshot, &self.level, None);
                 self.own
@@ -1050,7 +1058,7 @@ impl View {
                         .into_iter()
                         .map(|bolt| (snapshot.tick, bolt)),
                 );
-                let shown = snapshot.time_ms as f64 - self.own.shift;
+                let shown = snapshot.time_ms as f64 - lead;
                 let others = (&self.history[..], shown);
                 let contacts = own_contacts(
                     (&self.level, self.doors.as_deref()),
@@ -1074,7 +1082,7 @@ impl View {
     /// view shows them (`follow_camera`), kept out of the level and its
     /// doors by the camera's box. Nothing happens with no one to watch.
     fn third_person(&mut self, ms: f64, frame_ms: f32) {
-        let own = self.own.at(self.me, ms);
+        let own = self.own.at(self.me);
         let Some(at) = self.subject(ms, own.as_ref()) else {
             return;
         };
@@ -1112,24 +1120,24 @@ impl View {
         to_shoulder(&mut self.camera, shoulder, frame_ms, &trace);
     }
 
-    /// The seat's remote droid at `ms`: from its own predictions while
-    /// they come (as its own body is), else from the host's snapshots.
-    fn own_remote(&self, ms: f64) -> Option<sim::remote::Remote> {
+    /// The seat's remote droid: from its own predictions while they come
+    /// (on the own timeline), else from the host's snapshots.
+    fn own_remote(&self) -> Option<sim::remote::Remote> {
         let seat = self.cast.seat;
         let predicted = self
             .own
             .active
-            .then(|| cast::remote_in(&self.own.history, seat, ms + self.own.shift));
+            .then(|| cast::remote_in(&self.own.history, seat, self.own.render_ms));
         predicted
             .flatten()
-            .or_else(|| cast::remote_in(&self.history, seat, ms))
+            .or_else(|| cast::remote_in(&self.history, seat, self.render_ms))
     }
 
     /// Whom the camera follows at `ms`: the seat's remote droid while it
     /// flies one (no party member to drive, the world not held), else the
     /// watched body.
     fn subject(&self, ms: f64, own: Option<&cast::Own<'_>>) -> Option<cast::Blended> {
-        self.own_remote(ms)
+        self.own_remote()
             .map(|remote| cast::remote_body(&remote))
             .or_else(|| {
                 self.watched
@@ -1137,20 +1145,54 @@ impl View {
             })
     }
 
-    /// One step of the view to `ms`, `frame_ms` after the last.
-    fn advance(&mut self, ms: f64, frame_ms: f32) {
-        self.follow(ms);
-        let own = self.own.at(self.me, ms);
+    /// One step of the remote view to `ms`, `frame_ms` after the last.
+    fn advance_remote(&mut self, ms: f64, frame_ms: f32) {
+        self.follow_remote(ms);
+        let own_drives_me = self.own.active && self.me.is_some();
+        let me = self.me;
         self.cast
-            .steer(&self.history, ms, frame_ms, &self.close, own.as_ref());
-        for (id, keyed) in self.cast.keyframed(ms) {
+            .steer_filtered(&self.history, ms, frame_ms, &self.close, None, |id| {
+                !own_drives_me || Some(id) != me
+            });
+        for (id, keyed) in self
+            .cast
+            .keyframed_filtered(ms, |id| !own_drives_me || Some(id) != me)
+        {
             if let Some(at) = cast::blended(&self.history, id, ms) {
                 let at = Vec3::from_array(at.origin);
                 self.keyed.push((keyed, (id, at, ms as f32)));
             }
         }
-        if !self.fixed {
+        let own_camera =
+            self.own.active && (self.watched == self.me || self.own_remote().is_some());
+        if !self.fixed && !own_camera {
             self.third_person(ms, frame_ms);
+        }
+    }
+
+    /// One step of the local player's own predicted timeline to `own_ms`.
+    fn advance_own(&mut self, own_ms: f64, frame_ms: f32) {
+        self.follow_own(own_ms);
+        if let Some(own) = self.own.at(self.me) {
+            let me = own.id;
+            self.cast.steer_filtered(
+                &self.history,
+                own_ms,
+                frame_ms,
+                &self.close,
+                Some(&own),
+                |id| id == me,
+            );
+            for (id, keyed) in self.cast.keyframed_filtered(own_ms, |id| id == me) {
+                if let Some(at) = cast::blended_for(&self.history, id, own_ms, Some(&own)) {
+                    let at = Vec3::from_array(at.origin);
+                    self.keyed.push((keyed, (id, at, own_ms as f32)));
+                }
+            }
+        }
+        let own_camera = self.watched == self.me || self.own_remote().is_some();
+        if !self.fixed && own_camera {
+            self.third_person(self.render_ms, frame_ms);
         }
     }
 
@@ -1189,8 +1231,8 @@ impl View {
     }
 
     /// Takes a joined player's new predictions (a rewind's replace the
-    /// ticks they repeat) and how far ahead of the host's they are shown.
-    fn take_own(&mut self, own: &OwnView, target: f64) {
+    /// ticks they repeat) and updates the own monotonic clock's target.
+    fn take_own(&mut self, own: &OwnView) {
         self.own.active = true;
         let parts = |snapshot: &Snapshot, me: SimId| {
             let p = cast::entity(snapshot, me)?.player?;
@@ -1239,10 +1281,16 @@ impl View {
             self.own.history.truncate(keep);
             self.own.history.push(snapshot.clone());
         }
-        let own_target = crate::sim_host::view_ms(&own.presented);
-        self.own.shift = own_target - target;
+        self.own.target_ms = crate::sim_host::view_ms(&own.presented);
+        if !self.own.started
+            && let Some(first) = self.own.history.first().map(|s| s.time_ms as f64)
+        {
+            self.own.render_ms = first;
+            self.advance_own(first, 0.0);
+            self.own.started = true;
+        }
         self.own.correction = own.correction;
-        let until = self.render_ms + self.own.shift - 100.0;
+        let until = self.own.render_ms - 100.0;
         let old = self
             .own
             .history
@@ -1690,7 +1738,7 @@ fn draw(
     heads.0 = view.cast.heads();
     let target = crate::sim_host::view_ms(&presented.0);
     if let Some(own) = own.as_deref() {
-        view.take_own(own, target);
+        view.take_own(own);
     }
     if !view.started {
         // From the first snapshot on, however far the sim has gone: every
@@ -1699,7 +1747,7 @@ fn draw(
             return;
         };
         view.render_ms = first;
-        view.advance(first, 0.0);
+        view.advance_remote(first, 0.0);
         view.started = true;
     }
     // Who is posed this frame, chosen before the steps: they read their
@@ -1725,9 +1773,16 @@ fn draw(
         let next = (view.render_ms + STEP_MS).min(target);
         let frame = (next - view.render_ms) as f32;
         view.render_ms = next;
-        view.advance(next, frame);
+        view.advance_remote(next, frame);
     }
-    own_remote.0 = view.own_remote(view.render_ms);
+    let own_target = view.own.target_ms;
+    while view.own.active && view.own.started && view.own.render_ms + 1e-6 < own_target {
+        let next = (view.own.render_ms + STEP_MS).min(own_target);
+        let frame = (next - view.own.render_ms) as f32;
+        view.own.render_ms = next;
+        view.advance_own(next, frame);
+    }
+    own_remote.0 = view.own_remote();
     if let Some(own) = own.as_deref_mut() {
         own.followed = view.own.followed;
     }
@@ -1765,7 +1820,7 @@ fn draw(
             .spawn(async move { drop(gone) })
             .detach();
     }
-    let own = view.own.at(view.me, ms);
+    let own = view.own.at(view.me);
     // Where the sim's blades are, for the hands that grip them to reach.
     let reach = view
         .close
@@ -2077,7 +2132,8 @@ fn draw(
                 "watching": view.watched != view.me,
                 "follows": view.watched.map(|id| id.0),
                 "remote_predicted": view.own.active
-                    && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
+                    && cast::remote_in(&view.own.history, view.cast.seat, view.own.render_ms)
+                        .is_some(),
                 "own_rewrites": view.own.rewrites,
                 "own_rewritten": view.own.rewritten,
                 // The own gun against the point under the crosshair.
@@ -2150,7 +2206,7 @@ fn camera_turn(
 /// view's own snapshots at the view's time.
 fn own_at(view: &View, me: SimId) -> Option<(&sim::EntityState, f64)> {
     let (history, ms) = if view.own.active {
-        (&view.own.history, view.render_ms + view.own.shift)
+        (&view.own.history, view.own.render_ms)
     } else {
         (&view.history, view.render_ms)
     };
@@ -2478,11 +2534,11 @@ fn aim_first_person() -> Result<String, String> {
 fn publish_fire(view: &mut View, fire: &mut OwnFire) {
     let me = view.me.filter(|_| view.own.active);
     fire.me = me;
-    fire.shift = me.map(|_| view.own.shift);
+    fire.shift = me.map(|_| view.own.render_ms - view.render_ms);
     fire.shots.append(&mut view.own.shots);
     fire.bolts.append(&mut view.own.bolts);
     fire.bodies.clear();
-    let own_ms = view.render_ms + view.own.shift;
+    let own_ms = view.own.render_ms;
     let shown = view
         .own
         .history

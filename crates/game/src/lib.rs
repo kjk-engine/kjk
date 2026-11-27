@@ -121,6 +121,7 @@ mod motion_proxy;
 pub mod movie_verbs;
 mod movie_view;
 pub mod net_feel;
+mod net_graph;
 pub mod net_join;
 mod net_thread;
 pub mod own_fx;

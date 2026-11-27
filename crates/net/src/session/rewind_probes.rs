@@ -90,6 +90,7 @@ fn job(base: &Arc<Snapshot>, level: &Level, full_from: u64, generation: u64) -> 
         to: base.tick + DEPTH,
         rate,
         full_from,
+        spare: None,
         die: false,
     }
 }

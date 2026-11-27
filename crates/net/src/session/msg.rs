@@ -65,7 +65,7 @@ use crate::codec::Check;
 use crate::wire::{self, Reader, WireError, put_text, put_u16, put_u64, put_varint, put_zigzag};
 
 /// The most commands one commands frame carries (256 ms at 125 Hz).
-pub const MAX_COMMANDS: usize = 32;
+pub const MAX_COMMANDS: usize = 48;
 /// The most fragments of one snapshot payload.
 pub const MAX_FRAGMENTS: usize = 16;
 /// Bytes of payload in one fragment: a fragment, its frame header and the

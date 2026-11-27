@@ -3591,7 +3591,24 @@ impl Cast {
         close: &[SimId],
         own: Option<&Own<'_>>,
     ) {
+        self.steer_filtered(history, ms, frame_ms, close, own, |_| true);
+    }
+
+    /// Steers figures matching `include` at `ms`, `frame_ms` after the last
+    /// step.
+    pub fn steer_filtered(
+        &mut self,
+        history: &[Arc<Snapshot>],
+        ms: f64,
+        frame_ms: f32,
+        close: &[SimId],
+        own: Option<&Own<'_>>,
+        mut include: impl FnMut(SimId) -> bool,
+    ) {
         for (&id, member) in &mut self.members {
+            if !include(id) {
+                continue;
+            }
             if let (Some(member), Some(at)) = (member, steered(history, id, ms, own)) {
                 member
                     .figure
@@ -3603,9 +3620,21 @@ impl Cast {
     /// The keyframed sounds every JA-animated figure passed since the last
     /// step, at `ms`, by character.
     pub fn keyframed(&mut self, ms: f64) -> Vec<(SimId, Keyed)> {
+        self.keyframed_filtered(ms, |_| true)
+    }
+
+    /// Keyframed sounds for figures matching `include` since the last step.
+    pub fn keyframed_filtered(
+        &mut self,
+        ms: f64,
+        mut include: impl FnMut(SimId) -> bool,
+    ) -> Vec<(SimId, Keyed)> {
         let events = self.rig.events.clone();
         let mut out = Vec::new();
         for (&id, member) in &mut self.members {
+            if !include(id) {
+                continue;
+            }
             let Some(member) = member else { continue };
             if matches!(member.body.look, Look::Clips(_)) {
                 continue;

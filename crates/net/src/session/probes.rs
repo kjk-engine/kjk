@@ -2192,9 +2192,14 @@ pub fn seat_probes() -> crate::probes::Probes {
 /// The pinned determinism world (`sim::determinism`): four seats, 32
 /// wanderers and the spawner in the arena, the proving ground installed
 /// after `install_at`; seats driven by the determinism pilot.
+const STASHED_GROUND: &str = "stashed_ground";
+
 pub struct Determinism {
     setup: pinned::Setup,
     install_at: u64,
+    stash_at: Option<u64>,
+    idle: bool,
+    start_in_ground: bool,
     /// The host saves after this tick (`with_save`).
     save_at: Option<u64>,
     /// The host keeps the world after the first tick and reloads it in
@@ -2202,6 +2207,7 @@ pub struct Determinism {
     reload: Option<(u64, u64)>,
     kept: Option<Snapshot>,
     arena: Level,
+    stashed: Level,
     ground: Level,
 }
 
@@ -2210,11 +2216,42 @@ impl Determinism {
         Determinism {
             setup: pinned::Setup::pinned(),
             install_at,
+            stash_at: None,
+            idle: false,
+            start_in_ground: false,
             save_at: None,
             reload: None,
             kept: None,
             arena: Level::arena(),
+            stashed: pinned::proving_ground_named(STASHED_GROUND),
             ground: pinned::proving_ground(),
+        }
+    }
+
+    /// Also installs `STASHED_GROUND` first at `at` so the later install
+    /// leaves a populated module entry in `Snapshot::stash`.
+    pub fn with_stash(self, at: u64) -> Determinism {
+        Determinism {
+            stash_at: Some(at),
+            ..self
+        }
+    }
+
+    /// Sends idle zero commands for every seat instead of pilot actions.
+    pub fn idle(self) -> Determinism {
+        Determinism { idle: true, ..self }
+    }
+
+    /// Overrides the determinism world/pilot setup (e.g. 3p co-op budget tests).
+    pub fn with_setup(self, setup: pinned::Setup) -> Determinism {
+        Determinism { setup, ..self }
+    }
+
+    /// Starts directly in `proving_ground` rather than the placeholder `arena`.
+    pub fn in_ground(self) -> Determinism {
+        Determinism {
+            start_in_ground: true,
+            ..self
         }
     }
 
@@ -2238,13 +2275,28 @@ impl Determinism {
 
 impl Scenario for Determinism {
     fn start(&mut self) -> (SimWorld, Level, LevelRequest) {
-        let world = SimWorld::new(self.setup.world, self.arena.clone())
+        let level = if self.start_in_ground {
+            self.ground.clone()
+        } else {
+            self.arena.clone()
+        };
+        let mut world = SimWorld::new(self.setup.world, level.clone())
             .unwrap_or_else(|error| panic!("the determinism world: {error}"));
-        let request = LevelRequest::Stage(self.arena.id());
-        (world, self.arena.clone(), request)
+        let request = if self.start_in_ground {
+            let snapshot = world.snapshot();
+            let announcement =
+                sim::Announcement::new(&level, None, &snapshot).expect("ground announcement");
+            LevelRequest::Module(announcement)
+        } else {
+            LevelRequest::Stage(level.id())
+        };
+        (world, level, request)
     }
 
     fn command(&mut self, seat: Seat, tick: u64, _view: Option<&Snapshot>) -> Option<Command> {
+        if self.idle {
+            return Some(Command::default());
+        }
         pinned::pilot(self.setup.pilot, tick, self.setup.world.seats)
             .get(seat)
             .copied()
@@ -2256,6 +2308,9 @@ impl Scenario for Determinism {
             LevelRequest::Module(announcement) if announcement.module == GROUND => {
                 Ok(self.ground.clone())
             }
+            LevelRequest::Module(announcement) if announcement.module == STASHED_GROUND => {
+                Ok(self.stashed.clone())
+            }
             other => Err(format!("not this world's level: {other:?}")),
         }
     }
@@ -2263,28 +2318,41 @@ impl Scenario for Determinism {
     fn plan(&mut self, request: &InstallRequest) -> Result<Level, String> {
         if request.module == GROUND {
             Ok(self.ground.clone())
+        } else if request.module == STASHED_GROUND {
+            Ok(self.stashed.clone())
         } else {
             Err(format!("{}: not this world's module", request.module))
         }
     }
 
     fn install_after(&mut self, snapshot: &Snapshot) -> Option<InstallRequest> {
-        let ground = |players: u8| InstallRequest {
+        let module_req = |module: &str, players: u8| InstallRequest {
             game: "kjk".to_string(),
-            module: GROUND.to_string(),
+            module: module.to_string(),
             arrival: String::new(),
             seats: snapshot.seats(),
             players,
         };
-        if snapshot.tick == self.install_at && snapshot.place.is_none() {
-            return Some(ground(snapshot.players_for(GROUND)));
+        if Some(snapshot.tick) == self.stash_at && snapshot.place.is_none() {
+            return Some(module_req(
+                STASHED_GROUND,
+                snapshot.players_for(STASHED_GROUND),
+            ));
+        }
+        if snapshot.tick == self.install_at
+            && snapshot
+                .place
+                .as_ref()
+                .is_none_or(|place| place.module != GROUND)
+        {
+            return Some(module_req(GROUND, snapshot.players_for(GROUND)));
         }
         let (keep, reload) = self.reload?;
         if snapshot.tick == keep {
             self.kept = Some(snapshot.clone());
         }
         let kept = self.kept.as_ref().filter(|_| snapshot.tick == reload)?;
-        Some(ground(kept.place.as_ref()?.players))
+        Some(module_req(GROUND, kept.place.as_ref()?.players))
     }
 
     fn restored(&mut self, _request: &InstallRequest) -> Option<Snapshot> {

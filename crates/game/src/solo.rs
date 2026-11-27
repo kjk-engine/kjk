@@ -944,6 +944,54 @@ impl Solo {
         write_json(&folder.join("net.json"), &report);
     }
 
+    /// Live network facts + `feel` samples for bug reports (`report::make`)
+    /// before the run exits and writes `net.json` to disk.
+    pub fn live_net_json(&mut self) -> serde_json::Value {
+        let mut report = self.facts();
+        report["feel"] = self.feel.report();
+        report
+    }
+
+    /// Non-blocking summary of connected remote peers for `net_graph`.
+    pub(crate) fn graph_sample(&self) -> Option<crate::net_graph::NetGraphSample> {
+        let hosted = self.hosted.try_lock().ok()?;
+        let server = hosted.server.stats();
+        let mut sample = crate::net_graph::NetGraphSample {
+            path: if self.net.is_some() {
+                "UDP Direct"
+            } else {
+                "Loopback"
+            },
+            ..Default::default()
+        };
+        let mut any_steam = false;
+        let mut any_remote = false;
+        for c in server
+            .connections
+            .iter()
+            .filter(|c| !matches!(c.peer, net::Peer::Local(_)))
+        {
+            any_remote = true;
+            any_steam |= matches!(c.peer, net::Peer::Steam(_));
+            sample.rtt_ms = sample.rtt_ms.max(c.link.rtt_us as f64 / 1000.0);
+            sample.jitter_ms = sample.jitter_ms.max(c.link.jitter_us as f64 / 1000.0);
+            sample.loss_pct = sample.loss_pct.max(c.link.loss_ppm as f64 / 10_000.0);
+            sample.bytes_down += c.link.bytes_received;
+            sample.bytes_up += c.link.bytes_sent;
+            sample.snaps += c.stats.snapshots;
+        }
+        if any_steam {
+            sample.path = "Steam P2P";
+        } else if !any_remote {
+            sample.path = if self.net.is_some() {
+                "UDP Direct (listening)"
+            } else {
+                "Local"
+            };
+        }
+        Some(sample)
+    }
+
     /// A frame passed: the net feel's sample, when one is due and players
     /// play over the network.
     pub fn sample(&mut self) {

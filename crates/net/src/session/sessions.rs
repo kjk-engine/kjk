@@ -220,7 +220,7 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         expect: Expect::Clean,
     };
     vec![
-        session(lan, 6 * hz, None, Expect::Clean),
+        session(lan.clone(), 6 * hz, None, Expect::Clean),
         session(wan, 8 * hz, None, Expect::Lossy),
         session(soak, soak_install, None, Expect::Lossy),
         session(hostile, 6 * hz, None, Expect::Hostile),
@@ -234,6 +234,44 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         session(threaded_clean, 6 * hz, None, Expect::Clean),
         session(hold_threaded, 12 * hz, None, Expect::Clean),
         session(threads_die, 6 * hz, None, Expect::Clean),
+        session(
+            Setup {
+                name: "vpn_hamachi".into(),
+                clients: probes::joiners(0, 200_000),
+                conditions: Conditions {
+                    rate_bps: Some(1_500_000),
+                    ..probes::conditions(30, 20, 5, 3)
+                },
+                seconds: 18,
+                seed: 21,
+                ..lan.clone()
+            },
+            6 * hz,
+            None,
+            Expect::Lossy,
+        ),
+        Session {
+            setup: Setup {
+                name: "late_game_3p".into(),
+                clients: probes::joiners(0, 100_000),
+                conditions: probes::conditions(30, 5, 1, 2),
+                seconds: 24,
+                seed: 22,
+                cut: Some(Cut {
+                    from_us: 9_500_000,
+                    until_us: 15_000_000,
+                    comeback: Comeback::Rejoins,
+                }),
+                hold: Some((18_500_000, 21_000_000)),
+                ..lan.clone()
+            },
+            scenario: Box::new(
+                probes::Determinism::new(6 * hz + hz / 5)
+                    .with_stash(3 * hz)
+                    .with_save(Some(6 * hz)),
+            ),
+            expect: Expect::Lossy,
+        },
     ]
 }
 

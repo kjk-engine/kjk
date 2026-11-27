@@ -653,6 +653,17 @@ fn make(world: &mut World) {
     let settings = world.get_resource::<crate::settings::Settings>().cloned();
     let me = Identity::here();
     let mut parts = gather(&run, &note, now, settings.as_ref());
+    if crashed.is_none()
+        && !parts.iter().any(|part| part.name == "net.json")
+        && let Some(report) = crate::sim_host::live_net_json(world)
+        && let Ok(bytes) = serde_json::to_vec_pretty(&report)
+    {
+        parts.push(Part {
+            name: "net.json".to_string(),
+            bytes,
+            text: true,
+        });
+    }
     // Where the camera was at F12, else where it is now (a report made
     // without F12, by the console's `ui` commands).
     let camera = world

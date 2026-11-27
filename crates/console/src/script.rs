@@ -62,6 +62,8 @@ pub enum Command {
     /// `size 0 0` shows the run as a minimized window shows it: every camera
     /// drawing the frame is sized 0 by 0, and the frame keeps its image.
     Size(u32, u32),
+    /// Toggles or sets the network telemetry overlay (`net_graph`, `net_graph on|off`).
+    NetGraph(Option<bool>),
     /// Ends the run with success.
     Quit,
     /// Panics, to prove what a crash leaves in the run's folder.
@@ -167,6 +169,9 @@ impl fmt::Display for Command {
             Command::Clip => f.write_str("clip"),
             Command::ClipAt(ms) => write!(f, "clip at {ms} ms"),
             Command::Size(width, height) => write!(f, "size {width} {height}"),
+            Command::NetGraph(None) => f.write_str("net_graph"),
+            Command::NetGraph(Some(true)) => f.write_str("net_graph on"),
+            Command::NetGraph(Some(false)) => f.write_str("net_graph off"),
             Command::Quit => f.write_str("quit"),
             Command::Crash => f.write_str("crash"),
         }
@@ -271,6 +276,10 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 }
             }
             ("size", _) => return Err(error(SIZE_USAGE)),
+            ("net_graph", []) => Command::NetGraph(None),
+            ("net_graph", ["on" | "1" | "true"]) => Command::NetGraph(Some(true)),
+            ("net_graph", ["off" | "0" | "false"]) => Command::NetGraph(Some(false)),
+            ("net_graph", _) => return Err(error("net_graph takes no arguments, `on`, or `off`")),
             ("quit", []) => Command::Quit,
             ("crash", []) => Command::Crash,
             ("ui", words) if !words.is_empty() => {

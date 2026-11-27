@@ -213,6 +213,33 @@ pub(crate) struct PlayerCursor;
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
 
+/// Live `net.json` metrics from the active co-op client or host for bug reports (`report::make`).
+pub(crate) fn live_net_json(world: &mut World) -> Option<serde_json::Value> {
+    if let Some(mut joined) = world.get_resource_mut::<crate::net_join::Joined>() {
+        return Some(joined.live_net_json());
+    }
+    world
+        .get_resource_mut::<Authority>()
+        .map(|mut authority| authority.solo.live_net_json())
+}
+
+fn publish_host_net_graph(
+    authority: Res<Authority>,
+    graph: Option<Res<crate::net_graph::NetGraph>>,
+    mut feed: ResMut<crate::net_graph::HostGraph>,
+) {
+    if graph.is_some_and(|graph| graph.enabled) {
+        feed.0 = authority.solo.graph_sample();
+    }
+}
+
+/// The latest authority snapshot known to this process (`sim_host`: host's
+/// stepped world; `net_join`: newest authority snapshot decoded from the
+/// wire). Dialogue UI and reply gating read authority state without waiting for
+/// the remote interpolation buffer (`PresentedSnapshot`).
+#[derive(Resource, Clone)]
+pub struct AuthoritySnapshot(pub Arc<Snapshot>);
+
 #[derive(Resource, Default)]
 pub struct PresentedDoors {
     snapshot: Option<Arc<Snapshot>>,
@@ -893,6 +920,11 @@ impl Plugin for SimHostPlugin {
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
             .init_resource::<PresentedDoors>()
+            .init_resource::<crate::net_graph::HostGraph>()
+            .add_systems(
+                Update,
+                publish_host_net_graph.run_if(resource_exists::<Authority>),
+            )
             .add_systems(
                 PreUpdate,
                 (
@@ -1054,6 +1086,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         states.0.insert("world".into(), true);
         states.0.insert("loading".into(), false);
         let last = Arc::new(last);
+        app.insert_resource(AuthoritySnapshot(last.clone()));
         app.insert_resource(PresentedSnapshot(
             Presented::shared(last.clone()),
             vec![last.clone()],
@@ -2227,7 +2260,7 @@ fn advance(
     (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
-    mut presented: ResMut<PresentedSnapshot>,
+    (mut presented, mut authority_snapshot): (ResMut<PresentedSnapshot>, ResMut<AuthoritySnapshot>),
     mut facts: ResMut<DumpFacts>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
@@ -2502,6 +2535,7 @@ fn advance(
                     hash: announcement.after.to_string(),
                 });
                 let after = Arc::new(after);
+                authority_snapshot.0 = after.clone();
                 presented.0 = Presented::shared(after.clone());
                 presented.1 = vec![after.clone()];
                 authority.clock = Accumulator::new(rate, after.tick);
@@ -2689,16 +2723,18 @@ fn advance(
     // A scripted player, and a headless run without keys (`ui reply` in a
     // run's commands), answer here: no key reading below takes the pick.
     let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
-    if let Some(pick) = picked.filter(|_| scripted)
+    if let Some(pick) = picked
         && authority.last.talk_for(own_seat).is_some()
     {
-        authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
+        if scripted {
+            authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
+        } else {
+            authority.solo.act(sim::action::Action::DialogPick(pick));
+        }
     }
     if let Some(actions) = &actions {
         let talk = authority.last.talk_for(own_seat);
-        authority
-            .controls
-            .update(actions, talk, picked.filter(|_| !scripted));
+        authority.controls.update(actions, talk, None);
     }
     let bar = bar_use
         .as_deref()
@@ -2752,6 +2788,7 @@ fn advance(
         }
     }
     if any_landed {
+        authority_snapshot.0 = authority.last.clone();
         held_up |= authority.last.paused_by.is_some();
     }
     if held_up {
@@ -3050,6 +3087,7 @@ fn advance(
         if presented.1.len() >= 2 * KEPT_IN_A_JUMP {
             presented.1.drain(..KEPT_IN_A_JUMP);
         }
+        authority_snapshot.0 = snapshot.clone();
         authority.last = snapshot;
         // A replay's install after this tick: the world waits for it.
         if authority.replay_install(tick, &mut loading) {

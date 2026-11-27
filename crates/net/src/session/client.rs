@@ -99,9 +99,13 @@ const LOGGED: usize = 64;
 /// The most actions a client holds while the host has not heard that it
 /// loaded (`Client::act`). Later ones are dropped.
 const HELD_ACTIONS: usize = 256;
-/// The correction's half-life, µs, and the distance it snaps beyond
-/// (units, as the correction is kept).
-const HALF_LIFE_US: f32 = 50_000.0;
+/// The correction's deadzone (below which sub-0.5-unit jitter is ignored),
+/// half-lives for small vs large knockbacks (µs), and the snap threshold
+/// (units).
+const DEADZONE_UNITS: f32 = 0.5;
+const FAST_HALF_LIFE_US: f32 = 30_000.0;
+const SLOW_HALF_LIFE_US: f32 = 65_000.0;
+const LARGE_CORRECTION_UNITS: f32 = 16.0;
 const SNAP_UNITS: f32 = 64.0;
 /// Positions in snapshots are metres; the correction is in units.
 const UNITS_PER_METRE: f32 = 1.0 / sim::motion::UNIT;
@@ -418,8 +422,8 @@ struct Play {
     /// This seat's commands by tick, each with its view lag (ms).
     own: VecDeque<(u64, Command, u16)>,
     /// The predicted clock's offset when each command was made, by tick
-    /// modulo 64 (for the host's slack reports).
-    offsets: [(u64, i64); 64],
+    /// modulo 128 (for the host's slack reports).
+    offsets: [(u64, i64); 128],
     /// This seat's avatar as predicted, and the bolts in flight
     /// (creatures', players'), by tick.
     history: VecDeque<(u64, EntityState, Bolts)>,
@@ -447,7 +451,7 @@ impl Play {
             started: false,
             own_id: own_id(snapshot, seat),
             own: VecDeque::new(),
-            offsets: [(u64::MAX, 0); 64],
+            offsets: [(u64::MAX, 0); 128],
             history: VecDeque::new(),
             others: TickInput::default(),
             predicted: Presented::new(snapshot.clone()),
@@ -510,12 +514,16 @@ struct Session {
     play: Option<Play>,
     /// The world steps (not stopped for an install).
     running: bool,
+    /// True between `Message::Hold` and `Message::Resume` so clock resume preserves jitter spread.
+    was_held: bool,
     clocks: Clocks,
     /// A snapshot newer than prediction's came.
     fresh: bool,
     /// Packet numbers and the newest command each carried.
     sent: Vec<(u16, u64)>,
     pending_newest: Option<u64>,
+    last_commands_made: Option<u64>,
+    idle_cmds: u32,
     /// Every command up to this tick reached the host.
     acked_through: u64,
     /// Ticks the host reported missed.
@@ -768,6 +776,14 @@ impl Client {
             .map(|rebuilt| &*rebuilt.snapshot)
     }
 
+    /// The newest authority snapshot handle rebuilt.
+    pub fn authority_arc(&self) -> Option<Arc<Snapshot>> {
+        self.session()?
+            .ring
+            .newest()
+            .map(|rebuilt| rebuilt.snapshot.clone())
+    }
+
     fn end(&mut self, why: Refusal) {
         self.land_rebuild(true);
         let last = match &self.state {
@@ -907,10 +923,13 @@ impl Client {
             install: None,
             play: None,
             running: true,
+            was_held: false,
             clocks,
             fresh: false,
             sent: vec![(u16::MAX, 0); SENT],
             pending_newest: None,
+            last_commands_made: None,
+            idle_cmds: 0,
             acked_through: 0,
             misses: VecDeque::new(),
             resync_asked: false,
@@ -1216,7 +1235,7 @@ impl Client {
             // Only a command this side made: a tick it skipped after a long
             // frame (or a clock jump) had none to lose.
             if session.play.as_ref().is_some_and(|play| {
-                play.started && miss >= play.first && play.offsets[(miss % 64) as usize].0 == miss
+                play.started && miss >= play.first && play.offsets[(miss % 128) as usize].0 == miss
             }) {
                 session.clocks.missed(now);
             }
@@ -1231,7 +1250,7 @@ impl Client {
             && play.started
             && tick >= play.first
         {
-            let (made, offset) = play.offsets[(tick % 64) as usize];
+            let (made, offset) = play.offsets[(tick % 128) as usize];
             if made == tick {
                 session.clocks.report(offset, slack);
             }
@@ -1293,6 +1312,7 @@ impl Client {
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
                 session.running = false;
+                session.was_held = false;
                 session.starting_rebase = false;
                 session.install = Some(Install {
                     before,
@@ -1310,6 +1330,7 @@ impl Client {
                     return;
                 };
                 session.running = false;
+                session.was_held = true;
                 session.starting_rebase = false;
                 let held = tick
                     .and_then(|tick| session.ring.get(tick))
@@ -1348,7 +1369,11 @@ impl Client {
                 }
                 session.running = true;
                 session.starting_rebase = false;
-                session.clocks.restart();
+                if std::mem::take(&mut session.was_held) {
+                    session.clocks.resume(now, tick);
+                } else {
+                    session.clocks.restart();
+                }
                 if let Some(play) = &mut session.play {
                     play.started = false;
                     play.generation = next_generation();
@@ -1698,8 +1723,8 @@ impl Client {
         let session = &mut **session;
         let elapsed = session.last_frame.map_or(0, |last| now.since(last) as i64);
         session.last_frame = Some(now);
-        // A stall (a load, a debugger) is not a frame length.
-        session.clocks.frame(elapsed.min(100_000));
+        // Hitch outliers (> 50 ms) are ignored by `Clocks::frame`'s rolling p90.
+        session.clocks.frame(elapsed);
         let link = session.link.stats();
         if link.rtt_samples > 0 {
             session.clocks.rtt_us = link.rtt_us as i64;
@@ -2123,15 +2148,9 @@ fn observe(session: &mut Session) {
     }
     let predicted = predicted.map(|(own, _)| own);
     if let (Some(predicted), Some(id)) = (predicted, play.own_id) {
-        let host = newest
-            .parts
-            .entities
-            .binary_search_by_key(&id, |part| part.id)
-            .ok()
-            .map(|at| &newest.parts.entities[at]);
+        let host = newest.snapshot.get(id);
         session.stats.compared += 1;
-        let pred = Snapshot::record_parts(&predicted);
-        if host.is_none_or(|host| host.hot != pred.hot || host.cold != pred.cold) {
+        if host.is_none_or(|host| !predict_key_eq(host, &predicted)) {
             session.differs = true;
             let missed = session
                 .misses
@@ -2154,6 +2173,115 @@ fn observe(session: &mut Session) {
             }
         }
     }
+}
+
+/// Prediction equivalence for the local player's avatar: matches movement,
+/// combat state, saber, active force casts, statuses (stun/stasis/knockdown/
+/// slow/fear), death/revival, and shooting while ignoring authority-only HP/FP/
+/// timers/sheet fields.
+fn predict_key_eq(a: &EntityState, b: &EntityState) -> bool {
+    if a.kind != b.kind
+        || a.position != b.position
+        || a.velocity != b.velocity
+        || a.player != b.player
+        || a.retarget_ms != b.retarget_ms
+        || a.life_ms != b.life_ms
+        || a.going != b.going
+        || a.object != b.object
+        || a.missile != b.missile
+    {
+        return false;
+    }
+    match (&a.fighter, &b.fighter) {
+        (None, None) => true,
+        (Some(a), Some(b)) => fighter_predict_eq(a, b),
+        _ => false,
+    }
+}
+
+fn fighter_predict_eq(a: &sim::combat::Fighter, b: &sim::combat::Fighter) -> bool {
+    a.life == b.life
+        && a.weapon_wait_ms == b.weapon_wait_ms
+        && a.hand == b.hand
+        && a.pain_until == b.pain_until
+        && a.punched_at == b.punched_at
+        && a.fists == b.fists
+        && a.grab_pick == b.grab_pick
+        && a.swung_at == b.swung_at
+        && a.grapple == b.grapple
+        && a.blasted_ms == b.blasted_ms
+        && a.stance_set == b.stance_set
+        && a.stance_queued == b.stance_queued
+        && a.faction == b.faction
+        && a.saber == b.saber
+        && force_predict_eq(&a.force, &b.force)
+        && a.shooting == b.shooting
+        && a.pack == b.pack
+        && a.pose == b.pose
+        && a.trails == b.trails
+        && a.swing == b.swing
+        && effects_predict_eq(&a.effects, &b.effects)
+        && a.acting == b.acting
+        && a.fallen == b.fallen
+        && a.covert == b.covert
+        && a.sheath == b.sheath
+        && a.mind.driver == b.mind.driver
+}
+
+fn force_predict_eq(
+    a: &sim::combat::force::ForceState,
+    b: &sim::combat::force::ForceState,
+) -> bool {
+    a.held == b.held
+        && a.speed_until == b.speed_until
+        && a.protect_until == b.protect_until
+        && a.absorb_until == b.absorb_until
+        && a.trick_until == b.trick_until
+        && a.speed_level == b.speed_level
+        && a.protect_level == b.protect_level
+        && a.absorb_level == b.absorb_level
+        && a.trick_level == b.trick_level
+        && a.channel == b.channel
+        && a.hand == b.hand
+        && a.push_pull_ready == b.push_pull_ready
+        && a.grip_ready == b.grip_ready
+        && a.lightning_ready == b.lightning_ready
+        && a.drain_ready == b.drain_ready
+        && a.gripped_by == b.gripped_by
+        && a.stunned_until == b.stunned_until
+        && a.immune_until == b.immune_until
+        && a.hold == b.hold
+        && a.confused_until == b.confused_until
+        && a.tricked == b.tricked
+        && a.jumping == b.jumping
+        && a.jump_paid_at == b.jump_paid_at
+        && a.rage_until == b.rage_until
+        && a.rage_level == b.rage_level
+        && a.rage_paid_at == b.rage_paid_at
+        && a.recover_until == b.recover_until
+        && a.sight_until == b.sight_until
+        && a.state == b.state
+        && a.state_until == b.state_until
+        && a.ears_until == b.ears_until
+        && a.cast_loop == b.cast_loop
+        && a.save == b.save
+        && a.save_due == b.save_due
+        && a.rolls == b.rolls
+        && a.recent == b.recent
+        && a.recent_until == b.recent_until
+}
+
+fn effects_predict_eq(
+    a: &sim::combat::effects::Effects,
+    b: &sim::combat::effects::Effects,
+) -> bool {
+    a.valor == b.valor
+        && a.resist == b.resist
+        && a.slowed == b.slowed
+        && a.lasting == b.lasting
+        && a.worn_immune == b.worn_immune
+        && a.worn_traits == b.worn_traits
+        && a.fury == b.fury
 }
 
 /// Starts a rewind from the newest authority snapshot when one is due:
@@ -2191,6 +2319,7 @@ fn start_rebase(session: &mut Session, now: NetTime) {
     };
     let base = newest.snapshot.clone();
     let (others, _) = others_at(session, base.tick);
+    let spare = session.rebaser.take_spare();
     let job = Job {
         generation: play.generation,
         own_id: own_id(&base, session.seat),
@@ -2203,6 +2332,7 @@ fn start_rebase(session: &mut Session, now: NetTime) {
         to: play.made,
         full_from: session.view_from.min(play.made.saturating_sub(1)),
         worked: play.world.as_deref().map(SimWorld::worked_out),
+        spare,
         base,
         level,
         seat: session.seat,
@@ -2339,8 +2469,9 @@ fn apply(session: &mut Session, done: Done, starting: bool) {
         _ => None,
     };
     let mut world = done.world;
-    if let Some(old) = play.world.as_deref_mut() {
-        world.keep_worked_out(old);
+    if let Some(mut old) = play.world.take() {
+        world.keep_worked_out(&mut old);
+        session.rebaser.give_spare(old);
     }
     play.world = Some(world);
     play.stepped = reached;
@@ -2511,15 +2642,19 @@ fn finish_rewind(session: &mut Session, landed: Vec<Arc<Snapshot>>) {
         kept.predicted.extend(shown);
     }
     if let Some(moved) = pending.moved.filter(|moved| *moved != [0.0; 3]) {
-        let stats = &mut session.stats;
-        stats.corrections += 1;
         let error: [f32; 3] = std::array::from_fn(|axis| play.correction[axis] + moved[axis]);
         let length = error.iter().map(|e| e * e).sum::<f32>().sqrt();
-        if length > SNAP_UNITS {
-            stats.snapped += 1;
+        if length < DEADZONE_UNITS {
             play.correction = [0.0; 3];
         } else {
-            play.correction = error;
+            let stats = &mut session.stats;
+            stats.corrections += 1;
+            if length > SNAP_UNITS {
+                stats.snapped += 1;
+                play.correction = [0.0; 3];
+            } else {
+                play.correction = error;
+            }
         }
     }
 }
@@ -2607,7 +2742,7 @@ fn make(
             while play.own.len() > OWN {
                 play.own.pop_front();
             }
-            play.offsets[(tick % 64) as usize] = (tick, offset);
+            play.offsets[(tick % 128) as usize] = (tick, offset);
             session.stats.commands += 1;
         }
         play.made = tick;
@@ -2633,7 +2768,7 @@ fn queue_lockstep(session: &mut Session, target: u64, command: Command) -> u64 {
         while play.own.len() > OWN {
             play.own.pop_front();
         }
-        play.offsets[(tick % 64) as usize] = (tick, 0);
+        play.offsets[(tick % 128) as usize] = (tick, 0);
         session.stats.commands += 1;
         play.made = tick;
         made += 1;
@@ -2666,6 +2801,9 @@ fn send_commands(session: &mut Session) {
         return;
     };
     let confirmed = session.ring.newest().map(|newest| newest.tick);
+    if session.last_commands_made == Some(play.made) && confirmed <= session.confirmed_sent {
+        return;
+    }
     let mut frame = Commands::new(session.epoch, confirmed);
     frame.confirmed_mask = confirmed_mask(&session.ring, confirmed);
     let first =
@@ -2674,10 +2812,30 @@ fn send_commands(session: &mut Session) {
     while from > first && play.own_command(from - 1).is_some() {
         from -= 1;
     }
+    let mut is_idle_cmd = true;
     for tick in from..=play.made {
         if let Some((command, lag)) = play.own_entry(tick) {
+            if command != Command::default() {
+                is_idle_cmd = false;
+            }
             frame.push(tick, command, lag);
         }
+    }
+    if frame.is_empty() && confirmed <= session.confirmed_sent {
+        return;
+    }
+    if is_idle_cmd && !frame.is_empty() {
+        if confirmed <= session.confirmed_sent
+            && let Some(last) = session.last_commands_made
+            && play.made >= last
+            && session.idle_cmds >= 16
+            && play.made - last < 2
+        {
+            return;
+        }
+        session.idle_cmds = session.idle_cmds.saturating_add(1);
+    } else if !is_idle_cmd {
+        session.idle_cmds = 0;
     }
     let mut payload = Vec::with_capacity(16 + 4 * frame.len());
     frame.encode(&mut payload);
@@ -2687,6 +2845,7 @@ fn send_commands(session: &mut Session) {
         .is_ok()
     {
         session.pending_newest = Some(play.made);
+        session.last_commands_made = Some(play.made);
         session.confirmed_sent = confirmed;
     }
 }
@@ -2805,10 +2964,21 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
 
     // The correction decays (drawing only).
     if play.correction != [0.0; 3] && elapsed > 0 {
-        let keep = 0.5f32.powf(elapsed as f32 / HALF_LIFE_US);
-        play.correction = play.correction.map(|axis| axis * keep);
-        if play.correction.iter().all(|axis| axis.abs() < 1.0 / 64.0) {
+        let length = play.correction.iter().map(|e| e * e).sum::<f32>().sqrt();
+        if length < DEADZONE_UNITS {
             play.correction = [0.0; 3];
+        } else {
+            let half_life = if length < LARGE_CORRECTION_UNITS {
+                FAST_HALF_LIFE_US
+            } else {
+                SLOW_HALF_LIFE_US
+            };
+            let keep = 0.5f32.powf(elapsed as f32 / half_life);
+            play.correction = play.correction.map(|axis| axis * keep);
+            let after = play.correction.iter().map(|e| e * e).sum::<f32>().sqrt();
+            if after < DEADZONE_UNITS {
+                play.correction = [0.0; 3];
+            }
         }
     }
 }

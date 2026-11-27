@@ -283,6 +283,9 @@ pub enum Action {
     /// one is open the seat counts as busy and joins no conversation by
     /// standing near it.
     Screen(bool),
+    /// A live co-op player's conversation pick (`Reply`, `Skip`, `Point`, or
+    /// `Leave`) sent reliably as an action rather than via `Command::reply`.
+    DialogPick(crate::script::dialogue::Pick),
 }
 
 /// A rebuild's second class byte when it has none (`ArenaOrder::Rebuild`).
@@ -566,6 +569,7 @@ const MINE_KIT: u8 = 68;
 const PLAY: u8 = 69;
 const JOIN_TALKS: u8 = 72;
 const SCREEN: u8 = 73;
+const DIALOG_PICK: u8 = 74;
 
 /// A byte that is 0 (false) or 1 (true), as an action's flag.
 fn flag(input: &mut Reader) -> Result<bool, DecodeError> {
@@ -834,6 +838,17 @@ impl Action {
                 out.u8(SCREEN);
                 out.u8(u8::from(*open));
             }
+            Action::DialogPick(pick) => {
+                out.u8(DIALOG_PICK);
+                let (kind, nth) = match pick {
+                    crate::script::dialogue::Pick::Reply(n) => (0u8, *n),
+                    crate::script::dialogue::Pick::Skip => (1u8, 0),
+                    crate::script::dialogue::Pick::Point(n) => (2u8, *n),
+                    crate::script::dialogue::Pick::Leave => (3u8, 0),
+                };
+                out.u8(kind);
+                out.u8(nth);
+            }
             Action::PickStance { whom, set } => {
                 out.u8(PICK_STANCE);
                 out.u32(whom.0);
@@ -1079,6 +1094,17 @@ impl Action {
             RETURN_TO_SHIP => Action::ReturnToShip,
             JOIN_TALKS => Action::JoinTalks(flag(input)?),
             SCREEN => Action::Screen(flag(input)?),
+            DIALOG_PICK => {
+                let kind = input.u8()?;
+                let nth = input.u8()?;
+                match kind {
+                    0 => Action::DialogPick(crate::script::dialogue::Pick::Reply(nth)),
+                    1 => Action::DialogPick(crate::script::dialogue::Pick::Skip),
+                    2 => Action::DialogPick(crate::script::dialogue::Pick::Point(nth)),
+                    3 => Action::DialogPick(crate::script::dialogue::Pick::Leave),
+                    _ => return Err(input.invalid("dialog pick", at)),
+                }
+            }
             PICK_STANCE => Action::PickStance {
                 whom: crate::snapshot::SimId(input.u32()?),
                 set: input.u8()?,
@@ -1185,7 +1211,8 @@ impl Action {
             | Action::Arena(_)
             | Action::PickStance { .. }
             | Action::JoinTalks(_)
-            | Action::Screen(_) => None,
+            | Action::Screen(_)
+            | Action::DialogPick(_) => None,
         }
     }
 

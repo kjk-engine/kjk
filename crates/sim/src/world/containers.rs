@@ -306,7 +306,8 @@ pub(super) fn containers(
             | Action::Arena(_)
             | Action::PickStance { .. }
             | Action::JoinTalks(_)
-            | Action::Screen(_) => continue,
+            | Action::Screen(_)
+            | Action::DialogPick(_) => continue,
             Action::Close(_) => {
                 object.state.tenants &= !bit;
                 if object.state.tenants == 0 {
