@@ -705,9 +705,24 @@ pub(super) fn bake_lights(
     // Each place's lightmap, for its room's scale and how far it is under a
     // roof: six to a probe, then one to a vertex.
     let map_of_room = |room: &str| maps.iter().position(|map| room_name(map).eq_ignore_ascii_case(room));
+    let floor_map = |at: Vec3| {
+        level
+            .first_hit(at, -Vec3::Z, 3.0)
+            .and_then(|(tri, _)| facts[tri].map)
+    };
     let probe_maps: Vec<Option<usize>> = (probes.iter())
-        .flat_map(|(room, _)| [map_of_room(room); 6])
-        .chain(vertices.rooms.iter().map(|room| room.as_deref().and_then(map_of_room)))
+        .flat_map(|(room, at)| [map_of_room(room).or_else(|| floor_map(*at)); 6])
+        .chain(
+            vertices
+                .rooms
+                .iter()
+                .zip(&vertices.places)
+                .map(|(room, (at, _))| {
+                    room.as_deref()
+                        .and_then(map_of_room)
+                        .or_else(|| floor_map(*at + Vec3::Z * 0.25))
+                }),
+        )
         .collect();
 
     // The light grid's cells that hold a place, each with its list of lights.
@@ -1181,12 +1196,29 @@ pub(super) fn bake_lights(
                     }
                     None => vec![Vec3::ZERO; probe_range.1],
                 };
+                let probe_sides = 6 * probes.len();
                 for (j, light) in probe_sky.iter_mut().enumerate() {
                     let [sun_seen, sky_seen] = seen[j];
-                    let roof = probe_maps[j].map_or(1.0, |map| roofed[map]);
-                    let open = ((sky_seen - OPENING_FROM) / (OPENING_TO - OPENING_FROM)).clamp(0.0, 1.0);
-                    let open = open * open * (3.0 - 2.0 * open);
-                    let in_a_courtyard = (on_skylight * OPENING_GAIN).lerp(of_sky, open) * sky_seen;
+                    let roof = if j < probe_sides {
+                        // Index 2 of `PROBE_AXES` is `Vec3::Z` (up in game space).
+                        let up_sky = seen[(j / 6) * 6 + 2][1];
+                        probe_maps[j].map_or(
+                            if up_sky > OPENING_TO { 0.0 } else { 1.0 },
+                            |map| roofed[map],
+                        )
+                    } else {
+                        probe_maps[j].map_or(
+                            if sky_seen > OPENING_TO { 0.0 } else { 1.0 },
+                            |map| roofed[map],
+                        )
+                    };
+                    let in_a_courtyard = if j < probe_sides {
+                        of_sky * sky_seen
+                    } else {
+                        let open = ((sky_seen - OPENING_FROM) / (OPENING_TO - OPENING_FROM)).clamp(0.0, 1.0);
+                        let open = open * open * (3.0 - 2.0 * open);
+                        (on_skylight * OPENING_GAIN).lerp(of_sky, open) * sky_seen
+                    };
                     let under_a_roof = on_skylight * (ROOF_GAIN * sky_seen).min(1.0);
                     *light = of_sun * sun_seen + second[j] + in_a_courtyard.lerp(under_a_roof, roof);
                     probe_sun[j] = of_sun * sun_seen;
