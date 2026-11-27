@@ -198,7 +198,7 @@ pub enum Kind {
 
 impl Kind {
     /// The GIT list and the template type for each kind.
-    pub(crate) fn list_and_type(self) -> (&'static str, ResType) {
+    pub fn list_and_type(self) -> (&'static str, ResType) {
         match self {
             Kind::Creature => ("Creature List", ResType::UTC),
             Kind::Door => ("Door List", ResType::UTD),

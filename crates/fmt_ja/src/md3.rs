@@ -7,7 +7,11 @@
 //! vertex and triangle counts, then the offsets of its triangles (three
 //! vertex indices each), shaders (a 64-byte name and an index), texture
 //! coordinates (two floats a vertex) and vertices (per frame, per vertex:
-//! three `i16` in 1/64 units and a packed normal), and its end.
+//! three `i16` in 1/64 units and a packed normal), and its end. The packed
+//! normal is two angles of 256 steps to the full turn: a byte for the angle
+//! from +Z, then a byte for the angle about Z from +X. Decoded so, 94% of
+//! the triangles of the game's `falcon2.md3` face the way their normals
+//! point.
 
 use crate::ghoul2::Ghoul2Error;
 
@@ -26,6 +30,8 @@ pub struct Surface {
     pub shaders: Vec<String>,
     /// The first frame's vertices, in model units.
     pub positions: Vec<[f32; 3]>,
+    /// The first frame's normals, of unit length.
+    pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
     pub triangles: Vec<[u32; 3]>,
 }
@@ -120,9 +126,16 @@ pub fn parse(bytes: &[u8]) -> Result<Md3, Ghoul2Error> {
             let st = slice(bytes, ofs_st + v * 8, 8, "md3 st")?;
             let f = |i: usize| f32::from_le_bytes(st[i..i + 4].try_into().expect("4 bytes"));
             parsed.uvs.push([f(0), f(4)]);
-            let xyz = slice(bytes, ofs_xyz + v * 8, 6, "md3 vertex")?;
+            let xyz = slice(bytes, ofs_xyz + v * 8, 8, "md3 vertex")?;
             let c = |i: usize| f32::from(i16::from_le_bytes([xyz[i], xyz[i + 1]])) / 64.0;
             parsed.positions.push([c(0), c(2), c(4)]);
+            let turn = |byte: u8| f32::from(byte) * (std::f32::consts::TAU / 256.0);
+            let (from_up, about_up) = (turn(xyz[6]), turn(xyz[7]));
+            parsed.normals.push([
+                about_up.cos() * from_up.sin(),
+                about_up.sin() * from_up.sin(),
+                from_up.cos(),
+            ]);
         }
         out.surfaces.push(parsed);
         at = ofs_end;

@@ -21,6 +21,7 @@ game.workspace = true
 bevy.workspace = true
 clap.workspace = true
 vfs.workspace = true
+level_edit.workspace = true
 fmt_odyssey.workspace = true
 script_ncs.workspace = true
 store.workspace = true
@@ -70,7 +71,13 @@ default = ["probes", "steam"]
 # collision`, `kjk combat`, ...; `src/verbs.rs`) and the probes they run,
 # the game's and the layers' (`game/probes`). `--no-default-features`
 # builds the game alone.
-probes = ["game/probes", "dep:original_hook", "dep:sha2"]
+probes = ["editor_tools", "game/probes", "dep:original_hook", "dep:sha2"]
+# The four verbs the level editor runs: `detail-bake` (its Bake buttons),
+# `collision audit` (its Audit button), and `try-script` and
+# `try-conversation` (its Try buttons). The kjk in a release's level editor
+# package is built with it alone, so that editor bakes, audits and tries
+# (`src/editor_tools.rs`). The player's kjk is built without it.
+editor_tools = ["collision/audit"]
 # Hosting and joining through Steam (`game/steam`); off, by address only.
 steam = ["game/steam"]
 # DLSS as an anti-aliasing choice (`game/dlss`); needs NVIDIA's SDK to build.

@@ -9,6 +9,13 @@
 //! perimeters. Faces index vertices with u32s. An AABB node (44 bytes) is a
 //! box, a face (−1 for an inner node), a word, the split plane and two child
 //! indices.
+//!
+//! `Walkmesh::write` lays a walkmesh out as the games' files are: the
+//! header (136 bytes), then the vertices, the faces' vertices, materials,
+//! normals and plane distances, and for an area walkmesh the AABB tree,
+//! the adjacency, the edges and the perimeters. `kjk formats` checks that
+//! every copy in an install writes back to the same bytes. An empty table's
+//! offset is where it would start, as in the games' files.
 
 use crate::FormatError;
 use crate::reader::Reader;
@@ -29,6 +36,8 @@ pub struct Walkmesh {
     /// (edge, transition) pairs on the walkmesh's outline.
     pub edges: Vec<(i32, i32)>,
     pub perimeters: Vec<u32>,
+    /// The header's word after the AABB tree's offset.
+    pub aabb_word: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,9 +53,14 @@ pub struct WalkFace {
 pub struct AabbEntry {
     pub bounds: [f32; 6],
     pub face: i32,
+    /// The word between the face and the split plane.
+    pub word: u32,
     pub plane: u32,
     pub children: [u32; 2],
 }
+
+/// The header's length, where the vertices start.
+const HEADER: usize = 136;
 
 impl Walkmesh {
     pub fn parse(bytes: &[u8]) -> Result<Walkmesh, FormatError> {
@@ -69,6 +83,7 @@ impl Walkmesh {
             adjacency: Vec::new(),
             edges: Vec::new(),
             perimeters: Vec::new(),
+            aabb_word: if area { reader.u32(108)? } else { 0 },
         };
         if vertex_count == 0 {
             return Ok(walkmesh);
@@ -122,6 +137,7 @@ impl Walkmesh {
                         f(at + 20)?,
                     ],
                     face: reader.u32(at + 24)? as i32,
+                    word: reader.u32(at + 28)?,
                     plane: reader.u32(at + 32)?,
                     children: [reader.u32(at + 36)?, reader.u32(at + 40)?],
                 });
@@ -146,4 +162,216 @@ impl Walkmesh {
         }
         Ok(walkmesh)
     }
+
+    /// The walkmesh as a file (above).
+    pub fn write(&self) -> Vec<u8> {
+        let mut out = vec![0; HEADER];
+        let put = |out: &mut Vec<u8>, at: usize, word: u32| {
+            out[at..at + 4].copy_from_slice(&word.to_le_bytes());
+        };
+        // The offset at `at` is where the next table starts.
+        let mark = |out: &mut Vec<u8>, at: usize| {
+            let here = out.len() as u32;
+            put(out, at, here);
+        };
+        out[..8].copy_from_slice(b"BWM V1.0");
+        put(&mut out, 8, u32::from(self.area));
+        for (at, value) in self
+            .use_positions
+            .iter()
+            .chain(std::iter::once(&self.position))
+            .flatten()
+            .enumerate()
+        {
+            put(&mut out, 12 + at * 4, value.to_bits());
+        }
+        put(&mut out, 72, self.vertices.len() as u32);
+        let float =
+            |out: &mut Vec<u8>, value: f32| out.extend_from_slice(&value.to_bits().to_le_bytes());
+        let word = |out: &mut Vec<u8>, value: u32| out.extend_from_slice(&value.to_le_bytes());
+        mark(&mut out, 76);
+        for vertex in &self.vertices {
+            vertex.iter().for_each(|&value| float(&mut out, value));
+        }
+        put(&mut out, 80, self.faces.len() as u32);
+        mark(&mut out, 84);
+        for face in &self.faces {
+            face.vertices
+                .iter()
+                .for_each(|&value| word(&mut out, value));
+        }
+        mark(&mut out, 88);
+        for face in &self.faces {
+            word(&mut out, face.material);
+        }
+        mark(&mut out, 92);
+        for face in &self.faces {
+            face.normal.iter().for_each(|&value| float(&mut out, value));
+        }
+        mark(&mut out, 96);
+        for face in &self.faces {
+            float(&mut out, face.distance);
+        }
+        if !self.area {
+            return out;
+        }
+        put(&mut out, 100, self.aabb.len() as u32);
+        mark(&mut out, 104);
+        put(&mut out, 108, self.aabb_word);
+        for entry in &self.aabb {
+            entry
+                .bounds
+                .iter()
+                .for_each(|&value| float(&mut out, value));
+            word(&mut out, entry.face as u32);
+            word(&mut out, entry.word);
+            word(&mut out, entry.plane);
+            entry
+                .children
+                .iter()
+                .for_each(|&value| word(&mut out, value));
+        }
+        put(&mut out, 112, self.adjacency.len() as u32);
+        mark(&mut out, 116);
+        for row in &self.adjacency {
+            row.iter().for_each(|&value| word(&mut out, value as u32));
+        }
+        put(&mut out, 120, self.edges.len() as u32);
+        mark(&mut out, 124);
+        for (edge, transition) in &self.edges {
+            word(&mut out, *edge as u32);
+            word(&mut out, *transition as u32);
+        }
+        put(&mut out, 128, self.perimeters.len() as u32);
+        mark(&mut out, 132);
+        for perimeter in &self.perimeters {
+            word(&mut out, *perimeter);
+        }
+        out
+    }
+
+    /// This walkmesh moved by `by`: its vertices, its faces' planes, its
+    /// AABB tree's boxes and its absolute use positions. A room's walkmesh
+    /// is in the area's coordinates, so a room placed elsewhere needs its
+    /// walkmesh moved with it. The edges' transitions name rooms of the
+    /// layout the walkmesh was made for, so they are cleared.
+    pub fn moved(&self, by: [f32; 3]) -> Walkmesh {
+        let shift = |point: [f32; 3]| std::array::from_fn(|axis| point[axis] + by[axis]);
+        let mut moved = self.clone();
+        moved.vertices = self.vertices.iter().map(|&vertex| shift(vertex)).collect();
+        for face in &mut moved.faces {
+            // A point p is on the plane when normal · p + distance = 0.
+            let along: f32 = (0..3).map(|axis| face.normal[axis] * by[axis]).sum();
+            face.distance -= along;
+        }
+        for entry in &mut moved.aabb {
+            for (at, bound) in entry.bounds.iter_mut().enumerate() {
+                *bound += by[at % 3];
+            }
+        }
+        for position in &mut moved.use_positions[2..] {
+            *position = shift(*position);
+        }
+        for (_, transition) in &mut moved.edges {
+            *transition = -1;
+        }
+        moved
+    }
+
+    /// The walkmesh of a room placed elsewhere and turned: each point `p`
+    /// goes to `to + R (p - from)`, where `R` turns about Z (anticlockwise
+    /// seen from above) by the angle whose sine and cosine are `turn`. The faces' planes turn with it, and
+    /// the AABB tree keeps its shape with each box made round what it holds
+    /// now. A box's split hint (`plane`) is kept, which leaves the search
+    /// right, if not the fastest. Its transitions are cut, as `moved` cuts
+    /// them.
+    pub fn turned(&self, from: [f32; 3], to: [f32; 3], (sin, cos): (f32, f32)) -> Walkmesh {
+        let turn = |v: [f32; 3]| [cos * v[0] - sin * v[1], sin * v[0] + cos * v[1], v[2]];
+        let place = |p: [f32; 3]| {
+            let local: [f32; 3] = std::array::from_fn(|axis| p[axis] - from[axis]);
+            let turned = turn(local);
+            std::array::from_fn(|axis| turned[axis] + to[axis])
+        };
+        let mut placed = self.clone();
+        placed.vertices = self.vertices.iter().map(|&vertex| place(vertex)).collect();
+        for face in &mut placed.faces {
+            face.normal = turn(face.normal);
+            // A point p is on the plane when normal · p + distance = 0.
+            if let Some(&corner) = placed.vertices.get(face.vertices[0] as usize) {
+                face.distance = -(0..3)
+                    .map(|axis| face.normal[axis] * corner[axis])
+                    .sum::<f32>();
+            }
+        }
+        // The two relative use positions are offsets, so they turn and do
+        // not move. Left as they were, they pointed the way they did
+        // before the turn. The two absolute ones are places.
+        for offset in &mut placed.use_positions[..2] {
+            *offset = turn(*offset);
+        }
+        for position in &mut placed.use_positions[2..] {
+            *position = place(*position);
+        }
+        for (_, transition) in &mut placed.edges {
+            *transition = -1;
+        }
+        placed.aabb = self.aabb.clone();
+        let mut bounds: Vec<Option<[f32; 6]>> = vec![None; placed.aabb.len()];
+        for at in 0..placed.aabb.len() {
+            fit(&mut placed, &mut bounds, at, 0);
+        }
+        placed
+    }
+}
+
+/// Makes the AABB tree's box `at` round what it holds now: its face's
+/// corners, else its children's boxes. `done` keeps each box made, so a
+/// box shared or reached twice is made once.
+fn fit(
+    walkmesh: &mut Walkmesh,
+    done: &mut [Option<[f32; 6]>],
+    at: usize,
+    depth: usize,
+) -> [f32; 6] {
+    if let Some(made) = done[at] {
+        return made;
+    }
+    let mut made = walkmesh.aabb[at].bounds;
+    let entry = walkmesh.aabb[at];
+    let grow = |low: &mut [f32; 6], point: [f32; 3], first: &mut bool| {
+        for axis in 0..3 {
+            if *first {
+                low[axis] = point[axis];
+                low[axis + 3] = point[axis];
+            } else {
+                low[axis] = low[axis].min(point[axis]);
+                low[axis + 3] = low[axis + 3].max(point[axis]);
+            }
+        }
+        *first = false;
+    };
+    let mut first = true;
+    if let Some(face) = usize::try_from(entry.face)
+        .ok()
+        .and_then(|face| walkmesh.faces.get(face))
+        .copied()
+    {
+        for corner in face.vertices {
+            if let Some(&point) = walkmesh.vertices.get(corner as usize) {
+                grow(&mut made, point, &mut first);
+            }
+        }
+    } else if depth < 64 {
+        for child in entry.children {
+            let child = child as usize;
+            if child < walkmesh.aabb.len() && child != at {
+                let low = fit(walkmesh, done, child, depth + 1);
+                grow(&mut made, [low[0], low[1], low[2]], &mut first);
+                grow(&mut made, [low[3], low[4], low[5]], &mut first);
+            }
+        }
+    }
+    walkmesh.aabb[at].bounds = made;
+    done[at] = Some(made);
+    made
 }

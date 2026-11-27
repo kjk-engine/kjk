@@ -36,17 +36,24 @@ pub struct Files<'a> {
     shaders: OnceLock<BTreeMap<String, ShaderLook>>,
 }
 
-/// What a model surface's shader gives its look: the texture of its first
-/// `map`/`clampmap` stage that names a file (an animated map's first
-/// frame), whether it is drawn from both sides (`cull none`, `disable`
-/// or `twosided`; `cull back`, which draws only the back, is drawn from
-/// both sides too), and whether that stage clamps its texture
-/// (`clampmap`, `clampAnimMap`).
+/// What a model surface's shader gives its look: the texture of its
+/// surface's own stage (`picture_stage`; an animated map's first frame),
+/// whether it is drawn from both sides (`cull none`, `disable` or
+/// `twosided`; `cull back`, which draws only the back, is drawn from both
+/// sides too), and whether that stage clamps its texture (`clampmap`,
+/// `clampAnimMap`), adds its colour (`blendFunc GL_ONE GL_ONE`), or is
+/// drawn over an earlier stage by its alpha (`opaque`).
 #[derive(Clone, Debug, PartialEq)]
 struct ShaderLook {
     texture: String,
     two_sided: bool,
     clamp: bool,
+    additive: bool,
+    /// The stage is blended by its alpha over an earlier one, such as a
+    /// reflection of the room (`tcGen environment`). Its alpha says how
+    /// much of the reflection shows, not where the surface has holes, so
+    /// the surface is drawn opaque.
+    opaque: bool,
     anim: Option<AnimMap>,
     /// The texture of the shader's second stage, when that stage has a
     /// `map` or `clampmap` that names a file. The saber trail's core is
@@ -60,6 +67,192 @@ const SECOND_STAGE: &str = "#2";
 /// The name that asks for the texture of `shader`'s second stage.
 pub(crate) fn second_stage(shader: &str) -> String {
     format!("{shader}{SECOND_STAGE}")
+}
+
+/// A shader's texture that is one colour (`$whiteimage` with
+/// `rgbGen const ( R G B )`): this, then the three numbers from 0 to 1.
+const COLOUR: &str = "$colour ";
+
+/// One stage of a shader as `picture_stage` weighs it.
+struct Stage {
+    /// The file, whether it clamps, and its frames when it is animated.
+    picture: (String, bool, Option<AnimMap>),
+    /// A reflection (`tcGen environment`).
+    environment: bool,
+    /// A stage laid over the surface: a detail map or a glow.
+    extra: bool,
+    blend: Option<(String, String)>,
+}
+
+/// A `blendFunc` line's two factors (lower-case), with `add`, `blend` and
+/// `filter` spelt out as the factors they stand for.
+fn blend_of(line: &[String]) -> Option<(String, String)> {
+    let words: Vec<String> = line
+        .get(1..)?
+        .iter()
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
+    match words.as_slice() {
+        [one] if one == "add" => Some(("gl_one".into(), "gl_one".into())),
+        [one] if one == "blend" => Some(("gl_src_alpha".into(), "gl_one_minus_src_alpha".into())),
+        [one] if one == "filter" => Some(("gl_dst_color".into(), "gl_zero".into())),
+        [src, dst, ..] => Some((src.clone(), dst.clone())),
+        _ => None,
+    }
+}
+
+/// The look of `shader`, from the stage that shows its surface's own
+/// picture. That is its first stage with a picture that is not a
+/// reflection (`tcGen environment`), a detail map, a glow, or a colour
+/// added on top (`blendFunc GL_ONE GL_ONE`); else its first stage with a
+/// picture. Many of Hoth's walls start with a reflection
+/// (`textures/common/environ1`), and showed it in place of the wall.
+/// `$lightmap` is never a picture. `$whiteimage` with a constant colour
+/// is that colour (`COLOUR`). `None` for a shader with no picture.
+fn picture_stage(shader: &fmt_ja::shader::Shader) -> Option<ShaderLook> {
+    let mut stages = Vec::new();
+    for stage in &shader.stages {
+        let (mut picture, mut white, mut colour) = (None, false, None);
+        let (mut environment, mut extra, mut blend) = (false, false, None);
+        for line in stage {
+            let Some(keyword) = line.first().map(|word| word.to_ascii_lowercase()) else {
+                continue;
+            };
+            match keyword.as_str() {
+                "map" | "clampmap" => match line.get(1) {
+                    Some(path) if path.eq_ignore_ascii_case("$whiteimage") => white = true,
+                    Some(path) if !path.starts_with('$') => {
+                        picture = Some((fmt_ja::game_path(path), keyword == "clampmap", None));
+                    }
+                    _ => {}
+                },
+                "animmap" | "clampanimmap" | "oneshotanimmap" => {
+                    let Some(fps) = line.get(1).and_then(|fps| fps.parse::<f32>().ok()) else {
+                        continue;
+                    };
+                    let frames: Vec<String> = (line.iter().skip(2))
+                        .take(MAX_ANIM_FRAMES)
+                        .map(|path| fmt_ja::game_path(path))
+                        .collect();
+                    if let Some(first) = frames.first().cloned() {
+                        let anim = AnimMap {
+                            fps,
+                            once: keyword == "oneshotanimmap",
+                            frames,
+                        };
+                        picture = Some((first, keyword == "clampanimmap", Some(anim)));
+                    }
+                }
+                "tcgen" => {
+                    environment |= line
+                        .get(1)
+                        .is_some_and(|how| how.eq_ignore_ascii_case("environment"));
+                }
+                "detail" | "glow" => extra = true,
+                "blendfunc" => blend = blend_of(line),
+                "rgbgen"
+                    if line
+                        .get(1)
+                        .is_some_and(|how| how.eq_ignore_ascii_case("const")) =>
+                {
+                    let parts: Vec<f32> = (line.iter().skip(2))
+                        .flat_map(|word| word.split(['(', ')']))
+                        .filter_map(|part| part.trim().parse::<f32>().ok())
+                        .collect();
+                    if let [red, green, blue, ..] = parts[..] {
+                        colour = Some([red, green, blue]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if picture.is_none()
+            && white
+            && let Some([red, green, blue]) = colour
+        {
+            picture = Some((format!("{COLOUR}{red} {green} {blue}"), false, None));
+        }
+        if let Some(picture) = picture {
+            stages.push(Stage {
+                picture,
+                environment,
+                extra,
+                blend,
+            });
+        }
+    }
+    let adds = |blend: &Option<(String, String)>| {
+        blend
+            .as_ref()
+            .is_some_and(|(source, target)| source == "gl_one" && target == "gl_one")
+    };
+    let index = (stages.iter())
+        .position(|stage| !stage.environment && !stage.extra && !adds(&stage.blend))
+        .or_else(|| (!stages.is_empty()).then_some(0))?;
+    let chosen = stages.swap_remove(index);
+    let by_alpha = (chosen.blend.as_ref()).is_some_and(|(source, _)| source == "gl_src_alpha");
+    let two_sided = shader.directives.iter().any(|line| {
+        line.first()
+            .is_some_and(|word| word.eq_ignore_ascii_case("cull"))
+            && line.get(1).is_some_and(|how| {
+                [
+                    "none",
+                    "disable",
+                    "twosided",
+                    "back",
+                    "backside",
+                    "backsided",
+                ]
+                .iter()
+                .any(|word| how.eq_ignore_ascii_case(word))
+            })
+    });
+    // The texture of the shader's second stage, which the saber trail's
+    // core is drawn with (`second_stage`).
+    let second = shader.stages.get(1).and_then(|stage| {
+        stage.iter().find_map(|line| {
+            let keyword = line.first()?.to_ascii_lowercase();
+            if keyword != "map" && keyword != "clampmap" {
+                return None;
+            }
+            let path = line.get(1).filter(|path| !path.starts_with('$'))?;
+            Some(fmt_ja::game_path(path))
+        })
+    });
+    let (texture, clamp, anim) = chosen.picture;
+    Some(ShaderLook {
+        texture,
+        two_sided,
+        clamp,
+        additive: adds(&chosen.blend),
+        opaque: index > 0 && by_alpha,
+        anim,
+        second,
+    })
+}
+
+/// A shader's look by the name a surface gives it. A model's surface may
+/// name its shader with the picture's extension
+/// (`textures/hoth/h_outground_3_b.tga`), and Jedi Academy finds the
+/// shader without it, as it is named in its file.
+fn look_of<'s>(shaders: &'s BTreeMap<String, ShaderLook>, name: &str) -> Option<&'s ShaderLook> {
+    shaders.get(name).or_else(|| {
+        let (stem, extension) = name.rsplit_once('.')?;
+        (!extension.contains('/')).then(|| shaders.get(stem))?
+    })
+}
+
+/// The shaders among `names` whose own stage adds its colour to what lies
+/// behind it (`blendFunc GL_ONE GL_ONE`, `picture_stage`).
+pub(crate) fn additive_shaders(
+    files: &Files,
+    names: &[String],
+) -> std::collections::BTreeSet<String> {
+    let shaders = shader_textures(files);
+    (names.iter())
+        .filter(|name| look_of(shaders, name).is_some_and(|look| look.additive))
+        .cloned()
+        .collect()
 }
 
 /// A stage's animated map (`animMap`, `clampAnimMap`, `oneShotAnimMap`):
@@ -118,11 +311,11 @@ impl<'a> Files<'a> {
     }
 
     /// Every file's name, as kept (lower case).
-    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+    pub fn names(&self) -> impl Iterator<Item = &str> {
         self.all.keys().copied()
     }
 
-    pub(crate) fn read(&self, name: &str) -> Option<Vec<u8>> {
+    pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         let name = fmt_ja::game_path(name);
         let found = self.all.get(name.as_str())?;
         if let (Some(store), JaSource::Pk3 { pk3, entry }) = (&self.store, found.source) {
@@ -232,16 +425,16 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
             let text = String::from_utf8(bytes).ok()?;
             text.lines()
                 .map(|line| {
-                    let (shader, texture, sides, clamp, second, anim) =
+                    let (shader, texture, sides, flags, second, anim) =
                         match line.split('\t').collect::<Vec<_>>()[..] {
-                            [shader, texture, sides, clamp, second] => {
-                                (shader, texture, sides, clamp, second, None)
+                            [shader, texture, sides, flags, second] => {
+                                (shader, texture, sides, flags, second, None)
                             }
-                            [shader, texture, sides, clamp, second, fps, once, frames] => (
+                            [shader, texture, sides, flags, second, fps, once, frames] => (
                                 shader,
                                 texture,
                                 sides,
-                                clamp,
+                                flags,
                                 second,
                                 Some(AnimMap {
                                     fps: fps.parse().ok()?,
@@ -256,7 +449,9 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
                         ShaderLook {
                             texture: texture.to_string(),
                             two_sided: sides == "2",
-                            clamp: clamp == "1",
+                            clamp: flags.contains('c'),
+                            additive: flags.contains('a'),
+                            opaque: flags.contains('o'),
                             anim,
                             second: Some(second.to_string()).filter(|second| !second.is_empty()),
                         },
@@ -279,10 +474,15 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
                         anim.frames.join("|")
                     )
                 });
-                let clamp = u8::from(look.clamp);
+                // The look's switches as letters: clamps, adds, opaque.
+                let flags: String = [(look.clamp, 'c'), (look.additive, 'a'), (look.opaque, 'o')]
+                    .into_iter()
+                    .map(|(on, letter)| if on { letter } else { '-' })
+                    .collect();
                 let second = look.second.as_deref().unwrap_or("");
                 format!(
-                    "{shader}\t{}\t{sides}\t{clamp}\t{second}{anim}\n",
+                    "{shader}	{}	{sides}	{flags}	{second}{anim}
+",
                     look.texture
                 )
             })
@@ -302,66 +502,8 @@ fn read_shader_textures(files: &Files, names: &[&str]) -> BTreeMap<String, Shade
             continue;
         };
         for shader in parsed.shaders {
-            let image = shader.stages.iter().flatten().find_map(|line| {
-                let keyword = line.first()?.to_ascii_lowercase();
-                match keyword.as_str() {
-                    "map" | "clampmap" => {
-                        let path = line.get(1).filter(|path| !path.starts_with('$'))?;
-                        Some((fmt_ja::game_path(path), keyword == "clampmap", None))
-                    }
-                    "animmap" | "clampanimmap" | "oneshotanimmap" => {
-                        let fps = line.get(1)?.parse::<f32>().ok()?;
-                        let frames: Vec<String> = line
-                            .get(2..)?
-                            .iter()
-                            .take(MAX_ANIM_FRAMES)
-                            .map(|path| fmt_ja::game_path(path))
-                            .collect();
-                        let anim = AnimMap {
-                            fps,
-                            once: keyword == "oneshotanimmap",
-                            frames,
-                        };
-                        let clamp = keyword == "clampanimmap";
-                        Some((anim.frames.first()?.clone(), clamp, Some(anim)))
-                    }
-                    _ => None,
-                }
-            });
-            let second = shader.stages.get(1).and_then(|stage| {
-                stage.iter().find_map(|line| {
-                    let keyword = line.first()?.to_ascii_lowercase();
-                    if keyword != "map" && keyword != "clampmap" {
-                        return None;
-                    }
-                    let path = line.get(1).filter(|path| !path.starts_with('$'))?;
-                    Some(fmt_ja::game_path(path))
-                })
-            });
-            let two_sided = shader.directives.iter().any(|line| {
-                line.first()
-                    .is_some_and(|word| word.eq_ignore_ascii_case("cull"))
-                    && line.get(1).is_some_and(|how| {
-                        [
-                            "none",
-                            "disable",
-                            "twosided",
-                            "back",
-                            "backside",
-                            "backsided",
-                        ]
-                        .iter()
-                        .any(|word| how.eq_ignore_ascii_case(word))
-                    })
-            });
-            if let Some((texture, clamp, anim)) = image {
-                out.entry(shader.name).or_insert(ShaderLook {
-                    texture,
-                    two_sided,
-                    clamp,
-                    anim,
-                    second,
-                });
+            if let Some(look) = picture_stage(&shader) {
+                out.entry(shader.name).or_insert(look);
             }
         }
     }
@@ -395,16 +537,7 @@ pub(crate) fn blend_funcs(files: &Files, names: &[String]) -> BTreeMap<String, (
                 if keyword != "blendfunc" {
                     return None;
                 }
-                let words: Vec<String> = line[1..].iter().map(|w| w.to_ascii_lowercase()).collect();
-                match words.as_slice() {
-                    [one] if one == "add" => Some(("gl_one".into(), "gl_one".into())),
-                    [one] if one == "blend" => {
-                        Some(("gl_src_alpha".into(), "gl_one_minus_src_alpha".into()))
-                    }
-                    [one] if one == "filter" => Some(("gl_dst_color".into(), "gl_zero".into())),
-                    [src, dst, ..] => Some((src.clone(), dst.clone())),
-                    _ => None,
-                }
+                blend_of(line)
             });
             if let Some(func) = func {
                 out.insert(shader.name, func);
@@ -502,6 +635,29 @@ fn texture(files: &Files, path: &str) -> Option<TextureIr> {
     })
 }
 
+/// A texture of one texel of the colour `colour` (`COLOUR`'s three
+/// numbers from 0 to 1).
+fn one_colour(colour: &str) -> Option<TextureIr> {
+    let parts: Vec<f32> = (colour.split_whitespace())
+        .filter_map(|part| part.parse().ok())
+        .collect();
+    let [red, green, blue] = parts[..] else {
+        return None;
+    };
+    let byte = |part: f32| (part.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Some(TextureIr {
+        width: 1,
+        height: 1,
+        encoding: Encoding::Rgba8,
+        mips: vec![vec![byte(red), byte(green), byte(blue), 255]],
+        cube: false,
+        frames: 1,
+        facts: TextureFacts::default(),
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    })
+}
+
 /// An animated map's frames decoded and stacked top to bottom, each at the
 /// first's size (`FrameStrip`); a frame that does not load is left out.
 fn frame_strip(files: &Files, anim: &AnimMap) -> Option<TextureIr> {
@@ -539,7 +695,7 @@ fn frame_strip(files: &Files, anim: &AnimMap) -> Option<TextureIr> {
 }
 
 /// Shader or texture names decoded through the shaders' first stages.
-pub(crate) fn textures<'n>(
+pub fn textures<'n>(
     files: &Files,
     names: impl IntoIterator<Item = &'n String>,
 ) -> (BTreeMap<String, TextureIr>, Vec<String>) {
@@ -551,7 +707,10 @@ pub(crate) fn textures<'n>(
             continue;
         }
         let second = name.strip_suffix(SECOND_STAGE);
-        let look = shaders.get(second.unwrap_or(name));
+        let look = match second {
+            Some(shader) => shaders.get(shader),
+            None => look_of(shaders, name),
+        };
         let file = match (second, look) {
             (
                 Some(_),
@@ -571,12 +730,18 @@ pub(crate) fn textures<'n>(
             .and_then(|look| look.anim.as_ref())
         {
             Some(anim) => frame_strip(files, anim),
-            None => texture(files, file),
+            None => match file.strip_prefix(COLOUR) {
+                Some(colour) => one_colour(colour),
+                None => texture(files, file),
+            },
         };
         match decoded {
             Some(mut decoded) => {
                 decoded.facts.two_sided = look.is_some_and(|look| look.two_sided);
                 decoded.facts.clamp = look.is_some_and(|look| look.clamp) || second.is_some();
+                if second.is_none() && look.is_some_and(|look| look.opaque) {
+                    decoded.facts.alpha = false;
+                }
                 textures.insert(name.clone(), decoded);
             }
             None => missing.push(name.clone()),
@@ -716,6 +881,7 @@ pub fn load(
         hook_local: None,
         clip,
         envmap: None,
+        room_glow: false,
     }];
     let mut blades = Vec::new();
     let mut notes = Vec::new();
@@ -736,6 +902,7 @@ pub fn load(
             hook_local: Some(hand.matrix),
             clip: None,
             envmap: None,
+            room_glow: false,
         });
         let model = models.len() - 1;
         blades.extend(hilt_blades.into_iter().map(|b| BladeSpec { model, ..b }));
@@ -770,9 +937,293 @@ pub fn load(
         effects: crate::viewer::Effects::default(),
         doors: Vec::new(),
         instance_models: BTreeMap::new(),
+        lamps: Vec::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
         ..LoadedScene::default()
+    })
+}
+
+/// The path of a level in Jedi Academy's archives: `t1_sour`,
+/// `maps/t1_sour` and `maps/t1_sour.bsp` all name `maps/t1_sour.bsp`, and
+/// `mp/ffa3` names `maps/mp/ffa3.bsp`.
+pub fn level_path(name: &str) -> String {
+    let path = fmt_ja::game_path(name);
+    let path = if path.starts_with("maps/") {
+        path
+    } else {
+        format!("maps/{path}")
+    };
+    if path.ends_with(".bsp") {
+        path
+    } else {
+        format!("{path}.bsp")
+    }
+}
+
+/// A Jedi Academy level for the viewer (`kjk view ja maps/t1_sour.bsp`):
+/// its surfaces and its static models as one model, lit by the level's own
+/// stored light (`asset_ja::level`), with the camera at the player's start. A shader
+/// whose first blend adds its colour to what is behind it (a glow, a
+/// light's halo) is drawn additive. The scene's notes say what was drawn
+/// and what was left out.
+pub fn load_level(discovery: &Discovery, name: &str) -> Result<LoadedScene, String> {
+    let parts = level_parts(discovery, name)?;
+    let tally = &parts.tally;
+    let notes = vec![
+        format!(
+            "{} triangles in {} meshes, {} lightmaps",
+            tally.triangles,
+            parts.model.meshes.len(),
+            parts.bsp.lightmaps.len(),
+        ),
+        format!(
+            "surfaces: {} with a lightmap in the level, {} with a lightmap kept beside it, {} lit by their vertices, {} curved",
+            tally.lightmapped, tally.kept_beside, tally.vertex_lit, tally.patches,
+        ),
+        format!(
+            "static models: {} placed with {} triangles, {} left out",
+            tally.static_models, tally.static_triangles, tally.static_missing,
+        ),
+        format!(
+            "left out: {} sky surfaces, {} never drawn, {} of fog, {} flares, {} of a kind not known",
+            tally.sky, tally.not_drawn, tally.fog, tally.flares, tally.unknown,
+        ),
+    ];
+    let mut scene = level_scene(
+        parts.path,
+        parts.model,
+        parts.sky,
+        parts.doors,
+        parts.textures,
+        parts.start,
+        notes,
+    );
+    scene.missing = parts.missing;
+    Ok(scene)
+}
+
+/// The scene of a level: its model, lit by its own stored light through
+/// `textures`, its sky's box when it has one, and its doors, the camera at
+/// the player's start. Door `n` is the scene's door of object `n`, as a
+/// level's module numbers them (`stage::ja_module`), and its model is among
+/// the last of the scene's.
+pub fn level_scene(
+    name: String,
+    model: ModelIr,
+    sky: Option<ModelIr>,
+    doors: Vec<asset_ja::level::DoorModel>,
+    textures: BTreeMap<String, TextureIr>,
+    start: Option<([f32; 3], [f32; 2])>,
+    notes: Vec<String>,
+) -> LoadedScene {
+    let placed = |ir: ModelIr| Placed {
+        ir,
+        offset: [0.0; 3],
+        facing: 0.0,
+        is_static: true,
+        attach: None,
+        hook: None,
+        hook_local: None,
+        clip: None,
+        envmap: None,
+        room_glow: false,
+    };
+    let mut models: Vec<Placed> = std::iter::once(model).chain(sky).map(placed).collect();
+    let first_door = models.len();
+    let door_views = (doors.into_iter().enumerate())
+        .map(|(number, door)| {
+            models.push(placed(door.model));
+            crate::viewer::DoorView {
+                object: number as u32,
+                model: first_door + number,
+                opening: [Some(Arc::new(door.opening)), None],
+                closing: [Some(Arc::new(door.closing)), None],
+                busted: None,
+                fx: None,
+            }
+        })
+        .collect::<Vec<_>>();
+    LoadedScene {
+        name,
+        instances: door_views.len(),
+        doors: door_views,
+        models,
+        textures,
+        entry: start,
+        creature_notes: notes,
+        ambient: [0.2; 3],
+        lit: false,
+        ..LoadedScene::default()
+    }
+}
+
+/// A level read from Jedi Academy's archives: its file as parsed, the
+/// model the scene draws of it, and that model's textures with the level's
+/// light atlas among them.
+pub struct LevelParts {
+    /// The level's path in the archives (`maps/t1_sour.bsp`).
+    pub path: String,
+    /// The digest of the level's file (`level_edit::ja_rooms::digest`).
+    pub digest: String,
+    pub bsp: fmt_ja::bsp::Bsp,
+    pub model: ModelIr,
+    pub textures: BTreeMap<String, TextureIr>,
+    /// Shaders the model names whose texture was not found.
+    pub missing: Vec<String>,
+    /// Where a player starts (metres, at the feet) and the way they face.
+    pub start: Option<([f32; 3], [f32; 2])>,
+    /// The sky's box (`asset_ja::sky`), when the level's sky shader names
+    /// pictures the game's files hold.
+    pub sky: Option<ModelIr>,
+    /// The level's doors, each a model of its own.
+    pub doors: Vec<asset_ja::level::DoorModel>,
+    pub tally: asset_ja::level::Tally,
+}
+
+/// The six pictures of the sky shader `shader`, as the scene names
+/// textures: the box its `skyParms` names (`env/desert` gives
+/// `env/desert_rt` and the others). A shader whose box is `-` draws only
+/// clouds, which are not drawn here: its first stage's picture stands on
+/// every side instead.
+fn sky_pictures(files: &Files, shader: &str) -> Option<[String; 6]> {
+    let shader_files: Vec<&str> = (files.all.keys().copied())
+        .filter(|name| name.starts_with("shaders/") && name.ends_with(".shader"))
+        .collect();
+    for file in shader_files {
+        let Some(parsed) = files
+            .read(file)
+            .and_then(|bytes| fmt_ja::shader::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        let Some(found) = parsed
+            .shaders
+            .into_iter()
+            .find(|found| found.name == shader)
+        else {
+            continue;
+        };
+        let word =
+            |line: &Vec<String>, at: usize| line.get(at).map(|word| word.to_ascii_lowercase());
+        let farbox = (found.directives.iter())
+            .find(|line| word(line, 0).as_deref() == Some("skyparms"))
+            .and_then(|line| word(line, 1));
+        if let Some(farbox) = farbox.filter(|farbox| farbox != "-") {
+            let base = fmt_ja::game_path(&farbox);
+            return Some(asset_ja::sky::SIDES.map(|side| format!("{base}_{side}")));
+        }
+        let first = (found.stages.iter().flatten()).find_map(|line| {
+            matches!(word(line, 0).as_deref(), Some("map" | "clampmap"))
+                .then(|| word(line, 1))
+                .flatten()
+        })?;
+        return Some(std::array::from_fn(|_| fmt_ja::game_path(&first)));
+    }
+    None
+}
+
+/// Every sky box Jedi Academy's shaders name (`skyParms`) whose six
+/// pictures the archives hold: the name the pictures share
+/// (`textures/skies/hoth`), sorted.
+pub(crate) fn sky_box_names(files: &Files) -> Vec<String> {
+    let mut boxes = std::collections::BTreeSet::new();
+    let shader_files: Vec<&str> = (files.all.keys().copied())
+        .filter(|name| name.starts_with("shaders/") && name.ends_with(".shader"))
+        .collect();
+    for file in shader_files {
+        let Some(parsed) = files
+            .read(file)
+            .and_then(|bytes| fmt_ja::shader::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        for shader in parsed.shaders {
+            for line in &shader.directives {
+                if line
+                    .first()
+                    .is_some_and(|word| word.eq_ignore_ascii_case("skyparms"))
+                    && let Some(farbox) = line.get(1).filter(|farbox| *farbox != "-")
+                {
+                    boxes.insert(fmt_ja::game_path(farbox));
+                }
+            }
+        }
+    }
+    let has_picture = |name: &str| {
+        ["tga", "jpg", "png"].iter().any(|extension| {
+            files
+                .all
+                .contains_key(format!("{name}.{extension}").as_str())
+        })
+    };
+    (boxes.into_iter())
+        .filter(|farbox| {
+            (asset_ja::sky::SIDES.iter()).all(|side| has_picture(&format!("{farbox}_{side}")))
+        })
+        .collect()
+}
+
+/// The level `name` (`level_path`), read and made ready to draw.
+pub fn level_parts(discovery: &Discovery, name: &str) -> Result<LevelParts, String> {
+    let stack = stack(discovery)?;
+    let files = Files::new(&stack);
+    let path = level_path(name);
+    let bytes = files
+        .read(&path)
+        .ok_or(format!("{path}: not in Jedi Academy's archives"))?;
+    let bsp = fmt_ja::bsp::parse(&bytes).map_err(|error| format!("{path}: {error}"))?;
+    let md3 = |model: &str| fmt_ja::md3::parse(&files.read(model)?).ok();
+    let level = asset_ja::level::level(&path, &bsp, &md3, &asset_ja::level::Paint::Shaders);
+
+    let names: Vec<String> = (level.model.meshes.iter())
+        .chain(level.doors.iter().flat_map(|door| &door.model.meshes))
+        .filter_map(|mesh| mesh.texture.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let (mut textures, missing) = textures(&files, &names);
+    for shader in additive_shaders(&files, &names) {
+        if let Some(texture) = textures.get_mut(&shader) {
+            texture.facts.blending = asset_odyssey::texture::Blending::Additive;
+        }
+    }
+    textures.insert(asset_ja::level::light_name(&path), level.light);
+    let mut missing = missing;
+    let pictures = level
+        .sky
+        .first()
+        .and_then(|shader| sky_pictures(&files, shader));
+    let sky = pictures.map(|pictures| {
+        let (mut loaded, lacking) = self::textures(&files, pictures.iter());
+        // Clamped, so no side shows a seam of the side across from it.
+        for texture in loaded.values_mut() {
+            texture.facts.clamp = true;
+        }
+        missing.extend(lacking);
+        textures.extend(loaded);
+        asset_ja::sky::model(&path, pictures, asset_ja::sky::reach(&bsp))
+    });
+    for page in &level.beside {
+        let picture = asset_ja::level::beside_path(&path, *page);
+        match texture(&files, &picture) {
+            Some(light) => {
+                textures.insert(asset_ja::level::beside_name(&path, *page), light);
+            }
+            None => missing.push(picture),
+        }
+    }
+    Ok(LevelParts {
+        path,
+        digest: level_edit::ja_rooms::digest(&bytes),
+        bsp,
+        model: level.model,
+        textures,
+        missing,
+        start: level.start,
+        sky,
+        doors: level.doors,
+        tally: level.tally,
     })
 }
 

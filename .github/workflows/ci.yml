@@ -114,7 +114,11 @@ jobs:
         uses: ./.github/actions/dlss-sdk
 
       # The save editor's window (`save_editor`, eframe) is linted in
-      # editor.yml alone, so the engine's runs never build it.
+      # editor.yml alone, so the engine's runs never build it. The level
+      # editor (`level_editor`) stays in: it is built on `game`, so an
+      # engine change can break it, and this is where that shows before
+      # the merge. Its window adds 28 crates to the check (`bevy_egui`,
+      # egui 0.36, `vello_cpu`, `transform-gizmo` among them).
       - name: clippy
         run: cargo clippy --workspace --exclude save_editor --all-targets --all-features -- -D warnings
 
@@ -123,8 +127,16 @@ jobs:
       - name: clippy (no probes)
         run: cargo clippy -p launcher --all-targets --no-default-features -- -D warnings
 
+      # The kjk of the level editor's package: the game with the two verbs
+      # the level editor runs (`editor_tools`), as `cargo xtask dist
+      # --level-editor` builds it.
+      - name: clippy (level editor package's kjk)
+        run: cargo clippy -p launcher --all-targets --no-default-features --features editor_tools -- -D warnings
+
   # kjk itself (the launcher, which links Bevy), so a change that only
   # breaks the link or the binary is caught; it starts and prints its help.
+  # The level editor after it, in the same way: it reuses the Bevy and the
+  # game that kjk's build made, and adds its own window's crates.
   # On main alone: a Bevy build costs ~20 minutes cold.
   build:
     name: build kjk (ubuntu-latest)
@@ -151,6 +163,14 @@ jobs:
 
       - name: kjk --help
         run: ./target/debug/kjk --help
+
+      # Otherwise only a release's package job links the level editor
+      # (release.yml), so a broken link would first show on a release's tag.
+      - name: build the level editor
+        run: cargo build -p level_editor
+
+      - name: kjk-level-editor --help
+        run: ./target/debug/kjk-level-editor --help
 
   # kjk as `cargo xtask dist --dlss` builds it, with DLSS (the `dlss`
   # feature, NVIDIA's static library linked in), beside `build` so it adds

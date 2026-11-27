@@ -17,7 +17,9 @@
 //! 4. ERFs of priority 1: `patch.erf`
 //! 5. `override/`: its top level, then (TSL only) its subfolders one level
 //!    down, in name order; the first file of a name wins. Over it, each
-//!    Steam Workshop item's `override/`, its top level alone
+//!    Steam Workshop item's `override/`, its top level alone, and over
+//!    those a level editor project's folder while a run plays one
+//!    (`project`)
 //!
 //! So `override/` beats everything a module brings, which is how the games
 //! take a mod's DLG, NCS or UTC for a module's own.
@@ -349,13 +351,35 @@ pub enum ResolveError {
     NoSuchModule(String),
 }
 
+/// The words of `ResolveError::NoSuchModule`'s message before the module's
+/// name and after it. The message is written with them and read back with
+/// them (`ResolveError::missing_module`), so the two cannot drift apart.
+const NO_MODULE: &str = "no module ";
+const NO_MODULE_FILES: &str = ": no modules/";
+
+impl ResolveError {
+    /// The module that an error's text says the game's folder lacks: the
+    /// name in a `NoSuchModule` message, also with other text round it.
+    /// The errors of a load are passed on as text, so the game finds the
+    /// reason in the text, to say it for the player
+    /// (`game::session_flow`).
+    pub fn missing_module(text: &str) -> Option<&str> {
+        let (_, rest) = text.split_once(NO_MODULE)?;
+        let (module, _) = rest.split_once(NO_MODULE_FILES)?;
+        Some(module.trim())
+    }
+}
+
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResolveError::NotOdyssey(game) => write!(f, "{} is not a KOTOR game", game.key()),
             ResolveError::Chitin(error) => write!(f, "chitin.key: {error}"),
             ResolveError::NoSuchModule(module) => {
-                write!(f, "no module {module}: no modules/{module}.rim or .mod")
+                write!(
+                    f,
+                    "{NO_MODULE}{module}{NO_MODULE_FILES}{module}.rim or .mod"
+                )
             }
         }
     }
@@ -370,7 +394,54 @@ pub struct Resolved<'a> {
     pub shadowed: Vec<(&'a Layer, &'a Location)>,
 }
 
+/// Where a resource comes from, as a person who installs mods sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Origin {
+    /// The game's own archives.
+    Game,
+    /// A mod's loose file in an override folder (`Resolved::is_mod`).
+    Override,
+    /// A module's `.mod` file, which a mod puts in the game's `modules/`
+    /// folder in place of the module's own archives. Neither game ships
+    /// one.
+    ModFile,
+    /// The active level editor project's own file (`crate::project`).
+    Project,
+    /// Made in memory by this run, in no file (`crate::made`): a room of a
+    /// new map built from a Jedi Academy level, or one of its textures.
+    Made,
+}
+
+impl Origin {
+    /// Whether the resource is another mod's: not the game's, not the
+    /// project's and not made by this run.
+    pub fn is_mod(self) -> bool {
+        matches!(self, Origin::Override | Origin::ModFile)
+    }
+}
+
 impl Resolved<'_> {
+    /// Where the resource comes from (`Origin`).
+    pub fn origin(&self) -> Origin {
+        let own = self.layer.name == crate::project::LAYER
+            || crate::project::active()
+                .is_some_and(|(_, folder)| self.location.path.starts_with(folder));
+        if self.layer.name == crate::made::LAYER {
+            Origin::Made
+        } else if own {
+            Origin::Project
+        } else if self.is_mod() {
+            Origin::Override
+        } else if in_folder(&self.layer.name)
+            .to_ascii_lowercase()
+            .ends_with(".mod")
+        {
+            Origin::ModFile
+        } else {
+            Origin::Game
+        }
+    }
+
     /// Whether the resource is a mod's. A mod's file is read from an
     /// override folder (the game's own or a Workshop item's), and it is
     /// not one of the files Aspyr's KOTOR 2 ships there itself
@@ -646,6 +717,15 @@ impl Resolver {
             if let Some(layer) = resolver.folder(&item.files, &label, "override", Depth::Top) {
                 resolver.push(layer);
             }
+        }
+        // A level editor project's folder, over every `override/`
+        // (`project`): only while a run plays or edits one.
+        if let Some(layer) = crate::project::layer(game) {
+            resolver.push(layer);
+        }
+        // What the run made in memory (`made`), over the project's folder.
+        if let Some(layer) = crate::made::layer(game) {
+            resolver.push(layer);
         }
         resolver.stack_rulebook();
         resolver.stack_rows();
@@ -975,6 +1055,13 @@ impl Resolver {
                     .or_else(|| name.strip_suffix(".mod"))?;
                 (!stem.ends_with("_s")).then(|| stem.to_string())
             })
+            .chain(index.project_modules().keys().filter_map(|key| {
+                Some(
+                    key.strip_prefix("modules/")?
+                        .strip_suffix(".mod")?
+                        .to_string(),
+                )
+            }))
             .collect();
         names.sort();
         names.dedup();

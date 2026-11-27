@@ -219,11 +219,12 @@ fn galaxy(
             Some(PlanetView {
                 row: u8::try_from(row).ok()?,
                 tag: assets.cell_as_written(PLANETARY, row, "guitag")?,
+                // A mod's planet has its words in the cells themselves.
                 name: assets
-                    .cell_text(PLANETARY, row, "name")
+                    .cell_text_or_written(PLANETARY, row, "name")
                     .unwrap_or(Vec::new()),
                 description: assets
-                    .cell_text(PLANETARY, row, "description")
+                    .cell_text_or_written(PLANETARY, row, "description")
                     .unwrap_or(Vec::new()),
                 model: assets.cell(PLANETARY, row, "model"),
                 icon: assets.cell(PLANETARY, row, "icon"),

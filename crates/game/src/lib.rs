@@ -94,6 +94,7 @@ mod hud;
 pub mod import_verbs;
 pub mod installs;
 mod ja_footsteps;
+pub mod lamps;
 mod landing_fx;
 pub mod launch_times;
 pub mod leader_view;
@@ -146,6 +147,7 @@ pub mod report;
 pub mod reticle_view;
 mod rulebook_text;
 pub mod splash;
+pub mod sun;
 pub use minigame_view::takes_view;
 #[cfg(feature = "probes")]
 pub use prepasses::load_check_probes;
@@ -155,6 +157,7 @@ pub use ui_view::hide_probes;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod project_props;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;
@@ -179,6 +182,8 @@ pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 pub use warmup::LATE_PIPELINE;
+pub mod ambient_fx;
+pub mod ja_made;
 mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
@@ -193,6 +198,7 @@ mod sim_view;
 mod sim_worker;
 pub mod skeleton;
 mod skin_once;
+mod sky_box;
 mod solo;
 #[cfg(feature = "probes")]
 pub use solo::reload_probes as solo_reload_probes;
@@ -541,7 +547,7 @@ fn world_data(
                     started.elapsed().as_secs_f64()
                 );
             }
-            let world = opened.world(&print);
+            let world = opened.compared(&print);
             Ok(net::handshake::GameFingerprint {
                 game: game.key().to_string(),
                 digest: world.digest,
@@ -704,6 +710,10 @@ pub fn k1_open(
 pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
     k1_index().and_then(|index| k1_open(&index, None).ok())
 }
+
+/// The commit this game was built from (`stamp.rs`), for programs built on
+/// it (the level editor's projects say which kjk wrote them).
+pub const GIT_SHA: &str = env!("KJK_GIT_SHA");
 
 /// The installs this machine has. Variables come from the environment first,
 /// then the folders the player chose in the setup (`setup`, kept in the

@@ -71,7 +71,7 @@ pub struct SceneContent(pub Box<LoadedScene>);
 /// The camera's direction in game space, kept so the fly controls and
 /// `camera` commands agree on it.
 #[derive(Component)]
-pub(crate) struct FlyCamera {
+pub struct FlyCamera {
     yaw: f32,
     pitch: f32,
 }
@@ -243,7 +243,7 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
-pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+pub fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
     points.into_iter().fold(None, |span, at| match span {
         None => Some((at, at)),
         Some((low, high)) => Some((low.min(at), high.max(at))),
@@ -263,7 +263,7 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
-pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+pub fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     span(placed.ir.meshes.iter().flat_map(|mesh| {
         let node = to_mat4(&placed.ir.nodes[mesh.node].world);
         mesh.positions
@@ -350,6 +350,7 @@ impl Plugin for ScenePlugin {
         // still hold the world as drawn, and resolving them over the frame
         // undid every pass between whenever it drew anything.
         app.add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin);
+        app.add_plugins(crate::sky_box::SkyBoxPlugin);
         app.add_plugins((
             OdysseyMaterialPlugin,
             crate::shell::ShellPlugin,
@@ -461,11 +462,11 @@ impl Plugin for ScenePlugin {
 
 /// The game's Z-up space to Bevy's Y-up: game +Z becomes +Y and game +Y
 /// becomes -Z (Bevy's forward).
-pub(crate) fn game_to_bevy() -> Quat {
+pub fn game_to_bevy() -> Quat {
     Quat::from_rotation_x(-FRAC_PI_2)
 }
 
-pub(crate) fn to_mat4(m: &Matrix) -> Mat4 {
+pub fn to_mat4(m: &Matrix) -> Mat4 {
     Mat4::from_cols_array_2d(&[
         [m[0][0], m[1][0], m[2][0], m[3][0]],
         [m[0][1], m[1][1], m[2][1], m[3][1]],
@@ -489,7 +490,7 @@ fn camera_transform(pose: &CameraPose) -> Transform {
 
 /// Where a placed model's root sits in game space: its offset, turned by
 /// its facing, then its attachment (a head's `headhook`).
-pub(crate) fn placement(placed: &Placed) -> Mat4 {
+pub fn placement(placed: &Placed) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(placed.facing),
         Vec3::from_array(placed.offset),
@@ -713,6 +714,51 @@ fn apply_camera_request(
     }
 }
 
+/// How the fly controls take the keys and the mouse, where a program sets
+/// it (the level editor). Without it, W, A, S, D, Q and E always fly and the
+/// right mouse button looks.
+#[derive(Resource, Default)]
+pub struct FlyControls {
+    /// The keys fly only while the right mouse button is held, as in a
+    /// scene editor's viewport: the same keys pick tools otherwise.
+    pub keys_need_look: bool,
+    /// Nothing moves the camera: a text field has the keys, or the pointer
+    /// is over a panel.
+    pub paused: bool,
+    /// The keys that fly, as the program sets them (the level editor's
+    /// keys file). Without them, W, A, S, D, Q and E fly and Shift flies
+    /// faster.
+    pub keys: Option<FlyKeys>,
+}
+
+/// The keys that fly the camera: each direction's, and those that fly
+/// faster while held.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FlyKeys {
+    pub forward: Vec<KeyCode>,
+    pub back: Vec<KeyCode>,
+    pub left: Vec<KeyCode>,
+    pub right: Vec<KeyCode>,
+    pub down: Vec<KeyCode>,
+    pub up: Vec<KeyCode>,
+    pub faster: Vec<KeyCode>,
+}
+
+impl FlyKeys {
+    /// W, A, S, D, Q and E, and Shift to fly faster.
+    fn standard() -> FlyKeys {
+        FlyKeys {
+            forward: vec![KeyCode::KeyW],
+            back: vec![KeyCode::KeyS],
+            left: vec![KeyCode::KeyA],
+            right: vec![KeyCode::KeyD],
+            down: vec![KeyCode::KeyQ],
+            up: vec![KeyCode::KeyE],
+            faster: vec![KeyCode::ShiftLeft],
+        }
+    }
+}
+
 /// The way a free camera looking along `yaw` and `pitch` (degrees, the
 /// pitch above the level) flies forward, and the way to its right, which
 /// stays level (game space).
@@ -735,6 +781,7 @@ fn fly(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
+    controls: Option<Res<FlyControls>>,
     (screens, windows): (
         Option<Res<crate::ui_view::UiOpen>>,
         Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
@@ -744,6 +791,9 @@ fn fly(
     let (Some(keys), Some(buttons), Some(motion)) = (keys, buttons, motion) else {
         return;
     };
+    if controls.as_ref().is_some_and(|controls| controls.paused) {
+        return;
+    }
     let walk = crate::walk::on();
     if walk && screens.is_some_and(|open| open.0) {
         return;
@@ -752,6 +802,11 @@ fn fly(
         && windows
             .iter()
             .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
+    let keys_fly = !controls
+        .as_ref()
+        .is_some_and(|controls| controls.keys_need_look)
+        || buttons.pressed(MouseButton::Right)
+        || grabbed;
     for (mut transform, mut fly) in &mut cameras {
         if buttons.pressed(MouseButton::Right) || grabbed {
             fly.yaw -= motion.delta.x * 0.15;
@@ -759,20 +814,31 @@ fn fly(
             fly.pitch = (fly.pitch - motion.delta.y * 0.15).clamp(-most, most);
         }
         let (forward, right) = fly_axes(fly.yaw, fly.pitch);
+        let standard;
+        let fly_keys = match controls
+            .as_ref()
+            .and_then(|controls| controls.keys.as_ref())
+        {
+            Some(fly_keys) => fly_keys,
+            None => {
+                standard = FlyKeys::standard();
+                &standard
+            }
+        };
         let mut step = Vec3::ZERO;
-        for (key, direction) in [
-            (KeyCode::KeyW, forward),
-            (KeyCode::KeyS, -forward),
-            (KeyCode::KeyD, right),
-            (KeyCode::KeyA, -right),
-            (KeyCode::KeyE, Vec3::Z),
-            (KeyCode::KeyQ, -Vec3::Z),
+        for (codes, direction) in [
+            (&fly_keys.forward, forward),
+            (&fly_keys.back, -forward),
+            (&fly_keys.right, right),
+            (&fly_keys.left, -right),
+            (&fly_keys.up, Vec3::Z),
+            (&fly_keys.down, -Vec3::Z),
         ] {
-            if keys.pressed(key) {
+            if keys_fly && keys.any_pressed(codes.iter().copied()) {
                 step += direction;
             }
         }
-        let speed = if keys.pressed(KeyCode::ShiftLeft) {
+        let speed = if keys.any_pressed(fly_keys.faster.iter().copied()) {
             20.0
         } else {
             5.0
@@ -1205,6 +1271,24 @@ pub(crate) struct Spawner<'t> {
 pub struct SharedImages(std::sync::Mutex<BTreeMap<String, AssetId<Image>>>);
 
 impl SharedImages {
+    /// Puts `texture` in the place of the image uploaded as `name`, so
+    /// every mesh drawn with that image shows the new one. False when no
+    /// image of that name is loaded.
+    pub fn replace(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> bool {
+        let known = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(id) = known.get(name).copied() else {
+            return false;
+        };
+        if images.get_strong_handle(id).is_none() {
+            return false;
+        }
+        let _ = images.insert(id, material_image(texture));
+        true
+    }
+
     /// The image of the texture `name`: the one uploaded before when it is
     /// still loaded, else `texture` uploaded now.
     fn image(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> Handle<Image> {
@@ -1311,6 +1395,10 @@ impl<'t> Spawner<'t> {
                 Name::new(placed.ir.name.clone()),
             ))
             .id();
+        // A sky box follows the camera (`sky_box`).
+        if crate::sky_box::is_sky(&placed.ir.name) {
+            commands.entity(model_root).insert(crate::sky_box::SkyBox);
+        }
         commands.entity(parent).add_child(model_root);
         // Spawned first and parented after: a GLA may list a bone before
         // its parent.
@@ -1605,6 +1693,9 @@ impl<'t> Spawner<'t> {
         // reads the light from its vertex colours.
         let mut bits = lighting.bits();
         bits[10] |= u32::from(light.is_some()) << 3;
+        // A prop's glow that stands in for the room's light
+        // (`Placed::room_glow`) takes a material of its own too.
+        bits[10] |= u32::from(placed.room_glow) << 4;
         let material = self
             .cache
             .entry((
@@ -1639,6 +1730,7 @@ impl<'t> Spawner<'t> {
                     .water_if(water.map(|(alpha, bump)| (handle(bump), alpha)))
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())
+                    .room_glow(placed.room_glow)
                     .culled(culled)
                     .ranked(match (is_room, surface) {
                         (true, Surface::OpaqueAlpha) => texture
@@ -2129,6 +2221,25 @@ pub(crate) fn spawn_scene(
             flagged += usize::from(light.shadow && !light.ambient_only);
             lights.push(gpu);
             light_rooms.push(room);
+        }
+    }
+    // A project's sun (`sun`): in place of the game's, the first light that
+    // reaches a sun's distance, or as a sun of its own where there is none.
+    if let Some(sun) = loaded.sun {
+        let gpu = GpuLight {
+            position_radius: (game_to_bevy() * Vec3::from_array(sun.at)).extend(sun.radius),
+            color_multiplier: Vec3::from_array(sun.colour).extend(sun.multiplier),
+            kind: UVec4::new(0, 2, 0, 0),
+            ..Default::default()
+        };
+        match (lights.iter()).position(|light: &GpuLight| {
+            light.position_radius.w >= crate::shadows::SUN_RADIUS && light.kind.x == 0
+        }) {
+            Some(at) => lights[at] = gpu,
+            None => {
+                lights.push(gpu);
+                light_rooms.push(None);
+            }
         }
     }
     // `KJK_FOUND_LIGHTS=<file>`: the lights of that file join the area's
@@ -3510,6 +3621,13 @@ fn follow_paths(
         transform.translation = position;
         transform.rotation = rotation;
     }
+}
+
+/// `part` as the scene draws a lightmapped mesh of a level, for a program
+/// that changes such a mesh while it is shown (the level editor's rooms
+/// tool) to put in the old one's place.
+pub fn level_mesh(part: &asset_odyssey::model::MeshIr) -> Mesh {
+    odyssey_mesh(part, RenderAssetUsages::RENDER_WORLD, true, None)
 }
 
 /// `part` as a Bevy mesh: its positions, normals and diffuse UVs, the

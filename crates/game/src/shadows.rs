@@ -752,34 +752,24 @@ fn tiles_wanted() -> (bool, bool) {
 /// the light kinds' trial instead: the rooms keep half of their baked
 /// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines. `8`
 /// is the fitted lights' trial with a bake of their light in the rooms'
-/// lightmaps (`fitted_lights::baked_area`). `None` under the options' Enhanced
-/// Lightmaps with no variable set: the area being drawn decides
-/// (`fitted_lights::trial_of_area`), 8 for an area with a bake the game
-/// shows and 0 for any other.
+/// lightmaps (`fitted_lights::baked_area`). `None` when the variable is not
+/// set: the fitted lights' mode and the area being drawn decide
+/// (`fitted_lights::trial_of_area`). That mode may change while the program
+/// runs (the level editor's lighting view).
 struct ShadowDebug(Option<u32>);
 
 impl Default for ShadowDebug {
     fn default() -> ShadowDebug {
-        if std::env::var_os("KJK_SHADOW_DEBUG").is_none()
-            && crate::fitted_lights::trial_of_area(false).is_some()
-            && crate::lighting_bakes::chosen()
-        {
-            return ShadowDebug(None);
-        }
-        ShadowDebug(Some(match std::env::var("KJK_SHADOW_DEBUG").as_deref() {
-            Ok("2") => 2,
-            Ok("3") => 3,
-            Ok("4") => 4,
-            Ok("5") => 5,
-            Ok("6") => 6,
-            Ok("7") => 7,
-            Ok(_) => 1,
-            // The fitted lights' trial keeps half of the baked light too:
-            // the fittings' own lights make up the rest.
-            // `KJK_FITTED_LIGHTS=baked` is the same trial with the rooms'
-            // light baked (`fitted_lights::trial_of_variable`).
-            Err(_) => crate::fitted_lights::trial_of_variable(),
-        }))
+        ShadowDebug(match std::env::var("KJK_SHADOW_DEBUG").as_deref() {
+            Ok("2") => Some(2),
+            Ok("3") => Some(3),
+            Ok("4") => Some(4),
+            Ok("5") => Some(5),
+            Ok("6") => Some(6),
+            Ok("7") => Some(7),
+            Ok(_) => Some(1),
+            Err(_) => None,
+        })
     }
 }
 
@@ -1458,9 +1448,13 @@ fn upload(
         .map_or(Vec3::ZERO, GlobalTransform::translation);
     let lights = &area.0.lights[..(area.0.count as usize).min(area.0.lights.len())];
     let mut list = Box::new(ShadowList {
+        // Without `KJK_SHADOW_DEBUG`, the fitted lights' trial keeps half of
+        // the baked light, and the fittings' own lights make up the rest.
+        // `baked` is the same trial with the rooms' light baked, and `lamps`
+        // keeps none of it (`fitted_lights::trial_of_area`).
         debug: debug.0.unwrap_or_else(|| {
             let baked = scene.as_ref().is_some_and(|scene| scene.0.baked);
-            crate::fitted_lights::trial_of_area(baked).unwrap_or(0)
+            crate::fitted_lights::trial_of_area(baked)
         }),
         low: u32::from(settings.low()),
         rays: u32::from(settings == ShadowSettings::Ultra),

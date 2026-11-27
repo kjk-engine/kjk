@@ -2,6 +2,7 @@
 //! files.
 
 pub mod animation_cfg;
+pub mod bsp;
 pub mod efx;
 pub mod ghoul2;
 pub mod md3;

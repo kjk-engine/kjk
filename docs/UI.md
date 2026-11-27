@@ -493,7 +493,9 @@ greyed. Each button shows its row's `icon` in place of the layout's
 picture, as both games do. A mod's table may name any control of a mod's
 layout as a planet's button, not only those whose tags start with
 `LBL_Planet_`. It opens on the planet the script named (where the party is):
-chosen, its name and description (`planetary.2da`), and its model
+chosen, its name and description (`planetary.2da`: a strref's text, or
+the cell as written where it is no number, which is how a mod names a
+planet of its own, `GuiAssets::cell_text_or_written`), and its model
 turning in the 3D view (`planetary.2da`'s `model`, seen from its
 `camerahook`, lit by its own aurora light). A selectable planet pressed is
 chosen; Accept travels there (`GameAction::Travel` → `Action::Travel`);

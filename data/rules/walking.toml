@@ -42,6 +42,15 @@ summary = "A character within {walking.route.reached:m} of a corner of its path 
 source = "ours"
 see = "sim::walk::Walker::command"
 
+[route.take_off]
+name = "Link Take-off"
+value = 24.0
+unit = "units"
+range = [1.0, 128.0]
+summary = "A character crossing a level editor project's link between floors jumps once it stands within {walking.route.take_off:m} of where the link leaves, seen from above."
+source = "ours"
+see = "sim::walk::Walker::command"
+
 [route.arrived]
 name = "Arrival Distance"
 value = 2.0

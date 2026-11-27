@@ -1,0 +1,1050 @@
+//! A project as a mod of the game: what the level editor exports, and what
+//! kjk reads of such mods in an install's `override/`.
+//!
+//! An exported mod is a folder to copy into the game's own folder. It has
+//! two parts.
+//!
+//! - **Files the games read.** `override/` holds each level's object list
+//!   (`<area>.git`), the templates, conversations and compiled scripts the
+//!   project brings, and an area file the project changed. A new map's
+//!   module is `modules/<module>.mod`. KOTOR and kjk both read these, as
+//!   they read any mod.
+//! - **Files only kjk reads**, which the original game ignores. They are
+//!   named so that two mods in one `override/` do not take each other's
+//!   place:
+//!   - `kjk-area-<area>.toml` for each level: its kjk-only content
+//!     (`KjkArea`), with the level's `module` and `area` named at its top.
+//!   - `kjk-lighting-<project>.toml`: the kinds of fitting and room levels
+//!     the project changed (`lighting::OwnLighting`).
+//!   - `kjk-bake/<module>/<lightmap>.png`: the bake the project keeps of a
+//!     level.
+//!   - `kjk-journal-<project>.jrl`: the project's own quests
+//!     (`journal::own_quests`). The game's journal, `global.jrl`, is one
+//!     file for the whole game, so a mod does not bring a copy of it: kjk
+//!     adds every mod's quests to the game's journal when it loads.
+//!   - `kjk-mod-<project>.toml`: the mod's name, its version, its levels,
+//!     its quests and every file it brings, each with its size and its
+//!     digest (`Manifest`).
+//!   - `kjk-ja/<module>/`: a new map's rooms cut from Jedi Academy levels
+//!     (`JaMap`). `rooms.toml` says where the map places each such room,
+//!     and each level's cuts are a copy of the project's
+//!     `ja-rooms/<level>.toml`. The cuts name the level's file by its
+//!     digest. kjk builds the rooms from the player's own Jedi Academy
+//!     install (`kjk_game::ja_made`), so the mod holds nothing of Jedi
+//!     Academy's files. The map's module leaves those rooms out.
+//!
+//! kjk reads the kjk-only files of every mod in `override/` when it runs
+//! without `--project` (`active::activate_mods`). Two mods that change the
+//! same area take each other's place, as their `<area>.git` files do. kjk
+//! says so at its start: a file two mods list, a file of a mod that is
+//! missing or was replaced, and a quest two mods bring (`read`).
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::area::KjkArea;
+use crate::lighting::OwnLighting;
+use crate::project::Project;
+
+/// The file that marks a folder as an exported mod, with how to install it.
+pub const README: &str = "kjk-mod-readme.txt";
+
+/// The file of a level's kjk-only content in `override/`.
+pub fn area_file(area: &str) -> String {
+    format!("kjk-area-{}.toml", area.to_ascii_lowercase())
+}
+
+/// The file of a mod's own lighting rules in `override/`.
+pub fn lighting_file(name: &str) -> String {
+    format!("kjk-lighting-{}.toml", name.to_ascii_lowercase())
+}
+
+/// The file of a mod's own quests in `override/`.
+pub fn journal_file(name: &str) -> String {
+    format!("kjk-journal-{}.jrl", name.to_ascii_lowercase())
+}
+
+/// The folder of the new maps' Jedi Academy rooms in `override/`, one
+/// folder a map (`JaMap`).
+pub const JA_FOLDER: &str = "kjk-ja";
+
+/// The file of a map's Jedi Academy rooms' places, in its folder.
+pub const JA_ROOMS: &str = "rooms.toml";
+
+/// A new map's rooms cut from Jedi Academy levels, as a mod brings them:
+/// where the map places each, and the cuts of each level they come from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JaMap {
+    /// The map's module.
+    pub module: String,
+    /// Each room, with the name of its copy in the map's layout
+    /// (`map::room_name`).
+    pub rooms: Vec<(String, crate::map::Room)>,
+    /// The cuts of each level the rooms come from.
+    pub cuts: Vec<crate::ja_rooms::JaRooms>,
+    /// The Jedi Academy sky box drawn round the map (`map::NewMap::ja_sky`).
+    pub sky: Option<String>,
+}
+
+impl JaMap {
+    /// The map `map` of the module `module`'s Jedi Academy rooms and sky,
+    /// with the cuts that `cuts` gives for a level. `None` when it places
+    /// no such room and has no such sky.
+    pub fn of(
+        module: &str,
+        map: &crate::map::NewMap,
+        cuts: impl Fn(&str) -> Option<crate::ja_rooms::JaRooms>,
+    ) -> Result<Option<JaMap>, String> {
+        let rooms: Vec<(String, crate::map::Room)> = (map.rooms.iter().enumerate())
+            .filter(|(_, room)| room.ja.is_some())
+            .map(|(index, room)| (crate::map::room_name(module, index), room.clone()))
+            .collect();
+        if rooms.is_empty() && map.ja_sky.is_none() {
+            return Ok(None);
+        }
+        let levels: std::collections::BTreeSet<&str> = (rooms.iter())
+            .filter_map(|(_, room)| Some(room.ja.as_ref()?.level.as_str()))
+            .collect();
+        let mut kept = Vec::new();
+        for level in levels {
+            kept.push(cuts(level).ok_or(format!(
+                "the map {module} places rooms of {level}, but the project keeps no rooms of it"
+            ))?);
+        }
+        Ok(Some(JaMap {
+            module: module.to_string(),
+            rooms,
+            cuts: kept,
+            sky: map.ja_sky.clone(),
+        }))
+    }
+
+    /// The text of `rooms.toml`.
+    pub fn write_rooms(&self) -> String {
+        let triple = |v: [f32; 3]| format!("[{:?}, {:?}, {:?}]", v[0], v[1], v[2]);
+        let mut out = format!(
+            "# The rooms of the new map {} that kjk builds from Jedi Academy's levels\n\
+             # (docs/LEVEL-EDIT.md, \"Sharing a level\"). Each is built from the\n\
+             # player's own install, with the cuts beside this file.\n\
+             module = {}\n",
+            self.module,
+            crate::quoted(&self.module)
+        );
+        if let Some(sky) = &self.sky {
+            out.push_str(&format!("sky = {}\n", crate::quoted(sky)));
+        }
+        for (copy, room) in &self.rooms {
+            let Some(ja) = &room.ja else {
+                continue;
+            };
+            out.push_str(&format!(
+                "\n[[room]]\ncopy = {}\nja_level = {}\nja_room = {}\nfrom = {}\nposition = {}\nyaw = {:?}\n",
+                crate::quoted(copy),
+                crate::quoted(&ja.level),
+                crate::quoted(&ja.room),
+                triple(room.from),
+                triple(room.position),
+                f64::from(room.yaw)
+            ));
+        }
+        out
+    }
+
+    /// Reads the module, the rooms and the sky of `rooms.toml`.
+    #[allow(clippy::type_complexity)]
+    pub fn parse_rooms(
+        text: &str,
+    ) -> Result<(String, Vec<(String, crate::map::Room)>, Option<String>), String> {
+        let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+        let words = |item: Option<&toml_edit::Item>, what: &str| {
+            (item.and_then(toml_edit::Item::as_str))
+                .map(str::to_string)
+                .ok_or(format!("{what} is missing"))
+        };
+        let number = |value: &toml_edit::Value| {
+            (value.as_float())
+                .or_else(|| value.as_integer().map(|whole| whole as f64))
+                .map(|value| value as f32)
+                .filter(|value| value.is_finite())
+        };
+        let triple = |item: Option<&toml_edit::Item>, what: &str| -> Result<[f32; 3], String> {
+            let array = (item.and_then(toml_edit::Item::as_array))
+                .filter(|array| array.len() == 3)
+                .ok_or(format!("{what} is not three numbers"))?;
+            let parts: Vec<f32> = array.iter().filter_map(number).collect();
+            <[f32; 3]>::try_from(parts).map_err(|_| format!("{what} is not three numbers"))
+        };
+        let module = words(document.get("module"), "module")?.to_ascii_lowercase();
+        let mut rooms = Vec::new();
+        for table in (document
+            .get("room")
+            .and_then(toml_edit::Item::as_array_of_tables))
+        .into_iter()
+        .flat_map(toml_edit::ArrayOfTables::iter)
+        {
+            let ja = crate::map::JaRoom {
+                level: words(table.get("ja_level"), "a room's ja_level")?.to_ascii_lowercase(),
+                room: words(table.get("ja_room"), "a room's ja_room")?,
+            };
+            let room = crate::map::Room {
+                model: crate::ja_rooms::room_resref(&ja.level, &ja.room),
+                from: triple(table.get("from"), "a room's from")?,
+                position: triple(table.get("position"), "a room's position")?,
+                yaw: (table.get("yaw").and_then(toml_edit::Item::as_value))
+                    .and_then(number)
+                    .unwrap_or(0.0),
+                ja: Some(ja),
+                // The map's ARE holds it in a mod (`rooms_into_are`).
+                dry: false,
+            };
+            let copy = words(table.get("copy"), "a room's copy")?.to_ascii_lowercase();
+            rooms.push((copy, room));
+        }
+        let sky = (document.get("sky").and_then(toml_edit::Item::as_str))
+            .map(str::to_ascii_lowercase)
+            .filter(|sky| !sky.is_empty());
+        Ok((module, rooms, sky))
+    }
+}
+
+/// The file that says what a mod is and what it brings, in `override/`.
+pub fn manifest_file(name: &str) -> String {
+    format!("kjk-mod-{}.toml", name.to_ascii_lowercase())
+}
+
+/// What a mod says of itself (`manifest_file`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Manifest {
+    pub name: String,
+    pub version: String,
+    /// The levels it changes or makes, by module.
+    pub levels: Vec<String>,
+    /// The tags of the quests it brings.
+    pub quests: Vec<String>,
+    /// Every file it brings: its lowercase path from the game's folder
+    /// (`override/kje_item.uti`), its size in bytes and its BLAKE3 digest
+    /// in hex.
+    pub files: Vec<(String, u64, String)>,
+    /// Every file of another mod it was built on, as `files` lists its
+    /// own: a loose file of the game's override folder
+    /// (`override/k_patched.utc`) or a module's mod file
+    /// (`modules/danm13.mod`). The mod's levels name these files and the
+    /// game alone does not have them. A file larger than `CHECKED_BYTES`
+    /// has no digest.
+    pub needs: Vec<(String, u64, String)>,
+}
+
+impl Manifest {
+    fn write(&self) -> String {
+        let list = |names: &[String]| {
+            let quoted: Vec<String> = names.iter().map(|name| crate::quoted(name)).collect();
+            quoted.join(", ")
+        };
+        let mut text = format!(
+            "# The mod {}, made with kjk's level editor (docs/LEVEL-EDIT.md, \"Sharing a level\").\n\
+             # To remove the mod, delete the files listed here, then this file.\n\
+             name = {}\nversion = {}\nlevels = [{}]\nquests = [{}]\n",
+            self.name,
+            crate::quoted(&self.name),
+            crate::quoted(&self.version),
+            list(&self.levels),
+            list(&self.quests)
+        );
+        for (path, size, hash) in &self.files {
+            text.push_str(&format!(
+                "\n[[file]]\npath = {}\nsize = {size}\nhash = {}\n",
+                crate::quoted(path),
+                crate::quoted(hash)
+            ));
+        }
+        if !self.needs.is_empty() {
+            text.push_str(
+                "\n# The files of other mods this mod was built on. They are not part of\n\
+                 # this mod. Install the mods that bring them first.\n",
+            );
+        }
+        for (path, size, hash) in &self.needs {
+            text.push_str(&format!(
+                "\n[[needs]]\npath = {}\nsize = {size}\nhash = {}\n",
+                crate::quoted(path),
+                crate::quoted(hash)
+            ));
+        }
+        text
+    }
+
+    fn parse(text: &str) -> Result<Manifest, String> {
+        let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+        let word = |key: &str| {
+            (document.get(key).and_then(toml_edit::Item::as_str))
+                .map_or_else(String::new, str::to_string)
+        };
+        let words = |key: &str| {
+            (document.get(key).and_then(toml_edit::Item::as_array)).map_or_else(Vec::new, |list| {
+                list.iter()
+                    .filter_map(|item| item.as_str().map(str::to_ascii_lowercase))
+                    .collect()
+            })
+        };
+        let name = word("name");
+        if name.is_empty() {
+            return Err("it names no mod".into());
+        }
+        let listed = |key: &str| {
+            (document.get(key))
+                .and_then(toml_edit::Item::as_array_of_tables)
+                .map_or_else(Vec::new, |tables| {
+                    tables
+                        .iter()
+                        .filter_map(|table| {
+                            let path = table.get("path")?.as_str()?.to_ascii_lowercase();
+                            let size = table.get("size")?.as_integer()?;
+                            let hash = table.get("hash")?.as_str()?.to_string();
+                            Some((path, u64::try_from(size).ok()?, hash))
+                        })
+                        .collect()
+                })
+        };
+        let files = listed("file");
+        let needs = listed("needs");
+        Ok(Manifest {
+            name,
+            version: word("version"),
+            levels: words("levels"),
+            quests: words("quests"),
+            files,
+            needs,
+        })
+    }
+}
+
+/// The largest file whose digest is checked when kjk starts. A larger one
+/// (a new map's module) is checked by its size alone, so a start stays
+/// quick.
+const CHECKED_BYTES: u64 = 1 << 20;
+
+fn digest_of(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
+}
+
+/// What the mods in an `override/` hold for kjk.
+#[derive(Debug, Default)]
+pub struct Found {
+    /// Each level a mod changes: its module, its area and its kjk-only
+    /// content.
+    pub levels: Vec<(String, String, KjkArea)>,
+    /// The kinds of fitting the mods changed, a later file's kind in place
+    /// of an earlier file's.
+    pub lighting: OwnLighting,
+    /// The folder of the bake a mod keeps of a level, by module.
+    pub bakes: BTreeMap<String, PathBuf>,
+    /// The mods' own quests (`journal_file`), each file's journal, in the
+    /// files' order.
+    pub journals: Vec<fmt_odyssey::gff::Gff>,
+    /// What each mod says of itself (`manifest_file`).
+    pub mods: Vec<Manifest>,
+    /// The new maps' rooms cut from Jedi Academy levels (`JA_FOLDER`).
+    pub ja_maps: Vec<JaMap>,
+    /// A digest of what the mods change of the world that the games' own
+    /// files do not hold: the levels' kjk-only content and the quests.
+    /// Two machines that play together compare it.
+    pub world: Option<[u8; 32]>,
+    /// The files that did not read, each with why (such a file is left
+    /// out), and what two mods both change.
+    pub notes: Vec<String>,
+}
+
+impl Found {
+    pub fn is_empty(&self) -> bool {
+        self.levels.is_empty()
+            && self.lighting.is_empty()
+            && self.bakes.is_empty()
+            && self.journals.is_empty()
+            && self.mods.is_empty()
+            && self.ja_maps.is_empty()
+    }
+}
+
+/// Reads the kjk-only files among `files`: each file of an `override/` by
+/// its lowercase path inside it (`/` between folders) and where it is.
+pub fn read(files: &[(String, PathBuf)]) -> Found {
+    let mut found = Found::default();
+    let mut world = blake3::Hasher::new();
+    let mut of_world = false;
+    let mut hash_in = |inside: &str, path: &Path| {
+        if let Ok(bytes) = std::fs::read(path) {
+            for part in [inside.as_bytes(), &bytes] {
+                world.update(&(part.len() as u64).to_le_bytes());
+                world.update(part);
+            }
+            of_world = true;
+        }
+    };
+    // Each map's Jedi Academy rooms: its places, and its levels' cuts.
+    let mut ja_places: BTreeMap<String, (String, PathBuf)> = BTreeMap::new();
+    let mut ja_cuts: BTreeMap<String, Vec<(String, PathBuf)>> = BTreeMap::new();
+    for (inside, path) in files {
+        let top = !inside.contains('/');
+        if let Some(rest) = inside.strip_prefix(&format!("{JA_FOLDER}/"))
+            && let Some((map, file)) = rest.split_once('/')
+            && !file.contains('/')
+            && file.ends_with(".toml")
+        {
+            if file == JA_ROOMS {
+                ja_places.insert(map.to_string(), (inside.clone(), path.clone()));
+            } else {
+                (ja_cuts.entry(map.to_string()).or_default()).push((inside.clone(), path.clone()));
+            }
+            hash_in(inside, path);
+            continue;
+        }
+        if top && inside.starts_with("kjk-area-") && inside.ends_with(".toml") {
+            match read_area(path) {
+                Ok(level) => {
+                    found.levels.push(level);
+                    hash_in(inside, path);
+                }
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        } else if top && inside.starts_with("kjk-journal-") && inside.ends_with(".jrl") {
+            let read = std::fs::read(path)
+                .map_err(|error| error.to_string())
+                .and_then(|bytes| {
+                    fmt_odyssey::gff::Gff::parse(&bytes).map_err(|error| error.to_string())
+                });
+            match read {
+                Ok(journal) => {
+                    found.journals.push(journal);
+                    hash_in(inside, path);
+                }
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        } else if top && inside.starts_with("kjk-mod-") && inside.ends_with(".toml") {
+            let read = std::fs::read_to_string(path)
+                .map_err(|error| error.to_string())
+                .and_then(|text| Manifest::parse(&text));
+            match read {
+                Ok(manifest) => found.mods.push(manifest),
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        } else if top && inside.starts_with("kjk-lighting-") && inside.ends_with(".toml") {
+            let read = std::fs::read_to_string(path)
+                .map_err(|error| error.to_string())
+                .and_then(|text| OwnLighting::parse(&text));
+            match read {
+                Ok(own) => {
+                    for kind in own.kinds {
+                        (found.lighting.kinds).retain(|had| {
+                            (had.texture.as_str(), had.placeable)
+                                != (kind.texture.as_str(), kind.placeable)
+                        });
+                        found.lighting.kinds.push(kind);
+                    }
+                    found.lighting.levels.extend(own.levels);
+                }
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        } else if let Some(rest) = inside.strip_prefix("kjk-bake/")
+            && rest.ends_with(".png")
+            && let Some((module, _)) = rest.split_once('/')
+            && let Some(folder) = path.parent()
+        {
+            found
+                .bakes
+                .entry(module.to_string())
+                .or_insert_with(|| folder.to_path_buf());
+        }
+    }
+    for (map, (inside, path)) in ja_places {
+        let read = std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| JaMap::parse_rooms(&text));
+        let (module, rooms, sky) = match read {
+            Ok(read) => read,
+            Err(why) => {
+                found.notes.push(format!("{inside}: {why}"));
+                continue;
+            }
+        };
+        let mut cuts = Vec::new();
+        for (inside, path) in ja_cuts.remove(&map).unwrap_or_else(Vec::new) {
+            let read = std::fs::read_to_string(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|text| crate::ja_rooms::JaRooms::parse(&text));
+            match read {
+                Ok(kept) => cuts.push(kept),
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        }
+        found.ja_maps.push(JaMap {
+            module,
+            rooms,
+            cuts,
+            sky,
+        });
+    }
+    found.world = of_world.then(|| *world.finalize().as_bytes());
+    let clashes = clashes(&found, files);
+    found.notes.extend(clashes);
+    found
+}
+
+/// What the mods were built on that is not installed, or is another
+/// version, as notes for the person (`Manifest::needs`). `files` is every
+/// file of the game's override folder by its lowercase path inside it, and
+/// `modules` every file of the game's `modules/` folder by its lowercase
+/// name.
+pub fn needs_notes(
+    mods: &[Manifest],
+    files: &[(String, PathBuf)],
+    modules: &[(String, PathBuf)],
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    for manifest in mods {
+        let (mut missing, mut other) = (Vec::new(), Vec::new());
+        for (path, size, hash) in &manifest.needs {
+            let on_disk = match path.split_once('/') {
+                Some(("override", inside)) => files.iter().find(|(had, _)| had == inside),
+                Some(("modules", name)) => modules.iter().find(|(had, _)| had == name),
+                _ => None,
+            };
+            let Some((_, on_disk)) = on_disk else {
+                missing.push(path.as_str());
+                continue;
+            };
+            let length = std::fs::metadata(on_disk).map_or(0, |meta| meta.len());
+            let same = length == *size
+                && (hash.is_empty()
+                    || length > CHECKED_BYTES
+                    || digest_of(on_disk).is_ok_and(|now| now == *hash));
+            if !same {
+                other.push(path.as_str());
+            }
+        }
+        for (what, paths) in [
+            (
+                "These files of that mod are missing, so install that mod first",
+                missing,
+            ),
+            (
+                "These files of that mod differ from the ones it was built on, so that mod is installed in another version",
+                other,
+            ),
+        ] {
+            if paths.is_empty() {
+                continue;
+            }
+            let shown: Vec<&str> = paths.iter().take(6).copied().collect();
+            let more = match paths.len().saturating_sub(shown.len()) {
+                0 => String::new(),
+                more => format!(" and {more} more"),
+            };
+            notes.push(format!(
+                "the mod {} {} was built on another mod, such as a community patch or a restored content mod. {what}: {}{more}",
+                manifest.name,
+                manifest.version,
+                shown.join(", ")
+            ));
+        }
+    }
+    notes
+}
+
+/// What of the mods' own files (`Manifest::files`) under `prefix`
+/// (`override/` or `modules/`) is missing, or is not the file the mod
+/// brought, as notes for the person. `files` is every file of that folder
+/// by its lowercase path inside it.
+fn own_files_notes(mods: &[Manifest], prefix: &str, files: &[(String, PathBuf)]) -> Vec<String> {
+    let mut notes = Vec::new();
+    for manifest in mods {
+        let (mut missing, mut replaced) = (Vec::new(), Vec::new());
+        for (path, size, hash) in &manifest.files {
+            let Some(inside) = path.strip_prefix(prefix) else {
+                continue;
+            };
+            let Some((_, on_disk)) = files.iter().find(|(had, _)| had == inside) else {
+                missing.push(path.as_str());
+                continue;
+            };
+            let length = std::fs::metadata(on_disk).map_or(0, |meta| meta.len());
+            let same = length == *size
+                && (length > CHECKED_BYTES || digest_of(on_disk).is_ok_and(|now| now == *hash));
+            if !same {
+                replaced.push(path.as_str());
+            }
+        }
+        for (what, paths) in [
+            ("are missing", missing),
+            (
+                "are not the ones it brought (another mod, or a later change, replaced them)",
+                replaced,
+            ),
+        ] {
+            if paths.is_empty() {
+                continue;
+            }
+            let shown: Vec<&str> = paths.iter().take(6).copied().collect();
+            let more = match paths.len().saturating_sub(shown.len()) {
+                0 => String::new(),
+                more => format!(" and {more} more"),
+            };
+            notes.push(format!(
+                "the mod {} {} has files that {what}: {}{more}",
+                manifest.name,
+                manifest.version,
+                shown.join(", ")
+            ));
+        }
+    }
+    notes
+}
+
+/// What of the mods' own module files (`modules/<map>.mod`, a new map's)
+/// is missing or was replaced, as notes for the person. `modules` is every
+/// file of the game's `modules/` folder by its lowercase name. The mods'
+/// files in `override/` are checked as they are read (`read`). The module
+/// files were not checked at all, so a new map's missing or overwritten
+/// module was never told.
+pub fn module_notes(mods: &[Manifest], modules: &[(String, PathBuf)]) -> Vec<String> {
+    own_files_notes(mods, "modules/", modules)
+}
+
+/// What the mods found both change, and what of a mod is missing or was
+/// replaced, as notes for the person: the games read one file of a name,
+/// so the mod copied last wins without a word.
+fn clashes(found: &Found, files: &[(String, PathBuf)]) -> Vec<String> {
+    let mut notes = Vec::new();
+    // A file two mods list.
+    let mut owner: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut shared: BTreeMap<(&str, &str), Vec<&str>> = BTreeMap::new();
+    for manifest in &found.mods {
+        for (path, ..) in &manifest.files {
+            match owner.get(path.as_str()) {
+                Some(first) if *first != manifest.name => {
+                    (shared.entry((first, &manifest.name)).or_default()).push(path);
+                }
+                Some(_) => {}
+                None => {
+                    owner.insert(path, &manifest.name);
+                }
+            }
+        }
+    }
+    for ((first, second), paths) in shared {
+        let shown: Vec<&str> = paths.iter().take(6).copied().collect();
+        let more = match paths.len().saturating_sub(shown.len()) {
+            0 => String::new(),
+            more => format!(" and {more} more"),
+        };
+        notes.push(format!(
+            "the mods {first} and {second} both bring {}{more}: the game reads the copy that was installed last, so one of the two mods is not whole",
+            shown.join(", ")
+        ));
+    }
+    // A file of a mod that is not there, or is not the one the mod brought.
+    notes.extend(own_files_notes(&found.mods, "override/", files));
+    // A level two mods bring kjk's content for. The first one read is the
+    // level's (`Project::of_mods`). The other's was dropped without a word.
+    let mut levels = std::collections::BTreeSet::new();
+    let mut twice = std::collections::BTreeSet::new();
+    for (module, ..) in &found.levels {
+        if !levels.insert(module.as_str()) && twice.insert(module.as_str()) {
+            notes.push(format!(
+                "two mods bring kjk's content for the level {module}: the first one read is kept, and the other's boxes, props, lights and lamps are left out"
+            ));
+        }
+    }
+    // A quest two mods bring.
+    let mut merged = crate::journal::empty();
+    for journal in &found.journals {
+        for tag in crate::journal::merge(&mut merged, journal) {
+            notes.push(format!(
+                "two mods bring a quest tagged {tag}: the first one read is kept"
+            ));
+        }
+    }
+    notes
+}
+
+/// A level's `kjk-area-<area>.toml`: the module and area it names, and its
+/// kjk-only content.
+fn read_area(path: &Path) -> Result<(String, String, KjkArea), String> {
+    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+    let named = |key: &str| {
+        (document.get(key).and_then(toml_edit::Item::as_str))
+            .map(str::to_ascii_lowercase)
+            .filter(|name| !name.is_empty())
+            .ok_or(format!("it names no {key}"))
+    };
+    Ok((named("module")?, named("area")?, KjkArea::parse(&text)?))
+}
+
+/// What an export wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exported {
+    /// How many files the games read (`override/` and `modules/`).
+    pub game_files: usize,
+    /// How many files only kjk reads.
+    pub kjk_files: usize,
+    /// How many files of other mods the mod was built on
+    /// (`Manifest::needs`).
+    pub needs: usize,
+    /// How many files the folder held that no export made there before
+    /// had written. They are left as they are.
+    pub left: usize,
+}
+
+fn failed(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
+    move |error| format!("{}: {error}", path.display())
+}
+
+/// Every file under `folder`, by its lowercase path inside it (`/` between
+/// folders).
+fn files_under(folder: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    let mut folders = vec![(String::new(), folder.to_path_buf())];
+    while let Some((inside, at)) = folders.pop() {
+        for entry in std::fs::read_dir(&at).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let inside = if inside.is_empty() {
+                name
+            } else {
+                format!("{inside}/{name}")
+            };
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push((inside, path));
+            } else {
+                found.push((inside, path));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Removes what the exports made in `to` before wrote there: every file
+/// that a mod's list (`manifest_file`) in its `override/` names, then the
+/// lists and the readme, then each folder that is left empty. Any other
+/// file stays where it is: one the person put there, or one of an export
+/// older than the lists. How many such files are left.
+///
+/// The folder is not removed whole. It is one the person named, and a
+/// readme in it does not make everything in it the export's.
+fn remove_exported(to: &Path) -> Result<usize, String> {
+    let before = files_under(to);
+    let mut gone: Vec<&Path> = Vec::new();
+    for (inside, path) in &before {
+        let listed = (inside.strip_prefix("override/"))
+            .is_some_and(|name| name.starts_with("kjk-mod-") && name.ends_with(".toml"));
+        if !listed {
+            continue;
+        }
+        let manifest = std::fs::read_to_string(path)
+            .map_err(failed(path))
+            .and_then(|text| Manifest::parse(&text).map_err(|why| format!("{inside}: {why}")));
+        // A list that does not read names nothing: its files stay.
+        if let Ok(manifest) = manifest {
+            for (listed, ..) in &manifest.files {
+                gone.extend(
+                    (before.iter())
+                        .filter(|(had, _)| had == listed)
+                        .map(|(_, path)| path.as_path()),
+                );
+            }
+        }
+        gone.push(path);
+    }
+    gone.extend(
+        (before.iter())
+            .filter(|(inside, _)| inside == README)
+            .map(|(_, path)| path.as_path()),
+    );
+    for path in &gone {
+        if path.is_file() {
+            std::fs::remove_file(path).map_err(failed(path))?;
+        }
+    }
+    // The folders left empty, the deepest first. One that still holds a
+    // file is not removed, and that is no fault.
+    let mut folders: Vec<PathBuf> = (before.iter())
+        .flat_map(|(_, path)| path.ancestors().skip(1).take_while(|folder| *folder != to))
+        .map(Path::to_path_buf)
+        .collect();
+    folders.sort_by_key(|folder| std::cmp::Reverse(folder.components().count()));
+    folders.dedup();
+    for folder in folders {
+        let _ = std::fs::remove_dir(folder);
+    }
+    Ok(files_under(to).len())
+}
+
+/// Exports `project`, as its folder holds it (saved), as a mod in the
+/// folder `to`, in place of an export made there before
+/// (`remove_exported`). A folder that holds files and no export is
+/// refused. `needs` is every file of another mod the project's levels name
+/// (`Manifest::needs`): its path from the game's folder and where it is on
+/// this machine.
+pub fn export(
+    project: &Project,
+    to: &Path,
+    needs: &[(String, PathBuf)],
+) -> Result<Exported, String> {
+    // The levels' and areas' names become files' and folders' names in
+    // the mod.
+    if let Some(why) = project.unsafe_name() {
+        return Err(why);
+    }
+    let empty = std::fs::read_dir(to).map_or(true, |mut entries| entries.next().is_none());
+    if !empty && !to.join(README).is_file() {
+        return Err(format!(
+            "{} holds other files: name an empty folder, or one a mod was exported to before",
+            to.display()
+        ));
+    }
+    let left = if empty { 0 } else { remove_exported(to)? };
+    let overrides = to.join("override");
+    std::fs::create_dir_all(&overrides).map_err(failed(&overrides))?;
+    let mut exported = Exported {
+        game_files: 0,
+        kjk_files: 0,
+        needs: needs.len(),
+        left,
+    };
+    // Every file this export writes, for the mod's list of its files.
+    let mut written: Vec<PathBuf> = Vec::new();
+
+    // What the games read: every file at the top of the project's folder
+    // but the project's own notes (its `.toml` files, the scripts' debug
+    // notes, a file half written).
+    let kept_out = ["toml", "ndb", "new"];
+    let journal = format!("{}.jrl", crate::journal::NAME);
+    for entry in std::fs::read_dir(&project.folder)
+        .map_err(failed(&project.folder))?
+        .flatten()
+    {
+        let path = entry.path();
+        let extension = (path.extension().and_then(|extension| extension.to_str()))
+            .map_or_else(String::new, str::to_ascii_lowercase);
+        if !path.is_file() || kept_out.contains(&extension.as_str()) {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        // The journal is one file for the whole game: the mod brings its
+        // own quests in a file of its own, below.
+        if name.to_string_lossy().eq_ignore_ascii_case(&journal) {
+            continue;
+        }
+        let target = overrides.join(name.to_ascii_lowercase());
+        std::fs::copy(&path, &target).map_err(failed(&target))?;
+        exported.game_files += 1;
+        written.push(target);
+    }
+    let quests = (project.templates.get(crate::journal::NAME))
+        .and_then(|made| crate::journal::own_quests(&made.gff));
+    let quest_tags = (quests.as_ref()).map_or_else(Vec::new, crate::journal::tags);
+    if let Some(quests) = &quests {
+        let target = overrides.join(journal_file(&project.name));
+        std::fs::write(&target, quests.write()).map_err(failed(&target))?;
+        exported.kjk_files += 1;
+        written.push(target);
+    }
+    // A new map's module.
+    let modules = project.folder.join("modules");
+    for entry in std::fs::read_dir(&modules).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let is_module = (path.extension().and_then(|extension| extension.to_str()))
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mod"));
+        if !path.is_file() || !is_module {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let folder = to.join("modules");
+        std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
+        let target = folder.join(name.to_ascii_lowercase());
+        std::fs::copy(&path, &target).map_err(failed(&target))?;
+        exported.game_files += 1;
+        written.push(target);
+    }
+
+    // What only kjk reads.
+    for (module, area) in project.level_list() {
+        let Some(kjk) = project.kjk_of(&module) else {
+            continue;
+        };
+        // A new map's lights and lamps are its own. An installed level's
+        // are, once the project changed them; until then they are the
+        // light data's and stay out.
+        let mut kjk = kjk.clone();
+        if project.is_map(&module) {
+            kjk.own_lights = true;
+        } else if !kjk.own_lights {
+            kjk.lights.clear();
+            kjk.lamps.clear();
+        }
+        // A level with no content of kjk's own gets no file of it.
+        if kjk != KjkArea::default() {
+            let text = format!(
+                "# A level of the mod {}, for kjk (docs/LEVEL-EDIT.md, \"Sharing a level\").\n\
+                 module = {}\narea = {}\n\n{}",
+                project.name,
+                crate::quoted(&module),
+                crate::quoted(&area),
+                kjk.write()
+            );
+            let target = overrides.join(area_file(&area));
+            std::fs::write(&target, text).map_err(failed(&target))?;
+            exported.kjk_files += 1;
+            written.push(target);
+        }
+        // Its bake goes into the mod all the same, and a mod's reader finds
+        // a bake without that file (`read`). A level whose project changed
+        // the rules of its light alone, and kept a bake, used to lose the
+        // bake here: the bake was copied only after the level's file was
+        // written.
+        if let Some(bake) = crate::lighting::kept_bake(&project.folder, &module) {
+            let folder = overrides.join(crate::lighting::BAKES).join(&module);
+            std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
+            for entry in std::fs::read_dir(&bake).map_err(failed(&bake))?.flatten() {
+                let path = entry.path();
+                let Some(name) = path.file_name().filter(|_| path.is_file()) else {
+                    continue;
+                };
+                let target = folder.join(name.to_ascii_lowercase());
+                std::fs::copy(&path, &target).map_err(failed(&target))?;
+                exported.kjk_files += 1;
+                written.push(target);
+            }
+        }
+    }
+    // A new map's rooms cut from Jedi Academy levels: where it places
+    // them, and the cuts they are built from.
+    for (module, _) in project.level_list() {
+        let Some(map) = project.map_of(&module) else {
+            continue;
+        };
+        let cuts = |level: &str| {
+            let path = crate::ja_rooms::path(&project.folder, level);
+            crate::ja_rooms::JaRooms::parse(&std::fs::read_to_string(path).ok()?).ok()
+        };
+        let Some(ja) = JaMap::of(&module, map, cuts)? else {
+            continue;
+        };
+        let folder = overrides.join(JA_FOLDER).join(&module);
+        std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
+        let target = folder.join(JA_ROOMS);
+        std::fs::write(&target, ja.write_rooms()).map_err(failed(&target))?;
+        exported.kjk_files += 1;
+        written.push(target);
+        for kept in &ja.cuts {
+            let name = crate::ja_rooms::file_stem(&kept.level);
+            let target = folder.join(format!("{name}.toml"));
+            std::fs::write(&target, kept.write()).map_err(failed(&target))?;
+            exported.kjk_files += 1;
+            written.push(target);
+        }
+    }
+    let own = OwnLighting::read(&project.folder)?;
+    if !own.is_empty() {
+        let target = overrides.join(lighting_file(&project.name));
+        std::fs::write(&target, own.write()).map_err(failed(&target))?;
+        exported.kjk_files += 1;
+        written.push(target);
+    }
+
+    // What the mod is and every file it brings, for telling two mods apart
+    // and for taking one out again.
+    let mut manifest = Manifest {
+        name: project.name.clone(),
+        version: project.version.clone(),
+        levels: (project.level_list().into_iter())
+            .map(|(module, _)| module)
+            .collect(),
+        quests: quest_tags,
+        files: Vec::new(),
+        needs: Vec::new(),
+    };
+    for (path, on_disk) in needs {
+        let size = std::fs::metadata(on_disk).map_err(failed(on_disk))?.len();
+        let hash = if size > CHECKED_BYTES {
+            String::new()
+        } else {
+            digest_of(on_disk)?
+        };
+        manifest.needs.push((path.to_ascii_lowercase(), size, hash));
+    }
+    manifest.needs.sort();
+    manifest.needs.dedup();
+    for path in &written {
+        let inside = (path.strip_prefix(to).ok())
+            .map(|inside| {
+                inside
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .to_ascii_lowercase()
+            })
+            .ok_or(format!("{} is not in the export", path.display()))?;
+        let size = std::fs::metadata(path).map_err(failed(path))?.len();
+        manifest.files.push((inside, size, digest_of(path)?));
+    }
+    manifest.files.sort();
+    manifest.files.dedup();
+    let target = overrides.join(manifest_file(&project.name));
+    std::fs::write(&target, manifest.write()).map_err(failed(&target))?;
+    exported.kjk_files += 1;
+    written.push(target);
+
+    let game = match project.game.as_str() {
+        "tsl" => "Knights of the Old Republic II",
+        _ => "Knights of the Old Republic",
+    };
+    let readme = format!(
+        "{name}, a mod for Star Wars: {game}\n\
+         Made with kjk's level editor.\n\
+         \n\
+         To install it, copy the folders beside this file into the game's own\n\
+         folder, so that the files of override here go into the game's override\n\
+         folder{modules}.\n\
+         \n\
+         It needs the game. It holds changed copies of some of the game's own\n\
+         files, as mods of this game do.\n\
+         \n\
+         The original game reads {game_files} of its files. The other {kjk_files} are for kjk\n\
+         alone, and the original game ignores them: the files named kjk-area,\n\
+         kjk-lighting, kjk-journal and kjk-mod, and the folders kjk-bake and\n\
+         kjk-ja. They hold what only kjk plays: collision boxes, Jedi Academy\n\
+         props, lights, lamps, baked light and the mod's quests. kjk reads them\n\
+         when it plays without --project. The original game does not show the\n\
+         mod's quests in its journal.{ja}\n\
+         \n\
+         This is version {version}. To remove the mod, delete the files that\n\
+         {manifest} in the override folder lists, then that file.\n",
+        version = project.version,
+        manifest = manifest_file(&project.name),
+        name = project.name,
+        modules = if (project.level_list().iter()).any(|(module, _)| project.is_map(module)) {
+            ", and the files of modules into its modules folder"
+        } else {
+            ""
+        },
+        game_files = exported.game_files,
+        kjk_files = exported.kjk_files,
+        ja = if overrides.join(JA_FOLDER).is_dir() {
+            "\n\nA new map of the mod has rooms of Jedi Academy's levels. The mod holds\n\
+             none of Jedi Academy's files: kjk builds those rooms from your own\n\
+             copy of Jedi Academy, which must be installed. The original game\n\
+             cannot play that map."
+        } else {
+            ""
+        },
+    );
+    let target = to.join(README);
+    std::fs::write(&target, readme).map_err(failed(&target))?;
+    Ok(exported)
+}

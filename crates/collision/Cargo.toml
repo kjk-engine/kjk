@@ -13,7 +13,11 @@ rules.workspace = true
 [features]
 # The containment audit and the probes (`kjk collision ...`): checks, not
 # the game.
-probes = []
+probes = ["audit"]
+# The containment audit alone (`audit`), which the level editor's Audit
+# button runs, also in a release's level editor package (`launcher`'s
+# `editor_tools`).
+audit = []
 
 [lints]
 workspace = true

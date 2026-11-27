@@ -91,7 +91,9 @@ pub fn skips_logos() -> bool {
 }
 
 /// This program again, on its main menu, in place of this process (on
-/// Windows, beside it as this one ends).
+/// Windows, beside it as this one ends). A run that plays a level editor
+/// project (`--project`) plays it there too, so the menu loads the saves
+/// made in the project's levels.
 pub fn restart_into_menu() -> std::io::Error {
     let program = match std::env::current_exe() {
         Ok(program) => program,
@@ -99,6 +101,11 @@ pub fn restart_into_menu() -> std::io::Error {
     };
     let mut command = std::process::Command::new(program);
     command.arg("--back-to-menu");
+    if let Some((_, folder)) = vfs::project::active()
+        && let Some(name) = folder.file_name()
+    {
+        command.arg("--project").arg(name);
+    }
     if let Some(notice) = take_notice() {
         command.arg("--notice").arg(notice);
     }
@@ -352,7 +359,9 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                         made: character.as_ref().map(crate::persona::Made::Desc),
                         ..solo_options(stage)?
                     };
+                    let saved = save.is_some();
                     play::load(&discovery, &options)
+                        .map_err(|why| if saved { mod_gone(why) } else { why })
                 })
             }
             SessionIntent::Restore { save: id } => {
@@ -388,7 +397,7 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                         let _ = sender.send(Progress::Lobby(Box::new(host)));
                         return;
                     }
-                    Err(why) => Err(why),
+                    Err(why) => Err(mod_gone(why)),
                 }
             }
             SessionIntent::Join { address, name } => {
@@ -721,6 +730,22 @@ fn finish(world: &mut World) {
             };
             world.resource_mut::<Flow>().asking = asking;
         }
+    }
+}
+
+/// Why a save did not load, said for the player when its level is not in
+/// the game's folder (`vfs::resolver::ResolveError::missing_module`). Most
+/// often a mod added the level and is not installed now. A game's own
+/// level can be missing too, from a damaged install, so the message names
+/// both. Any other reason is left as it is.
+fn mod_gone(why: String) -> String {
+    match vfs::resolver::ResolveError::missing_module(&why) {
+        Some(level) => format!(
+            "This save was made in the level {level}, which is not in the game's folder. \
+             If a mod added that level, install the mod again to load this save. \
+             Otherwise the game's files are incomplete."
+        ),
+        None => why,
     }
 }
 

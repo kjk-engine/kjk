@@ -264,11 +264,13 @@ pub trait Host {
 
 /// A routine's parameters with their defaults resolved (OBJECT_SELF as
 /// `ObjectId(0)`, put in for the caller at the call).
+#[derive(Clone)]
 struct Prepared {
     params: Vec<(Type, Option<Value>)>,
 }
 
 /// The routines, ready to call: the catalog and each routine's defaults.
+#[derive(Clone)]
 pub struct Routines {
     catalog: Arc<Catalog>,
     prepared: Vec<Prepared>,
@@ -342,6 +344,7 @@ pub struct Finished {
 }
 
 /// A program ready to run: its instructions and where each starts.
+#[derive(Clone)]
 pub struct Program {
     pub ncs: Ncs,
 }
@@ -369,6 +372,63 @@ struct Machine<'a> {
     returns: Vec<usize>,
     stored: Option<Deferred>,
     offset: u32,
+    /// Each call made and not returned (`Watch::frames`).
+    frames: Vec<(usize, u32)>,
+    /// An observer watches this thread's runs (`observe`), and this run is
+    /// deferred code.
+    observed: bool,
+    deferred: bool,
+}
+
+/// What a run shows its observer before each instruction (`observe`): a
+/// debugger's view of the machine.
+pub struct Watch<'a> {
+    pub program: &'a Program,
+    /// The instruction about to run.
+    pub offset: u32,
+    pub stack: &'a [Value],
+    /// The globals' end: the stack below it holds them.
+    pub bp: usize,
+    /// Each call made and not returned, the outermost first: the stack's
+    /// length as it was made (the called function's locals start there)
+    /// and the called function's first offset.
+    pub frames: &'a [(usize, u32)],
+    /// The run is deferred code (`resume`), whose calls are not known.
+    pub deferred: bool,
+}
+
+/// An observer of runs (`observe`).
+pub type Observer = Box<dyn FnMut(&Watch<'_>)>;
+
+thread_local! {
+    static OBSERVER: std::cell::RefCell<Option<Observer>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Sets the observer of this thread's runs, or (`None`) takes it away. A
+/// run started while one is set shows it each instruction (`Watch`); runs
+/// without one pay nothing for it. For debuggers (`kjk try-script
+/// --debug`); the sim never sets one.
+pub fn observe(observer: Option<Observer>) {
+    OBSERVER.with(|held| *held.borrow_mut() = observer);
+}
+
+/// Sets the observer of this thread's runs (`observe`) for as long as the
+/// value this gives lives. Dropping it takes the observer away, also when
+/// a run panics on the way. Taken away by a line after the runs, an
+/// observer stayed set through a panic.
+#[must_use = "the observer is taken away when this is dropped"]
+pub fn observing(observer: Observer) -> Observing {
+    observe(Some(observer));
+    Observing(())
+}
+
+/// An observer set by `observing`, taken away when this is dropped.
+pub struct Observing(());
+
+impl Drop for Observing {
+    fn drop(&mut self) {
+        observe(None);
+    }
 }
 
 /// Runs `program` from its start for `caller`.
@@ -394,7 +454,9 @@ pub fn resume(
     let mut stack = deferred.globals.clone();
     let bp = stack.len();
     stack.extend(deferred.locals.iter().cloned());
-    Machine::new(program, routines, caller, stack, bp).execute(start, host)
+    let mut machine = Machine::new(program, routines, caller, stack, bp);
+    machine.deferred = true;
+    machine.execute(start, host)
 }
 
 impl<'a> Machine<'a> {
@@ -414,6 +476,9 @@ impl<'a> Machine<'a> {
             returns: Vec::new(),
             stored: None,
             offset: ENTRY,
+            frames: Vec::new(),
+            observed: OBSERVER.with(|held| held.borrow().is_some()),
+            deferred: false,
         }
     }
 
@@ -793,6 +858,23 @@ impl<'a> Machine<'a> {
                 to: self.offset,
             })?;
             self.offset = instruction.offset;
+            if self.observed {
+                let watch = Watch {
+                    program,
+                    offset: instruction.offset,
+                    stack: &self.stack,
+                    bp: self.bp,
+                    frames: &self.frames,
+                    deferred: self.deferred,
+                };
+                OBSERVER.with(|held| {
+                    if let Ok(mut held) = held.try_borrow_mut()
+                        && let Some(observer) = held.as_mut()
+                    {
+                        observer(&watch);
+                    }
+                });
+            }
             let mut next = at + 1;
             let here = self.offset;
             let jump = |rel: i32| program.index(here.wrapping_add(rel as u32), here);
@@ -867,6 +949,10 @@ impl<'a> Machine<'a> {
                 Op::Jsr(rel) => {
                     self.returns.push(next);
                     next = jump(*rel)?;
+                    if self.observed {
+                        let first = code.get(next).map_or(0, |called| called.offset);
+                        self.frames.push((self.stack.len(), first));
+                    }
                 }
                 Op::Jz(rel) => {
                     if self.int()? == 0 {
@@ -879,7 +965,12 @@ impl<'a> Machine<'a> {
                     }
                 }
                 Op::Retn => match self.returns.pop() {
-                    Some(back) => next = back,
+                    Some(back) => {
+                        next = back;
+                        if self.observed {
+                            self.frames.pop();
+                        }
+                    }
                     None => {
                         let returned = match self.stack.last() {
                             Some(Value::Int(v)) => Some(*v),

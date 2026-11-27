@@ -661,6 +661,7 @@ pub fn alien_sound<'a>(
 }
 
 /// A level's compiled scripts and the routines they are compiled against.
+#[derive(Clone)]
 pub struct Library {
     routines: Routines,
     programs: BTreeMap<String, Program>,
@@ -972,6 +973,24 @@ impl Library {
         }
         self.voices = voices;
         self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// This library with the conversation `name` added, or put in place of
+    /// the one of that name, and in its digest: a conversation written in
+    /// the level editor played where nothing names it yet (`kjk
+    /// try-conversation`).
+    pub fn with_dialogue(mut self, name: &str, dlg: Dlg) -> Library {
+        let name = name.to_ascii_lowercase();
+        let mut out = crate::wire::Writer::default();
+        crate::pack::encode_dlg(&dlg, &mut out);
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"dialogue");
+        hasher.update(name.as_bytes());
+        hasher.update(&out.0);
+        self.digest = *hasher.finalize().as_bytes();
+        self.dialogues.insert(name, dlg);
         self
     }
 
@@ -1903,6 +1922,23 @@ impl Library {
         self.programs
             .contains_key(&key(name))
             .then_some(name.as_str())
+    }
+
+    /// This library with the script `name` added, or put in place of the
+    /// one of that name, and in its digest: a script written in the level
+    /// editor run where nothing names it yet (`kjk try-script`).
+    pub fn with_script(mut self, name: &str, ncs: Ncs) -> Library {
+        let bytes = ncs.write();
+        let mut out = crate::wire::Writer::default();
+        out.bytes(&self.digest);
+        out.string("script");
+        out.string(&key(name));
+        out.bytes(&bytes);
+        self.digest = *blake3::hash(&out.0).as_bytes();
+        self.digests
+            .insert(key(name), *blake3::hash(&bytes).as_bytes());
+        self.programs.insert(key(name), Program::new(ncs));
+        self
     }
 
     pub fn program(&self, name: &str) -> Option<&Program> {

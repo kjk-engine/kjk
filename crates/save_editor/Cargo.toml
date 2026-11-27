@@ -20,6 +20,7 @@ asset_odyssey.workspace = true
 blake3.workspace = true
 edit.workspace = true
 fmt_odyssey.workspace = true
+fonts.workspace = true
 saves.workspace = true
 serde_json.workspace = true
 session.workspace = true

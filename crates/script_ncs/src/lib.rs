@@ -7,6 +7,8 @@
 
 pub mod asm;
 pub mod catalog;
+pub mod compile;
+pub mod decompile;
 pub mod disasm;
 #[cfg(feature = "probes")]
 pub mod probes;

@@ -889,3 +889,162 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
         }
     }
 }
+
+/// `kjk script compile`: every script source of the install that has a
+/// body (`main` or `StartingConditional`) compiled by kjk's compiler
+/// (`script_ncs::compile`), and compared with the compiled script the
+/// install ships. A script is the same to the byte, the same but for the
+/// routines' numbers (the games' scripts were compiled against an older
+/// `nwscript.nss` than the one shipped, so some numbers moved), different,
+/// or not compiled. With a script named, its two listings are shown from
+/// where they part.
+pub fn compile(discovery: &Discovery, game: &str, script: Option<&str>) -> ExitCode {
+    let run = || -> Result<(), String> {
+        let (_, _, resolver) = open(discovery, game)?;
+        let catalog = catalog(&resolver)?;
+        let read_source = |name: &str| resolver.read(name, ResType::NSS);
+        let names: Vec<String> = match script {
+            Some(name) => vec![name.trim_end_matches(".nss").to_ascii_lowercase()],
+            None => {
+                let mut names = resolver.names(ResType::NSS);
+                names.sort();
+                names.dedup();
+                names
+            }
+        };
+        let numbers_out = |ncs: &Ncs| -> Vec<Op> {
+            ncs.code
+                .iter()
+                .map(|instruction| match &instruction.op {
+                    Op::Action { args, .. } => Op::Action {
+                        routine: 0,
+                        args: *args,
+                    },
+                    op => op.clone(),
+                })
+                .collect()
+        };
+        let (mut same, mut numbers, mut differ, mut alone) = (0usize, 0usize, Vec::new(), 0usize);
+        let mut failed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut sources = 0usize;
+        // How the different scripts part: our instruction and the game's.
+        let mut partings: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for name in &names {
+            if name == "nwscript" {
+                continue;
+            }
+            let Some(source) = read_source(name) else {
+                return Err(format!("{name}.nss: not in the install"));
+            };
+            if !script_ncs::compile::has_entry(&source) {
+                continue;
+            }
+            sources += 1;
+            let ours = match script_ncs::compile::compile_as_bioware(name, &source, &read_source, &catalog) {
+                Ok(ours) => ours,
+                Err(error) => {
+                    let kind: String = error.what.split_whitespace().take(5).collect::<Vec<_>>().join(" ");
+                    failed.entry(kind).or_default().push(error.to_string());
+                    continue;
+                }
+            };
+            let Some(theirs) = resolver.read(name, ncs_type()) else {
+                alone += 1;
+                continue;
+            };
+            let written = ours.write();
+            if written == theirs {
+                same += 1;
+                continue;
+            }
+            let Ok(shipped) = Ncs::parse(&theirs) else {
+                differ.push((name.clone(), 0));
+                continue;
+            };
+            let (a, b) = (numbers_out(&ours), numbers_out(&shipped));
+            if a == b {
+                numbers += 1;
+                continue;
+            }
+            // Where they part, jumps' distances aside: a different length
+            // earlier moves every jump over it.
+            let shape = |ops: &[Op]| -> Vec<Op> {
+                ops.iter()
+                    .map(|op| match op {
+                        Op::Jmp(_) => Op::Jmp(0),
+                        Op::Jsr(_) => Op::Jsr(0),
+                        Op::Jz(_) => Op::Jz(0),
+                        Op::Jnz(_) => Op::Jnz(0),
+                        op => op.clone(),
+                    })
+                    .collect()
+            };
+            let (sa, sb) = (shape(&a), shape(&b));
+            let at = sa.iter().zip(&sb).position(|(x, y)| x != y).unwrap_or(sa.len().min(sb.len()));
+            let kind = |op: Option<&Op>| -> String {
+                op.map_or_else(
+                    || "the end".to_string(),
+                    |op| format!("{op:?}").split(['(', ' ', '{']).next().unwrap_or("").to_string(),
+                )
+            };
+            partings
+                .entry(format!("ours {} / the game's {}", kind(sa.get(at)), kind(sb.get(at))))
+                .or_insert_with(Vec::new)
+                .push(name.clone());
+            differ.push((name.clone(), at));
+            if script.is_some() {
+                for (label, ops) in [("ours", &a), ("the game's", &b)] {
+                    outln!("; {label} at {at}:");
+                    for (n, op) in ops.iter().enumerate().skip(at.saturating_sub(8)).take(14) {
+                        outln!("    {n:5} {op:?}");
+                    }
+                }
+            }
+            // KJK_NSS_LISTING names a folder for both whole listings, to
+            // compare with a diff tool.
+            if let (Some(_), Some(folder)) = (script, std::env::var_os("KJK_NSS_LISTING")) {
+                let folder = std::path::PathBuf::from(folder);
+                for (side, ncs) in [("ours", &ours), ("game", &shipped)] {
+                    let path = folder.join(format!("{name}.{side}.txt"));
+                    let listing = script_ncs::disasm::listing(ncs, Some(&catalog));
+                    if let Err(error) = std::fs::write(&path, listing) {
+                        outln!("{}: {error}", path.display());
+                    }
+                }
+                outln!("; {name}: the listings are in {}", folder.display());
+            }
+        }
+        let compiled = same + numbers + differ.len() + alone;
+        outln!(
+            "{game}: {sources} scripts with a body; compiled {compiled}, not compiled {}",
+            sources - compiled
+        );
+        outln!("  the same to the byte: {same}");
+        outln!("  the same but for routine numbers: {numbers}");
+        outln!("  different: {}", differ.len());
+        outln!("  with no compiled copy in the install: {alone}");
+        for (name, at) in differ.iter().take(12) {
+            outln!("    {name} parts at instruction {at}");
+        }
+        let mut parted: Vec<(&String, &Vec<String>)> = partings.iter().collect();
+        parted.sort_by_key(|(_, names)| std::cmp::Reverse(names.len()));
+        for (how, names) in parted.iter().take(12) {
+            let some: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
+            outln!("  parting {}: {how} (as in {})", names.len(), some.join(", "));
+        }
+        let mut kinds: Vec<(&String, &Vec<String>)> = failed.iter().collect();
+        kinds.sort_by_key(|(_, all)| std::cmp::Reverse(all.len()));
+        for (kind, all) in kinds.iter().take(15) {
+            outln!("  not compiled, {} like: {}", all.len(), all[0]);
+            let _ = kind;
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}

@@ -9,4 +9,6 @@
 /design/promo/
 /.claude/launch.json
 THIRD-PARTY-LICENSES.html
+
+# Python's compiled files, made when the level editor's benchmarks import each other.
 __pycache__/

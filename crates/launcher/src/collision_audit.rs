@@ -631,7 +631,7 @@ fn on_walkmesh(loaded: &Loaded, report: &Report) -> Floor {
         }
     }
     let walkmesh = faces.build();
-    let triangles = loaded.collision.nav_faces();
+    let triangles = loaded.nav_faces();
     let nav = collision::nav::NavMesh::build(&triangles, 0.0);
     let island = |feet: [f32; 3]| {
         nav.locate(feet, audit::IN_BOUNDS_UP, audit::IN_BOUNDS_UP)

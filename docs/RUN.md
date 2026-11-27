@@ -7,6 +7,7 @@ kjk --headless --cmds 'wait 60f; screenshot; quit'   # no window
 kjk --load quick                      # opens on a save (`quick`, `0001`, …), as the main menu loads it
 KJK_PERF=1 kjk --cmds '…'             # also writes a trace
 kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings' volumes untouched
+kjk play --lighting enhanced …        # lit as classic, enhanced or baked for this run (or KJK_LIGHTING); the options untouched
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
@@ -47,6 +48,8 @@ kjk movie import k1 01a               # a movie made ours by ffmpeg, in the stor
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
+kjk view ja maps/t1_sour.bsp          # a Jedi Academy level, lit by its own stored light (or the lightmaps kept beside it), with its static models, its doors and its sky, the camera at the player's start (`asset_ja::level`, `asset_ja::sky`)
+kjk play --stage ja:t1_sour           # the same level to walk in: its brushes are the collision, the player stands at its start (`asset_ja::level_collision`)
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

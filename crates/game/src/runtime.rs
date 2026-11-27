@@ -34,7 +34,21 @@ pub struct RunOptions {
     /// to the manifest when the run ends.
     pub games: Box<dyn FnOnce() -> serde_json::Value + Send>,
     pub scene: Scene,
+    /// What a program built on the game adds to its app (the level editor's
+    /// plugins, `crates/level_editor`), after the game's own.
+    pub plugins: Option<AddPlugins>,
+    /// The program decides what a request to close the window does (the
+    /// level editor asks first about changes not saved); without it the
+    /// window closes.
+    pub asks_before_closing: bool,
+    /// The run opens a mixer even when its scene has no thunder to play.
+    /// The level editor plays a level's music, its ambient sound and its
+    /// sound objects through it, for its user to hear them.
+    pub sound: bool,
 }
+
+/// Adds a program's own plugins to the game's app (`RunOptions::plugins`).
+pub type AddPlugins = Box<dyn FnOnce(&mut App) + Send>;
 
 /// What the run shows.
 pub enum Scene {
@@ -108,8 +122,10 @@ pub fn run(options: RunOptions) -> AppExit {
         Scene::Setup { start } => Some(crate::setup::SetupPlugin { start }),
         _ => None,
     };
-    // A viewer whose scene has thunder to play hears it.
-    let thunder = matches!(&options.scene, Scene::Loaded(scene)
+    // A viewer whose scene has thunder to play hears it, and so does a run
+    // that asks for sound.
+    let thunder = options.sound
+        || matches!(&options.scene, Scene::Loaded(scene)
         if scene.weather.lightning.as_ref().is_some_and(|lightning| !lightning.thunder.is_empty()));
     let mut launch = None;
     let sim = match options.scene {
@@ -174,6 +190,7 @@ pub fn run(options: RunOptions) -> AppExit {
                 mode: crate::display::opening_mode(),
                 ..game_window()
             }),
+            close_when_requested: !options.asks_before_closing,
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
@@ -221,6 +238,7 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::session_flow::SessionFlowPlugin::default,
             crate::session_flow::SessionFlowPlugin::launching,
         );
+        app.add_plugins(crate::ambient_fx::AmbientFxPlugin);
         app.add_plugins((
             crate::sim_host::SimHostPlugin::dormant(),
             crate::play_view::PlayViewPlugin,
@@ -332,6 +350,9 @@ pub fn run(options: RunOptions) -> AppExit {
         )
             .chain(),
     );
+    if let Some(plugins) = options.plugins {
+        plugins(&mut app);
+    }
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }

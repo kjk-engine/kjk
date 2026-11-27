@@ -18,6 +18,7 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod cli_project;
 mod installs_report;
 mod levels;
 mod lighting_verbs;
@@ -28,8 +29,36 @@ mod resources;
 pub mod rig_measure;
 mod rules_page;
 mod run_folder;
+#[cfg(feature = "editor_tools")]
+mod script_try;
 mod show;
+#[cfg(feature = "editor_tools")]
+mod talk_run;
 mod texture_export;
+
+/// Declares modules built with the `editor_tools` feature, which the
+/// `probes` feature takes in: the two verbs the level editor runs
+/// (`editor_tools`) and what they use.
+/// A build without `probes` uses only the two verbs of these modules, and
+/// not what they share with the other checking verbs.
+macro_rules! tools {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[cfg(feature = "editor_tools")]
+            #[cfg_attr(not(feature = "probes"), allow(dead_code))]
+            mod $name;
+        )*
+    };
+}
+
+tools!(
+    collision_audit,
+    collision_verbs,
+    detail_bake,
+    editor_tools,
+    room_light_fit,
+    room_lights,
+);
 
 /// Declares modules built only with the `probes` feature.
 macro_rules! probes {
@@ -48,13 +77,13 @@ probes!(
     chain,
     check,
     clips,
-    collision_audit,
+    collision_ja,
     collision_probes,
-    collision_verbs,
     combat_verbs,
     coop_fight_verbs,
     creation_probes,
     damage_verbs,
+    decompile_verbs,
     dialogue_verbs,
     duel_lag_verbs,
     duel_verbs,
@@ -102,11 +131,8 @@ probes!(
     probe,
     real_mods_probes,
     remote_census,
-    detail_bake,
     light_kinds,
     lighting_pack,
-    room_light_fit,
-    room_lights,
     routines_verbs,
     rows_by_label_probes,
     saber_verbs,
@@ -146,10 +172,14 @@ use kjk_game::{
 };
 #[cfg(feature = "probes")]
 use kjk_game::{
-    acting, alignment_look, cast, character, dangly, fight_rooms, grass, light_probes, material,
-    minigame_bot, model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound,
-    stage, transcript, weapons, weather, workbench_view,
+    acting, alignment_look, cast, character, dangly, fight_rooms, grass, material, minigame_bot,
+    model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound, stage, transcript,
+    weapons, weather, workbench_view,
 };
+
+// The game's light probes, which the bake reads (`detail_bake`).
+#[cfg(feature = "editor_tools")]
+use kjk_game::light_probes;
 
 // What the verbs share with `kjk play` (they take the root's names).
 #[cfg(feature = "probes")]
@@ -206,10 +236,20 @@ struct Cli {
     /// Skip the startup splash screen; `KJK_NO_SPLASH=1` does the same
     #[arg(long, global = true)]
     no_splash: bool,
+    /// Light this run as classic, enhanced or baked (Enhanced Lightmaps),
+    /// whatever the options' Lighting holds. The options are not changed.
+    /// `KJK_LIGHTING` does the same
+    #[arg(long, global = true, value_parser = kjk_game::rolloff::LIGHTING_VALUES)]
+    lighting: Option<String>,
     /// Open in a window of the default size: the settings' screen
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
     reset_display: bool,
+    /// Play or edit a level editor project by its name (docs/LEVEL-EDIT.md).
+    /// Its folder is read over the install's override folder, and its
+    /// Jedi Academy props and collision boxes join its area
+    #[arg(long, global = true)]
+    project: Option<String>,
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {
@@ -313,7 +353,8 @@ enum Command {
         /// k1, tsl or ja
         game: String,
         /// Model resref, without extension (for ja: a path such as
-        /// models/players/kyle/model.glm)
+        /// models/players/kyle/model.glm, or a level such as
+        /// maps/t1_sour.bsp)
         model: String,
         #[arg(long)]
         module: Option<String>,
@@ -473,6 +514,69 @@ enum Command {
     #[cfg(feature = "probes")]
     #[command(flatten)]
     Verb(verbs::Verb),
+    /// An area's lightmaps made four times larger, with the detail the
+    /// stored size cannot hold. The level editor's Bake buttons run it.
+    #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+    DetailBake(editor_tools::DetailBakeArgs),
+    /// A module's collision: the containment audit, which the level
+    /// editor's Audit button runs.
+    #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+    Collision {
+        #[command(subcommand)]
+        verb: editor_tools::CollisionTools,
+    },
+    /// Run one compiled script once in a module installed headless (with
+    /// --project, the project's own script, as the level editor's Try does)
+    /// for an object or the player, then step on: the trace of what it and
+    /// the scripts it started called, the conversation lines, and faults
+    #[cfg(feature = "editor_tools")]
+    TryScript {
+        /// k1 or tsl
+        game: String,
+        /// The module, e.g. ebo_m12aa
+        module: String,
+        /// The script's resref, e.g. kje_hello
+        script: String,
+        /// The tag of the object it runs for (OBJECT_SELF); the player
+        /// when left out
+        #[arg(long)]
+        on: Option<String>,
+        /// How long to step on after it runs, for what it delays
+        #[arg(long, default_value_t = 2.0)]
+        seconds: f32,
+        /// The script's debug notes (NAME.ndb, beside its .ncs): the run
+        /// is also printed line by line, with its locals and globals
+        #[arg(long)]
+        debug: Option<String>,
+        /// Print the whole trace: what the module's other scripts called
+        /// while the world was stepped, too
+        #[arg(long)]
+        all: bool,
+    },
+    /// Play one conversation headless (with --project, the project's
+    /// own, as the level editor's conversation window does): the player
+    /// talks to the object tagged --on, answers each offer by --picks, and
+    /// the transcript is printed
+    #[cfg(feature = "editor_tools")]
+    TryConversation {
+        /// k1 or tsl
+        game: String,
+        /// The module, e.g. ebo_m12aa
+        module: String,
+        /// The conversation's resref, e.g. kje_talk
+        dialog: String,
+        /// The tag of the object the player talks to: the conversation's
+        /// owner
+        #[arg(long)]
+        on: String,
+        /// The replies to take, by their place among those offered (from
+        /// 1), in order, e.g. 2,1; the first when the list runs out
+        #[arg(long, value_delimiter = ',')]
+        picks: Vec<u8>,
+        /// How long to step on, seconds
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+    },
     /// Copy one resource out of the install, after precedence.
     Extract {
         /// k1, tsl or ja
@@ -718,6 +822,34 @@ fn linux_environment() {
     }
 }
 
+/// Whether `command` reads a game's data, and with it the mods for kjk in
+/// the games' override folders (`cli_project::activate_mods`). Reading them
+/// lists each override folder, digests the mods' files and builds their
+/// Jedi Academy rooms. The commands that only find the installs, look at
+/// the store, open a report, or work on movies or on the lighting download
+/// need none of that, so they start without it. `kjk installs` is one of
+/// them, and the launcher runs it at every start.
+///
+/// The list names the commands that skip the mods, and not the ones that
+/// read them. A command forgotten here starts a little slower. A command
+/// forgotten on a list of the ones that read them would play without its
+/// mods and say nothing.
+fn reads_mods(command: Option<&Command>) -> bool {
+    !matches!(
+        command,
+        Some(
+            Command::Games
+                | Command::Installs { .. }
+                | Command::Store { .. }
+                | Command::Report {
+                    verb: ReportVerb::Show { .. }
+                }
+                | Command::Movie { .. }
+                | Command::Lighting { .. }
+        )
+    )
+}
+
 /// Parses the command line and runs what it asks for.
 pub fn run() -> ExitCode {
     launch_times::start();
@@ -737,10 +869,27 @@ pub fn run() -> ExitCode {
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::splash::NO_SPLASH, "1") };
     }
+    if let Some(lighting) = &cli.lighting {
+        // An environment variable, so a restart into the menu keeps it.
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(kjk_game::rolloff::LIGHTING_VAR, lighting) };
+    }
     #[cfg(target_os = "linux")]
     linux_environment();
     if cli.reset_display {
         kjk_game::display::reset();
+    }
+    // A project is read before any install is opened.
+    if let Some(name) = &cli.project
+        && let Err(error) = cli_project::activate(name)
+    {
+        eprintln!("--project {name}: {error}");
+        return ExitCode::from(2);
+    }
+    // Without one, the mods in the games' override folders give theirs,
+    // to a command that reads a game's data.
+    if cli.project.is_none() && reads_mods(cli.command.as_ref()) {
+        cli_project::activate_mods();
     }
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
@@ -768,6 +917,12 @@ pub fn run() -> ExitCode {
     match cli.command {
         #[cfg(feature = "probes")]
         Some(Command::Verb(verb)) => verbs::run(verb, cli.size),
+        #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+        Some(Command::DetailBake(args)) => editor_tools::detail_bake(args),
+        #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+        Some(Command::Collision {
+            verb: editor_tools::CollisionTools::Audit(args),
+        }) => editor_tools::audit(args),
         // A plain start (no script, no save, not back from a game) whose
         // games are not all found, or that never had its setup, opens on
         // the setup.
@@ -816,10 +971,12 @@ pub fn run() -> ExitCode {
             saber,
             cmds,
             headless,
-        }) => match if game.eq_ignore_ascii_case("ja") {
-            viewer_ja::load(&discover(), &model, clip.as_deref(), saber.as_deref())
-        } else {
+        }) => match if !game.eq_ignore_ascii_case("ja") {
             viewer::load_model(&discover(), &game, &model, module.as_deref())
+        } else if model.to_ascii_lowercase().ends_with(".bsp") {
+            viewer_ja::load_level(&discover(), &model)
+        } else {
+            viewer_ja::load(&discover(), &model, clip.as_deref(), saber.as_deref())
         } {
             Ok(loaded) => play(
                 cmds.as_deref().unwrap_or(""),
@@ -909,6 +1066,33 @@ pub fn run() -> ExitCode {
             module,
             out,
         }) => texture_export::run(&discover(), &game, &resref, module.as_deref(), out),
+        #[cfg(feature = "editor_tools")]
+        Some(Command::TryScript {
+            game,
+            module,
+            script,
+            on,
+            seconds,
+            debug,
+            all,
+        }) => script_try::run(
+            &discover(),
+            (&game, &module, &script),
+            on.as_deref(),
+            seconds,
+            (debug.as_deref(), all),
+        ),
+        #[cfg(feature = "editor_tools")]
+        Some(Command::TryConversation {
+            game,
+            module,
+            dialog,
+            on,
+            picks,
+            seconds,
+        }) => {
+            talk_run::try_conversation(&discover(), &game, &module, (&dialog, &on), picks, seconds)
+        }
         Some(Command::Extract {
             game,
             resource,
@@ -1021,6 +1205,9 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
         size,
         games: Box::new(|| games_manifest(&discover())),
         scene,
+        plugins: None,
+        asks_before_closing: false,
+        sound: false,
     };
     let exit = runtime::run(options);
     if setup::finished() && !headless {

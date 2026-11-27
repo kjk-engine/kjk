@@ -2182,6 +2182,8 @@ fn fight(
         return Command {
             forward,
             right,
+            // A link's jump (`walk::crossing_link`).
+            up: step.up,
             ..mind::looking(ps, pitch, yaw)
         };
     }

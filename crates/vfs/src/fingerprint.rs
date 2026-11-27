@@ -318,6 +318,37 @@ impl WorldData {
     }
 }
 
+/// The world group of what a level editor project or the mods for kjk
+/// change beyond the games' own files (`WorldData::with_kjk`).
+pub const KJK_GROUP: &str = "kjk mods";
+
+impl WorldData {
+    /// The world data with `kjk` mixed into its digest as the group
+    /// `KJK_GROUP`: the digest of the mods' kjk-only files, which the
+    /// games do not read and the groups above do not cover. Two machines
+    /// whose mods differ there would build different worlds.
+    #[must_use]
+    pub fn with_kjk(mut self, kjk: Option<[u8; 32]>) -> WorldData {
+        let Some(kjk) = kjk else {
+            return self;
+        };
+        let mixed = |digest: &[u8; 32]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(digest);
+            hasher.update(KJK_GROUP.as_bytes());
+            hasher.update(&kjk);
+            *hasher.finalize().as_bytes()
+        };
+        self.digest = mixed(&self.digest);
+        if self.groups.len() < MAX_WORLD_GROUPS {
+            self.groups.push((KJK_GROUP.to_string(), kjk));
+        } else if let Some((_, last)) = self.groups.last_mut() {
+            *last = mixed(last);
+        }
+        self
+    }
+}
+
 struct CacheRow {
     size: u64,
     modified: u128,

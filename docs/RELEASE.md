@@ -31,13 +31,57 @@ as Valve's test app 480), so Steam co-op is for builds made from source
 
 | OS | package | inside |
 |---|---|---|
-| Windows | `kjk-<version>-windows-<arch>.zip` | `kjk.exe`, `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html` |
-| macOS | `kjk-<version>-macos-<arch>.tar.gz` | `kjk.app` (the program in `Contents/MacOS`), the same texts |
-| Linux, Steam Deck | `kjk-<version>-linux-<arch>.tar.gz` | `kjk`, the same texts |
+| Windows | `kjk-<version>-windows-<arch>.zip` | `kjk.exe`, `kjk-save-editor.exe`, `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`, `THIRD-PARTY-LICENSES-save-editor.html` |
+| macOS | `kjk-<version>-macos-<arch>.tar.gz` | `kjk.app` and `kjk Save Editor.app` (each program in its `Contents/MacOS`), the same texts |
+| Linux, Steam Deck | `kjk-<version>-linux-<arch>.tar.gz` | `kjk`, `kjk-save-editor`, the same texts |
+
+The save editor (`kjk-save-editor`, `crates/save_editor`) opens a kjk save
+and changes it. `dist` builds it from the same commit in a cargo run of its
+own, in `target/editor`, so `kjk` is built the same with or without it.
+`THIRD-PARTY-LICENSES-save-editor.html` lists the licences of the crates
+the save editor is built from. `THIRD-PARTY-LICENSES.html` lists `kjk`'s.
 
 `<version>` is `git describe --tags --match 'v*' --always --dirty`. Each OS packs its
 own: a Windows package is made on Windows, a macOS one on a Mac (both
 architectures need a build each), a Linux one on Linux.
+
+### The level editor's package
+
+The level editor (`docs/LEVEL-EDIT.md`) is not in the player's package. It
+has a package of its own, so the player's package is the same with or
+without the editor, and a player who does not edit levels downloads none
+of it.
+
+```bash
+cargo xtask dist --level-editor               # build and pack the level editor
+cargo xtask dist --level-editor --skip-build  # pack the last build again
+```
+
+The package is `kjk-level-editor-<version>-<os>-<arch>`, a zip on Windows
+and a `.tar.gz` on macOS and Linux, in `target/packages/` too. It holds:
+
+- `kjk-level-editor` (`kjk Level Editor.app` on macOS).
+- A `kjk` for the editor to start (`kjk.app` on macOS). The editor runs
+  the `kjk` that lies beside it for Play and for its Audit, Bake and Try
+  buttons. This `kjk` is built as the player's is, with one feature
+  added, `editor_tools`. That feature holds the four verbs the editor
+  runs: `detail-bake`, `collision audit`, `try-script` and
+  `try-conversation`. The player's `kjk` has none of them.
+- `data/lights`, the light rule data the editor's bake reads.
+- `README.txt`, `LICENSE.txt`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`
+  for its `kjk` and `THIRD-PARTY-LICENSES-level-editor.html` for the editor.
+
+Both programs are built in `target/level-editor`, the editor first and its
+`kjk` after it. Each links all of Bevy with fat LTO, and two such builds at
+once need more memory than a CI runner has. The second build takes the
+crates both programs share as the first one built them. `--level-editor`
+takes neither `--dlss` nor `--pgo`.
+
+The package is unpacked into a folder of its own. Unpacked over the
+player's package, its `kjk` would take the place of the player's.
+
+The launcher does not install the level editor yet. It can later offer
+this package as a separate choice beside the game.
 
 ### DLSS in a Windows or Linux package
 
@@ -175,8 +219,16 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+The level editor's package ("The level editor's package" above) is built
+in a job of its own on each OS, beside the player's package. The workflow
+checks that it holds its readme, its licence texts and `data/lights`, that
+the editor and its `kjk` start with `--help`, and that this `kjk` has
+`detail-bake`, `collision audit`, `try-script` and `try-conversation`.
+The draft takes each package that
+built. It names an OS whose level editor package is missing.
+
 The sim determinism test runs on each OS in a job of its own, beside the
-package's build. The draft leaves out the package of an OS whose test did
+package's build. The draft leaves out the packages of an OS whose test did
 not pass. `cargo xtask dist` builds `kjk` and the save editor at once (the
 editor in `target/editor`) and writes the licence pages meanwhile. The
 builds read the dependencies from a rust cache. A tag's run cannot save a

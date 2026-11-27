@@ -41,6 +41,119 @@ the games' own compiled scripts; nothing of them is in the repo.
   error, so the reports list it apart as well, as aborted (not in the
   sweeps' faults).
 
+## The compiler (`script_ncs::compile`)
+- `compile(name, source, read, catalog)` turns a script's `.nss` into
+  NCS against a game's `nwscript.nss` (`read` gives an include's source by
+  name). The program is `main` or `StartingConditional` and what they
+  call; an include with neither has nothing to compile (`has_entry`). A
+  mistake comes back with its file and line.
+- It writes what BioWare's compiler writes, measured against the
+  installs by `kjk script compile <game>`: of the scripts with a body
+  whose source the install keeps, K1 compiles 1 571 of 1 737 to the
+  game's bytes and TSL 585 of 612. `kjk script compile <game> SCRIPT`
+  shows where one parts from the game's, and with
+  `KJK_NSS_LISTING=FOLDER` writes both whole listings there.
+- The rest are not the compiler's: their shipped source is not the
+  source BioWare compiled. K1's 165 are these. 50 call
+  `ActionStartConversation` with 11 arguments (3 of them with 5), because
+  the `nwscript.nss` of the day had no `bUseLeader`. 24 lack globals the
+  shipped includes declare (`k_inc_utility`'s six `SW_CONSTANT_…_HIT_…`
+  in 20 of them). 44 call older include code (`k_inc_utility` with debug
+  lines, a longer `k_inc_treasure`). 47 had their own body edited
+  afterwards. The decompiler proves it: all 165 read back from the
+  game's bytes compile to those bytes again.
+- BioWare's layout, as the games' scripts show it: the entry calls the
+  script's function and returns (`StartingConditional` reserves its int
+  first); globals are set by a function of their own around that call;
+  functions are written depth first in the order they are first called,
+  and only those called. A call's arguments are written before it, so in
+  `f(g())` `g` is written before `f`. A local is reserved where it is declared and its
+  value copied down onto it. A call pushes its arguments last first with
+  every default written out; an `action` argument is `STORESTATE` (the
+  globals, and the function's locals, parameters and result), a jump over
+  its code, the code and `RETN`. `return` copies its value down, pops
+  everything and jumps to the function's end. Numbers are never folded
+  (`-6` is `6` negated). `a || b` tests `a` twice. A field is read by
+  copying the whole struct up and destroying the rest.
+- BioWare's compiler pops nothing for a `continue` or for a `break` out
+  of a `switch`. The locals of the blocks they leave stay on the stack,
+  and every later place of the function is off (the floating mines' fault
+  above). 12 of the two games' 13 914 different compiled scripts hold
+  this. Ours has two ways to write these jumps (`compile::Leaving`).
+  A script compiled to run, such as a project's in the level editor, pops
+  those locals, so a local in a loop's body with a `continue` works as
+  its source reads (`compile`). The compiler copies BioWare's fault only
+  to compare with the games' bytes: for `kjk script compile` and for the
+  proof of a decompiled script (`compile_as_bioware`). One of those 12
+  scripts copied into a project and saved is compiled the first way, so
+  its bytes differ from the game's and it no longer faults there.
+- The compiler and the decompiler each stop at a depth, so that no source
+  and no compiled script can run the program's own stack out. Windows gives
+  the main thread 1 MB of it. The compiler takes statements 128 deep (an
+  `if` with its block counts as two, so 63 of those in each other),
+  expressions 32 deep in brackets, signs and arguments, and 128 operators
+  in a row. The decompiler takes blocks 64 deep, which is deeper than the
+  compiler writes, and 64 steps (`++`, `--`) in a row. No script of either
+  game comes near any of these. Past a limit the mistake is named.
+- The level editor compiles a project's scripts when it saves
+  (`LEVEL-EDIT.md`).
+- `kjk [--project P] try-script <game> <module> SCRIPT [--on TAG]
+  [--seconds N] [--all]` (in a build from source and in the `kjk` of the
+  level editor's package, not in the player's) runs one compiled script
+  once in the module
+  installed headless, for the object tagged TAG (else the player), then
+  steps on N seconds (2 by default). The script is read through the
+  module's layers, as the game would read it: the module's own archives,
+  the install's shared ones, and a project's folder first. It is added to
+  the module's library (`Library::with_script`), so it runs where nothing
+  names it yet. It prints the script's own trace from the run on:
+  its runs, the code it deferred, and the scripts it started with
+  `ExecuteScript`. The module's other scripts go on running while the
+  world is stepped, and one line says how many lines of theirs were left
+  out. `--all` prints the whole trace. It also prints conversation lines,
+  faults and the scripts named but missing, and fails when the script did
+  not run or faulted. The level editor's Try runs it, so it is in every
+  build of kjk, the player's too (`launcher::script_try`).
+- `--debug NAME.ndb` records the run line by line as well: a stop at each
+  source line the script starts, with its function, the calls that led
+  there, its locals and the script's globals (at most 2 000 stops). The
+  notes it reads are the compiler's (`compile_debug`,
+  `script_ncs::compile::Debug`): where each line's code starts, each
+  function's code, each local's place on the stack while it lives, and
+  each global's, written as text (`kjk-ndb 1`). The VM shows a run to a
+  watcher (`vm::observe`, per thread, set only by a debugger: a run
+  without one pays nothing for it), each instruction with the stack and
+  the calls made and not returned.
+
+## The decompiler (`script_ncs::decompile`)
+- `decompile(ncs, catalog)` reads a compiled script back into source.
+  It keeps the stack the compiler kept and takes each pattern the
+  compiler writes for the statement that wrote it, into the compiler's
+  own tree (`compile::parse`), which is then printed.
+- `decompile_checked(name, ncs, catalog)` hands the source out only when
+  it compiles to the bytes it came from. `kjk script decompile <game>
+  SCRIPT [--module M] [--out FOLDER]` prints or writes one script that
+  way. `kjk script decompile <game>` reads back every `.ncs` of every
+  layer and module: K1 10 004 of 10 010 different scripts, TSL 4 770 of
+  4 779.
+- A compiled script keeps no names. Variables are named by type and
+  order (`nLocal1`, `oParam2`, `sGlobal3`), functions `sub1`, `sub2` in
+  the order written, a structure by its cells (`Cells10_1`, fields `f1`,
+  `f2`). A `const` is the number it stood for. A negative number has no
+  literal in the language, so it is a `#define` (`INT_MINUS_1`). A `for`
+  without a `continue` reads as the `while` it compiles the same as.
+- A script that calls a routine with fewer arguments than `nwscript.nss`
+  gives it parameters was compiled against an older `nwscript.nss`.
+  `Decompiled::routines` names each such routine and its argument count,
+  the source says so in a comment at its top, and it compiles to the same
+  bytes against `Catalog::cut` of them. K1 has 634 such scripts, TSL 30.
+- Not read back. A routine called with more arguments than its prototype,
+  or with another type (`AddPartyMember` taking an object in K1's
+  `tar_m02aa`), since the older prototype is not known: 5 in K1. K1's
+  `k_pman_arrest11`, which compiles to other bytes. Scripts another
+  compiler wrote (mods in `override`), whose layout is not BioWare's. The
+  `?:` choice, which no script of either game uses.
+
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
   digest): the scripts its module, area and objects hook, and those they

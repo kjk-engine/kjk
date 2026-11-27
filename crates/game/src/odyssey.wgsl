@@ -261,6 +261,7 @@ const VERTEX_LIGHT_ALONE: u32 = 1048576u;
 // What such a surface keeps under the baked trial, in place of half of full
 // light. The fitted lights add to it.
 const BAKED_UNLIT_LIGHT: f32 = 0.12;
+const ROOM_GLOW: u32 = 8388608u;
 // Under the baked trial a door's or a placeable's dull glow is at most this
 // many times the light the probes hold where it stands.
 const GLOW_BY_ROOM: f32 = 2.0;
@@ -656,13 +657,13 @@ fn mesh_owner(instance_index: u32) -> u32 {
 }
 
 // The trial of the fitted lights that this fragment is drawn under: 7 for
-// the light kinds' trial, 8 for the baked one (Enhanced Lightmaps), and 0
-// for none. A run that can show neither compiles the trials out of its
+// the light kinds' trial, 8 for the baked one (Enhanced Lightmaps), 9 for
+// the fitted lights alone (the level editor's Lamps only), and 0 for none. A run that can show neither compiles the trials out of its
 // shaders (`FITTED_LIGHTS`, `fitted_lights::in_shaders`). Their code cost
 // GPU time under Classic and Enhanced lighting too, where none of it runs.
 fn light_trial() -> u32 {
 #ifdef FITTED_LIGHTS
-    return select(0u, shadows.debug, shadows.debug == 7u || shadows.debug == 8u);
+    return select(0u, shadows.debug, shadows.debug >= 7u && shadows.debug <= 9u);
 #else
     return 0u;
 #endif
@@ -2049,6 +2050,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if light_trial() != 0u && (params.flags & LAMP_TEXELS) != 0u {
         self_lit = self_lit * smoothstep(0.8, 1.0, max3(texel.rgb));
     }
+    // A Jedi Academy prop's glow is the room's light where it stands
+    // (`ROOM_GLOW`). Where the light probes light it, under Enhanced
+    // lighting, it glows not at all, so the room's light is not counted
+    // twice.
+    // A prop whose lightmap stands in for the room's light (under a bake)
+    // keeps that lightmap: the probes do not light a lightmapped surface,
+    // so it is the prop's only light under Enhanced lighting too. Left
+    // out, such a prop was black.
+    if (params.flags & ROOM_GLOW) != 0u && lights.enhanced != 0u && (params.flags & PROBED) != 0u
+        && probe_light(mesh_owner(in.instance_index), vec3<f32>(0.0)).w > 0.5 {
+        self_lit = vec3<f32>(0.0);
+    }
     // Ambient occlusion (`ambient_occlusion`) darkens the room's light: the
     // area's flat ambient, the light probes' light and, at a lower share,
     // the lightmap. Under Classic lighting there is none.
@@ -2065,10 +2078,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let room_kept = room_light_kept(open, base.rgb);
     // `KJK_SHADOW_DEBUG=7`: the rooms keep half of their baked light (the
     // light kinds' trial). 8 is the same trial with the fitted lights baked
-    // into the rooms' lightmaps (`fitted_lights::baked`).
+    // into the rooms' lightmaps (`fitted_lights::baked`). 9 keeps none of
+    // it, so only the fitted lights show (`fitted_lights::Mode::LampsOnly`).
     let trial = light_trial() != 0u;
     let baked_trial = light_trial() == 8u;
-    let dimmed = select(1.0, 0.5, trial);
+    let dimmed = select(select(1.0, 0.5, trial), 0.0, light_trial() == 9u);
     // Under 8 a room's lightmap is the bake. It is shown whole, and it is
     // stored at 1 / `BAKED_GAIN` of its level so a level above 1 fits.
     let baked_room = baked_trial && (params.flags & ROOM_LIGHTMAP) != 0u
@@ -2200,6 +2214,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // The owner said on 21 November 2026: "plasteel cylinders a bit too
         // evenly illuminated by corner light".
         let probed_bake = baked_trial && from_probes;
+        // A prop whose lightmap stands in for the room's light, as a room's
+        // lightmap does (`project_props`: a Jedi Academy prop lit by its
+        // level's light grid, or by the bake). It takes the light a room's
+        // surface takes, and no more. The lamps of the list and the area's
+        // sun are in that lightmap already, or are not in the room's, so
+        // they are left out. Under a bake the fitted lights are in it too.
+        // A fight's lights (a blade, a bolt) still light it. The owner saw
+        // the rocks' faces toward a lamp lit twice under a bake (24 November
+        // 2026).
+        let stands_in = (params.flags & HAS_LIGHTMAP) != 0u && (params.flags & ROOM_LIGHTMAP) != 0u
+            && (params.flags & ROOM) == 0u;
         // Whether a light reaches a mesh is judged once for the whole mesh,
         // from its origin, so a creature is lit or not as one piece. The
         // light then fades out over the last tenth of its radius. (The
@@ -2238,7 +2263,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 continue;
             }
-            if probed_bake && light.kind.x != 0u {
+            if (probed_bake && light.kind.x != 0u) || stands_in {
                 continue;
             }
             if vertex_lit && (params.flags & VERTEX_LIGHT_ALONE) != 0u {
@@ -2276,7 +2301,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 #ifdef FITTED_LIGHTS
         // The area's light fittings light it as they light the rooms.
-        if !probed_bake {
+        if !probed_bake && !(stands_in && baked_trial) {
             fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters(), 1.0).whole * params.diffuse.rgb;
         }
 #endif
@@ -2370,8 +2395,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
         // The area's light fittings lose as much to these shadows as the
-        // baked light does (below).
-        unshadowed = saturate(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4));
+        // baked light does (below). With none of the baked light kept
+        // (`KJK_SHADOW_DEBUG=9`, the level editor's Lamps only) there is no
+        // share to take, and the fittings keep all of theirs.
+        unshadowed = select(
+            saturate(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)),
+            1.0,
+            shadows.debug == 9u,
+        );
         lighting = shaded;
     }
     // A fight's lights on a room's baked light: a bolt's pool on the floor,

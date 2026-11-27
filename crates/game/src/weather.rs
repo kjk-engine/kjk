@@ -69,7 +69,7 @@ const SQUARE_M: f32 = 10.0;
 /// How long the fall goes on after the weather stops.
 const STOP_MS: f64 = 6000.0;
 /// The model whose light a flash is, and that light's node.
-const LIGHTNING_MODEL: &str = "fx_lightning01";
+pub(crate) const LIGHTNING_MODEL: &str = "fx_lightning01";
 const LIGHTNING_LIGHT: &str = "auroralight01";
 /// How high over the controlled character's feet a flash's light stands.
 const FLASH_LIFT_M: f32 = 10.0;

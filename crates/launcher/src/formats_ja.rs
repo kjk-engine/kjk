@@ -1,5 +1,6 @@
 //! `kjk formats ja`: every Ghoul2 model and skeleton, animation table, saber,
-//! shader and effect file in Jedi Academy's PK3s, parsed and cross-checked.
+//! shader, effect file and level in Jedi Academy's PK3s, parsed and
+//! cross-checked.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -52,7 +53,7 @@ pub fn run(discovery: &Discovery) -> ExitCode {
     for name in &names {
         let extension = name.rsplit_once('.').map_or("", |(_, e)| e);
         let kind = match extension {
-            "glm" | "gla" | "sab" | "shader" | "efx" => extension,
+            "glm" | "gla" | "sab" | "shader" | "efx" | "bsp" => extension,
             "cfg" if name.ends_with("animation.cfg") => "animation.cfg",
             _ => continue,
         };
@@ -139,6 +140,50 @@ pub fn run(discovery: &Discovery) -> ExitCode {
                     }
                     if !file.stray.is_empty() {
                         tally.note("words outside any shader", name);
+                    }
+                }
+                Err(error) => tally.failures.push(format!("{name}: {error}")),
+            },
+            "bsp" => match fmt_ja::bsp::parse(&bytes) {
+                Ok(bsp) => {
+                    tally.parsed += 1;
+                    use fmt_ja::bsp::SurfaceKind;
+                    for surface in &bsp.surfaces {
+                        match surface.kind {
+                            SurfaceKind::Planar => tally.note("flat surfaces", name),
+                            SurfaceKind::Patch => tally.note("curved surfaces", name),
+                            SurfaceKind::Triangles => tally.note("triangle surfaces", name),
+                            SurfaceKind::Flare => tally.note("flares", name),
+                            SurfaceKind::Other(kind) => {
+                                tally.note(format!("surfaces of kind {kind}"), name);
+                            }
+                        }
+                        if surface.kind != SurfaceKind::Flare && surface.lightmaps[0].is_none() {
+                            tally.note("surfaces lit by their vertices", name);
+                        }
+                    }
+                    let off_unit = (bsp.vertices.iter())
+                        .filter(|vertex| {
+                            let [x, y, z] = vertex.normal;
+                            ((x * x + y * y + z * z).sqrt() - 1.0).abs() > 0.02
+                        })
+                        .count();
+                    tally.note(
+                        if off_unit * 1000 <= bsp.vertices.len() {
+                            "levels whose normals are of unit length (999 in 1000)"
+                        } else {
+                            "levels with normals off unit length"
+                        },
+                        &format!("{name}: {off_unit} of {} off", bsp.vertices.len()),
+                    );
+                    if bsp.light_grid.cells.is_empty() {
+                        tally.note("levels without a light grid", name);
+                    }
+                    if bsp.visibility.rows.is_empty() {
+                        tally.note("levels without visibility", name);
+                    }
+                    if !bsp.entities.iter().any(|e| e.class() == "worldspawn") {
+                        tally.note("levels without a worldspawn entity", name);
                     }
                 }
                 Err(error) => tally.failures.push(format!("{name}: {error}")),

@@ -234,11 +234,11 @@ const ROOM_LIGHTMAPS: [&str; 6] = ["lm0", "lm1", "added", "sky", "stored", "rena
 /// no room mesh draws shows as it did, and a set without exact lines leaves
 /// a lightmap it does not know alone.
 fn a_room_lightmap_without_a_fitting_png_shows_its_stored_light() -> Result<String, String> {
-    let folder = folder_of(&["lm0", "lm1", "grass0"], &["stored"]);
+    let folder = Arc::new(folder_of(&["lm0", "lm1", "grass0"], &["stored"]));
     let fitted = Arc::new(fit_of(&["lm0"], &["lm1", "grass0"], &["sky", "stored"]));
     let used = |fit: Option<Arc<Fit>>| {
         vec![Used {
-            folder: &folder,
+            folder: folder.clone(),
             using: FolderUse::Whole,
             fit,
         }]

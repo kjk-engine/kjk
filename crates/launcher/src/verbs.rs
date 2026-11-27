@@ -9,6 +9,7 @@ use clap::Subcommand;
 use vfs::Game;
 
 use crate::*;
+use crate::editor_tools::{CollisionModule, doors_of};
 
 #[derive(Subcommand)]
 pub(crate) enum Verb {
@@ -125,103 +126,7 @@ pub(crate) enum Verb {
     /// for each lightmap into two sets: a, the live look with shadows and
     /// bounced light, and b, the lamps alone, which the lighting download
     /// ships. The game shows b with KJK_FITTED_LIGHTS=baked
-    DetailBake {
-        /// The module, for example tar_m03ae
-        module: String,
-        /// k1 or tsl; both are searched when left out
-        #[arg(long)]
-        game: Option<String>,
-        /// The fitted lights to bake from: a file the game writes when
-        /// KJK_FITTED_DUMP names it. Every bake needs it
-        #[arg(long, required_unless_present_any = ["fingerprint", "stamp"])]
-        lights: Option<std::path::PathBuf>,
-        /// The bake always runs on the graphics card. The flag is still
-        /// taken, so older command lines keep working
-        #[arg(long)]
-        gpu: bool,
-        /// Print what the texels near a place see of each
-        /// light: "x y z radius" in metres
-        #[arg(long)]
-        probe: Option<String>,
-        /// The levels the lamps-alone set b aims at: a file
-        /// with one line for each room, its name and its mean stored level
-        #[arg(long)]
-        levels: Option<std::path::PathBuf>,
-        /// The area's sun and sky for set b, nine numbers:
-        /// the way to the sun "x y z", the stored level a surface facing
-        /// the sun shows of it "r g b", and the same under the whole sky.
-        /// Six more numbers give a second sun: its way and its colour.
-        /// One last number is half the suns' width in radians, for sharp
-        /// shadows
-        #[arg(long, allow_hyphen_values = true)]
-        sun: Option<String>,
-        /// Print the ways to the sun that fit the stored
-        /// lightmaps best
-        #[arg(long)]
-        sun_fit: bool,
-        /// A room's level is its level where the game lights
-        /// it today: each texel counts by its stored level
-        #[arg(long)]
-        weigh: bool,
-        /// No room takes the even light: a room its lamps and
-        /// the sun cannot bring to its level stays darker
-        #[arg(long)]
-        no_even: bool,
-        /// A room its lamps cannot bring to its level takes its
-        /// own stored light for the rest, and not an even light
-        #[arg(long)]
-        fill_stored: bool,
-        /// Each texel of the lamps' set shows at least this
-        /// share of its stored linear light in the game (`floor.txt`)
-        #[arg(long)]
-        floor: Option<f32>,
-        /// Every room with a lightmapped mesh is baked, not
-        /// only the rooms with a walkable face, as under a sun
-        #[arg(long)]
-        every_room: bool,
-        /// A room with no walkable face shows its stored light in
-        /// the lamps' set, and not twice it
-        #[arg(long)]
-        stored_backdrop: bool,
-        /// The least a room's lamps are scaled by (0.5 when
-        /// left out)
-        #[arg(long)]
-        least: Option<f32>,
-        /// The most a room's lamps are scaled by (6 when left
-        /// out)
-        #[arg(long)]
-        most: Option<f32>,
-        /// With --sun, the meshes that send the sun's and the sky's light
-        /// down into their room, by their node's name, with spaces between
-        #[arg(long)]
-        skylights: Option<String>,
-        /// The placeables block the rays where they rest, so they
-        /// cast their shadows into the lightmaps. Skinned and dangling meshes
-        /// do not
-        #[arg(long)]
-        placeables: bool,
-        /// Each vertex of a placeable's mesh that is not skinned
-        /// and does not dangle is lit as a texel is, into placeables.txt of
-        /// the lamps' set. It implies --placeables
-        #[arg(long)]
-        placeable_light: bool,
-        /// Bake nothing. Print the fingerprint of each of the module's
-        /// areas in the game files as they are now: the format, and the
-        /// digests of the rooms and of the placeables. The game compares it
-        /// with fingerprint.txt in a bake's folder
-        #[arg(long)]
-        fingerprint: bool,
-        /// Bake nothing. Write fingerprint.txt into this folder of
-        /// lightmaps baked earlier, from the game files as they are now.
-        /// This is right only when the game files are still the ones the
-        /// bake was made from. Over other files the game would then show a
-        /// bake that does not fit them
-        #[arg(long)]
-        stamp: Option<std::path::PathBuf>,
-        /// The folder the files are written to
-        #[arg(long, default_value_os_t = detail_bake::default_out())]
-        out: std::path::PathBuf,
-    },
+    DetailBake(crate::editor_tools::DetailBakeArgs),
     /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
     Gui {
@@ -621,97 +526,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 (free, free_keep, free_dark)
             },
         ),
-        Verb::DetailBake {
-            module,
-            game,
-            lights,
-            gpu: _,
-            probe,
-            levels,
-            sun,
-            sun_fit,
-            weigh,
-            no_even,
-            fill_stored,
-            floor,
-            every_room,
-            stored_backdrop,
-            least,
-            most,
-            skylights,
-            placeables,
-            placeable_light,
-            fingerprint,
-            stamp,
-            out,
-        } => {
-            if fingerprint || stamp.is_some() {
-                return detail_bake::fingerprint(&discover(), &module, game.as_deref(), stamp.as_deref());
-            }
-            let probe = match probe.as_deref().map(|text| {
-                text.split_whitespace()
-                    .map(str::parse::<f32>)
-                    .collect::<Result<Vec<f32>, _>>()
-            }) {
-                None => None,
-                Some(Ok(v)) if v.len() == 4 => {
-                    Some((bevy::math::Vec3::new(v[0], v[1], v[2]), v[3]))
-                }
-                Some(_) => {
-                    eprintln!("--probe: give x y z radius");
-                    return ExitCode::from(2);
-                }
-            };
-            let sun = match sun.as_deref().map(|text| {
-                text.split_whitespace()
-                    .map(str::parse::<f32>)
-                    .collect::<Result<Vec<f32>, _>>()
-            }) {
-                None => None,
-                Some(Ok(v)) if matches!(v.len(), 9 | 10 | 15 | 16) => {
-                    let three = |at: usize| bevy::math::Vec3::new(v[at], v[at + 1], v[at + 2]);
-                    // A last number on its own is half the suns' width.
-                    let width = (v.len() % 3 == 1).then(|| v[v.len() - 1]);
-                    let v = &v[..v.len() - usize::from(width.is_some())];
-                    Some(detail_bake::Sun {
-                        toward: three(0).normalize_or_zero(),
-                        colour: three(3),
-                        sky: three(6),
-                        second: (v.len() == 15).then(|| (three(9).normalize_or_zero(), three(12))),
-                        width,
-                    })
-                }
-                Some(_) => {
-                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width");
-                    return ExitCode::from(2);
-                }
-            };
-            let Some(lights) = lights else {
-                eprintln!("detail-bake: give the fitted lights with --lights");
-                return ExitCode::from(2);
-            };
-            let options = detail_bake::GpuOptions {
-                probe,
-                levels,
-                sun,
-                sun_fit,
-                weigh,
-                no_even,
-                fill_stored,
-                floor,
-                every_room,
-                stored_backdrop,
-                least,
-                most,
-                skylights: (skylights.iter())
-                    .flat_map(|names| names.split_whitespace())
-                    .map(str::to_string)
-                    .collect(),
-                placeables: placeables || placeable_light,
-                placeable_light,
-            };
-            detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
-        }
+        Verb::DetailBake(args) => crate::editor_tools::detail_bake(args),
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,
@@ -948,6 +763,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         made,
                         party,
                         read_ms: 0,
+                        added: None,
                     },
                 )
             }
@@ -1028,6 +844,21 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 script_verbs::check(&discover(), &game, unbound)
             }
             ScriptVerb::Probes => script_verbs::probes(),
+            ScriptVerb::Compile { game, script } => {
+                script_verbs::compile(&discover(), &game, script.as_deref())
+            }
+            ScriptVerb::Decompile {
+                game,
+                script,
+                module,
+                out,
+            } => decompile_verbs::decompile(
+                &discover(),
+                &game,
+                script.as_deref(),
+                module.as_deref(),
+                out.as_deref(),
+            ),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
             }
@@ -1381,38 +1212,18 @@ impl SimWorldArgs {
     }
 }
 
-/// Which module a collision verb builds, and its clip brushes.
-#[derive(clap::Args, Clone)]
-pub(crate) struct CollisionModule {
-    /// k1 or tsl
-    game: String,
-    /// Module, e.g. end_m01aa (its entry area is built); for `build`,
-    /// `all` builds every module
-    module: String,
-    /// Clip brushes from this file instead of the built-in one
-    #[arg(long)]
-    clip: Option<std::path::PathBuf>,
-    /// No clip brushes at all
-    #[arg(long, conflicts_with = "clip")]
-    no_clip: bool,
-}
-
-impl CollisionModule {
-    fn clip(&self) -> collision_verbs::ClipChoice<'_> {
-        match (&self.clip, self.no_clip) {
-            (_, true) => collision_verbs::ClipChoice::None,
-            (Some(path), _) => collision_verbs::ClipChoice::File(path),
-            (None, false) => collision_verbs::ClipChoice::BuiltIn,
-        }
-    }
-}
-
 #[derive(Subcommand)]
 pub(crate) enum CollisionVerb {
     /// Build the level and report what went into it.
     Build {
         #[command(flatten)]
         module: CollisionModule,
+    },
+    /// A Jedi Academy level's collision and floor, tested against the
+    /// level's own start points and waypoints.
+    Ja {
+        /// A level, e.g. t1_sour or mp/ffa3, or `all` for every level
+        level: String,
     },
     /// Walk routes of the navigation mesh for real: a player steered
     /// by `sim::walk` through move_body, from a drawn face to another
@@ -1427,6 +1238,13 @@ pub(crate) enum CollisionVerb {
         /// The draw's seed
         #[arg(long, default_value_t = 1)]
         seed: u64,
+        /// One walk from here (the feet, metres: X,Y,Z) in place of drawn
+        /// ones, which may cross a project's links between floors
+        #[arg(long, value_delimiter = ',', requires = "to")]
+        from: Option<Vec<f32>>,
+        /// Where that walk goes (the feet, metres: X,Y,Z)
+        #[arg(long, value_delimiter = ',', requires = "from")]
+        to: Option<Vec<f32>>,
     },
     /// The navigation mesh: bake it from the walkable faces, route
     /// between drawn points of its largest island and check every route.
@@ -1442,27 +1260,7 @@ pub(crate) enum CollisionVerb {
     },
     /// The containment audit: where a player gets off the walkmesh by
     /// walking and by each jump level; writes facts.json and audit.png.
-    Audit {
-        #[command(flatten)]
-        module: CollisionModule,
-        /// Grid cell, metres
-        #[arg(long, default_value_t = 0.5)]
-        cell: f32,
-        /// Which doors are open: `openable` (not static, not a module
-        /// transition), `closed` or `all`
-        #[arg(long, default_value = "openable")]
-        doors: String,
-        /// Regions to print
-        #[arg(long, default_value_t = 40)]
-        show: usize,
-        /// Also draw zoom.png around x,y,radius (metres)
-        #[arg(long, value_parser = parse_zoom)]
-        zoom: Option<[f32; 3]>,
-        /// Where the flood starts: `starts` (the module's entry and
-        /// waypoints) or `walkmesh` (every in-bounds spot: stricter)
-        #[arg(long, default_value = "starts")]
-        seeds: String,
-    },
+    Audit(crate::editor_tools::AuditArgs),
     /// One trace through the module's collision.
     Trace {
         #[command(flatten)]
@@ -1503,15 +1301,6 @@ pub(crate) enum CollisionVerb {
         #[arg(long, conflicts_with = "clip")]
         no_clip: bool,
     },
-}
-
-fn doors_of(text: &str) -> Option<collision_verbs::Doors> {
-    Some(match text {
-        "openable" => collision_verbs::Doors::Openable,
-        "closed" => collision_verbs::Doors::Closed,
-        "all" => collision_verbs::Doors::All,
-        _ => return None,
-    })
 }
 
 #[derive(Subcommand)]
@@ -1960,6 +1749,30 @@ pub(crate) enum ScriptVerb {
         #[arg(long)]
         module: Option<String>,
     },
+    /// Compile every script source of an install that has a body with
+    /// kjk's compiler and compare it with the compiled script the install
+    /// ships; with a script named, show where the two part
+    Compile {
+        /// k1 or tsl
+        game: String,
+        /// One script's resref, e.g. k_con_atdant
+        script: Option<String>,
+    },
+    /// Read a compiled script back into source, proven by compiling it
+    /// again to the same bytes; with no script named, every compiled
+    /// script of the install and each module is read back and counted
+    Decompile {
+        /// k1 or tsl
+        game: String,
+        /// One script's resref, e.g. k_ai_master
+        script: Option<String>,
+        /// Also load this module's archives, e.g. end_m01aa
+        #[arg(long)]
+        module: Option<String>,
+        /// Write the source to `<OUT>/<script>.nss` instead of printing it
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
     /// Decode every compiled script of an install, write each back, and
     /// check every routine call against the game's nwscript.nss
     Check {
@@ -2349,12 +2162,28 @@ fn collision(verb: CollisionVerb) -> ExitCode {
         CollisionVerb::Build { module } => {
             collision_verbs::build(&discover(), &module.game, &module.module, module.clip())
         }
+        CollisionVerb::Ja { level } => collision_ja::run(&discover(), &level),
         CollisionVerb::Walk {
             game,
             module,
             routes,
             seed,
-        } => nav_verbs::walk(&discover(), &game, &module, routes, seed),
+            from,
+            to,
+        } => {
+            let point = |values: &[f32]| (values.len() == 3).then(|| [values[0], values[1], values[2]]);
+            let pair = match from.zip(to) {
+                Some((from, to)) => match (point(&from), point(&to)) {
+                    (Some(from), Some(to)) => Some((from, to)),
+                    _ => {
+                        eprintln!("--from and --to each take three numbers: X,Y,Z");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => None,
+            };
+            nav_verbs::walk(&discover(), &game, &module, (routes, seed), pair)
+        }
         CollisionVerb::Nav {
             module,
             routes,
@@ -2367,40 +2196,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
             routes,
             seed,
         ),
-        CollisionVerb::Audit {
-            module,
-            cell,
-            doors,
-            show,
-            zoom,
-            seeds,
-        } => {
-            let from_walkmesh = match seeds.as_str() {
-                "starts" => false,
-                "walkmesh" => true,
-                other => {
-                    eprintln!("--seeds {other}: use starts or walkmesh");
-                    return ExitCode::from(2);
-                }
-            };
-            let Some(doors) = doors_of(&doors) else {
-                eprintln!("--doors {doors}: use openable, closed or all");
-                return ExitCode::from(2);
-            };
-            collision_audit::run(
-                &discover(),
-                &module.game,
-                &module.module,
-                module.clip(),
-                &collision_audit::Options {
-                    cell,
-                    doors,
-                    show,
-                    zoom,
-                    from_walkmesh,
-                },
-            )
-        }
+        CollisionVerb::Audit(args) => crate::editor_tools::audit(args),
         CollisionVerb::Trace {
             module,
             from,
@@ -2579,20 +2375,6 @@ fn parse_point(text: &str) -> Result<[f32; 3], String> {
     }
 }
 
-fn parse_zoom(text: &str) -> Result<[f32; 3], String> {
-    let numbers: Vec<f32> = text
-        .split(',')
-        .map(|part| {
-            part.trim()
-                .parse::<f32>()
-                .map_err(|_| format!("{part}: a number"))
-        })
-        .collect::<Result<_, _>>()?;
-    match numbers.as_slice() {
-        &[x, y, r] if r > 0.0 => Ok([x, y, r]),
-        _ => Err("use x,y,radius in metres".into()),
-    }
-}
 
 fn parse_hz(text: &str) -> Result<u32, String> {
     text.parse::<u32>()

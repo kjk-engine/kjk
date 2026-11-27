@@ -39,6 +39,12 @@ pub struct Loaded {
 }
 
 impl Loaded {
+    /// The area's walkable faces as the navigation mesh is baked from
+    /// them: with the active project's changes (`level_edit::nav`).
+    pub fn nav_faces(&self) -> Vec<[[f32; 3]; 3]> {
+        level_edit::active::nav_faces(self.game.key(), &self.module.name, self.collision.nav_faces())
+    }
+
     pub fn area(&self) -> &asset_odyssey::module::AreaIr {
         &self.module.areas[self.area]
     }
@@ -54,6 +60,7 @@ pub fn module_level(
     module: &str,
 ) -> Result<collision::Level, String> {
     let clip = collision_odyssey::built_in_clip(game.key(), &module.to_ascii_lowercase())?;
+    let clip = level_edit::active::clip_for(game.key(), &module.to_ascii_lowercase(), clip);
     let mut built = collision_odyssey::build_module(
         &ResolverSource(resolver),
         module,
@@ -116,6 +123,18 @@ pub fn load(
             (Some(clip), path.display().to_string())
         }
         ClipChoice::None => (None, "none (--no-clip)".to_string()),
+    };
+    // A level editor project's boxes and solid props (`--project`).
+    let (clip, clip_source) = match level_edit::active::added(game.key(), &module) {
+        Some(added) => (
+            Some(level_edit::active::with_added(clip, added)),
+            format!(
+                "{clip_source}, with the project's {} boxes and {} prop triangles",
+                added.hulls.len(),
+                added.triangles.len()
+            ),
+        ),
+        None => (clip, clip_source),
     };
     let started = Instant::now();
     let built = collision_odyssey::build_module(

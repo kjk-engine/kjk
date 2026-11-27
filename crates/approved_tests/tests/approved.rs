@@ -2168,7 +2168,7 @@ mod audit {
 /// `nwscript.nss` declares (`kjk script check`).
 #[test]
 fn script_vm() {
-    passed("script", &script_ncs::probes::all(), 30);
+    passed("script", &script_ncs::probes::all(), 40);
 
     let discovery = discovery();
     for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
@@ -7294,4 +7294,4911 @@ fn prepass_readers_declared() {
         "the files reading a prepass's texture, against PREPASS_READERS"
     );
     println!("{} prepass readers, each declared", readers.len());
+}
+
+/// An area's weather and Jedi Academy's ambient effects in the level
+/// editor (`level_edit::settings`, `level_edit::effects`, proposed
+/// 2026-11-24, awaiting approval), on an ARE and a `kjk-area.toml` the
+/// test makes. A chance of weather is from 0 to 100 and the wind from 0 to
+/// 2; a room is marked dry by its name, in any case, and an unknown room
+/// is refused. An effect's path is kept as `effects/<folder>/<name>.efx`
+/// however it is given, and played by `<folder>/<name>`; it points
+/// straight up at a pitch of 90, its `[[effect]]` table reads back the
+/// same, and a pitch past 90 or a pace under 0.05 seconds is refused. A
+/// new map's rooms list keeps a room's dryness when it is made again. No
+/// installs.
+#[test]
+fn level_edit_weather_and_effects() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::effects::{AmbientEffect, effect_path, played_name, problem};
+    use level_edit::settings::{check_weather, dry_rooms, set_dry_room};
+
+    assert!(check_weather("ChanceSnow", 100).is_ok());
+    assert!(check_weather("ChanceSnow", 101).is_err());
+    assert!(check_weather("WindPower", 2).is_ok());
+    assert!(check_weather("WindPower", 3).is_err());
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let mut are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Rooms",
+                GffValue::List(
+                    ["kjk_hoth_01", "kjk_hoth_02"]
+                        .into_iter()
+                        .map(|name| GffStruct {
+                            id: 0,
+                            fields: vec![field(
+                                "RoomName",
+                                GffValue::String(name.as_bytes().to_vec()),
+                            )],
+                        })
+                        .collect(),
+                ),
+            )],
+        },
+    };
+    set_dry_room(&mut are, "KJK_HOTH_02", true).unwrap();
+    assert!(set_dry_room(&mut are, "kjk_hoth_09", true).is_err());
+    assert_eq!(
+        dry_rooms(&are),
+        vec![
+            ("kjk_hoth_01".to_string(), false),
+            ("kjk_hoth_02".to_string(), true)
+        ]
+    );
+
+    assert_eq!(effect_path(r"env\Fire"), "effects/env/fire.efx");
+    assert_eq!(effect_path("effects/env/fire.efx"), "effects/env/fire.efx");
+    assert_eq!(played_name("effects/env/fire.efx"), "env/fire");
+    let effect = AmbientEffect::new("effect-1", "env/fire", [1.5, -2.0, 0.25]);
+    let up = effect.forward();
+    assert!(up[0].abs() < 1e-6 && up[1].abs() < 1e-6 && (up[2] - 1.0).abs() < 1e-6);
+    let mut area = level_edit::KjkArea::default();
+    area.effects.push(effect.clone());
+    assert_eq!(level_edit::KjkArea::parse(&area.write()).unwrap(), area);
+    assert!(
+        problem(&AmbientEffect {
+            pitch: 95.0,
+            ..effect.clone()
+        })
+        .is_err()
+    );
+    assert!(
+        problem(&AmbientEffect {
+            every: 0.01,
+            ..effect.clone()
+        })
+        .is_err()
+    );
+    println!("weather set and rooms kept dry; an effect written and read back the same");
+}
+
+/// Kinds of light fitting and the bake's room levels changed in the level
+/// editor (`level_edit::kinds`, `level_edit::levels`, proposed 2026-11-20,
+/// awaiting approval), on rule files the test makes. A kind's `[[kind]]`
+/// entry changes in place, its fields keeping their places, and every
+/// other line stays; a kind made no lamp keeps only its name. Its
+/// `[[fitting]]` changes in place with its other fields kept, or is added
+/// at the end. A levels file keeps every line but the changed room's, loses
+/// a room that has no level any more, and gains a new room at its end. A
+/// module whose bake aimed at a share of each room's level aims at its
+/// levels file instead, and a module with no entry gets one. In the editor
+/// a kind's change and a room's level are undone. No installs.
+#[test]
+fn level_edit_light_rules() {
+    use level_edit::kinds::{KindEdit, read_kind, write_fitting, write_kind};
+    use level_edit::levels::{bake_entry, read_levels, with_levels_file, write_levels};
+    use level_edit::{Edit, Editor, Project, git};
+
+    let kinds = "# The kinds.\n\
+                 \n\
+                 [[kind]]\n\
+                 texture = \"lda_lite01\"\n\
+                 on = \"room\"\n\
+                 form = \"panel\"\n\
+                 colour = [1.0, 0.93, 0.76]\n\
+                 reach = 2.5\n\
+                 strength = 1.1\n\
+                 cone = 0.2\n\
+                 \n\
+                 [[kind]]\n\
+                 texture = \"plc_bed1\"\n\
+                 on = \"placeable\"\n\
+                 lamp = false\n";
+    let mut kind = read_kind(kinds, "lda_lite01", false).unwrap();
+    assert_eq!(kind.strength, 1.1);
+    assert!(
+        read_kind(kinds, "lda_lite01", true).is_none(),
+        "not on placeables"
+    );
+    kind.colour = [0.3, 0.5, 1.0];
+    kind.strength = 2.5;
+    let written = write_kind(kinds, &kind).unwrap();
+    let changed: Vec<&str> = written
+        .lines()
+        .zip(kinds.lines())
+        .filter(|(new, old)| new != old)
+        .map(|(new, _)| new)
+        .collect();
+    assert_eq!(changed, ["colour = [0.3, 0.5, 1.0]", "strength = 2.5"]);
+    assert_eq!(read_kind(&written, "lda_lite01", false).unwrap(), kind);
+    let off = KindEdit {
+        lamp: false,
+        ..kind.clone()
+    };
+    assert!(
+        !read_kind(&write_kind(kinds, &off).unwrap(), "lda_lite01", false)
+            .unwrap()
+            .lamp
+    );
+
+    let fittings = "[rules]\n\
+                    strong = 1.1\n\
+                    \n\
+                    [[fitting]]\n\
+                    game = \"k1\"\n\
+                    texture = \"lda_lite01\"\n\
+                    on = \"room\"\n\
+                    form = \"panel\"\n\
+                    colour = [1.0, 0.93, 0.76]\n\
+                    reach = 2.5\n\
+                    strength = 1.1\n\
+                    cone = 0.2\n\
+                    says = \"A warm pool.\"\n\
+                    reason = \"Warmer than stored.\"\n";
+    let told = KindEdit {
+        reason: "Blue for the test.".into(),
+        ..kind.clone()
+    };
+    let fitted = write_fitting(fittings, "k1", &told).unwrap();
+    let keys: Vec<&str> = fitted
+        .lines()
+        .skip(4)
+        .filter_map(|line| line.split(" = ").next())
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "game", "texture", "on", "form", "colour", "reach", "strength", "cone", "says",
+            "reason"
+        ]
+    );
+    assert!(fitted.contains("reason = \"Blue for the test.\""));
+    assert!(fitted.starts_with("[rules]\nstrong = 1.1\n\n[[fitting]]"));
+    let other = KindEdit {
+        texture: "lda_lite02".into(),
+        ..kind.clone()
+    };
+    let added = write_fitting(fittings, "k1", &other).unwrap();
+    assert!(
+        added.starts_with(fittings),
+        "a new kind's fitting goes at the end"
+    );
+    assert!(added.ends_with("cone = 0.2\n"));
+
+    let levels = "# Approved.\n\
+                  m13aa_01a 0.7184\n\
+                  m13aa_02a 0.4756\n\
+                  m13aa_02b 0.169\n";
+    let mut wanted = read_levels(levels);
+    assert_eq!(wanted.len(), 3);
+    wanted.insert("m13aa_01a".into(), 0.65);
+    wanted.remove("m13aa_02a");
+    wanted.insert("m13aa_09z".into(), 0.3);
+    assert_eq!(
+        write_levels(Some(levels), &wanted, "unused"),
+        "# Approved.\nm13aa_01a 0.6500\nm13aa_02b 0.169\nm13aa_09z 0.3000\n"
+    );
+
+    let bake = "[default]\n\
+                share = 1.0\n\
+                of = \"lit\"\n\
+                \n\
+                [modules.101per]\n\
+                share = 0.6\n\
+                ceiling = 0.22\n\
+                of = \"live\"\n";
+    assert_eq!(bake_entry(bake, "101per").share, Some(0.6));
+    assert!(!bake_entry(bake, "danm13").own);
+    let held = with_levels_file(bake, "101per", "levels/101per.txt").unwrap();
+    let entry = bake_entry(&held, "101per");
+    assert_eq!(
+        (
+            entry.share,
+            entry.ceiling,
+            entry.levels.as_deref(),
+            entry.of.as_str()
+        ),
+        (None, None, Some("levels/101per.txt"), "live")
+    );
+    let new = with_levels_file(bake, "danm13", "levels/danm13.txt").unwrap();
+    assert!(new.starts_with(bake));
+    assert_eq!(
+        bake_entry(&new, "danm13").levels.as_deref(),
+        Some("levels/danm13.txt")
+    );
+
+    // A first bake's log gives each room the share of its level, at most
+    // the ceiling; a sun's numbers are passed as `bake.sh` passes them.
+    let log = "  each room's original level, ...
+                   m12aa_01b: original 0.2000, colour 0.2 0.2 0.2, lit 0.5000
+                   m12aa_01c: original 0.1000, colour 0.1 0.1 0.1, lit 0.2000
+                   m12aa_01b: 1200, live 0.3000; a 0.2 0.2 x1.0; b 0.2 0.2 0.2 x1.0
+";
+    let lit = level_edit::levels::levels_from_log(log, "lit", 0.6, Some(0.22));
+    assert_eq!(lit.get("m12aa_01b"), Some(&0.22));
+    assert!((lit["m12aa_01c"] - 0.12).abs() < 1e-6);
+    let original = level_edit::levels::levels_from_log(log, "original", 1.0, None);
+    assert_eq!(original.get("m12aa_01c"), Some(&0.1));
+    let live = level_edit::levels::levels_from_log(log, "live", 1.0, None);
+    assert_eq!(live.len(), 1);
+    assert_eq!(live.get("m12aa_01b"), Some(&0.3));
+    let sunny = "[modules.danm13]
+                 levels = \"levels/danm13.txt\"
+                 even = false
+                 sun = { toward = [0.383, 0.663, 0.643], colour = [1.07, 0.96, 0.6], sky = [0.42, 0.44, 0.3], width = 0.01, skylights = [\"sky01\", \"sky02\"] }
+";
+    let entry = bake_entry(sunny, "danm13");
+    assert!(!entry.even);
+    assert_eq!(
+        entry.sun_args.as_deref(),
+        Some("0.383 0.663 0.643 1.07 0.96 0.6 0.42 0.44 0.3 0.01")
+    );
+    assert_eq!(entry.skylights.as_deref(), Some("sky01 sky02"));
+    // A project's sun 500 m over the level's middle, reaching 2000 m: a
+    // surface facing it takes 2000² / 2500² = 0.64 of its colour, and the
+    // whole sky half of that. A sun out of reach gives the bake none.
+    let sun = level_edit::area::SunLight {
+        at: [0.0, 0.0, 500.0],
+        colour: [0.4, 0.4, 0.4],
+        multiplier: 1.0,
+        radius: 2000.0,
+    };
+    assert_eq!(
+        level_edit::levels::project_sun_args(&sun, [0.0; 3]).as_deref(),
+        Some("0.0000 0.0000 1.0000 0.2560 0.2560 0.2560 0.1280 0.1280 0.1280 0.0100")
+    );
+    assert!(level_edit::levels::project_sun_args(&sun, [0.0, 0.0, -1600.0]).is_none());
+
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-light-rules"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    editor.apply(Edit::SetKind(kind.clone())).unwrap();
+    editor
+        .apply(Edit::SetLevel("M13AA_01A".into(), Some(0.5)))
+        .unwrap();
+    assert_eq!(editor.project.levels.get("m13aa_01a"), Some(&0.5));
+    assert!(
+        editor
+            .apply(Edit::SetLevel("m13aa_01a".into(), Some(9.0)))
+            .is_err()
+    );
+    assert!(editor.undo() && editor.undo());
+    assert!(editor.project.kinds.is_empty() && editor.project.levels.is_empty());
+    println!("a kind and a room's level written, every other line kept");
+}
+
+/// Lights placed by hand in the level editor (`level_edit::lights`,
+/// proposed 2026-11-20, awaiting approval), on a `fittings.toml` the test
+/// makes: comments, a `[[fitting]]` and the `[[placed]]` lights of two
+/// areas. One area's lights read back with their reason, and replacing
+/// them leaves every other line of the file as it was, the other area's
+/// lights and the comments included; the new lights read back as written,
+/// and writing them again changes nothing. A light the file does not have
+/// yet goes at the end. In the editor a light is added, moved, turned (its
+/// aim turns about Z, its height kept), copied and deleted, and undone. A
+/// new map keeps its lights in `kjk-area.toml`; an installed level's are
+/// left out of it. No installs.
+#[test]
+fn level_edit_fitted_lights() {
+    use level_edit::lights::{read_placed, write_placed};
+    use level_edit::{Edit, Editor, KjkArea, PlacedLight, Project, Target, git};
+
+    let file = "# The rules.\n\
+                [rules]\n\
+                strong = 1.1\n\
+                \n\
+                # A kind that differs.\n\
+                [[fitting]]\n\
+                game = \"k1\"\n\
+                texture = \"lza_lit01\"\n\
+                strength = 1.7\n\
+                \n\
+                [[placed]]\n\
+                game = \"tsl\"\n\
+                area = \"602dan\"\n\
+                at = [-27.5, -3.2, 12.8]\n\
+                colour = [1.0, 0.96, 0.88]\n\
+                radius = 7.0\n\
+                reason = \"Daylight from the windows.\"\n\
+                \n\
+                [[placed]]\n\
+                game = \"k1\"\n\
+                area = \"danm13\"\n\
+                at = [1.0, 2.0, 3.0]\n\
+                colour = [0.8, 0.24, 0.2]\n\
+                radius = 5.0\n\
+                aim = [0.0, 0.0, -1.0]\n\
+                cone = 0.7\n\
+                reason = \"A lamp the art shows.\"\n\
+                \n\
+                [[placed]]\n\
+                game = \"tsl\"\n\
+                area = \"221tel\"\n\
+                at = [-33.657, -9.177, 4.675]\n\
+                colour = [0.8, 0.24, 0.2]\n\
+                radius = 5.0\n";
+    let enclave = read_placed(file, "k1", "danm13").unwrap();
+    assert_eq!(enclave.len(), 1);
+    assert_eq!(enclave[0].reason, "A lamp the art shows.");
+    assert_eq!(enclave[0].cone, 0.7);
+    let lights = vec![
+        PlacedLight {
+            at: [4.0, 5.0, 2.5],
+            colour: [1.0, 0.9, 0.7],
+            radius: 6.0,
+            reason: "Light for the council.".into(),
+            ..PlacedLight::default()
+        },
+        PlacedLight {
+            at: [8.0, 5.0, 3.0],
+            radius: 4.0,
+            aim: [0.0, 0.0, -1.0],
+            cone: 0.7,
+            way: [1.0, 0.0, 0.0],
+            half: 1.5,
+            ..PlacedLight::default()
+        },
+    ];
+    let written = write_placed(file, "k1", "danm13", &lights).unwrap();
+    assert_eq!(read_placed(&written, "k1", "danm13").unwrap(), lights);
+    let others = |text: &str| -> String {
+        // The text without danm13's tables.
+        let mut kept = String::new();
+        for block in text.split("\n[[placed]]\n") {
+            if !block.contains("area = \"danm13\"") {
+                kept.push_str(block);
+                kept.push('|');
+            }
+        }
+        kept
+    };
+    assert_eq!(
+        others(&written),
+        others(file),
+        "the rest of the file is kept"
+    );
+    assert_eq!(
+        write_placed(&written, "k1", "danm13", &lights).unwrap(),
+        written
+    );
+    let new = write_placed(file, "k1", "end_m01aa", &lights[..1]).unwrap();
+    assert!(new.starts_with(file), "a new area's lights go at the end");
+    assert_eq!(read_placed(&new, "k1", "end_m01aa").unwrap(), lights[..1]);
+
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-fitted-lights"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    editor.apply(Edit::AddLight(lights[0].clone())).unwrap();
+    editor
+        .apply(Edit::Move(Target::Light(0), [1.0, 1.0, 2.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Light(0), 90.0)).unwrap();
+    let turned = &editor.project.kjk.lights[0];
+    assert!(turned.aim[0].abs() < 1e-6 && (turned.aim[1] - 1.0).abs() < 1e-6);
+    editor.apply(Edit::Duplicate(Target::Light(0))).unwrap();
+    assert_eq!(editor.project.kjk.lights.len(), 2);
+    editor.apply(Edit::Delete(Target::Light(1))).unwrap();
+    assert!(
+        editor
+            .apply(Edit::AddLight(PlacedLight {
+                radius: 0.0,
+                ..PlacedLight::default()
+            }))
+            .is_err()
+    );
+    assert!(
+        editor
+            .apply(Edit::Move(Target::Fitted(0), [0.0; 3]))
+            .is_err()
+    );
+    // The delete, the copy, the turn and the move undone.
+    assert!(editor.undo() && editor.undo() && editor.undo() && editor.undo());
+    assert_eq!(editor.project.kjk.lights[0].at, [4.0, 5.0, 2.5]);
+
+    let area = KjkArea {
+        lights: lights.clone(),
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    let mut installed = editor.project.clone();
+    installed.kjk = area.clone();
+    assert!(installed.own_kjk().lights.is_empty());
+    println!(
+        "{} lights written for danm13, the rest of the file kept",
+        lights.len()
+    );
+}
+
+/// A project's changes to the navigation mesh (`level_edit::nav`,
+/// proposed 2026-11-20, awaiting approval), on a floor the test makes: a
+/// square 4 m on a side, of two triangles. A blocker 1 m square over its
+/// middle cuts the floor along its outline and leaves out the part inside
+/// it: the floor left is 15 square metres, and no face's middle lies
+/// inside the blocker. A walkable box and a floor box each add their top's
+/// two triangles. A floor box far off is an island of its own in the mesh
+/// baked from them. A blocker 3 m above the floor leaves it whole. Only
+/// solid and walkable boxes join the collision. Roles read back from
+/// `kjk-area.toml` as written, and a solid box is written as before boxes
+/// had roles. No installs.
+#[test]
+fn level_edit_nav_edits() {
+    use level_edit::{BoxRole, CollisionBox, KjkArea, Project, git, nav};
+
+    let floor = vec![
+        [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 4.0, 0.0]],
+        [[0.0, 0.0, 0.0], [4.0, 4.0, 0.0], [0.0, 4.0, 0.0]],
+    ];
+    let area = |faces: &[[[f32; 3]; 3]]| -> f32 {
+        faces
+            .iter()
+            .map(|[a, b, c]| {
+                ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() * 0.5
+            })
+            .sum()
+    };
+    let shape = |name: &str, centre: [f32; 3], size: [f32; 3], role: BoxRole| CollisionBox {
+        name: name.into(),
+        centre,
+        size,
+        yaw: 0.0,
+        role,
+    };
+    let blocker = shape("post", [2.0, 2.0, 1.0], [1.0, 1.0, 2.0], BoxRole::NavBlock);
+    let cut = nav::edited(floor.clone(), std::slice::from_ref(&blocker));
+    assert!(
+        (area(&cut) - 15.0).abs() < 1e-3,
+        "floor left {}",
+        area(&cut)
+    );
+    assert!(cut.iter().all(|face| {
+        let middle: [f32; 3] =
+            std::array::from_fn(|axis| (face[0][axis] + face[1][axis] + face[2][axis]) / 3.0);
+        !blocker.holds(middle)
+    }));
+    let high = shape("high", [2.0, 2.0, 4.0], [1.0, 1.0, 2.0], BoxRole::NavBlock);
+    assert_eq!(nav::edited(floor.clone(), &[high]), floor);
+
+    let walkable = shape("step", [1.0, 1.0, 0.25], [1.0, 1.0, 0.5], BoxRole::Walkable);
+    let far = shape("far", [20.0, 20.0, 0.0], [2.0, 2.0, 0.1], BoxRole::NavFloor);
+    let added = nav::edited(floor.clone(), &[walkable.clone(), far.clone()]);
+    assert_eq!(added.len(), 6);
+    assert_eq!(&added[2..4], &walkable.top());
+    let mesh = collision::nav::NavMesh::build(&added, 0.0);
+    assert!(mesh.islands >= 2, "the far floor is an island of its own");
+
+    let kjk = KjkArea {
+        boxes: vec![
+            shape("wall", [0.0; 3], [1.0; 3], BoxRole::Solid),
+            walkable,
+            blocker,
+            far,
+        ],
+        ..KjkArea::default()
+    };
+    let text = kjk.write();
+    assert_eq!(
+        text.matches("role = ").count(),
+        3,
+        "a solid box has no role line"
+    );
+    assert_eq!(KjkArea::parse(&text).unwrap(), kjk);
+    let mut project = Project::new(
+        &std::env::temp_dir().join("kjk-nav-edits"),
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    );
+    project.kjk = kjk;
+    let (added, _) = level_edit::active::collision_of(&project, None);
+    assert_eq!(added.hulls.len(), 2, "the solid and the walkable box");
+    println!(
+        "a 1 m blocker leaves {} square metres of a 16 m² floor",
+        area(&cut)
+    );
+}
+
+/// A room cut from a Jedi Academy level (`asset_ja::level_rooms`, proposed
+/// 2026-11-26, awaiting approval), on a shape the test makes. The cut is a
+/// wedge 10 metres long and 1 metre wide at its far end, 2 metres high,
+/// with a margin of 0.1 metres. Its two long faces meet at 5.7 degrees, so
+/// moved out by the margin they meet 2 metres beyond the wedge's tip, not
+/// 0.1. A point 1 metre beyond the tip is in the room, and a triangle
+/// there is cut into the room too: the two used to disagree, and the
+/// triangle was left to the rest of the level. 2.5 metres beyond the tip,
+/// both give the rest of the level. A square room's margin is as it was:
+/// 0.05 metres outside a wall is in the room and 0.2 metres is not. No
+/// installs.
+#[test]
+fn ja_room_cut_sharp_corner() {
+    use asset_ja::level_rooms::{Cut, REST, RoomCuts, Shape};
+    let room = |points: &[[f32; 3]]| {
+        RoomCuts {
+            names: vec![REST.to_string(), "room".to_string()],
+            cuts: vec![Cut {
+                room: 1,
+                shape: Shape {
+                    points: points.to_vec(),
+                    up: 2.0,
+                    down: 0.0,
+                    margin: 0.1,
+                },
+            }],
+        }
+        .cutter()
+    };
+    // A small triangle at `at`, level, and the rooms its pieces are in.
+    let rooms_of = |cutter: &asset_ja::level_rooms::Cutter, at: [f32; 3]| -> Vec<usize> {
+        let [x, y, z] = at;
+        let triangle = [[x, y, z], [x + 0.1, y, z], [x, y + 0.03, z]];
+        let mut rooms: Vec<usize> = (cutter.pieces(triangle).iter())
+            .map(|(room, _)| *room)
+            .collect();
+        rooms.sort_unstable();
+        rooms.dedup();
+        rooms
+    };
+
+    let wedge = room(&[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 1.0, 0.0]]);
+    let beyond = [-1.0, -0.05, 1.0];
+    assert_eq!(
+        wedge.room_at(beyond),
+        1,
+        "1 m beyond the tip is in the room"
+    );
+    assert_eq!(rooms_of(&wedge, beyond), [1], "and so is a triangle there");
+    let far = [-2.5, -0.05, 1.0];
+    assert_eq!(wedge.room_at(far), 0, "2.5 m beyond the tip is not");
+    assert_eq!(rooms_of(&wedge, far), [0]);
+    // Inside the wedge itself, as before.
+    assert_eq!(wedge.room_at([9.0, 0.4, 1.0]), 1);
+    assert_eq!(rooms_of(&wedge, [9.0, 0.4, 1.0]), [1]);
+
+    let square = room(&[
+        [0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [4.0, 4.0, 0.0],
+        [0.0, 4.0, 0.0],
+    ]);
+    assert_eq!(square.room_at([4.05, 2.0, 1.0]), 1);
+    assert_eq!(rooms_of(&square, [3.98, 2.0, 1.0]), [1]);
+    assert_eq!(square.room_at([4.2, 2.0, 1.0]), 0);
+    assert_eq!(rooms_of(&square, [4.2, 2.0, 1.0]), [0]);
+    eprintln!("a wedge's sharp corner and a square room cut triangles as they hold points");
+}
+
+/// The doors of a Jedi Academy level (`asset_ja::movers`, proposed
+/// 2026-11-26, awaiting approval), on a level the test makes. A door whose
+/// model is built round an origin stands at the origin, where the level
+/// draws it: its foot is the middle of its model moved by the origin. It
+/// used to stand where its model lies, near the level's zero point. A door
+/// without an origin stands where its model lies, as before. Two parts of
+/// one team are one door, named by the first name either part has, and
+/// open from the start when either part is. No installs.
+#[test]
+fn ja_door_origin_and_team() {
+    use fmt_ja::bsp::{Bsp, Entity, Model};
+    let model = |min: [f32; 3], max: [f32; 3]| Model {
+        min,
+        max,
+        surfaces: (0, 0),
+        brushes: (0, 0),
+    };
+    let entity = |pairs: &[(&str, &str)]| {
+        Entity(
+            pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        )
+    };
+    let bsp = Bsp {
+        models: vec![
+            model([-4096.0; 3], [4096.0; 3]),
+            // Built round its origin, 16 wide, 64 across and 96 high.
+            model([-8.0, -32.0, 0.0], [8.0, 32.0, 96.0]),
+            // At its own place.
+            model([100.0, -32.0, 0.0], [116.0, 32.0, 96.0]),
+            // The two halves of a gate.
+            model([300.0, 0.0, 0.0], [316.0, 64.0, 96.0]),
+            model([300.0, 64.0, 0.0], [316.0, 128.0, 96.0]),
+        ],
+        entities: vec![
+            entity(&[("classname", "worldspawn")]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*1"),
+                ("origin", "500 200 16"),
+            ]),
+            entity(&[("classname", "func_door"), ("model", "*2")]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*3"),
+                ("team", "gate"),
+            ]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*4"),
+                ("team", "gate"),
+                ("targetname", "the_gate"),
+                ("spawnflags", "1"),
+            ]),
+        ],
+        ..Bsp::default()
+    };
+    let movers = asset_ja::movers::movers(&bsp);
+    let doors = asset_ja::movers::doors(&movers);
+    assert_eq!(doors.len(), 3, "{doors:?}");
+    assert_eq!(
+        doors[0].foot(),
+        [500.0, 200.0, 16.0],
+        "a door round an origin"
+    );
+    assert_eq!(
+        (doors[0].min, doors[0].max),
+        ([492.0, 168.0, 16.0], [508.0, 232.0, 112.0])
+    );
+    assert_eq!(
+        doors[1].foot(),
+        [108.0, 0.0, 0.0],
+        "a door at its own place"
+    );
+    let gate = doors[2];
+    assert_eq!(gate.parts.len(), 2);
+    assert_eq!(gate.name, "the_gate");
+    assert!(gate.starts_open);
+    assert_eq!(gate.foot(), [308.0, 64.0, 0.0]);
+    eprintln!("3 doors: one round its origin, one at its place, one team of two");
+}
+
+/// What a Jedi Academy level's reader refuses or bounds (`fmt_ja::bsp`,
+/// proposed 2026-11-26, awaiting approval), on tables the test makes. The
+/// visibility table of three clusters answers for a pair inside it by the
+/// pair's bit. For a cluster it has no row or no bit for, it answers that
+/// nothing is seen: the cluster 8 used to be read from the next cluster's
+/// row and came out as seen. A level with no table sees everything.
+///
+/// A light grid's cells are counted by the nearest whole number. With cells
+/// 33.3 wide in a world from -1340 to 1040, the grid has 72 cells along
+/// that axis. Worked out, the 71 steps between its first and last point
+/// come to 70.99999, and cut off that gave 71 cells.
+///
+/// A level whose brush, or whose brush's side, names a shader it lacks is
+/// refused, as one whose surface does. A level of one brush with its
+/// shader passes. No installs.
+#[test]
+fn ja_level_bounds() {
+    use fmt_ja::bsp::{Brush, BrushSide, Bsp, Plane, Shader, Visibility, grid_layout};
+    let level = |brush_shader: u32, side_shader: u32| Bsp {
+        shaders: vec![Shader {
+            name: "textures/probe/wall".into(),
+            surface_flags: 0,
+            content_flags: 0,
+        }],
+        planes: vec![Plane {
+            normal: [0.0, 0.0, 1.0],
+            dist: 0.0,
+        }],
+        brushes: vec![Brush {
+            sides: (0, 1),
+            shader: brush_shader,
+        }],
+        brush_sides: vec![BrushSide {
+            plane: 0,
+            shader: side_shader,
+        }],
+        ..Bsp::default()
+    };
+    assert_eq!(level(0, 0).checked(), Ok(()));
+    let refused = |level: Bsp| level.checked().err().map(|error| error.to_string());
+    assert!(
+        refused(level(1, 0)).is_some_and(|why| why.contains("brush 0 names shader 1")),
+        "a brush's shader"
+    );
+    assert!(
+        refused(level(0, 7)).is_some_and(|why| why.contains("a brush side names a shader")),
+        "a brush side's shader"
+    );
+    let (_, cells) = grid_layout(
+        [33.3, 64.0, 128.0],
+        [-1340.0, 0.0, 0.0],
+        [1040.0, 640.0, 1280.0],
+    );
+    assert_eq!(
+        cells,
+        [72, 11, 11],
+        "the light grid's cells along each axis"
+    );
+    // Cluster 0 sees itself, cluster 1 sees all three, cluster 2 itself.
+    let table = Visibility {
+        clusters: 3,
+        row_bytes: 1,
+        rows: vec![0b001, 0b111, 0b100],
+    };
+    assert!(table.sees(0, 0) && table.sees(1, 2) && table.sees(2, 2));
+    assert!(!table.sees(0, 1) && !table.sees(2, 0));
+    assert!(
+        !table.sees(0, 8),
+        "a cluster past the row's end is not seen"
+    );
+    assert!(!table.sees(0, 3) && !table.sees(3, 0) && !table.sees(usize::MAX, 0));
+    assert!(
+        Visibility::default().sees(7, 9),
+        "no table: everything is seen"
+    );
+    eprintln!("a visibility table of 3 clusters answers inside its rows alone");
+}
+
+/// A model as kjk writes one for a room it builds (`fmt_odyssey::mdl::written`,
+/// proposed 2026-11-27, awaiting approval), on meshes the test makes. A
+/// model of two meshes reads back with both, each with its texture and its
+/// corners. The mesh that names a lightmap reads back as lightmapped, and
+/// the mesh that names none does not: it used to be marked as lightmapped
+/// too. A mesh whose texture's name is not ASCII is refused, and so are
+/// 65,535 meshes, one more than a model can number.
+///
+/// The model's lightmap takes a new name of 16 characters, and one of 17 is
+/// refused, as a resource's name is. The model is moved and turned. With
+/// its root claiming 5,000 nodes under it, more than the 4,096 a model is
+/// moved with, it is refused by both: the nodes past 4,096 used to be left
+/// where they were without a word. No installs.
+#[test]
+fn room_model_written() {
+    use fmt_odyssey::mdl::{Model, WrittenMesh, relit, shifted, turned, written};
+    let mesh = |name: &str, texture: &str, lightmap: &str| WrittenMesh {
+        name: name.to_string(),
+        texture: texture.to_string(),
+        lightmap: lightmap.to_string(),
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 3],
+        uv1: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        uv2: vec![[0.25, 0.25], [0.75, 0.25], [0.25, 0.75]],
+        triangles: vec![[0, 1, 2]],
+        material: 4,
+        transparency_hint: 0,
+    };
+    let (mdl, mdx) = written(
+        "room",
+        &[
+            mesh("room_0", "wall", "jl0123456789abcd"),
+            mesh("room_1", "floor", ""),
+        ],
+    )
+    .unwrap();
+    let model = Model::parse(&mdl, &mdx).unwrap();
+    let read: Vec<(String, String, bool, usize)> = (model.root.children.iter())
+        .filter_map(|node| {
+            let mesh = node.mesh.as_ref()?;
+            Some((
+                node.name.clone(),
+                mesh.textures[0].clone(),
+                mesh.lightmapped,
+                mesh.positions.len(),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("room_0".to_string(), "wall".to_string(), true, 3),
+            ("room_1".to_string(), "floor".to_string(), false, 3),
+        ]
+    );
+    let refused =
+        |meshes: &[WrittenMesh]| written("room", meshes).err().map(|error| error.to_string());
+    assert!(
+        refused(&[mesh("room_0", "w\u{e4}nde", "")]).is_some_and(|why| why.contains("not ASCII")),
+        "a texture's name that is not ASCII"
+    );
+    assert!(
+        refused(&vec![WrittenMesh::default(); 65_535])
+            .is_some_and(|why| why.contains("more than a model can number")),
+        "65,535 meshes"
+    );
+    let named = |new: &str| relit(&mdl, &|_| Some(new.to_string())).map(|(_, names)| names);
+    assert_eq!(
+        named("lm0123456789abcd").ok(),
+        Some(vec!["jl0123456789abcd".to_string()]),
+        "a lightmap renamed to 16 characters"
+    );
+    assert!(named("lm0123456789abcde").is_err(), "17 characters");
+    assert!(shifted(&mdl, [1.0, 2.0, 3.0]).is_ok() && turned(&mdl, (1.0, 0.0)).is_ok());
+    // The root's count of the nodes under it, after the 12 bytes of the
+    // file's header: the root's place is at 40, and its count at 48 of it.
+    let root = u32::from_le_bytes(mdl[52..56].try_into().unwrap()) as usize;
+    let mut damaged = mdl.clone();
+    damaged[12 + root + 48..12 + root + 52].copy_from_slice(&5000u32.to_le_bytes());
+    for moved in [
+        shifted(&damaged, [1.0, 2.0, 3.0]),
+        turned(&damaged, (1.0, 0.0)),
+    ] {
+        let why = moved.err().map(|error| error.to_string());
+        assert!(
+            why.as_ref()
+                .is_some_and(|why| why.contains("5000 nodes under a root")),
+            "{why:?}"
+        );
+    }
+    eprintln!("a model of 2 meshes reads back, one of them lightmapped");
+}
+
+/// The names a level editor project's file gives (`level_edit::Project`,
+/// proposed 2026-11-27, awaiting approval), on a project the test makes.
+/// A name becomes part of a path, so a `project.toml` whose level, area or
+/// listed level or area has `..`, a separator or a drive in its name is
+/// refused when the project is opened. A save does not delete a file
+/// outside the folder that the file on disk lists among the areas it used
+/// to change. A bake is neither kept nor dropped for a level so named, and
+/// the folder it would have removed stays. A Jedi Academy level named with
+/// `..\` keeps its rooms' file in the project's own folder.
+///
+/// A text is written into the file as TOML quotes it. A new map's title
+/// with a non-breaking space, a zero-width space, a soft hyphen, a zero
+/// byte, a quote, a backslash and a line break reads back the same from the
+/// saved project. No installs.
+#[test]
+fn level_edit_file_names() {
+    use level_edit::{Project, git, ja_rooms, lighting};
+
+    let root = std::env::temp_dir().join(format!("kjk-level-edit-names-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let folder = root.join("project");
+    let project = Project::new(&folder, "k1", "ebo_m12aa", "m12aa", git::empty());
+    project.save("test").unwrap();
+    let file = folder.join("project.toml");
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(Project::open(&folder).is_ok());
+
+    // Opened, a name that leaves the folder is refused.
+    let refused = |text: String| {
+        std::fs::write(&file, text).unwrap();
+        Project::open(&folder)
+            .err()
+            .is_some_and(|why| why.contains("cannot name a file"))
+    };
+    let lines = [
+        ("module = \"ebo_m12aa\"", "module = \"../x\""),
+        ("module = \"ebo_m12aa\"", "module = \"..\""),
+        ("area = \"m12aa\"", "area = \"a/b\""),
+        ("area = \"m12aa\"", "area = 'c:\\x'"),
+        ("area = \"m12aa\"", "area = \"\""),
+    ];
+    for (line, bad) in lines {
+        assert!(saved.contains(line), "{saved}");
+        assert!(refused(saved.replace(line, bad)), "{bad}");
+    }
+    for list in [
+        "others = [[\"m\", \"../outside\"]]\n",
+        "levels = [[\"../m\", \"x\"]]\n",
+    ] {
+        assert!(refused(format!("{saved}{list}")), "{list}");
+    }
+
+    // Saved over a file that lists an area outside the folder, nothing
+    // outside is deleted.
+    let outside = root.join("outside.git");
+    std::fs::write(&outside, b"kept").unwrap();
+    std::fs::write(
+        &file,
+        format!("{saved}others = [[\"m\", \"../outside\"]]\n"),
+    )
+    .unwrap();
+    project.save("test").unwrap();
+    assert!(outside.is_file(), "a file outside the project's folder");
+    assert!(Project::open(&folder).is_ok());
+
+    // A bake of a level so named is neither kept nor dropped.
+    let victim = root.join("victim");
+    std::fs::create_dir_all(&victim).unwrap();
+    std::fs::write(victim.join("kept.txt"), b"kept").unwrap();
+    let from = root.join("baked");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::write(from.join("a.png"), b"png").unwrap();
+    for level in ["../../victim", "..", "a/b", ""] {
+        assert!(lighting::drop_bake(&folder, level).is_err(), "{level:?}");
+        assert!(
+            lighting::keep_bake(&folder, level, &from).is_err(),
+            "{level:?}"
+        );
+    }
+    assert!(victim.join("kept.txt").is_file() && folder.join("project.toml").is_file());
+    // A level rightly named keeps and drops its bake as before.
+    assert_eq!(lighting::keep_bake(&folder, "ebo_m12aa", &from), Ok(1));
+    assert_eq!(lighting::drop_bake(&folder, "ebo_m12aa"), Ok(true));
+
+    // A Jedi Academy level's rooms stay in the project's folder.
+    for level in ["maps/mp/ffa3.bsp", "maps/..\\..\\x.bsp", "c:\\x"] {
+        let rooms = ja_rooms::path(&folder, level);
+        assert_eq!(
+            rooms.parent(),
+            Some(folder.join(ja_rooms::FOLDER).as_path()),
+            "{level:?}"
+        );
+    }
+    assert!(ja_rooms::path(&folder, "maps/mp/ffa3.bsp").ends_with("mp-ffa3.toml"));
+
+    // A text is written as TOML quotes it, so the file reads back. A new
+    // map's title with a non-breaking space, a zero-width space, a soft
+    // hyphen, a zero byte, a quote, a backslash and a line break is the
+    // same once the project is saved and opened again. Rust's own quoting
+    // wrote four of those in a form TOML does not read.
+    assert_eq!(level_edit::quoted("a\u{a0}b"), "\"a\u{a0}b\"");
+    assert_eq!(level_edit::quoted("a\0b\u{1b}"), "\"a\\u0000b\\u001B\"");
+    assert_eq!(
+        level_edit::quoted("say \"hi\"\\\n"),
+        "\"say \\\"hi\\\"\\\\\\n\""
+    );
+    let title = "The\u{a0}yard\u{200b} of\u{ad} \"Dan\\tooine\"\0\nby night";
+    let yard = root.join("yard");
+    let map = Project::new_map(
+        &yard,
+        "k1",
+        "kje_yard",
+        title,
+        (
+            "danm14aa",
+            fmt_odyssey::gff::Gff {
+                file_type: *b"ARE ",
+                root: git::empty().root,
+            },
+            &git::empty(),
+        ),
+    )
+    .unwrap();
+    map.save("made \"by\" c:\\kjk\u{a0}test").unwrap();
+    let opened = Project::open(&yard);
+    assert_eq!(
+        opened
+            .as_ref()
+            .map(|project| project.map.as_ref().map(|map| map.title.as_str())),
+        Ok(Some(title)),
+        "{:?}",
+        opened.as_ref().err()
+    );
+    let _ = std::fs::remove_dir_all(&root);
+    eprintln!("a project's file names no file outside its folder");
+}
+
+/// A new map in the level editor (`level_edit::map`, proposed 2026-11-20,
+/// awaiting approval), on rooms and an area the test makes. A walkmesh
+/// writes back to the same reading, and moved, its vertices, planes and
+/// AABB boxes move with it and its edges lead nowhere. A model renamed has
+/// the new name in its header and is otherwise the same. A new map's
+/// project takes the base area's ARE and the GIT's area properties. The
+/// editor adds two rooms, moves, copies, turns and deletes them, and moves
+/// and turns the entry; deleting the entry is refused, and so is a room in
+/// a project that makes no map. Saved, the module's archive
+/// holds `module.ifo` with the entry, the layout with each room's copy at
+/// its place, the visibility, and each room's renamed model, its MDX and
+/// its walkmesh moved by how far the room moved. The ARE's rooms are the
+/// copies, each a copy of the base's first room. The project reads back
+/// the same map. A name with capitals or longer than 12 characters is
+/// refused. No installs.
+#[test]
+fn level_edit_new_map() {
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::{Edit, Editor, Project, Room, Target, git, map};
+
+    let face = |vertices: [u32; 3], distance: f32| WalkFace {
+        vertices,
+        material: 4,
+        normal: [0.0, 0.0, 1.0],
+        distance,
+    };
+    let walkmesh = Walkmesh {
+        area: true,
+        use_positions: [[0.0; 3]; 4],
+        position: [0.0; 3],
+        vertices: vec![
+            [10.0, 20.0, 1.0],
+            [12.0, 20.0, 1.0],
+            [12.0, 22.0, 1.0],
+            [10.0, 22.0, 1.0],
+        ],
+        faces: vec![face([0, 1, 2], -1.0), face([0, 2, 3], -1.0)],
+        aabb: vec![AabbEntry {
+            bounds: [10.0, 20.0, 1.0, 12.0, 22.0, 1.0],
+            face: 0,
+            word: 4,
+            plane: 0,
+            children: [u32::MAX, u32::MAX],
+        }],
+        adjacency: vec![[-1, -1, 3], [2, -1, -1]],
+        edges: vec![(0, 3), (1, -1), (4, -1), (5, -1)],
+        perimeters: vec![4],
+        aabb_word: 0,
+    };
+    let bytes = walkmesh.write();
+    assert_eq!(Walkmesh::parse(&bytes).unwrap(), walkmesh);
+    let moved = walkmesh.moved([1.0, 2.0, 3.0]);
+    assert_eq!(moved.vertices[2], [13.0, 24.0, 4.0]);
+    assert_eq!(moved.faces[0].distance, -4.0);
+    assert_eq!(moved.aabb[0].bounds, [11.0, 22.0, 4.0, 13.0, 24.0, 4.0]);
+    assert!(moved.edges.iter().all(|(_, transition)| *transition == -1));
+    assert_eq!(moved.adjacency, walkmesh.adjacency);
+
+    let mut model = vec![0u8; 400];
+    model[20..29].copy_from_slice(b"room_a\0\0\0");
+    let renamed = fmt_odyssey::mdl::renamed(&model, "kjetest_01").unwrap();
+    assert_eq!(&renamed[20..31], b"kjetest_01\0");
+    assert_eq!(renamed[52..], model[52..]);
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Rooms",
+                GffValue::List(vec![GffStruct {
+                    id: 0,
+                    fields: vec![
+                        field("RoomName", GffValue::String(b"m12aa_01a".to_vec())),
+                        field("EnvAudio", GffValue::Int(3)),
+                    ],
+                }]),
+            )],
+        },
+    };
+    let mut base_git = git::empty();
+    base_git.root.fields.push(field(
+        "AreaProperties",
+        GffValue::Struct(Box::new(GffStruct {
+            id: 100,
+            fields: vec![field("MusicDay", GffValue::Int(7))],
+        })),
+    ));
+    let folder = std::env::temp_dir().join(format!("kjk-new-map-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let made = |name: &str| {
+        Project::new_map(
+            &folder,
+            "k1",
+            name,
+            "Test map",
+            ("ebo_m12aa", are.clone(), &base_git),
+        )
+    };
+    assert!(made("Bad").is_err());
+    assert!(made("thirteenchars").is_err());
+    let project = made("kjetest").unwrap();
+    assert_eq!(
+        project.git.root.get("AreaProperties"),
+        base_git.root.get("AreaProperties")
+    );
+    let mut editor = Editor::new(project);
+    let room = |model: &str, from: [f32; 3], position: [f32; 3]| Room {
+        model: model.into(),
+        from,
+        position,
+        yaw: 0.0,
+        ja: None,
+        dry: false,
+    };
+    editor
+        .apply(Edit::AddRoom(room("room_a", [11.0, 21.0, 0.0], [0.0; 3])))
+        .unwrap();
+    editor
+        .apply(Edit::AddRoom(room("room_b", [0.0; 3], [9.0, 9.0, 0.0])))
+        .unwrap();
+    editor
+        .apply(Edit::Move(Target::Room(1), [4.0, 0.0, 0.0]))
+        .unwrap();
+    editor.apply(Edit::Duplicate(Target::Room(0))).unwrap();
+    assert_eq!(editor.selected, Some(Target::Room(2)));
+    editor.apply(Edit::Delete(Target::Room(2))).unwrap();
+    // A room of the map keeps the weather out by a mark of its own, set
+    // without a save between. The map's ARE still lists its base's rooms
+    // then, where the mark could not be set.
+    let dry = |room: &str, dry: bool| Edit::Area {
+        change: level_edit::settings::AreaChange::DryRoom(room.into(), dry),
+        base: None,
+    };
+    editor.apply(dry("kjetest_02", true)).unwrap();
+    let marks = |editor: &Editor| -> Vec<bool> {
+        let map = editor.project.map.as_ref().unwrap();
+        map.rooms.iter().map(|room| room.dry).collect()
+    };
+    assert_eq!(marks(&editor), [false, true]);
+    assert!(editor.apply(dry("kjetest_09", true)).is_err());
+    editor.apply(dry("kjetest_02", false)).unwrap();
+    assert_eq!(marks(&editor), [false, false]);
+    // A room turns, by its yaw (turned in its copy, `level_edit_turned_rooms`).
+    editor.apply(Edit::Turn(Target::Room(0), 90.0)).unwrap();
+    assert_eq!(editor.project.map.as_ref().unwrap().rooms[0].yaw, 90.0);
+    assert!(editor.undo());
+    assert_eq!(editor.project.map.as_ref().unwrap().rooms[0].yaw, 0.0);
+    assert!(editor.apply(Edit::Delete(Target::Entry)).is_err());
+    editor
+        .apply(Edit::Move(Target::Entry, [1.0, 1.0, 1.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Entry, 90.0)).unwrap();
+    let before = editor.project.map.clone();
+    assert!(editor.undo() && editor.undo());
+    assert_eq!(editor.project.map.as_ref().unwrap().entry, [0.0; 3]);
+    assert!(editor.redo() && editor.redo());
+    assert_eq!(editor.project.map, before);
+    // The entry point selected with a room and turned a quarter round a
+    // point: it goes round the point and faces a quarter on, as the room
+    // does. Its facing used to stay.
+    editor.select_all(vec![Target::Entry, Target::Room(1)]);
+    editor
+        .apply_many(editor.turns_round([0.0, 1.0, 0.0], 90.0, (1.0, 0.0)))
+        .unwrap();
+    let turned = editor.project.map.as_ref().unwrap();
+    assert_eq!(
+        (turned.entry, turned.entry_facing),
+        ([0.0, 2.0, 1.0], 180.0)
+    );
+    assert_eq!(turned.rooms[1].yaw, 90.0);
+    assert!(editor.undo());
+    assert_eq!(editor.project.map, before);
+    editor.select(None, false);
+    let rooms = editor.project.map.as_ref().unwrap().rooms.clone();
+    assert_eq!(rooms.len(), 2);
+    assert_eq!(rooms[1].position, [4.0, 0.0, 0.0]);
+
+    let read = |name: &str, restype: ResType| match (name, restype) {
+        ("room_a" | "room_b", ResType::MDL) => Some(model.clone()),
+        ("room_a" | "room_b", ResType::MDX) => Some(vec![7; 16]),
+        ("room_a" | "room_b", ResType::WOK) => Some(bytes.clone()),
+        _ => None,
+    };
+    editor.save_with("approved test", &read).unwrap();
+    let archive = std::fs::read(folder.join("modules").join("kjetest.mod")).unwrap();
+    let erf = fmt_odyssey::erf::Erf::parse(&archive).unwrap();
+    let file = |resref: &str, restype: ResType| {
+        let entry = erf
+            .entries
+            .iter()
+            .find(|entry| entry.resref == resref && entry.restype == restype)
+            .unwrap_or_else(|| panic!("{resref}.{restype} in the archive"));
+        archive[entry.offset as usize..(entry.offset + entry.size) as usize].to_vec()
+    };
+    assert_eq!(
+        erf.entries.len(),
+        9,
+        "ifo, lyt, vis and two rooms' three files"
+    );
+    let ifo = Gff::parse(&file("module", ResType::IFO)).unwrap();
+    assert_eq!(
+        ifo.root.resref("Mod_Entry_Area").as_deref(),
+        Some("kjetest")
+    );
+    assert_eq!(ifo.root.float("Mod_Entry_X"), Some(1.0));
+    assert!(ifo.root.float("Mod_Entry_Dir_Y").unwrap() > 0.99);
+    let layout = fmt_odyssey::lyt::Layout::parse(&file("kjetest", ResType::LYT)).unwrap();
+    let placed: Vec<(String, [f32; 3])> = layout
+        .rooms
+        .iter()
+        .map(|room| (room.model.clone(), room.position))
+        .collect();
+    assert_eq!(
+        placed,
+        vec![
+            ("kjetest_01".to_string(), [0.0; 3]),
+            ("kjetest_02".to_string(), [4.0, 0.0, 0.0])
+        ]
+    );
+    let vis = fmt_odyssey::vis::Visibility::parse(&file("kjetest", ResType::VIS));
+    assert_eq!(vis.rooms.len(), 2);
+    assert_eq!(&file("kjetest_01", ResType::MDL)[20..31], b"kjetest_01\0");
+    assert_eq!(file("kjetest_02", ResType::MDX), vec![7; 16]);
+    let first = Walkmesh::parse(&file("kjetest_01", ResType::WOK)).unwrap();
+    assert_eq!(first.vertices[0], [-1.0, -1.0, 1.0]);
+    let second = Walkmesh::parse(&file("kjetest_02", ResType::WOK)).unwrap();
+    assert_eq!(second.vertices[0], [14.0, 20.0, 1.0]);
+    let are_bytes = std::fs::read(folder.join("kjetest.are")).unwrap();
+    let saved_are = Gff::parse(&are_bytes).unwrap();
+    let names: Vec<(Option<String>, Option<i64>)> = saved_are
+        .root
+        .list("Rooms")
+        .iter()
+        .map(|room| {
+            (
+                room.bytes("RoomName")
+                    .map(|name| String::from_utf8_lossy(name).into_owned()),
+                room.int("EnvAudio"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            (Some("kjetest_01".into()), Some(3)),
+            (Some("kjetest_02".into()), Some(3))
+        ]
+    );
+    let read_back = Project::open(&folder).unwrap();
+    assert_eq!(read_back.map.as_ref().map(|map| &map.rooms), Some(&rooms));
+    assert_eq!(
+        read_back.map.as_ref().map(|map| map.entry_facing),
+        Some(90.0)
+    );
+    assert_eq!(map::room_name("kjetest", 11), "kjetest_12");
+
+    let mut plain = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    assert!(
+        plain
+            .apply(Edit::AddRoom(room("room_a", [0.0; 3], [0.0; 3])))
+            .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    println!(
+        "a new map of 2 rooms: {} files in its module",
+        erf.entries.len()
+    );
+}
+
+/// A `--cmds` script's `edit` command keeps a part in double quotes as one
+/// word, spaces and all, and a `;` inside quotes does not end the
+/// command. A reply "Who are you?" used to come out as three replies.
+/// The parser's crate builds Bevy, so the test needs `--features rig`.
+#[cfg(feature = "rig")]
+#[test]
+fn console_edit_quoted_words() {
+    let script = r#"wait 2f; edit conversation tst replies line 2 "Who are you?" "Leave; now." ""; screenshot"#;
+    let commands = console::parse(script).unwrap();
+    assert_eq!(commands.len(), 3, "{commands:?}");
+    let words = [
+        "conversation",
+        "tst",
+        "replies",
+        "line",
+        "2",
+        "Who are you?",
+        "Leave; now.",
+        "",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(commands[1], console::Command::Edit(words));
+    // Shown as written, with the quotes back.
+    assert_eq!(
+        commands[1].to_string(),
+        r#"edit conversation tst replies line 2 "Who are you?" "Leave; now." """#
+    );
+    // A command with no quotes reads as before.
+    let plain = console::parse("edit select creature 0").unwrap();
+    assert_eq!(
+        plain[0],
+        console::Command::Edit(["select", "creature", "0"].map(String::from).to_vec())
+    );
+    // A quote that is opened and never closed is an error that names its
+    // command. The rest of the script used to become part of that command.
+    let open = console::parse(
+        "wait 2f; edit conversation tst replies line 2 \"Who are you?; screenshot\nquit",
+    )
+    .unwrap_err();
+    assert_eq!(open.index, 2, "{open}");
+    assert_eq!(
+        open.text,
+        "edit conversation tst replies line 2 \"Who are you?; screenshot"
+    );
+    assert!(open.reason.contains("double quote"), "{open}");
+}
+
+/// A new map's room turned by any angle (`docs/LEVEL-EDIT.md`, "New maps"):
+/// its walkmesh turned round its old place and moved, a point found on the
+/// same face before and after, the AABB tree's boxes round their faces
+/// again; its model turned in a copy (`fmt_odyssey::mdl::turned`), on a
+/// model the test makes; a packed orientation that reads back; and the
+/// room's yaw kept by the map's file. No installs.
+#[test]
+fn level_edit_turned_rooms() {
+    use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};
+    use level_edit::Room;
+    use level_edit::map::NewMap;
+
+    // A square 2 m wide from (0, 0) with two faces, and a tree of a root
+    // and two leaves.
+    let face = |vertices: [u32; 3]| WalkFace {
+        vertices,
+        material: 4,
+        normal: [0.0, 0.0, 1.0],
+        distance: 0.0,
+    };
+    let leaf = |face: i32| AabbEntry {
+        bounds: [0.0; 6],
+        face,
+        word: 0,
+        plane: 0,
+        children: [u32::MAX, u32::MAX],
+    };
+    let walkmesh = Walkmesh {
+        area: true,
+        use_positions: [[0.0; 3]; 4],
+        position: [0.0; 3],
+        vertices: vec![
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.0, 2.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ],
+        faces: vec![face([0, 1, 2]), face([0, 2, 3])],
+        aabb: vec![
+            AabbEntry {
+                bounds: [0.0; 6],
+                face: -1,
+                word: 0,
+                plane: 1,
+                children: [1, 2],
+            },
+            leaf(0),
+            leaf(1),
+        ],
+        adjacency: vec![[-1, -1, 1], [0, -1, -1]],
+        edges: vec![(0, 7), (1, -1), (4, -1), (5, -1)],
+        perimeters: vec![4],
+        aabb_word: 0,
+    };
+    // A walkmesh's use positions, turned a quarter and placed 10 m along
+    // X: the two relative ones turn and stay offsets, the two absolute ones
+    // turn and move. Moved alone, the relative ones stay as they are.
+    let used = Walkmesh {
+        use_positions: [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.5],
+            [5.0, 5.0, 0.0],
+            [6.0, 5.0, 0.0],
+        ],
+        ..walkmesh.clone()
+    };
+    assert_eq!(
+        used.turned([0.0; 3], [10.0, 0.0, 0.0], (1.0, 0.0))
+            .use_positions,
+        [
+            [0.0, 1.0, 0.0],
+            [-2.0, 0.0, 0.5],
+            [5.0, 5.0, 0.0],
+            [5.0, 6.0, 0.0]
+        ],
+        "a turned walkmesh's use positions"
+    );
+    assert_eq!(
+        used.moved([10.0, 0.0, 0.0]).use_positions,
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.5],
+            [15.0, 5.0, 0.0],
+            [16.0, 5.0, 0.0]
+        ],
+        "a moved walkmesh's use positions"
+    );
+    // The face holding a point, by its corners (seen from above).
+    let face_at = |mesh: &Walkmesh, point: [f32; 2]| {
+        mesh.faces.iter().position(|face| {
+            let corner = |at: usize| mesh.vertices[face.vertices[at] as usize];
+            let side = |a: [f32; 3], b: [f32; 3]| {
+                (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+            };
+            let sides = [
+                side(corner(0), corner(1)),
+                side(corner(1), corner(2)),
+                side(corner(2), corner(0)),
+            ];
+            sides.iter().all(|s| *s >= -1e-4) || sides.iter().all(|s| *s <= 1e-4)
+        })
+    };
+    let room = Room {
+        model: "room_a".into(),
+        from: [1.0, 1.0, 0.0],
+        position: [10.0, 20.0, 5.0],
+        yaw: 90.0,
+        ja: None,
+        dry: false,
+    };
+    let turned = room.placed(&walkmesh);
+    // (1.5, 0.5) is 0.5 east and 0.5 south of the room's middle; turned a
+    // quarter left it is 0.5 north and 0.5 east of the new place.
+    assert_eq!(face_at(&walkmesh, [1.5, 0.5]), Some(0));
+    assert_eq!(face_at(&turned, [10.5, 20.5]), Some(0));
+    assert_eq!(face_at(&walkmesh, [0.5, 1.5]), Some(1));
+    assert_eq!(face_at(&turned, [9.5, 19.5]), Some(1));
+    for (vertex, at) in
+        turned
+            .vertices
+            .iter()
+            .zip([[11.0, 19.0], [11.0, 21.0], [9.0, 21.0], [9.0, 19.0]])
+    {
+        assert!(
+            (vertex[0] - at[0]).abs() < 1e-5 && (vertex[1] - at[1]).abs() < 1e-5,
+            "{vertex:?}"
+        );
+        assert_eq!(vertex[2], 5.0);
+    }
+    for face in &turned.faces {
+        let corner = turned.vertices[face.vertices[0] as usize];
+        let on: f32 = (0..3)
+            .map(|axis| face.normal[axis] * corner[axis])
+            .sum::<f32>()
+            + face.distance;
+        assert!(on.abs() < 1e-4, "each corner is on its face's plane");
+    }
+    let root = turned.aabb[0].bounds;
+    assert!(
+        (root[0] - 9.0).abs() < 1e-5 && (root[3] - 11.0).abs() < 1e-5,
+        "{root:?}"
+    );
+    assert!(
+        (root[1] - 19.0).abs() < 1e-5 && (root[4] - 21.0).abs() < 1e-5,
+        "{root:?}"
+    );
+    assert!(turned.edges.iter().all(|(_, transition)| *transition == -1));
+    assert_eq!(turned.adjacency, walkmesh.adjacency);
+    // Any angle: a point keeps its face, and the boxes hold their faces.
+    let odd = Room {
+        yaw: 37.0,
+        ..room.clone()
+    }
+    .placed(&walkmesh);
+    let (sin, cos) = collision::trig::sin_cos_deg(37.0);
+    let image = |p: [f32; 2]| {
+        let (x, y) = (p[0] - 1.0, p[1] - 1.0);
+        [10.0 + cos * x - sin * y, 20.0 + sin * x + cos * y]
+    };
+    assert_eq!(face_at(&odd, image([1.5, 0.5])), Some(0));
+    assert_eq!(face_at(&odd, image([0.5, 1.5])), Some(1));
+    for (entry, face) in odd.aabb.iter().skip(1).zip(&odd.faces) {
+        for corner in face.vertices {
+            let point = odd.vertices[corner as usize];
+            for (axis, value) in point.iter().enumerate() {
+                assert!(entry.bounds[axis] <= value + 1e-5);
+                assert!(entry.bounds[axis + 3] >= value - 1e-5);
+            }
+        }
+    }
+    // Not turned, the room's walkmesh is only moved, as before.
+    let still = Room {
+        yaw: 0.0,
+        ..room.clone()
+    }
+    .placed(&walkmesh);
+    assert_eq!(still, walkmesh.moved([9.0, 19.0, 5.0]));
+
+    // A model of a root and one child, the child 1 m east of the origin
+    // with a position and an orientation controller, and a box round it.
+    const DATA: usize = 12;
+    let mut model = vec![0u8; DATA + 700];
+    let put = |model: &mut Vec<u8>, at: usize, word: u32| {
+        model[DATA + at..DATA + at + 4].copy_from_slice(&word.to_le_bytes());
+    };
+    let float = |model: &Vec<u8>, at: usize| {
+        f32::from_le_bytes(model[DATA + at..DATA + at + 4].try_into().unwrap())
+    };
+    put(&mut model, 40, 200); // the root node
+    for (at, value) in [
+        (104, -1.0f32),
+        (108, -2.0),
+        (112, 0.0),
+        (116, 1.0),
+        (120, 2.0),
+        (124, 3.0),
+    ] {
+        put(&mut model, at, value.to_bits()); // the bounding box
+    }
+    put(&mut model, 200 + 44, 300); // the root's children
+    put(&mut model, 200 + 48, 1);
+    put(&mut model, 300, 400);
+    let child = 400;
+    put(&mut model, child + 16, 1.0f32.to_bits()); // its place
+    put(&mut model, child + 28, 1.0f32.to_bits()); // its orientation's w
+    put(&mut model, child + 56, 500); // its controller keys
+    put(&mut model, child + 60, 2);
+    put(&mut model, child + 68, 600); // its controller data
+    put(&mut model, child + 72, 8);
+    put(&mut model, 500, 8); // position: 1 row, its values from 1, 3 columns
+    put(&mut model, 504, 1 << 16);
+    put(&mut model, 508, 1 << 16);
+    model[DATA + 512] = 3;
+    put(&mut model, 516, 20); // orientation: 1 row, its values from 4, 4 columns
+    put(&mut model, 520, 1 << 16);
+    put(&mut model, 524, 4 << 16);
+    model[DATA + 528] = 4;
+    for (i, value) in [0.0f32, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        .into_iter()
+        .enumerate()
+    {
+        put(&mut model, 600 + i * 4, value.to_bits());
+    }
+    let turned = fmt_odyssey::mdl::turned(&model, (1.0, 0.0)).unwrap();
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    // The child's place in its header and its controller: 1 m north.
+    assert!(near(float(&turned, child + 16), 0.0) && near(float(&turned, child + 20), 1.0));
+    assert!(near(float(&turned, 604), 0.0) && near(float(&turned, 608), 1.0));
+    // Its orientation: a quarter turn about Z, (w, x, y, z) in the header
+    // and (x, y, z, w) in the controller.
+    assert!(near(float(&turned, child + 28), half) && near(float(&turned, child + 40), half));
+    assert!(near(float(&turned, 616), 0.0) && near(float(&turned, 620), 0.0));
+    assert!(near(float(&turned, 624), half) && near(float(&turned, 628), half));
+    // The box round the turned box, its height as it was.
+    for (at, value) in [
+        (104, -2.0),
+        (108, -1.0),
+        (112, 0.0),
+        (116, 2.0),
+        (120, 1.0),
+        (124, 3.0),
+    ] {
+        assert!(
+            near(float(&turned, at), value),
+            "{at}: {}",
+            float(&turned, at)
+        );
+    }
+    // The root and everything else stays as it was.
+    assert_eq!(&turned[..DATA + 104], &model[..DATA + 104]);
+    assert_eq!(turned.len(), model.len());
+
+    // A packed orientation reads back within the packing's steps.
+    for q in [
+        [0.0f32, 0.0, half, -half],
+        [0.6, 0.0, 0.0, -0.8],
+        [0.0, 0.0, half, half],
+    ] {
+        let back = fmt_odyssey::mdl::unpack_quaternion(fmt_odyssey::mdl::pack_quaternion(q));
+        let dot: f32 = (0..4).map(|i| q[i] * back[i]).sum();
+        assert!(dot.abs() > 0.999, "{q:?} read back as {back:?}");
+    }
+
+    // The map's file keeps a room's yaw, and leaves it out at 0.
+    let are = fmt_odyssey::gff::Gff {
+        file_type: *b"ARE ",
+        root: level_edit::git::empty().root,
+    };
+    let mut map = NewMap::new("Turned", "danm14aa", "kjetest", are.clone());
+    map.rooms.push(Room {
+        yaw: 37.5,
+        ..room.clone()
+    });
+    map.rooms.push(Room {
+        yaw: 0.0,
+        ..room.clone()
+    });
+    let text = map.write();
+    assert_eq!(text.matches("yaw = ").count(), 1, "{text}");
+    let read = NewMap::parse(&text, are).unwrap();
+    assert_eq!(read.rooms, map.rooms);
+
+    // A room's mark for keeping the weather out is the room's own. Of three
+    // rooms the second is marked. With the first deleted, the mark is on
+    // the same room, now the first. It used to be kept by the room's
+    // number, and went to the room that took that number.
+    let mut dry = read.clone();
+    dry.rooms = ["a", "b", "c"]
+        .map(|model| Room {
+            model: model.into(),
+            yaw: 0.0,
+            ..room.clone()
+        })
+        .to_vec();
+    dry.set_dry_room("kjetest", "KJETEST_02", true).unwrap();
+    assert!(dry.set_dry_room("kjetest", "kjetest_04", true).is_err());
+    let named = |rooms: Vec<(String, bool)>| -> Vec<(String, bool)> { rooms };
+    assert_eq!(
+        named(dry.dry_rooms("kjetest")),
+        [
+            ("kjetest_01".to_string(), false),
+            ("kjetest_02".to_string(), true),
+            ("kjetest_03".to_string(), false)
+        ]
+    );
+    dry.rooms.remove(0);
+    assert_eq!(
+        (dry.rooms.iter())
+            .map(|room| (room.model.as_str(), room.dry))
+            .collect::<Vec<_>>(),
+        [("b", true), ("c", false)]
+    );
+    // Written, the map's file says it of the one room, and the ARE made
+    // for the map has the mark on that room. Both read back.
+    let text = dry.write();
+    assert_eq!(text.matches("dry = true").count(), 1, "{text}");
+    let mut made = dry.clone();
+    made.rooms_into_are("kjetest");
+    assert_eq!(
+        level_edit::settings::dry_rooms(&made.are),
+        [
+            ("kjetest_01".to_string(), true),
+            ("kjetest_02".to_string(), false)
+        ]
+    );
+    assert_eq!(
+        NewMap::parse(&text, made.are.clone()).unwrap().rooms,
+        dry.rooms
+    );
+    // A file written before the rooms kept the mark says nothing of it: the
+    // marks are then read from the map's ARE, a room after the other.
+    let older = text.replace("dry = true\n", "");
+    assert_eq!(NewMap::parse(&older, made.are).unwrap().rooms, dry.rooms);
+}
+
+/// A project's links between floors (`docs/LEVEL-EDIT.md`, "Links between
+/// floors"; `docs/NAV.md`): the navigation mesh takes a link only between
+/// floors it does not join, finds the first link of a way between islands
+/// (a jump either way, a drop down only), routes on foot as it did, and
+/// writes a mesh without links as before; a jump or a drop is checked as
+/// the containment audit moves a player; a project's area file keeps its
+/// links. No installs.
+#[test]
+fn level_edit_nav_links() {
+    use collision::jumps::{PLAIN_JUMP, link_lands};
+    use collision::nav::{LinkKind, NavMesh};
+    use collision::{BoxWorld, Solid};
+    use level_edit::area::{KjkArea, NavLink};
+
+    // Two floors that do not meet: the ground, and a platform's top a metre
+    // up beside it.
+    let square = |(x0, x1): (f32, f32), (y0, y1): (f32, f32), z: f32| {
+        vec![
+            [[x0, y0, z], [x1, y0, z], [x1, y1, z]],
+            [[x0, y0, z], [x1, y1, z], [x0, y1, z]],
+        ]
+    };
+    let mut floor = square((-5.0, 5.0), (-5.0, 5.0), 0.0);
+    floor.extend(square((6.0, 10.0), (-2.0, 2.0), 1.0));
+    let plain = NavMesh::build(&floor, 0.4);
+    assert_eq!(plain.islands, 2);
+    let mut nav = plain.clone();
+    let refused = nav.add_links(&[
+        (LinkKind::Jump, [4.5, 0.0, 0.0], [7.0, 0.0, 1.0]),
+        (LinkKind::Drop, [9.5, 0.0, 1.0], [30.0, 0.0, 0.0]),
+        (LinkKind::Jump, [0.0, 0.0, 0.0], [2.0, 0.0, 0.0]),
+    ]);
+    assert_eq!(
+        refused.iter().map(|(at, _)| *at).collect::<Vec<_>>(),
+        [1, 2],
+        "an end over no floor, and ends on one floor, are left out"
+    );
+    assert_eq!(nav.links.len(), 1);
+    let ground = nav.island_at([0.0, 0.0, 0.0], 0.5, 0.5).unwrap();
+    let top = nav.island_at([8.0, 0.0, 1.0], 0.5, 0.5).unwrap();
+    assert_eq!(
+        nav.first_link(ground, top),
+        Some(([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]))
+    );
+    assert_eq!(
+        nav.first_link(top, ground),
+        Some(([7.0, 0.0, 1.0], [4.5, 0.0, 0.0])),
+        "a jump goes back the other way"
+    );
+    assert_eq!(nav.first_link(ground, ground), None);
+    let mut dropping = plain.clone();
+    dropping.add_links(&[(LinkKind::Drop, [7.0, 0.0, 1.0], [4.5, 0.0, 0.0])]);
+    assert_eq!(
+        dropping.first_link(top, ground),
+        Some(([7.0, 0.0, 1.0], [4.5, 0.0, 0.0]))
+    );
+    assert_eq!(
+        dropping.first_link(ground, top),
+        None,
+        "a drop goes down only"
+    );
+    assert!(nav.link_between([7.0, 0.0, 1.0], [4.5, 0.0, 0.0]).is_some());
+    assert!(
+        dropping
+            .link_between([4.5, 0.0, 0.0], [7.0, 0.0, 1.0])
+            .is_none()
+    );
+    // On foot, every route is as it was.
+    let (a, b) = ([-4.0, -4.0, 0.0], [4.0, 3.0, 0.0]);
+    assert_eq!(
+        nav.route(a, b, false, &|_| true),
+        plain.route(a, b, false, &|_| true)
+    );
+    assert!(nav.route(a, [8.0, 0.0, 1.0], false, &|_| true).is_none());
+    // Written and read back; a mesh without links writes as before, and
+    // its links follow.
+    assert_eq!(NavMesh::decode(&nav.encode()).unwrap(), nav);
+    assert_eq!(NavMesh::decode(&plain.encode()).unwrap(), plain);
+    assert!(nav.encode().starts_with(&plain.encode()));
+    assert_ne!(nav.digest(), plain.digest());
+
+    // The jump and the drop checked on boxes: the ground, and the platform
+    // a metre high.
+    let world =
+        BoxWorld::floor(20.0, 0.0, 1.0).with(Solid::level([6.0, -2.0, 0.0], [10.0, 2.0, 1.0]));
+    assert_eq!(
+        link_lands(
+            &world,
+            ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]),
+            PLAIN_JUMP,
+            false
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        link_lands(
+            &world,
+            ([9.5, 0.0, 1.0], [12.0, 0.0, 0.0]),
+            PLAIN_JUMP,
+            true
+        ),
+        Ok(())
+    );
+    let refused = |world: &BoxWorld, ends, drop| {
+        link_lands(world, ends, PLAIN_JUMP, drop).expect_err("refused")
+    };
+    let tall =
+        BoxWorld::floor(20.0, 0.0, 1.0).with(Solid::level([6.0, -2.0, 0.0], [10.0, 2.0, 2.5]));
+    assert!(refused(&tall, ([4.5, 0.0, 0.0], [7.0, 0.0, 2.5]), false).contains("higher"));
+    let walled = world
+        .clone()
+        .with(Solid::level([5.5, -3.0, 0.0], [5.7, 3.0, 3.0]));
+    assert!(refused(&walled, ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]), false).contains("in the way"));
+    assert!(refused(&world, ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]), true).contains("goes down"));
+    assert!(
+        refused(&world, ([9.5, 0.0, 1.0], [25.0, 0.0, 0.0]), true).contains("nothing to land on")
+    );
+    assert!(refused(&world, ([-4.0, 0.0, 0.0], [4.0, 0.0, 0.0]), false).contains("carries"));
+
+    // A project's area file keeps its links.
+    let mut area = KjkArea::default();
+    area.links.push(NavLink {
+        kind: LinkKind::Jump,
+        from: [4.5, 0.0, 0.0],
+        to: [7.0, 0.0, 1.0],
+    });
+    area.links.push(NavLink {
+        kind: LinkKind::Drop,
+        from: [9.5, 0.0, 1.0],
+        to: [12.0, 0.0, 0.0],
+    });
+    let text = area.write();
+    assert!(text.contains("kind = \"drop\""), "{text}");
+    assert_eq!(KjkArea::parse(&text).unwrap(), area);
+}
+
+/// Many objects at once (`docs/LEVEL-EDIT.md`, "Many objects at once"):
+/// three objects and a prop selected, moved, turned round their middle,
+/// copied and deleted together, each as one undo step; and objects copied
+/// out of one project, with the template of its own they use, and pasted
+/// into another, where a template of that name holding something else is
+/// pasted under a new name. No installs.
+#[test]
+fn level_edit_selection() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::area::Prop;
+    use level_edit::clip::Clip;
+    use level_edit::template::Template;
+    use level_edit::{Edit, Editor, Kind, Project, Target, git};
+
+    let folder = std::env::temp_dir().join(format!("kjk-selection-{}", std::process::id()));
+    let mut editor = Editor::new(Project::new(&folder, "k1", "danm13", "m13aa", git::empty()));
+    for (kind, template, at) in [
+        (Kind::Placeable, "plc_chair1", [0.0, 0.0, 0.0]),
+        (Kind::Placeable, "plc_chair2", [2.0, 0.0, 0.0]),
+        (Kind::Creature, "n_guard", [0.0, 2.0, 0.0]),
+    ] {
+        editor
+            .apply(Edit::AddObject {
+                kind,
+                template: template.into(),
+                position: at,
+                facing: 0.0,
+                base: None,
+            })
+            .unwrap();
+    }
+    editor
+        .apply(Edit::AddProp(Prop {
+            name: "crate".into(),
+            model: "models/map_objects/crate.md3".into(),
+            position: [2.0, 2.0, 0.0],
+            yaw: 0.0,
+            scale: 1.0,
+            solid: false,
+        }))
+        .unwrap();
+    let (chair, other, guard, prop) = (
+        Target::Object(Kind::Placeable, 0),
+        Target::Object(Kind::Placeable, 1),
+        Target::Object(Kind::Creature, 0),
+        Target::Prop(0),
+    );
+    // Selected one by one with Ctrl: the last clicked shows its details.
+    editor.select(Some(chair), false);
+    editor.select(Some(other), true);
+    editor.select(Some(guard), true);
+    editor.select(Some(prop), true);
+    assert_eq!(editor.selected, Some(prop));
+    assert_eq!(editor.selection().len(), 4);
+    editor.select(Some(prop), true);
+    assert_eq!(
+        editor.selection(),
+        [guard, other, chair],
+        "Ctrl on a selected one takes it out"
+    );
+    editor.select(Some(prop), true);
+    assert_eq!(editor.selection_centre(), Some([1.0, 1.0, 0.0]));
+    // A selection set another way stands alone.
+    editor.selected = Some(chair);
+    assert_eq!(editor.selection(), [chair]);
+    editor.select_all(vec![prop, guard, other, chair]);
+
+    // Moved together, one undo step.
+    let depth = editor.undo_depth();
+    editor.apply_many(editor.moves_by([1.0, 0.0, 0.5])).unwrap();
+    assert_eq!(editor.undo_depth(), depth + 1);
+    assert_eq!(editor.placement(chair).unwrap().0, [1.0, 0.0, 0.5]);
+    assert_eq!(editor.placement(prop).unwrap().0, [3.0, 2.0, 0.5]);
+    assert_eq!(
+        editor.selection(),
+        [prop, guard, other, chair],
+        "the selection stays"
+    );
+    assert!(editor.undo());
+    assert_eq!(editor.placement(chair).unwrap().0, [0.0, 0.0, 0.0]);
+    assert_eq!(editor.placement(prop).unwrap().0, [2.0, 2.0, 0.0]);
+    assert_eq!(
+        editor.selection().len(),
+        4,
+        "undo brings the selection back"
+    );
+
+    // Turned a quarter round their middle: each moves round it and turns.
+    let centre = editor.selection_centre().unwrap();
+    editor
+        .apply_many(editor.turns_round(centre, 90.0, (1.0, 0.0)))
+        .unwrap();
+    let (at, facing) = editor.placement(chair).unwrap();
+    assert!((at[0] - 2.0).abs() < 1e-5 && at[1].abs() < 1e-5, "{at:?}");
+    assert!((facing - 90.0).abs() < 1e-4);
+    let (at, _) = editor.placement(prop).unwrap();
+    assert!(at[0].abs() < 1e-5 && (at[1] - 2.0).abs() < 1e-5, "{at:?}");
+    assert!(editor.undo());
+
+    // Copied together: the copies are selected.
+    editor
+        .apply_many(
+            editor
+                .selection()
+                .into_iter()
+                .map(Edit::Duplicate)
+                .collect(),
+        )
+        .unwrap();
+    assert_eq!(editor.selection().len(), 4);
+    assert!(!editor.selection().contains(&chair));
+    assert_eq!(editor.entries().len(), 6);
+    assert_eq!(editor.project.kjk.props.len(), 2);
+    assert!(editor.undo());
+    assert_eq!(editor.entries().len(), 3);
+
+    // Deleted together, the lists from their ends, one undo step.
+    editor.select_all(vec![chair, other, prop]);
+    editor.apply_many(editor.deletes()).unwrap();
+    assert_eq!(editor.entries().len(), 1);
+    assert!(editor.project.kjk.props.is_empty());
+    assert!(editor.selection().is_empty());
+    assert!(editor.undo());
+    assert_eq!(editor.entries().len(), 3);
+    assert!(
+        editor.apply_many(Vec::new()).is_err(),
+        "nothing to do is refused"
+    );
+
+    // A copy of the chair with a template of the project's own, and the
+    // prop, pasted into another project of the same game.
+    let template = |marker: u8| Template {
+        restype: fmt_odyssey::ResType::UTP,
+        from: "plc_chair1".into(),
+        gff: Gff {
+            file_type: *b"UTP ",
+            root: GffStruct {
+                id: u32::MAX,
+                fields: vec![GffField {
+                    label: b"Useable".to_vec(),
+                    value: GffValue::Byte(marker),
+                }],
+            },
+        },
+    };
+    editor
+        .project
+        .templates
+        .insert("kje1_plc_chair1".into(), template(1));
+    git::set_template(
+        &mut editor.project.git,
+        Kind::Placeable,
+        0,
+        "kje1_plc_chair1",
+    );
+    let clip = Clip::of(&editor.project, &[chair, prop], [1.0, 1.0, 0.0]);
+    assert_eq!(clip.entries.len(), 1);
+    assert_eq!(clip.templates.len(), 1);
+    let text = clip.write();
+    assert!(text.starts_with(level_edit::clip::HEAD));
+    assert_eq!(
+        Clip::read(&text).unwrap(),
+        clip,
+        "a copy reads back as written"
+    );
+
+    let mut other_project = Editor::new(Project::new(
+        &folder.join("other"),
+        "k1",
+        "danm14aa",
+        "m14aa",
+        git::empty(),
+    ));
+    // Its own template of that name holds something else.
+    other_project
+        .project
+        .templates
+        .insert("kje1_plc_chair1".into(), template(0));
+    other_project
+        .apply(Edit::Paste {
+            clip: Box::new(Clip::read(&text).unwrap()),
+            at: [10.0, 10.0, 1.0],
+            taken: vec!["kje2_plc_chair1".into()],
+        })
+        .unwrap();
+    let pasted = other_project.entries();
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(
+        pasted[0].position,
+        [9.0, 9.0, 1.0],
+        "the copy's middle lands where asked"
+    );
+    assert_eq!(
+        pasted[0].template, "kje3_plc_chair1",
+        "a template of the same name holding something else is pasted under a name the install does not take"
+    );
+    assert_eq!(
+        other_project.project.templates["kje3_plc_chair1"],
+        template(1)
+    );
+
+    assert_eq!(
+        other_project.project.templates["kje1_plc_chair1"],
+        template(0)
+    );
+    assert_eq!(
+        other_project.project.kjk.props[0].position,
+        [11.0, 11.0, 1.0]
+    );
+    assert_eq!(
+        other_project.selection().len(),
+        2,
+        "what was pasted is selected"
+    );
+    assert!(other_project.undo());
+    assert!(other_project.entries().is_empty());
+    // An ambient effect copied alone. The copy is not empty, reads back
+    // from its text as written, and is pasted where asked. It used to
+    // count as a copy that holds nothing, which a paste refuses.
+    let fire = level_edit::effects::AmbientEffect::new("fire", "effects/env/fire.efx", [3.0; 3]);
+    editor.apply(Edit::AddEffect(fire.clone())).unwrap();
+    let alone = Clip::of(&editor.project, &[Target::Effect(0)], [3.0; 3]);
+    assert_eq!(alone.kjk.effects, std::slice::from_ref(&fire));
+    assert!(!alone.is_empty());
+    assert!(Clip::of(&editor.project, &[Target::Entry], [0.0; 3]).is_empty());
+    let alone = Clip::read(&alone.write()).unwrap();
+    other_project
+        .apply(Edit::Paste {
+            clip: Box::new(alone),
+            at: [5.0, 6.0, 7.0],
+            taken: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(
+        other_project.project.kjk.effects,
+        [level_edit::effects::AmbientEffect {
+            at: [5.0, 6.0, 7.0],
+            ..fire
+        }]
+    );
+    // Pasted again into the same project, the same template is used.
+    editor
+        .apply(Edit::Paste {
+            clip: Box::new(clip.clone()),
+            at: [1.0, 1.0, 0.0],
+            taken: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(editor.entries()[3].template, "kje1_plc_chair1");
+    // A copy of the other game's is refused.
+    let mut tsl = clip.clone();
+    tsl.game = "tsl".into();
+    assert!(
+        editor
+            .apply(Edit::Paste {
+                clip: Box::new(tsl),
+                at: [0.0; 3],
+                taken: Vec::new(),
+            })
+            .is_err()
+    );
+}
+
+/// The area's sun set by a level editor project (`docs/LEVEL-EDIT.md`,
+/// "The sun"): seen from the level's middle by its bearing, height and
+/// distance, turned and raised there, kept by the area file, set and given
+/// back with undo, and turned with Rotate round the level's middle.
+///
+/// The sun selected with two boxes: the selection's middle is the boxes'
+/// middle, a move of the selection moves the boxes and leaves the sun, and a
+/// turn of the selection turns the sun as many degrees round the level's
+/// middle. No installs.
+#[test]
+fn level_edit_sun() {
+    use level_edit::area::{KjkArea, SunLight};
+    use level_edit::{Edit, Editor, Project, Target, git};
+
+    let middle = [10.0, 20.0, 0.0];
+    let sun = SunLight {
+        at: [10.0, 120.0, 100.0],
+        colour: [1.0, 0.9, 0.8],
+        multiplier: 1.0,
+        radius: 2000.0,
+    };
+    let (bearing, height, distance) = sun.seen_from(middle);
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+    assert!(
+        near(bearing, 90.0) && near(height, 45.0),
+        "{bearing} {height}"
+    );
+    assert!(near(distance, 100.0 * 2f32.sqrt()));
+    let turned = sun.placed(
+        middle,
+        (180.0, 30.0, distance),
+        &collision::trig::sin_cos_deg,
+    );
+    let (b, h, d) = turned.seen_from(middle);
+    assert!(
+        near(b.abs(), 180.0) && near(h, 30.0) && near(d, distance),
+        "{b} {h} {d}"
+    );
+    assert_eq!((turned.colour, turned.radius), (sun.colour, sun.radius));
+
+    // The area file keeps it, and an area without one writes none.
+    let area = KjkArea {
+        sun: Some(sun),
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    assert!(!KjkArea::default().write().contains("[sun]"));
+
+    let folder = std::env::temp_dir().join(format!("kjk-sun-{}", std::process::id()));
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "danm14aa",
+        "m14aa",
+        git::empty(),
+    ));
+    // No sun of the game's or the project's: none to turn.
+    assert_eq!(editor.sun(), None);
+    assert!(editor.apply(Edit::Turn(Target::Sun, 90.0)).is_err());
+    editor.game_sun = Some(sun);
+    editor.level_middle = middle;
+    assert_eq!(editor.placement(Target::Sun), Some((middle, bearing)));
+    // Turned with Rotate: it becomes the project's, its height kept.
+    editor.apply(Edit::Turn(Target::Sun, 0.0)).unwrap();
+    let own = editor.project.kjk.sun.expect("the project's sun");
+    let (b, h, _) = own.seen_from(middle);
+    assert!(near(b, 0.0) && near(h, 45.0), "{b} {h}");
+    assert!(
+        editor.apply(Edit::Move(Target::Sun, [0.0; 3])).is_err(),
+        "the sun is turned, not moved"
+    );
+    assert!(editor.apply(Edit::Duplicate(Target::Sun)).is_err());
+    assert!(editor.apply(Edit::Delete(Target::Sun)).is_err());
+    // Too short a reach is refused; the game's sun comes back.
+    assert!(
+        editor
+            .apply(Edit::SetSun(Some(SunLight {
+                radius: 50.0,
+                ..own
+            })))
+            .is_err()
+    );
+    editor.apply(Edit::SetSun(None)).unwrap();
+    assert_eq!(editor.sun(), Some(sun));
+    assert!(editor.undo());
+    assert_eq!(editor.project.kjk.sun, Some(own));
+    assert!(editor.undo());
+    assert_eq!(editor.project.kjk.sun, None);
+
+    // The sun selected with two boxes. The selection's middle is the
+    // boxes' middle: the sun, which has no place of its own, does not
+    // count in it. Alone, it stands for the level's middle.
+    let ledge = |name: &str, centre: [f32; 3]| {
+        Edit::AddBox(level_edit::CollisionBox {
+            name: name.into(),
+            centre,
+            size: [1.0; 3],
+            yaw: 0.0,
+            role: level_edit::BoxRole::Solid,
+        })
+    };
+    editor.apply(ledge("a", [0.0; 3])).unwrap();
+    editor.apply(ledge("b", [2.0, 0.0, 0.0])).unwrap();
+    editor.select_all(vec![Target::Sun]);
+    assert_eq!(editor.selection_centre(), Some(middle));
+    let all = vec![Target::Box(0), Target::Sun, Target::Box(1)];
+    editor.select_all(all.clone());
+    assert_eq!(editor.selection_centre(), Some([1.0, 0.0, 0.0]));
+    // Moved, the boxes go and the sun stays. A move was made for the sun
+    // too, which is refused, and nothing selected moved.
+    editor.apply_many(editor.moves_by([0.0, 0.0, 3.0])).unwrap();
+    let centres = |editor: &Editor| -> Vec<[f32; 3]> {
+        (editor.project.kjk.boxes.iter())
+            .map(|shape| shape.centre)
+            .collect()
+    };
+    assert_eq!(centres(&editor), [[0.0, 0.0, 3.0], [2.0, 0.0, 3.0]]);
+    assert_eq!(editor.sun(), Some(sun));
+    assert_eq!(editor.selection(), all);
+    // Turned a quarter round their middle, the boxes go round it and face
+    // a quarter on. The sun goes a quarter round the level's middle, from
+    // its bearing of 90 degrees to 180, its height kept.
+    editor
+        .apply_many(editor.turns_round([1.0, 0.0, 3.0], 90.0, (1.0, 0.0)))
+        .unwrap();
+    assert_eq!(centres(&editor), [[1.0, -1.0, 3.0], [1.0, 1.0, 3.0]]);
+    assert!((editor.project.kjk.boxes.iter()).all(|shape| shape.yaw == 90.0));
+    let (b, h, _) = editor.sun().unwrap().seen_from(middle);
+    assert!(near(b.abs(), 180.0) && near(h, 45.0), "{b} {h}");
+}
+
+/// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
+/// approval): a GIT made here with one creature, one placeable and one
+/// waypoint. The editor moves, turns, copies and deletes them, adds a
+/// placeable from a template, a Jedi Academy prop and a collision box, then
+/// undoes and redoes. The project is saved into a temporary folder and read
+/// back: the GIT's objects, the props and the boxes come back as they were
+/// written, and the file reads back to the same bytes. A door cannot be
+/// moved, a box cannot be made thinner than 2 cm, and a tag longer than 32
+/// characters stops the save with nothing written. A run without a project
+/// adds nothing to any module's collision. No installs.
+#[test]
+fn level_edit_round_trip() {
+    use level_edit::{CollisionBox, Edit, Editor, Kind, Project, Prop, Target, git};
+
+    let mut start = git::empty();
+    git::add(
+        &mut start,
+        Kind::Creature,
+        "n_commoner",
+        [1.0, 2.0, 0.0],
+        90.0,
+    );
+    git::add(
+        &mut start,
+        Kind::Placeable,
+        "plc_footlker",
+        [3.0, 4.0, 0.0],
+        0.0,
+    );
+    git::add(
+        &mut start,
+        Kind::Waypoint,
+        "wp_start",
+        [5.0, 6.0, 0.0],
+        180.0,
+    );
+    git::add(&mut start, Kind::Door, "door_hawk", [7.0, 8.0, 0.0], 0.0);
+    let folder = std::env::temp_dir().join(format!("kjk-level-edit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(&folder, "k1", "ebo_m12aa", "m12aa", start));
+    let count = |editor: &Editor, kind: Kind| {
+        editor
+            .entries()
+            .iter()
+            .filter(|entry| entry.kind == kind)
+            .count()
+    };
+    assert_eq!(editor.entries().len(), 4);
+
+    let creature = Target::Object(Kind::Creature, 0);
+    editor
+        .apply(Edit::Move(creature, [1.5, 2.5, 0.25]))
+        .unwrap();
+    editor.apply(Edit::Turn(creature, 45.0)).unwrap();
+    let (at, facing) = editor.placement(creature).unwrap();
+    assert_eq!(at, [1.5, 2.5, 0.25]);
+    assert!((facing - 45.0).abs() < 1e-3, "the creature faces {facing}");
+    editor
+        .apply(Edit::Duplicate(Target::Object(Kind::Placeable, 0)))
+        .unwrap();
+    assert_eq!(count(&editor, Kind::Placeable), 2);
+    editor
+        .apply(Edit::Delete(Target::Object(Kind::Waypoint, 0)))
+        .unwrap();
+    assert_eq!(count(&editor, Kind::Waypoint), 0);
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Placeable,
+            template: "plc_chair1".into(),
+            position: [9.0, 9.0, 0.0],
+            facing: 30.0,
+            base: None,
+        })
+        .unwrap();
+    editor
+        .apply(Edit::AddProp(Prop {
+            name: String::new(),
+            model: "models/map_objects/imperial/crate_h.md3".into(),
+            position: [2.0, 2.0, 0.0],
+            yaw: 10.0,
+            scale: 1.5,
+            solid: true,
+        }))
+        .unwrap();
+    editor
+        .apply(Edit::AddBox(CollisionBox {
+            name: "ledge".into(),
+            centre: [4.0, 4.0, 2.0],
+            size: [2.0, 1.0, 0.3],
+            yaw: 30.0,
+            role: level_edit::BoxRole::Solid,
+        }))
+        .unwrap();
+    // Doors move since the editor places them (2026-11-21); a light the
+    // game places at a fitting is still refused.
+    assert!(
+        editor
+            .apply(Edit::Move(Target::Fitted(0), [0.0; 3]))
+            .is_err(),
+        "a light the game places does not move"
+    );
+    assert!(
+        editor.apply(Edit::Resize(0, [2.0, 1.0, 0.01])).is_err(),
+        "a box 1 cm thick is refused"
+    );
+
+    // Undo the box, the prop and the added placeable; redo all three.
+    let done = editor.project.clone();
+    for _ in 0..3 {
+        assert!(editor.undo());
+    }
+    assert_eq!(count(&editor, Kind::Placeable), 2);
+    assert!(editor.project.kjk.props.is_empty() && editor.project.kjk.boxes.is_empty());
+    for _ in 0..3 {
+        assert!(editor.redo());
+    }
+    assert_eq!(editor.project, done);
+
+    // Saved and read back.
+    editor.save("approved test").unwrap();
+    let read = Project::open(&folder).unwrap();
+    assert_eq!(
+        read.git, editor.project.git,
+        "the GIT reads back as written"
+    );
+    assert_eq!(read.git.write(), editor.project.git.write());
+    assert_eq!(
+        read.kjk, editor.project.kjk,
+        "the props and boxes read back"
+    );
+    assert_eq!(
+        (read.game.as_str(), read.module.as_str(), read.area.as_str()),
+        ("k1", "ebo_m12aa", "m12aa")
+    );
+    let entries = git::entries(&read.git);
+    let added = entries
+        .iter()
+        .find(|entry| entry.template == "plc_chair1")
+        .expect("the added placeable is in the GIT");
+    assert_eq!(added.position, [9.0, 9.0, 0.0]);
+    assert!((added.facing - 30.0).abs() < 1e-3);
+    // A box's collision is one convex brush, with its corners where the
+    // box is.
+    let hull = read.kjk.boxes[0].hull();
+    assert_eq!(
+        (hull.points.len(), hull.faces.len(), hull.edges.len()),
+        (8, 6, 12)
+    );
+
+    // A tag the games would cut stops the save, and nothing is written.
+    let before = std::fs::read(folder.join("m12aa.git")).unwrap();
+    let mut long = editor.project.clone();
+    let tagged = git::add(&mut long.git, Kind::Placeable, "plc_chair1", [0.0; 3], 0.0);
+    let list = long
+        .git
+        .root
+        .fields
+        .iter_mut()
+        .find(|field| field.label == b"Placeable List")
+        .unwrap();
+    if let fmt_odyssey::gff::GffValue::List(items) = &mut list.value {
+        items[tagged].fields.push(fmt_odyssey::gff::GffField {
+            label: b"Tag".to_vec(),
+            value: fmt_odyssey::gff::GffValue::String(vec![b'x'; 40]),
+        });
+    }
+    assert!(
+        long.save("approved test").is_err(),
+        "a 40-character tag is refused"
+    );
+    assert_eq!(std::fs::read(folder.join("m12aa.git")).unwrap(), before);
+
+    // An object's own template: a change copies the install's template
+    // (made here, with no scripts and no inventory) into the project under
+    // a new name, and points the object at it.
+    let utp = fmt_odyssey::gff::Gff {
+        file_type: *b"UTP ",
+        root: fmt_odyssey::gff::GffStruct {
+            id: u32::MAX,
+            fields: vec![
+                fmt_odyssey::gff::GffField {
+                    label: b"TemplateResRef".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::ResRef(b"plc_chair1".to_vec()),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"OnUsed".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::ResRef(Vec::new()),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"Useable".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::Byte(0),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"HasInventory".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::Byte(0),
+                },
+            ],
+        },
+    };
+    let bytes = utp.write();
+    let read = |name: &str, _: fmt_odyssey::ResType| (name == "plc_chair1").then(|| bytes.clone());
+    let taken = |name: &str| name == "kje1_plc_chair1";
+    let chair = editor
+        .entries()
+        .into_iter()
+        .find(|entry| entry.template == "plc_chair1")
+        .expect("the added chair");
+    let chair = Target::Object(Kind::Placeable, chair.index);
+    let without = editor.project.clone();
+    for change in [
+        level_edit::Change::Flag("Useable".into(), true),
+        level_edit::Change::Flag("HasInventory".into(), true),
+        level_edit::Change::AddItem("g_i_credits001".into()),
+        level_edit::Change::Script("OnUsed".into(), "k_my_script".into()),
+    ] {
+        editor
+            .change_template(chair, &change, (&read, &taken))
+            .unwrap();
+    }
+    // The first free name: the install has the first.
+    let made = &editor.project.templates["kje2_plc_chair1"];
+    assert_eq!(made.from, "plc_chair1");
+    assert_eq!(
+        level_edit::template::flag(&made.gff, "HasInventory"),
+        Some(true)
+    );
+    assert_eq!(level_edit::template::items(&made.gff), ["g_i_credits001"]);
+    assert_eq!(
+        level_edit::template::scripts(&made.gff),
+        [("OnUsed".to_string(), "k_my_script".to_string())]
+    );
+    let Target::Object(_, index) = chair else {
+        unreachable!()
+    };
+    assert_eq!(
+        editor.entry(Kind::Placeable, index).unwrap().template,
+        "kje2_plc_chair1"
+    );
+    assert!(
+        editor
+            .change_template(
+                Target::Object(Kind::Waypoint, 0),
+                &level_edit::Change::Script("OnUsed".into(), String::new()),
+                (&read, &taken)
+            )
+            .is_err(),
+        "a waypoint has no template of its own"
+    );
+    editor.save("approved test").unwrap();
+    assert!(folder.join("kje2_plc_chair1.utp").is_file());
+    assert_eq!(
+        Project::open(&folder).unwrap().templates,
+        editor.project.templates,
+        "the template reads back as written"
+    );
+    // Undone to before the copy: the object is the install's template's
+    // again, and the save takes the copy out of the folder.
+    for _ in 0..4 {
+        assert!(editor.undo());
+    }
+    assert_eq!(editor.project, without);
+    editor.save("approved test").unwrap();
+    assert!(!folder.join("kje2_plc_chair1.utp").exists());
+
+    // A new waypoint is read whole from its entry: it takes the template's
+    // own fields, and its tag is changed in the entry, with no copy.
+    let utw = fmt_odyssey::gff::GffStruct {
+        id: u32::MAX,
+        fields: vec![
+            fmt_odyssey::gff::GffField {
+                label: b"Tag".to_vec(),
+                value: fmt_odyssey::gff::GffValue::String(b"SW_WAYPOINT001".to_vec()),
+            },
+            fmt_odyssey::gff::GffField {
+                label: b"Comment".to_vec(),
+                value: fmt_odyssey::gff::GffValue::String(b"the toolset's".to_vec()),
+            },
+        ],
+    };
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Waypoint,
+            template: "sw_waypoint001".into(),
+            position: [3.0, 3.0, 0.0],
+            facing: 90.0,
+            base: Some(utw),
+        })
+        .unwrap();
+    let waypoint = Target::Object(Kind::Waypoint, 0);
+    editor
+        .change_template(
+            waypoint,
+            &level_edit::Change::Tag("pebn_third".into()),
+            (&read, &taken),
+        )
+        .unwrap();
+    let entry = editor.entry(Kind::Waypoint, 0).unwrap();
+    assert_eq!(
+        (entry.tag.as_str(), entry.position),
+        ("pebn_third", [3.0, 3.0, 0.0])
+    );
+    let item = git::item(&editor.project.git, Kind::Waypoint, 0).unwrap();
+    assert!(
+        item.get("Comment").is_none(),
+        "the toolset's fields stay out"
+    );
+    assert!(
+        editor.project.templates.is_empty(),
+        "a waypoint gets no copy"
+    );
+
+    // A new trigger has a square outline round its position, and does not
+    // turn.
+    editor
+        .apply(Edit::AddObject {
+            kind: Kind::Trigger,
+            template: "newgeneric001".into(),
+            position: [5.0, 5.0, 0.0],
+            facing: 0.0,
+            base: None,
+        })
+        .unwrap();
+    let trigger = editor
+        .entries()
+        .into_iter()
+        .find(|entry| entry.kind == Kind::Trigger)
+        .unwrap();
+    let outline = git::outline(&editor.project.git, Kind::Trigger, trigger.index);
+    assert_eq!(outline.len(), 4);
+    assert!(
+        outline
+            .iter()
+            .all(|p| p[0].abs() == 1.0 && p[1].abs() == 1.0)
+    );
+    assert!(
+        editor
+            .apply(Edit::Turn(
+                Target::Object(Kind::Trigger, trigger.index),
+                45.0
+            ))
+            .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+
+    // No project is active in this process.
+    assert!(level_edit::active::added("k1", "ebo_m12aa").is_none());
+}
+
+/// `level_edit::scripts`: a project's scripts compiled when it saves, in a
+/// folder the test makes, against a catalog of its own.
+#[test]
+fn level_edit_project_scripts() {
+    use level_edit::scripts::{compile_all, sources};
+
+    let catalog = script_ncs::Catalog::parse(
+        "int TRUE = 1;\n\
+         // 0\n\
+         object GetFirstPC();\n\
+         // 1\n\
+         void SendMessageToPC(object oPlayer, string szMessage);\n\
+         // 2\n\
+         string IntToString(int nInteger);\n",
+    )
+    .expect("the test's catalog reads");
+    let folder = std::env::temp_dir().join(format!("kjk-project-scripts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let write = |name: &str, text: &str| std::fs::write(folder.join(name), text).unwrap();
+    // The project's include, one of the install's, a script using both, one
+    // with a mistake on its third line, and one whose name is too long.
+    write("kje_inc.nss", "int KJE_Twice(int n) { return n * 2; }\n");
+    write(
+        "kje_hello.nss",
+        "#include \"kje_inc\"\n#include \"game_inc\"\n\
+         void main()\n{\n    SendMessageToPC(GetFirstPC(), IntToString(KJE_Twice(GAME_ANSWER)));\n}\n",
+    );
+    write("KJE_Broken.NSS", "void main()\n{\n    int n = 1\n}\n");
+    write("kje_name_far_too_long.nss", "void main() {}\n");
+    let install = |name: &str| (name == "game_inc").then(|| b"int GAME_ANSWER = 21;\n".to_vec());
+
+    assert_eq!(
+        sources(&folder)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [
+            "kje_broken",
+            "kje_hello",
+            "kje_inc",
+            "kje_name_far_too_long"
+        ],
+        "the scripts by lowercase name"
+    );
+    let compiled = compile_all(&folder, &install, &catalog);
+    let outcome = |name: &str| {
+        compiled
+            .iter()
+            .find(|each| each.name == name)
+            .map(|each| each.outcome.clone())
+    };
+    assert_eq!(
+        compiled.len(),
+        3,
+        "the include alone is not compiled: {compiled:?}"
+    );
+    let written = outcome("kje_hello").unwrap().expect("kje_hello compiles");
+    assert_eq!(written, folder.join("kje_hello.ncs"));
+    let ncs = fmt_odyssey::ncs::Ncs::parse(&std::fs::read(&written).unwrap()).unwrap();
+    let calls: Vec<u16> = ncs
+        .code
+        .iter()
+        .filter_map(|each| match each.op {
+            fmt_odyssey::ncs::Op::Action { routine, .. } => Some(routine),
+            _ => None,
+        })
+        .collect();
+    // The arguments are worked out last first, as the games' compiler does.
+    assert_eq!(calls, [2, 0, 1], "IntToString, GetFirstPC, SendMessageToPC");
+    let broken = outcome("kje_broken").unwrap().unwrap_err();
+    assert!(broken.starts_with("kje_broken.nss line 4:"), "{broken}");
+    assert!(!folder.join("kje_broken.ncs").exists());
+    let long = outcome("kje_name_far_too_long").unwrap().unwrap_err();
+    assert!(long.contains("at most 16 characters"), "{long}");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// `level_edit`'s doors, links, ways in, outlines and area settings, on a
+/// new map and an installed area made by the test (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_ways_and_settings() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::git::{self, Kind};
+    use level_edit::settings::{AreaChange, property};
+    use level_edit::template::{Change, Link, link_of};
+    use level_edit::{Edit, Editor, Project, Target};
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let tagged = |tag: &str| GffStruct {
+        id: 0,
+        fields: vec![
+            field("Tag", GffValue::String(tag.as_bytes().to_vec())),
+            field("GenericType", GffValue::Byte(3)),
+        ],
+    };
+    let are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field("Rooms", GffValue::List(Vec::new()))],
+        },
+    };
+    let folder = std::env::temp_dir().join(format!("kjk-ways-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let project = Project::new_map(
+        &folder,
+        "k1",
+        "kjetest",
+        "Ways",
+        ("ebo_m12aa", are.clone(), &git::empty()),
+    )
+    .unwrap();
+    let mut editor = Editor::new(project);
+    let read = |_: &str, _: fmt_odyssey::ResType| -> Option<Vec<u8>> { None };
+    let taken = |_: &str| false;
+
+    // A door, made from its template's own fields, moved like any object.
+    let add = |kind: Kind, template: &str, base: Option<GffStruct>| Edit::AddObject {
+        kind,
+        template: template.into(),
+        position: [1.0, 2.0, 0.0],
+        facing: 0.0,
+        base,
+    };
+    editor
+        .apply(add(Kind::Door, "sw_door_a", Some(tagged("kje_door"))))
+        .unwrap();
+    editor
+        .apply(add(Kind::Waypoint, "sw_wp", Some(tagged("kje_in"))))
+        .unwrap();
+    let door = Target::Object(Kind::Door, 0);
+    editor.apply(Edit::Move(door, [3.0, 4.0, 0.0])).unwrap();
+    assert_eq!(
+        editor.entry(Kind::Door, 0).unwrap().position,
+        [3.0, 4.0, 0.0]
+    );
+
+    // Where a door leads: the module, the waypoint, and the flags.
+    let link = Link {
+        module: "end_m01aa".into(),
+        to: "wp_x".into(),
+        to_door: false,
+    };
+    editor
+        .change_template(door, &Change::Link(link.clone()), (&read, &taken))
+        .unwrap();
+    let item = git::item(&editor.project.git, Kind::Door, 0).unwrap();
+    assert_eq!(link_of(item), link);
+    assert_eq!(item.uint("LinkedToFlags"), Some(2));
+    editor
+        .change_template(door, &Change::Link(Link::default()), (&read, &taken))
+        .unwrap();
+    let item = git::item(&editor.project.git, Kind::Door, 0).unwrap();
+    assert!(!link_of(item).leads());
+    assert_eq!(item.uint("LinkedToFlags"), Some(0));
+    assert!(
+        editor
+            .change_template(
+                Target::Object(Kind::Waypoint, 0),
+                &Change::Link(link.clone()),
+                (&read, &taken)
+            )
+            .is_err(),
+        "a waypoint leads nowhere"
+    );
+    assert_eq!(
+        git::arrivals(&editor.project.git),
+        [
+            ("kje_door".to_string(), true),
+            ("kje_in".to_string(), false)
+        ]
+    );
+
+    // A trigger's outline, given where it is in the area, kept beside it.
+    editor
+        .apply(add(Kind::Trigger, "newgeneric", None))
+        .unwrap();
+    let trigger = Target::Object(Kind::Trigger, 0);
+    let corners = vec![
+        [0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [4.0, 3.0, 0.0],
+        [0.0, 3.0, 0.0],
+    ];
+    editor
+        .apply(Edit::Outline(trigger, corners.clone()))
+        .unwrap();
+    let relative: Vec<[f32; 3]> = corners
+        .iter()
+        .map(|p| [p[0] - 1.0, p[1] - 2.0, p[2]])
+        .collect();
+    assert_eq!(
+        git::outline(&editor.project.git, Kind::Trigger, 0),
+        relative
+    );
+    assert!(
+        editor
+            .apply(Edit::Outline(trigger, corners[..2].to_vec()))
+            .is_err()
+    );
+
+    // A way in: another module's door led here, in a copy of its GIT.
+    let mut other = git::empty();
+    git::add_from(
+        &mut other,
+        Kind::Door,
+        ("their_door", Some(&tagged("exit"))),
+        [0.0; 3],
+        0.0,
+    );
+    let way_in = |area: &str, base: Option<Gff>| Edit::LinkOther {
+        module: "end_m01aa".into(),
+        area: area.into(),
+        base,
+        kind: Kind::Door,
+        index: 0,
+        link: Link {
+            module: "kjetest".into(),
+            to: "kje_in".into(),
+            to_door: false,
+        },
+    };
+    assert!(
+        editor
+            .apply(way_in("kjetest", Some(other.clone())))
+            .is_err()
+    );
+    // An area of another level the project edits is refused too, and
+    // says which level to open. Kept as another area's copy, it stopped
+    // the project from being saved.
+    editor.project.parked.insert(
+        "danm13".into(),
+        level_edit::project::Level {
+            area: "m13aa".into(),
+            git: git::empty(),
+            kjk: level_edit::KjkArea::default(),
+            are: None,
+            map: None,
+        },
+    );
+    let refused = editor.apply(way_in("M13AA", Some(other.clone())));
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|why| why.contains("level danm13")),
+        "{refused:?}"
+    );
+    let refused = editor.apply(Edit::AddOther {
+        module: "danm13".into(),
+        area: "m13aa".into(),
+        base: Some(other.clone()),
+        template: "newtransition".into(),
+        position: [0.0; 3],
+        tag: "kje_way".into(),
+        link: Link::default(),
+    });
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|why| why.contains("level danm13")),
+        "{refused:?}"
+    );
+    assert!(editor.project.others.is_empty());
+    editor.project.parked.clear();
+    editor.apply(way_in("m01aa", Some(other.clone()))).unwrap();
+    let held = &editor.project.others["m01aa"];
+    assert_eq!(held.module, "end_m01aa");
+    let exits = git::exits(&held.git);
+    assert_eq!(exits.len(), 1);
+    assert_eq!(exits[0].3.module, "kjetest");
+    assert_eq!(exits[0].3.to, "kje_in");
+
+    // The area's settings: music in the GIT, fog in the ARE, a module script
+    // in the map's module.ifo.
+    let area = |change| Edit::Area { change, base: None };
+    editor
+        .apply(area(AreaChange::Property("MusicDay".into(), 3)))
+        .unwrap();
+    editor
+        .apply(area(AreaChange::Are("SunFogOn".into(), GffValue::Byte(1))))
+        .unwrap();
+    editor
+        .apply(area(AreaChange::ModuleScript(
+            "Mod_OnModLoad".into(),
+            "kje_load".into(),
+        )))
+        .unwrap();
+    assert!(
+        editor
+            .apply(area(AreaChange::Are("SunFogOn".into(), GffValue::Int(1))))
+            .is_err(),
+        "a field keeps its type"
+    );
+    assert_eq!(property(&editor.project.git, "MusicDay"), 3);
+    let map = editor.project.map.as_ref().unwrap();
+    assert_eq!(map.are.root.uint("SunFogOn"), Some(1));
+    assert_eq!(
+        map.ifo("kjetest", "kjetest").root.resref("Mod_OnModLoad"),
+        Some("kje_load".to_string())
+    );
+
+    // Saved and read back; the way in given back leaves the folder.
+    editor.project.save("test").unwrap();
+    assert!(folder.join("m01aa.git").is_file());
+    let opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.others, editor.project.others);
+    assert_eq!(property(&opened.git, "MusicDay"), 3);
+    assert_eq!(
+        opened.map.as_ref().unwrap().module_scripts,
+        editor.project.map.as_ref().unwrap().module_scripts
+    );
+    editor.apply(Edit::DropOther("m01aa".into())).unwrap();
+    editor.project.save("test").unwrap();
+    assert!(!folder.join("m01aa.git").exists());
+    editor.undo();
+    assert!(editor.project.others.contains_key("m01aa"));
+
+    // An installed area's ARE is changed in the project's copy, made from
+    // the install's at the first change.
+    let installed = folder.join("installed");
+    let project = Project::new(&installed, "k1", "ebo_m12aa", "m12aa", git::empty());
+    assert!(project.are.is_none());
+    project.save("test").unwrap();
+    let mut editor = Editor::new(project);
+    editor
+        .apply(Edit::Area {
+            change: AreaChange::Are("SunFogFar".into(), GffValue::Float(40f32.to_bits())),
+            base: Some(are.clone()),
+        })
+        .unwrap();
+    editor.project.save("test").unwrap();
+    let opened = Project::open(&installed).unwrap();
+    assert_eq!(
+        opened
+            .are
+            .as_ref()
+            .and_then(|are| are.root.float("SunFogFar")),
+        Some(40.0)
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// `level_edit::blocks`: an event's logic blocks written as a script and
+/// read back, and every kind of block compiled against the routines it
+/// calls (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_logic_blocks() {
+    use level_edit::blocks::{self, Block, KINDS};
+
+    let block = |key: &str, values: &[&str]| Block {
+        key: key.into(),
+        values: values.iter().map(|value| value.to_string()).collect(),
+    };
+    let list = vec![
+        block("once", &[]),
+        block("message", &["He said \"hello\" \\ left"]),
+        block("give_item", &["g_w_blstrpstl001", "2"]),
+        block("if_boolean", &["K_STAR_MAP", "1"]),
+        block("talk", &["kje_talk", ""]),
+    ];
+    let written = blocks::write(&list);
+    assert!(blocks::is_blocks(&written));
+    assert_eq!(
+        blocks::read(&written),
+        Some(list.clone()),
+        "the blocks read back, quotes and all"
+    );
+    assert!(
+        blocks::problems(&list).is_empty(),
+        "{:?}",
+        blocks::problems(&list)
+    );
+    assert!(
+        written.contains("SendMessageToPC(GetFirstPC(), \"He said \\\"hello\\\" \\\\ left\");")
+    );
+    assert!(written.contains(
+        "AssignCommand(OBJECT_SELF, ActionStartConversation(GetFirstPC(), \"kje_talk\"));"
+    ));
+    assert_eq!(
+        blocks::read("void main() {}\n"),
+        None,
+        "a script written by hand has no blocks"
+    );
+
+    // What is wrong is said, and the script is written all the same.
+    let wrong = vec![
+        block("give_credits", &["lots"]),
+        block("open_door", &[""]),
+        block("fly", &[]),
+    ];
+    let problems = blocks::problems(&wrong);
+    assert_eq!(problems.len(), 3, "{problems:?}");
+    assert!(blocks::write(&wrong).contains("GiveGoldToCreature(GetFirstPC(), 0);"));
+
+    // Every kind compiles against the routines it calls.
+    let catalog = script_ncs::Catalog::parse(
+        "int TRUE = 1;\nint FALSE = 0;\nint STANDARD_FACTION_HOSTILE_1 = 1;\n\
+         // 0\nvoid AssignCommand(object oActionSubject, action aActionToAssign);\n\
+         // 1\nvoid ActionOpenDoor(object oDoor);\n\
+         // 2\nvoid ActionCloseDoor(object oDoor);\n\
+         // 3\nobject GetObjectByTag(string sTag, int nNth = 0);\n\
+         // 4\nvoid ActionStartConversation(object oObjectToConverse, string sDialogResRef = \"\");\n\
+         // 5\nvoid SetLocked(object oTarget, int bLocked);\n\
+         // 6\nobject GetFirstPC();\n\
+         // 7\nvoid SendMessageToPC(object oPlayer, string szMessage);\n\
+         // 8\nint GetGlobalBoolean(string sIdentifier);\n\
+         // 9\nvoid SetGlobalBoolean(string sIdentifier, int nValue);\n\
+         // 10\nint GetGlobalNumber(string sIdentifier);\n\
+         // 11\nvoid SetGlobalNumber(string sIdentifier, int nValue);\n\
+         // 12\nobject CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, int nStackSize = 1);\n\
+         // 13\nvoid GiveGoldToCreature(object oCreature, int nGP);\n\
+         // 14\nvoid GiveXPToCreature(object oCreature, int nXpAmount);\n\
+         // 15\nvoid AddJournalQuestEntry(string szPlotID, int nState, int bAllowOverrideHigher = FALSE);\n\
+         // 16\nvoid ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);\n\
+         // 17\nvoid DestroyObject(object oDestroy, float fDelay = 0.0f);\n\
+         // 18\nvoid StartNewModule(string sModuleName, string sWayPoint = \"\");\n\
+         // 19\nint GetLocalBoolean(object oObject, int nIndex);\n\
+         // 20\nvoid SetLocalBoolean(object oObject, int nIndex, int nValue);\n\
+         // 21\nint GetIsObjectValid(object oObject);\n\
+         // 22\nobject GetItemPossessedBy(object oCreature, string sItemTag);\n",
+    )
+    .expect("the test's catalog reads");
+    let every: Vec<Block> = KINDS
+        .iter()
+        .map(|kind| {
+            let mut made = Block::new(kind);
+            for value in &mut made.values {
+                if value.is_empty() {
+                    *value = "kje_thing".into();
+                }
+            }
+            made
+        })
+        .collect();
+    let script = blocks::write(&every);
+    let none = |_: &str| -> Option<Vec<u8>> { None };
+    let compiled = script_ncs::compile::compile("kjb_1", script.as_bytes(), &none, &catalog);
+    assert!(compiled.is_ok(), "{compiled:?}\n{script}");
+
+    // A value with a line break, a carriage return and a tab is written on
+    // one line of the header and in one string of the code. A backslash
+    // before the letter n stays those two characters. The blocks read
+    // back, the script compiles, and the compiled script holds the text
+    // with its line break. The line break used to end the header's line
+    // and the string, so the script did not compile.
+    let said = "Line one\r\nLine two\tC:\\new \"here\"";
+    let broken = vec![block("message", &[said])];
+    let script = blocks::write(&broken);
+    assert_eq!(script.matches("//@block").count(), 1, "{script}");
+    assert!(
+        script.lines().all(|line| !line.starts_with("Line two")),
+        "{script}"
+    );
+    assert_eq!(blocks::read(&script), Some(broken));
+    let compiled = script_ncs::compile::compile("kjb_1", script.as_bytes(), &none, &catalog)
+        .unwrap_or_else(|error| panic!("{error}\n{script}"));
+    let held = level_edit::links::strings(&compiled.write());
+    assert!(held.iter().any(|text| text == said), "{held:?}");
+    assert_eq!(blocks::fresh_name(|name| name == "kjb_1"), "kjb_2");
+}
+
+/// `level_edit::dialog`: a conversation made and changed in the level
+/// editor, read as the walk reads it, and kept by a project
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_conversations() {
+    use fmt_odyssey::gff::Gff;
+    use level_edit::dialog::{self, Edit as Talk, LinkAt, Side};
+    use level_edit::{Edit, Editor, Project, git};
+
+    let mut gff = dialog::empty();
+    let mut apply = |change: Talk| dialog::apply(&mut gff, &change).unwrap();
+    // A start, two replies under it, and a line under the first reply.
+    assert_eq!(apply(Talk::Add { under: None }), Some((Side::Entry, 0)));
+    apply(Talk::Text(Side::Entry, 0, "The box hums.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Entry, 0))
+        }),
+        Some((Side::Reply, 0))
+    );
+    apply(Talk::Text(Side::Reply, 0, "Open it.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Entry, 0))
+        }),
+        Some((Side::Reply, 1))
+    );
+    apply(Talk::Text(Side::Reply, 1, "Leave it.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Reply, 0))
+        }),
+        Some((Side::Entry, 1))
+    );
+    apply(Talk::Text(Side::Entry, 1, "A gizka hops out.".into()));
+    apply(Talk::Speaker(Side::Entry, 1, "gizka".into()));
+    apply(Talk::Script(Side::Entry, 1, "kje_gizka".into()));
+    apply(Talk::Condition(
+        LinkAt::From(Side::Entry, 0, 1),
+        "kje_if_brave".into(),
+    ));
+    apply(Talk::Quest(Side::Entry, 1, "kje_box".into(), 10));
+    apply(Talk::End("kje_done".into()));
+    // The second reply goes on at the first line again, shown above.
+    apply(Talk::LinkTo {
+        from: Some((Side::Reply, 1)),
+        to: 0,
+    });
+
+    let read = dialog::read(&gff);
+    assert_eq!(read.starts.len(), 1);
+    assert_eq!(read.entries.len(), 2);
+    assert_eq!(read.replies.len(), 2);
+    let said = |node: &fmt_odyssey::dlg::Node| dialog::text_of(node, &|_| None);
+    assert_eq!(said(&read.entries[0]), "The box hums.");
+    assert_eq!(
+        read.entries[0].text.strref,
+        u32::MAX,
+        "the line's own text, no talk-table line"
+    );
+    assert_eq!(
+        read.entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(read.entries[0].links[1].active.script, "kje_if_brave");
+    assert_eq!(read.entries[1].speaker, "gizka");
+    assert_eq!(read.entries[1].script.script, "kje_gizka");
+    assert_eq!(
+        (read.entries[1].quest.as_str(), read.entries[1].quest_entry),
+        ("kje_box", 10)
+    );
+    assert_eq!(read.on_end, "kje_done");
+    assert!(
+        read.replies[1].links[0].is_child,
+        "a link back is a child link"
+    );
+    assert!(
+        dialog::problems(&gff).is_empty(),
+        "{:?}",
+        dialog::problems(&gff)
+    );
+
+    // The order of the replies, a link taken away, a node deleted with
+    // every link to it and the links past it renumbered.
+    dialog::apply(&mut gff, &Talk::Shift(LinkAt::From(Side::Entry, 0, 1), -1)).unwrap();
+    assert_eq!(
+        dialog::read(&gff).entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [1, 0]
+    );
+    assert!(dialog::apply(&mut gff, &Talk::Shift(LinkAt::From(Side::Entry, 0, 0), -1)).is_err());
+    dialog::apply(&mut gff, &Talk::Delete(Side::Reply, 0)).unwrap();
+    let read = dialog::read(&gff);
+    assert_eq!(read.replies.len(), 1);
+    assert_eq!(said(&read.replies[0]), "Leave it.");
+    assert_eq!(
+        read.entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [0],
+        "the link to the deleted reply is gone, the one past it moved down"
+    );
+    dialog::apply(&mut gff, &Talk::Unlink(LinkAt::From(Side::Entry, 0, 0))).unwrap();
+    assert!(dialog::read(&gff).entries[0].links.is_empty());
+    assert!(dialog::apply(&mut gff, &Talk::Text(Side::Reply, 7, "no".into())).is_err());
+    assert!(
+        dialog::apply(
+            &mut gff,
+            &Talk::Script(Side::Entry, 0, "a_name_far_too_long".into())
+        )
+        .is_err()
+    );
+
+    // The file reads back as written.
+    let again = Gff::parse(&gff.write()).unwrap();
+    assert_eq!(again, gff);
+    assert_eq!(
+        fmt_odyssey::dlg::Dlg::parse(&gff.write()).unwrap(),
+        dialog::read(&gff)
+    );
+
+    // A project keeps its conversations, undo takes one back, and a
+    // conversation taken out of the project leaves its folder.
+    let folder = std::env::temp_dir().join(format!("kjk-conversations-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    editor
+        .apply(Edit::NewConversation {
+            name: "kje_box".into(),
+            base: Some(gff.clone()),
+        })
+        .unwrap();
+    assert!(
+        editor
+            .apply(Edit::NewConversation {
+                name: "kje_box".into(),
+                base: None,
+            })
+            .is_err()
+    );
+    editor
+        .apply(Edit::Conversation(
+            "kje_box".into(),
+            Talk::Add { under: None },
+        ))
+        .unwrap();
+    assert_eq!(
+        dialog::read(&editor.project.conversations["kje_box"])
+            .starts
+            .len(),
+        2
+    );
+    editor.undo();
+    assert_eq!(editor.project.conversations["kje_box"], gff);
+    editor.project.save("test").unwrap();
+    assert!(folder.join("kje_box.dlg").is_file());
+    let opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.conversations, editor.project.conversations);
+    editor
+        .apply(Edit::DropConversation("kje_box".into()))
+        .unwrap();
+    editor.project.save("test").unwrap();
+    assert!(!folder.join("kje_box.dlg").exists());
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// `level_edit::fields`: a creature's, a store's and an encounter's
+/// template changed in the level editor beyond its scripts, read back, and
+/// the encounter read as kjk's module reader reads it
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_templates() {
+    use asset_odyssey::made::{blank_module, node, resref};
+    use asset_odyssey::module::{Kind as IrKind, ModuleIr};
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::{Gff, GffValue, LocString};
+    use level_edit::fields::{self, FieldChange, Spawn};
+    use level_edit::{Change, Edit, Editor, Kind, Project, Target, git};
+
+    let made = |file_type: &[u8; 4], fields: Vec<(&str, GffValue)>| Gff {
+        file_type: *file_type,
+        root: node(fields),
+    };
+    let utc = made(
+        b"UTC ",
+        vec![
+            ("TemplateResRef", resref("n_guard")),
+            (
+                "FirstName",
+                GffValue::LocString(LocString {
+                    strref: 100,
+                    strings: Vec::new(),
+                }),
+            ),
+            ("Appearance_Type", GffValue::Word(1)),
+            ("Str", GffValue::Byte(10)),
+            ("ChallengeRating", GffValue::Float(1.0f32.to_bits())),
+            (
+                "ClassList",
+                GffValue::List(vec![node(vec![
+                    ("Class", GffValue::Int(0)),
+                    ("ClassLevel", GffValue::Short(1)),
+                ])]),
+            ),
+            ("ScriptHeartbeat", resref("")),
+        ],
+    );
+    let utm = made(
+        b"UTM ",
+        vec![
+            ("ResRef", resref("m_store")),
+            ("MarkUp", GffValue::Int(100)),
+            ("BuySellFlag", GffValue::Byte(3)),
+            ("OnOpenStore", resref("")),
+        ],
+    );
+    let ute = made(
+        b"UTE ",
+        vec![
+            ("TemplateResRef", resref("e_kath")),
+            ("Active", GffValue::Byte(1)),
+            ("MaxCreatures", GffValue::Int(4)),
+            ("OnEntered", resref("")),
+        ],
+    );
+    let install = [
+        ("n_guard", ResType::UTC, utc.write()),
+        ("m_store", ResType::UTM, utm.write()),
+        ("e_kath", ResType::UTE, ute.write()),
+    ];
+    let read = |name: &str, restype: ResType| {
+        install
+            .iter()
+            .find(|(had, of, _)| *had == name && *of == restype)
+            .map(|(_, _, bytes)| bytes.clone())
+    };
+    let taken = |name: &str| install.iter().any(|(had, _, _)| *had == name);
+
+    let folder = std::env::temp_dir().join(format!("kjk-templates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    for (kind, template) in [
+        (Kind::Creature, "n_guard"),
+        (Kind::Store, "m_store"),
+        (Kind::Encounter, "e_kath"),
+    ] {
+        editor
+            .apply(Edit::AddObject {
+                kind,
+                template: template.into(),
+                position: [5.0, 5.0, 0.0],
+                facing: 0.0,
+                base: None,
+            })
+            .unwrap();
+    }
+    let without = editor.project.clone();
+    let change = |editor: &mut Editor, target: Target, change: Change| {
+        editor.change_template(target, &change, (&read, &taken))
+    };
+    let field = Change::Field;
+
+    // A project of two levels shares its templates. A change on the second
+    // level keeps the copy that the first level alone uses, in the project
+    // and in its folder once saved. An object of the second level made from
+    // the first level's copy gets a copy of its own when it is changed, and
+    // the first level's stays as it was.
+    {
+        let folder = std::env::temp_dir().join(format!("kjk-templates-two-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        let mut editor = Editor::new(Project::new(
+            &folder,
+            "k1",
+            "ebo_m12aa",
+            "m12aa",
+            git::empty(),
+        ));
+        let guard = |editor: &mut Editor, template: &str| {
+            editor
+                .apply(Edit::AddObject {
+                    kind: Kind::Creature,
+                    template: template.into(),
+                    position: [5.0, 5.0, 0.0],
+                    facing: 0.0,
+                    base: None,
+                })
+                .unwrap();
+        };
+        let strength = |value: f64| field(FieldChange::Number("Str".into(), value));
+        let template_of =
+            |editor: &Editor, index: usize| editor.entry(Kind::Creature, index).unwrap().template;
+        guard(&mut editor, "n_guard");
+        change(
+            &mut editor,
+            Target::Object(Kind::Creature, 0),
+            strength(18.0),
+        )
+        .unwrap();
+        let first = template_of(&editor, 0);
+        assert!(editor.project.templates.contains_key(&first));
+        (editor.project)
+            .switch_to("tar_m02aa", || Ok(("m02aa".into(), git::empty())))
+            .unwrap();
+        guard(&mut editor, "n_guard");
+        change(
+            &mut editor,
+            Target::Object(Kind::Creature, 0),
+            strength(12.0),
+        )
+        .unwrap();
+        let second = template_of(&editor, 0);
+        assert_ne!(first, second);
+        assert!(
+            editor.project.templates.contains_key(&first),
+            "the parked level's template after a change on another level"
+        );
+        // Shared by an object of each level, then changed on the second.
+        guard(&mut editor, &first);
+        assert_eq!(editor.users(&first), 2);
+        let before = editor.project.templates[&first].gff.clone();
+        change(
+            &mut editor,
+            Target::Object(Kind::Creature, 1),
+            strength(5.0),
+        )
+        .unwrap();
+        assert_ne!(template_of(&editor, 1), first, "a copy of its own");
+        assert_eq!(editor.project.templates[&first].gff, before);
+        editor.project.save("test").unwrap();
+        for template in [&first, &second] {
+            assert!(
+                folder.join(format!("{template}.utc")).is_file(),
+                "{template}.utc"
+            );
+        }
+
+        // A project keeps one template of a name, whatever its kind. An
+        // item is not given the name of a creature's copy. An item taken
+        // out, and a placeable's template brought in under its name, leave
+        // one file. Two files of one name are refused when the project is
+        // opened.
+        let of_kind = |restype: ResType, file_type: &[u8; 4]| {
+            Box::new(level_edit::template::Template {
+                restype,
+                from: "g_i_thing".into(),
+                gff: made(file_type, vec![("TemplateResRef", resref("g_i_thing"))]),
+            })
+        };
+        let taken = editor.apply(Edit::SetTemplate {
+            name: first.clone(),
+            template: of_kind(ResType::UTI, b"UTI "),
+        });
+        assert!(
+            taken.is_err_and(|why| why.contains("keeps one template of a name")),
+            "an item named as a creature's copy"
+        );
+        assert_eq!(editor.project.templates[&first].restype, ResType::UTC);
+        let named = |template| Edit::SetTemplate {
+            name: "kje_thing".into(),
+            template,
+        };
+        editor.apply(named(of_kind(ResType::UTI, b"UTI "))).unwrap();
+        editor.project.save("test").unwrap();
+        assert!(folder.join("kje_thing.uti").is_file());
+        editor
+            .apply(Edit::DropTemplate("kje_thing".into()))
+            .unwrap();
+        editor
+            .apply(Edit::ImportTemplate {
+                name: "kje_thing".into(),
+                template: of_kind(ResType::UTP, b"UTP "),
+            })
+            .unwrap();
+        editor.project.save("test").unwrap();
+        assert!(folder.join("kje_thing.utp").is_file());
+        assert!(
+            !folder.join("kje_thing.uti").exists(),
+            "the item's file left behind"
+        );
+        assert!(Project::open(&folder).is_ok());
+        std::fs::write(folder.join("kje_thing.utc"), utc.write()).unwrap();
+        let two = Project::open(&folder).err();
+        assert!(
+            (two.as_ref()).is_some_and(|why| why.contains("two templates named kje_thing")),
+            "{two:?}"
+        );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    // A creature: its numbers keep the way the template stores them, its
+    // name becomes its own text, and its lists change.
+    let creature = Target::Object(Kind::Creature, 0);
+    for one in [
+        FieldChange::Number("Appearance_Type".into(), 7.0),
+        FieldChange::Number("Str".into(), 18.0),
+        FieldChange::Number("ChallengeRating".into(), 3.5),
+        FieldChange::Number("FactionID".into(), 1.0),
+        FieldChange::Name("FirstName".into(), "Gizka Tamer".into()),
+        FieldChange::Class(0, Some((2, 4))),
+        FieldChange::Class(1, Some((3, 2))),
+        FieldChange::Class(2, Some((1, 1))),
+        FieldChange::Power(1, 5, true),
+        FieldChange::Power(1, 9, true),
+        FieldChange::Power(1, 5, false),
+        FieldChange::Feat(11, true),
+        FieldChange::Feat(12, true),
+        FieldChange::Feat(11, false),
+        FieldChange::Skill(2, 6),
+        FieldChange::Equip(4, "g_w_blstrpstl001".into()),
+        FieldChange::Equip(1, "g_a_clothes01".into()),
+        FieldChange::Equip(4, "g_w_lghtsbr01".into()),
+        FieldChange::Equip(1, String::new()),
+    ] {
+        change(&mut editor, creature, field(one.clone()))
+            .unwrap_or_else(|why| panic!("{one:?}: {why}"));
+    }
+    change(
+        &mut editor,
+        creature,
+        Change::AddItem("g_i_medeqpmnt01".into()),
+    )
+    .unwrap();
+    change(
+        &mut editor,
+        creature,
+        field(FieldChange::ItemFlag(0, "Dropable", true)),
+    )
+    .unwrap();
+    for refused in [
+        FieldChange::Number("Str".into(), 0.0),
+        FieldChange::Number("Gender".into(), 1.0),
+        FieldChange::Class(5, None),
+        FieldChange::Class(3, Some((1, 1))),
+        FieldChange::Power(4, 1, true),
+        FieldChange::Skill(8, 1),
+        FieldChange::Equip(2, "g_w_lghtsbr01".into()),
+        FieldChange::ItemFlag(0, "Infinite", true),
+        FieldChange::Spawn(0, None),
+    ] {
+        assert!(
+            change(&mut editor, creature, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+    let gff = editor
+        .project
+        .templates
+        .values()
+        .find(|made| made.from == "n_guard")
+        .expect("the creature's own template")
+        .gff
+        .clone();
+    assert_eq!(gff.root.get("Appearance_Type"), Some(&GffValue::Word(7)));
+    assert_eq!(gff.root.get("Str"), Some(&GffValue::Byte(18)));
+    assert_eq!(fields::number_of(&gff, "ChallengeRating"), Some(3.5));
+    assert_eq!(
+        gff.root.get("FactionID"),
+        Some(&GffValue::Word(1)),
+        "a number the template lacks is stored as the table says"
+    );
+    assert_eq!(fields::name_of(&gff, "FirstName", &|_| None), "Gizka Tamer");
+    assert_eq!(
+        fields::classes(&gff),
+        [(2, 4, vec![]), (3, 2, vec![9]), (1, 1, vec![])]
+    );
+    assert_eq!(fields::feats(&gff), [12]);
+    assert_eq!(fields::skills(&gff), [0, 0, 6]);
+    assert_eq!(fields::equipped(&gff), [(4, "g_w_lghtsbr01".to_string())]);
+    assert_eq!(gff.root.list("Equip_ItemList")[0].id, 1 << 4);
+    assert_eq!(level_edit::template::items(&gff), ["g_i_medeqpmnt01"]);
+    assert!(fields::item_flag(&gff, 0, "Dropable"));
+
+    // A store: its prices, its name and its stock.
+    let store = Target::Object(Kind::Store, 0);
+    for one in [
+        FieldChange::Number("MarkUp".into(), 150.0),
+        FieldChange::Number("BuySellFlag".into(), 1.0),
+        FieldChange::Name("LocName".into(), "Gizka Goods".into()),
+    ] {
+        change(&mut editor, store, field(one)).unwrap();
+    }
+    change(&mut editor, store, Change::AddItem("g_i_credits001".into())).unwrap();
+    change(
+        &mut editor,
+        store,
+        field(FieldChange::ItemFlag(0, "Infinite", true)),
+    )
+    .unwrap();
+    for refused in [
+        FieldChange::Feat(1, true),
+        FieldChange::Number("MarkUp".into(), 5000.0),
+        FieldChange::ItemFlag(0, "Dropable", true),
+    ] {
+        assert!(
+            change(&mut editor, store, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+    let gff = editor
+        .project
+        .templates
+        .values()
+        .find(|made| made.from == "m_store")
+        .expect("the store's own template")
+        .gff
+        .clone();
+    assert_eq!(gff.root.get("MarkUp"), Some(&GffValue::Int(150)));
+    assert_eq!(gff.root.get("BuySellFlag"), Some(&GffValue::Byte(1)));
+    assert_eq!(fields::name_of(&gff, "LocName", &|_| None), "Gizka Goods");
+    assert!(fields::item_flag(&gff, 0, "Infinite"));
+
+    // An encounter: its numbers, its creatures and its spawn points.
+    let encounter = Target::Object(Kind::Encounter, 0);
+    let spawn = |template: &str, cr: f32, single: bool| Spawn {
+        template: template.into(),
+        cr,
+        single,
+    };
+    for one in [
+        FieldChange::Number("MaxCreatures".into(), 6.0),
+        FieldChange::Number("Active".into(), 0.0),
+        FieldChange::Spawn(0, Some(spawn("n_kath", 2.0, false))),
+        FieldChange::Spawn(1, Some(spawn("n_kath_alpha", 4.0, true))),
+        FieldChange::Spawn(0, Some(spawn("n_kath", 1.5, false))),
+        FieldChange::Spawn(2, Some(spawn("n_gone", 1.0, false))),
+        FieldChange::Spawn(2, None),
+    ] {
+        change(&mut editor, encounter, field(one)).unwrap();
+    }
+    for refused in [
+        FieldChange::Spawn(5, None),
+        FieldChange::Equip(4, "g_w_lghtsbr01".into()),
+    ] {
+        assert!(
+            change(&mut editor, encounter, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+
+    // A number is refused when its field does not hold it. A creature's
+    // race is one byte: 255 is taken and 256 is not. It used to be taken
+    // up to 65535 and stored as 255. A template that keeps its faction in
+    // one byte, where most keep it in two, refuses 300 and keeps the
+    // faction it had.
+    let mut narrow = made(b"UTC ", vec![("FactionID", GffValue::Byte(1))]);
+    let set = |gff: &mut Gff, label: &str, value: f64| {
+        fields::apply(gff, ResType::UTC, &FieldChange::Number(label.into(), value))
+    };
+    set(&mut narrow, "Race", 255.0).unwrap();
+    assert!(set(&mut narrow, "Race", 256.0).is_err());
+    assert_eq!(narrow.root.get("Race"), Some(&GffValue::Byte(255)));
+    assert!(set(&mut narrow, "FactionID", 300.0).is_err());
+    assert_eq!(narrow.root.get("FactionID"), Some(&GffValue::Byte(1)));
+    set(&mut narrow, "FactionID", 200.0).unwrap();
+    assert_eq!(narrow.root.get("FactionID"), Some(&GffValue::Byte(200)));
+    // A class has 1 to 32767 levels. No level and one over 32767, which
+    // was written as a negative number, are refused.
+    let levels = |gff: &mut Gff, levels: u16| {
+        fields::apply(gff, ResType::UTC, &FieldChange::Class(0, Some((2, levels))))
+    };
+    for wrong in [0, 32768, 65535] {
+        assert!(levels(&mut narrow, wrong).is_err(), "{wrong} levels");
+    }
+    levels(&mut narrow, 32767).unwrap();
+    assert_eq!(fields::classes(&narrow), [(2, 32767, vec![])]);
+    // A spawned creature's challenge rating is a number of 0 or more.
+    let mut spawns = made(b"UTE ", Vec::new());
+    let rated = |gff: &mut Gff, cr: f32| {
+        let change = FieldChange::Spawn(0, Some(spawn("n_kath", cr, false)));
+        fields::apply(gff, ResType::UTE, &change)
+    };
+    for wrong in [f32::NAN, f32::INFINITY, -1.0] {
+        assert!(rated(&mut spawns, wrong).is_err(), "a rating of {wrong}");
+    }
+    rated(&mut spawns, 0.0).unwrap();
+    let points = vec![
+        ([6.0, 5.0, 0.0], 0.0),
+        ([4.0, 5.0, 0.0], std::f32::consts::PI),
+    ];
+    editor
+        .apply(Edit::SpawnPoints(encounter, points.clone()))
+        .unwrap();
+    assert!(
+        editor
+            .apply(Edit::SpawnPoints(
+                Target::Object(Kind::Store, 0),
+                points.clone()
+            ))
+            .is_err(),
+        "only an encounter has spawn points"
+    );
+    assert_eq!(git::spawn_points(&editor.project.git, 0), points);
+    assert_eq!(
+        git::outline(&editor.project.git, Kind::Encounter, 0).len(),
+        4,
+        "a new encounter has a square outline"
+    );
+
+    // kjk's module reader reads the encounter as the editor wrote it.
+    let ute_name = editor.entry(Kind::Encounter, 0).unwrap().template;
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files
+        .0
+        .insert("area.git".into(), editor.project.git.write());
+    files.0.insert(
+        format!("{ute_name}.ute"),
+        editor.project.templates[&ute_name].gff.write(),
+    );
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let read_back = module.areas[0]
+        .instances
+        .iter()
+        .find(|instance| instance.kind == IrKind::Encounter)
+        .and_then(|instance| instance.encounter.clone())
+        .expect("the encounter reads");
+    assert!(!read_back.active);
+    assert_eq!(read_back.max_creatures, 6);
+    let creatures: Vec<(&str, f32, bool)> = read_back
+        .creatures
+        .iter()
+        .map(|creature| (creature.template.as_str(), creature.cr, creature.single))
+        .collect();
+    assert_eq!(
+        creatures,
+        [("n_kath", 1.5, false), ("n_kath_alpha", 4.0, true)]
+    );
+    assert_eq!(read_back.spawn_points, points);
+
+    // The project keeps the three templates, they read back as written,
+    // and undo takes every change away.
+    editor.save("approved test").unwrap();
+    assert_eq!(
+        Project::open(&folder).unwrap().templates,
+        editor.project.templates
+    );
+    for (name, made) in &editor.project.templates {
+        let file = format!("{name}.{}", level_edit::template::extension(made.restype));
+        assert!(folder.join(&file).is_file(), "{file}");
+    }
+    while editor.project != without && editor.undo() {}
+    assert_eq!(editor.project, without);
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// `level_edit::project`'s levels: a project of the install that edits
+/// several levels, each with its own objects and kjk-only content, kept
+/// in its folder, reopened on any of them, and refused for a new map
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_levels() {
+    use fmt_odyssey::gff::Gff;
+    use level_edit::area::{BoxRole, CollisionBox, KjkArea};
+    use level_edit::project::{OtherArea, kjk_file};
+    use level_edit::{Kind, Project, git};
+
+    let folder = std::env::temp_dir().join(format!("kjk-levels-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let shape = |name: &str| CollisionBox {
+        name: name.into(),
+        centre: [1.0, 2.0, 0.5],
+        size: [1.0, 1.0, 1.0],
+        yaw: 0.0,
+        role: BoxRole::Solid,
+    };
+    let with_waypoint = |tag: &str| {
+        let mut gff = git::empty();
+        let at = git::add(
+            &mut gff,
+            Kind::Waypoint,
+            "sw_waypoint001",
+            [1.0, 1.0, 0.0],
+            0.0,
+        );
+        git::set_entry_field(
+            &mut gff,
+            Kind::Waypoint,
+            at,
+            "Tag",
+            fmt_odyssey::gff::GffValue::String(tag.as_bytes().to_vec()),
+        );
+        gff
+    };
+
+    // The home level: the enclave, with a box of its own.
+    let mut project = Project::new(&folder, "k1", "danm13", "m13aa", git::empty());
+    project.kjk.boxes.push(shape("home_box"));
+    // The courtyard's doors were changed before it became a level: its
+    // copy of them becomes the level's GIT.
+    project.others.insert(
+        "m14aa".into(),
+        OtherArea {
+            module: "danm14aa".into(),
+            git: with_waypoint("from_others"),
+        },
+    );
+    project
+        .switch_to("danm14aa", || Ok(("m14aa".into(), git::empty())))
+        .unwrap();
+    assert_eq!(
+        (project.module.as_str(), project.area.as_str()),
+        ("danm14aa", "m14aa")
+    );
+    assert!(
+        project.others.is_empty(),
+        "the doors' copy became the level"
+    );
+    assert_eq!(git::entries(&project.git)[0].tag, "from_others");
+    assert!(
+        project.kjk.boxes.is_empty(),
+        "a new level starts with no kjk-only content"
+    );
+    project.kjk.boxes.push(shape("yard_box"));
+    // A third level, made from the install's area that `fresh` gives.
+    project
+        .switch_to("danm14ab", || Ok(("m14ab".into(), with_waypoint("plains"))))
+        .unwrap();
+    assert_eq!(
+        project.level_list(),
+        [
+            ("danm13".to_string(), "m13aa".to_string()),
+            ("danm14aa".to_string(), "m14aa".to_string()),
+            ("danm14ab".to_string(), "m14ab".to_string()),
+        ],
+        "the home level comes first"
+    );
+    assert_eq!(project.kjk_of("DANM13").unwrap().boxes[0].name, "home_box");
+    assert_eq!(
+        project.kjk_of("danm14aa").unwrap().boxes[0].name,
+        "yard_box"
+    );
+    assert!(project.kjk_of("danm15").is_none());
+    // Going back to a level takes it as it was left.
+    project
+        .switch_to("danm14aa", || Err("not asked for".into()))
+        .unwrap();
+    assert_eq!(project.kjk.boxes[0].name, "yard_box");
+
+    // Saved: project.toml names the home level and lists the others, each
+    // level has its GIT and its kjk-area file.
+    project.save("approved test").unwrap();
+    let text = std::fs::read_to_string(folder.join("project.toml")).unwrap();
+    assert!(text.contains("module = \"danm13\""), "{text}");
+    assert!(
+        text.contains("levels = [[\"danm14aa\", \"m14aa\"], [\"danm14ab\", \"m14ab\"]]"),
+        "{text}"
+    );
+    for file in [
+        "m13aa.git",
+        "m14aa.git",
+        "m14ab.git",
+        "kjk-area.toml",
+        "kjk-area-m14aa.toml",
+    ] {
+        assert!(folder.join(file).is_file(), "{file}");
+    }
+    assert_eq!(kjk_file("m13aa", "M13AA"), "kjk-area.toml");
+    assert_eq!(kjk_file("m13aa", "m14ab"), "kjk-area-m14ab.toml");
+
+    // Reopened: the home level is edited, the others are parked as they
+    // were saved, and the project reads back the same once on the same
+    // level.
+    let mut opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.module, "danm13");
+    assert_eq!(opened.kjk.boxes[0].name, "home_box");
+    assert_eq!(opened.parked["danm14aa"].kjk.boxes[0].name, "yard_box");
+    assert_eq!(
+        git::entries(&opened.parked["danm14ab"].git)[0].tag,
+        "plains"
+    );
+    opened
+        .switch_to("danm14aa", || Err("not asked for".into()))
+        .unwrap();
+    assert_eq!(opened.level_list(), project.level_list());
+    assert_eq!(opened.kjk, project.kjk);
+    assert_eq!(opened.git, project.git);
+    assert_eq!(opened.digest(), project.digest());
+    // The digest does not tell which level is being edited: it is the same
+    // on each of the three.
+    let before = opened.digest();
+    for level in ["danm14ab", "danm13", "danm14aa"] {
+        opened
+            .switch_to(level, || Err("not asked for".into()))
+            .unwrap();
+        assert_eq!(opened.digest(), before, "edited on {level}");
+    }
+    // The cuts of the Jedi Academy rooms are part of it: a file of them
+    // added changes it, and so does the file changed.
+    let cuts = folder.join(level_edit::ja_rooms::FOLDER);
+    std::fs::create_dir_all(&cuts).unwrap();
+    std::fs::write(cuts.join("t1_sour.toml"), "level = \"maps/t1_sour.bsp\"\n").unwrap();
+    let cut = opened.digest();
+    assert_ne!(cut, before, "a file of cuts added");
+    std::fs::write(
+        cuts.join("t1_sour.toml"),
+        "level = \"maps/t1_sour.bsp\"\n# cut again\n",
+    )
+    .unwrap();
+    assert_ne!(opened.digest(), cut, "the file of cuts changed");
+    std::fs::remove_dir_all(&cuts).unwrap();
+    assert_eq!(opened.digest(), before);
+    // A change to a parked level changes the digest that play keys by.
+    opened.parked.get_mut("danm13").unwrap().kjk = KjkArea::default();
+    assert_ne!(opened.digest(), before);
+
+    // A level whose doors are also kept as another area's copy is refused.
+    opened.others.insert(
+        "m14ab".into(),
+        OtherArea {
+            module: "danm14ab".into(),
+            git: git::empty(),
+        },
+    );
+    assert!(opened.problems().iter().any(|problem| problem.blocks));
+    assert!(opened.save("approved test").is_err());
+
+    // A new map's project takes a level of the game beside the map.
+    let mut map = Project::new_map(
+        &folder.join("map"),
+        "k1",
+        "kje_yard",
+        "The yard",
+        (
+            "danm14aa",
+            Gff {
+                file_type: *b"ARE ",
+                root: git::empty().root,
+            },
+            &git::empty(),
+        ),
+    )
+    .unwrap();
+    assert!(
+        map.switch_to("danm13", || Ok(("m13aa".into(), git::empty())))
+            .is_ok()
+    );
+    assert!(map.is_map("kje_yard") && !map.is_map("danm13"));
+
+    // A second new map: a save writes the module of each, the parked one's
+    // too.
+    let base = || Gff {
+        file_type: *b"ARE ",
+        root: git::empty().root,
+    };
+    map.add_map("kje_cave", "The cave", ("danm14aa", base(), &git::empty()))
+        .unwrap();
+    assert_eq!(map.module, "kje_cave");
+    let written = map.save_module(&|_, _| None).unwrap();
+    assert_eq!(written.len(), 2, "{written:?}");
+    for module in ["kje_cave", "kje_yard"] {
+        let file = folder
+            .join("map")
+            .join("modules")
+            .join(format!("{module}.mod"));
+        assert!(file.is_file(), "{module}.mod");
+    }
+
+    // A parked level is checked as the one being edited is, and its
+    // problems name it: a creature with no template, and a box with a side
+    // that is no number.
+    assert!(!map.problems().iter().any(|problem| problem.blocks));
+    git::add(
+        &mut map.parked.get_mut("danm13").unwrap().git,
+        level_edit::Kind::Creature,
+        "",
+        [1.0, 1.0, 0.0],
+        0.0,
+    );
+    (map.parked.get_mut("kje_yard").unwrap().kjk.boxes).push(level_edit::CollisionBox {
+        name: "thin".into(),
+        centre: [0.0; 3],
+        size: [f32::NAN, 1.0, 1.0],
+        yaw: 0.0,
+        role: level_edit::BoxRole::Solid,
+    });
+    let blocking: Vec<String> = (map.problems().into_iter())
+        .filter(|problem| problem.blocks)
+        .map(|problem| problem.what)
+        .collect();
+    for wanted in [
+        "the level danm13: Creature 0 of the GIT has no template",
+        "the level kje_yard: box thin has a side under",
+    ] {
+        assert!(
+            blocking.iter().any(|what| what.starts_with(wanted)),
+            "{wanted:?} among {blocking:?}"
+        );
+    }
+    assert!(map.save("approved test").is_err());
+
+    // A copy of the project taken into the editor (a recovery copy), as
+    // one edit. A project read from a folder holds no kinds of fitting and
+    // no room levels: the editor reads those from the folder's lighting
+    // rules. Taken without them, the copy's content comes and the editor's
+    // kinds and room levels stay. They used to be dropped either way, so
+    // the ones changed since the last save did not come back.
+    let kind = |reach: f32| level_edit::kinds::KindEdit {
+        texture: "lda_lite01".into(),
+        placeable: false,
+        lamp: true,
+        form: "point".into(),
+        colour: [1.0, 0.9, 0.8],
+        reach,
+        strength: 1.0,
+        cone: 0.0,
+        reason: String::new(),
+    };
+    let levels = |level: f32| std::collections::BTreeMap::from([("m13aa_01".to_string(), level)]);
+    let mut had = Project::new(&folder, "k1", "danm13", "m13aa", git::empty());
+    had.kinds = vec![kind(4.0)];
+    had.levels = levels(0.5);
+    let mut copy = Project::new(&folder, "k1", "danm13", "m13aa", git::empty());
+    copy.kjk.boxes.push(shape("recovered"));
+    let mut editor = level_edit::Editor::new(had.clone());
+    editor.replace_content(copy.clone(), None);
+    assert_eq!(editor.project.kjk.boxes[0].name, "recovered");
+    assert_eq!(
+        (&editor.project.kinds, &editor.project.levels),
+        (&had.kinds, &had.levels)
+    );
+    assert!(editor.undo());
+    assert_eq!(editor.project, had);
+    // Taken with the copy's own rules, the kinds and the room levels are
+    // the copy's. Undo gives the editor's back, and redo the copy's.
+    editor.replace_content(copy, Some((vec![kind(9.0)], levels(0.8))));
+    let taken = editor.project.clone();
+    assert_eq!(
+        (&taken.kinds, &taken.levels),
+        (&vec![kind(9.0)], &levels(0.8))
+    );
+    assert_eq!(taken.kjk.boxes[0].name, "recovered");
+    assert!(editor.undo());
+    assert_eq!(editor.project, had);
+    assert!(editor.redo());
+    assert_eq!(editor.project, taken);
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// Text typed into the level editor, as a game file keeps it
+/// (`level_edit::game_bytes` and `game_text`, proposed 2026-11-27, awaiting
+/// approval). The games write text in Windows-1252, a byte a character. A
+/// text with accented letters, curly quotes, a long dash and an ellipsis is
+/// written with one byte for each of them, and a letter that code page does
+/// not have is written as `?`. Every one of the 256 bytes reads as a
+/// character that is written as the same byte again.
+///
+/// The same text is given to a conversation's line, an item's name and
+/// description, a quest's name and entry, a creature's first name and a new
+/// map's title. Each holds the same bytes and reads back as it was typed,
+/// and a line set again to what was read holds the same bytes still. No
+/// installs.
+#[test]
+fn level_edit_typed_text() {
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::{Gff, GffStruct};
+    use level_edit::dialog::{self, Edit as Talk, Side};
+    use level_edit::fields::{self, FieldChange};
+    use level_edit::items::{self, ItemChange};
+    use level_edit::{Project, git, journal};
+
+    let typed = "\u{201c}Caf\u{e9}\u{201d} \u{2014} d\u{e9}j\u{e0} vu\u{2026} \u{20a4} \u{42f}";
+    let bytes: Vec<u8> = vec![
+        0x93, b'C', b'a', b'f', 0xE9, 0x94, b' ', 0x97, b' ', b'd', 0xE9, b'j', 0xE0, b' ', b'v',
+        b'u', 0x85, b' ', b'?', b' ', b'?',
+    ];
+    // The lira sign and the Cyrillic letter have no byte, and read back as
+    // the `?` they were written as.
+    let shown = "\u{201c}Caf\u{e9}\u{201d} \u{2014} d\u{e9}j\u{e0} vu\u{2026} ? ?";
+    assert_eq!(level_edit::game_bytes(typed), bytes);
+    assert_eq!(level_edit::game_text(&bytes), shown);
+    let all: Vec<u8> = (0..=255).collect();
+    assert_eq!(level_edit::game_bytes(&level_edit::game_text(&all)), all);
+
+    let blank = |kind: &[u8; 4]| Gff {
+        file_type: *kind,
+        root: GffStruct {
+            id: u32::MAX,
+            fields: Vec::new(),
+        },
+    };
+    let own = |gff: &Gff, label: &str| -> Vec<u8> {
+        (gff.root.locstring(label))
+            .and_then(|text| text.strings.first())
+            .map_or_else(Vec::new, |(_, bytes)| bytes.clone())
+    };
+
+    // A conversation's line. It was written as UTF-8 and read a byte a
+    // character, so "Café" read back as "CafÃ©", and worse at each edit.
+    let mut talk = dialog::empty();
+    dialog::apply(&mut talk, &Talk::Add { under: None }).unwrap();
+    for line in [typed, shown] {
+        dialog::apply(&mut talk, &Talk::Text(Side::Entry, 0, line.into())).unwrap();
+        let read = dialog::read(&talk);
+        assert_eq!(read.entries[0].text.strings[0].1, bytes);
+        assert_eq!(dialog::text_of(&read.entries[0], &|_| None), shown);
+    }
+
+    // An item's name and description, and a quest's name and entry. They
+    // were written as Latin-1, with `?` for the quotes, the dash and the
+    // ellipsis.
+    let mut item = blank(b"UTI ");
+    items::apply(&mut item, &ItemChange::Name(typed.into())).unwrap();
+    items::apply(&mut item, &ItemChange::Text(typed.into())).unwrap();
+    assert_eq!(own(&item, "LocalizedName"), bytes);
+    assert_eq!(own(&item, "DescIdentified"), bytes);
+    assert_eq!(items::shown(&item), (shown.to_string(), shown.to_string()));
+    let mut jrl = journal::empty();
+    journal::add_quest(&mut jrl, "kje_cafe", typed).unwrap();
+    journal::set_entry(&mut jrl, "kje_cafe", 10, typed, false).unwrap();
+    assert_eq!(
+        journal::quest(&jrl, "kje_cafe"),
+        Some((
+            "kje_cafe".to_string(),
+            shown.to_string(),
+            vec![(10, shown.to_string(), false)]
+        ))
+    );
+
+    // A creature's first name and a new map's title. They were written as
+    // UTF-8, which the games show as two wrong letters for each accented
+    // one. The project's own file keeps the title as it was typed.
+    let mut creature = blank(b"UTC ");
+    let named = FieldChange::Name("FirstName".into(), typed.into());
+    fields::apply(&mut creature, ResType::UTC, &named).unwrap();
+    assert_eq!(own(&creature, "FirstName"), bytes);
+    assert_eq!(fields::name_of(&creature, "FirstName", &|_| None), shown);
+    let folder = std::env::temp_dir().join(format!("kjk-typed-{}", std::process::id()));
+    let base = ("danm14aa", blank(b"ARE "), &git::empty());
+    let made = Project::new_map(&folder, "k1", "kje_cafe", typed, base).unwrap();
+    let map = made.map.as_ref().unwrap();
+    assert_eq!(map.title, typed);
+    assert_eq!(own(&map.are, "Name"), bytes);
+    eprintln!("typed text is written in the games' code page and reads back");
+}
+
+/// Numbers that are no real numbers in the level editor (`nan` and `inf`,
+/// which TOML writes as numbers; proposed 2026-11-27, awaiting approval).
+/// A project's files are not read with one: a light's place in a level's
+/// kjk-only content, a new map room's turn, a point of a Jedi Academy
+/// room's cut, a room's lighting level and a copy's centre. Each file reads
+/// as it was written, and is refused once one number in it is `nan` or
+/// `inf`.
+///
+/// The editor does not make an edit with one. A collision box, a prop and
+/// an object are not added with such a place, turn, side or scale, nor a
+/// prop with a scale outside 0.05 to 20. A trigger's outline, an
+/// encounter's spawn points, the place a copy is pasted at and a lamp's
+/// pitch and roll are refused the same way. The same edits with real
+/// numbers are made. No installs.
+#[test]
+fn level_edit_real_numbers() {
+    use level_edit::clip::Clip;
+    use level_edit::ja_rooms::{Cut, JaRooms};
+    use level_edit::lamps::PlacedLamp;
+    use level_edit::lighting::OwnLighting;
+    use level_edit::lights::PlacedLight;
+    use level_edit::map::NewMap;
+    use level_edit::{
+        BoxRole, CollisionBox, Edit, Editor, Kind, KjkArea, Project, Prop, Room, Target, git,
+    };
+
+    let folder = std::env::temp_dir().join(format!("kjk-real-{}", std::process::id()));
+    let (nan, inf) = (f32::NAN, f32::INFINITY);
+    // `text` with its one `number` written as `wrong`.
+    let spoilt = |text: &str, number: &str, wrong: &str| -> String {
+        assert_eq!(text.matches(number).count(), 1, "{number} in {text}");
+        text.replace(number, wrong)
+    };
+
+    // A light of a level's kjk-only content.
+    let area = KjkArea {
+        lights: vec![PlacedLight {
+            at: [7.25, 2.0, 3.0],
+            colour: [1.0, 0.5, 0.5],
+            radius: 5.0,
+            aim: [0.0; 3],
+            cone: 0.0,
+            way: [0.0; 3],
+            half: 0.0,
+            texture: String::new(),
+            reason: String::new(),
+        }],
+        ..KjkArea::default()
+    };
+    let text = area.write();
+    assert_eq!(KjkArea::parse(&text).unwrap(), area);
+    assert!(KjkArea::parse(&spoilt(&text, "7.25", "nan")).is_err());
+
+    // A new map's room, turned.
+    let blank = fmt_odyssey::gff::Gff {
+        file_type: *b"ARE ",
+        root: git::empty().root,
+    };
+    let base = ("danm14aa", blank.clone(), &git::empty());
+    let made = Project::new_map(&folder, "k1", "kje_real", "Real", base).unwrap();
+    let mut map = made.map.clone().unwrap();
+    map.rooms.push(Room {
+        model: "room_a".into(),
+        from: [0.0; 3],
+        position: [1.0, 2.0, 0.0],
+        yaw: 90.0,
+        ja: None,
+        dry: false,
+    });
+    let text = map.write();
+    assert_eq!(
+        NewMap::parse(&text, blank.clone()).unwrap().rooms,
+        map.rooms
+    );
+    assert!(NewMap::parse(&spoilt(&text, "yaw = 90.0", "yaw = inf"), blank).is_err());
+
+    // A Jedi Academy room's cut.
+    let rooms = JaRooms {
+        level: "maps/t1_sour.bsp".into(),
+        digest: "0".into(),
+        rest: "rest".into(),
+        rooms: vec!["hall".into()],
+        cuts: vec![Cut {
+            room: 0,
+            points: vec![[7.25, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]],
+            up: 2.0,
+            down: 1.0,
+            margin: 0.5,
+        }],
+    };
+    let text = rooms.write();
+    assert_eq!(JaRooms::parse(&text).unwrap(), rooms);
+    assert!(JaRooms::parse(&spoilt(&text, "7.25", "nan")).is_err());
+
+    // A room's lighting level, and a copy's centre.
+    let levels = std::collections::BTreeMap::from([("m13aa_01a".to_string(), 0.75)]);
+    let own = OwnLighting {
+        kinds: Vec::new(),
+        levels: std::collections::BTreeMap::from([("danm13".to_string(), levels)]),
+    };
+    let text = own.write();
+    assert_eq!(OwnLighting::parse(&text).unwrap(), own);
+    assert!(OwnLighting::parse(&spoilt(&text, "0.75", "nan")).is_err());
+    let mut editor = Editor::new(Project::new(&folder, "k1", "danm13", "m13aa", git::empty()));
+    let text = Clip::of(&editor.project, &[], [7.25, 0.0, 0.0]).write();
+    assert!(Clip::read(&text).is_ok());
+    assert!(Clip::read(&spoilt(&text, "7.25", "inf")).is_err());
+
+    // The edits. A side of `nan` used to pass the check of a box's least
+    // side, since `nan` is not under any number.
+    let shape = |centre: [f32; 3], size: [f32; 3], yaw: f32| {
+        Edit::AddBox(CollisionBox {
+            name: String::new(),
+            centre,
+            size,
+            yaw,
+            role: BoxRole::Solid,
+        })
+    };
+    let prop = |position: [f32; 3], yaw: f32, scale: f32| {
+        Edit::AddProp(Prop {
+            name: String::new(),
+            model: "models/map_objects/crate.md3".into(),
+            position,
+            yaw,
+            scale,
+            solid: false,
+        })
+    };
+    let object = |kind: Kind, position: [f32; 3], facing: f32| Edit::AddObject {
+        kind,
+        template: "newgeneric".into(),
+        position,
+        facing,
+        base: None,
+    };
+    for wrong in [
+        shape([0.0; 3], [nan, 1.0, 1.0], 0.0),
+        shape([nan, 0.0, 0.0], [1.0; 3], 0.0),
+        shape([0.0; 3], [1.0; 3], inf),
+        prop([nan, 0.0, 0.0], 0.0, 1.0),
+        prop([0.0; 3], inf, 1.0),
+        prop([0.0; 3], 0.0, nan),
+        prop([0.0; 3], 0.0, 0.0),
+        prop([0.0; 3], 0.0, 100.0),
+        object(Kind::Trigger, [0.0, inf, 0.0], 0.0),
+        object(Kind::Trigger, [0.0; 3], nan),
+    ] {
+        assert!(editor.apply(wrong.clone()).is_err(), "{wrong:?}");
+    }
+    let kjk = &editor.project.kjk;
+    assert!(kjk.boxes.is_empty() && kjk.props.is_empty() && editor.entries().is_empty());
+    editor.apply(shape([0.0; 3], [1.0; 3], 0.0)).unwrap();
+    editor.apply(prop([0.0; 3], 0.0, 1.0)).unwrap();
+    editor
+        .apply(object(Kind::Trigger, [1.0, 2.0, 0.0], 0.0))
+        .unwrap();
+    editor
+        .apply(object(Kind::Encounter, [1.0, 2.0, 0.0], 0.0))
+        .unwrap();
+
+    let trigger = Target::Object(Kind::Trigger, 0);
+    let corners = vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 3.0, 0.0]];
+    editor
+        .apply(Edit::Outline(trigger, corners.clone()))
+        .unwrap();
+    let mut bent = corners;
+    bent[1][0] = nan;
+    assert!(editor.apply(Edit::Outline(trigger, bent)).is_err());
+    let encounter = Target::Object(Kind::Encounter, 0);
+    let points = |at: [f32; 3], facing: f32| Edit::SpawnPoints(encounter, vec![(at, facing)]);
+    editor.apply(points([1.0, 1.0, 0.0], 0.0)).unwrap();
+    assert!(editor.apply(points([inf, 1.0, 0.0], 0.0)).is_err());
+    assert!(editor.apply(points([1.0, 1.0, 0.0], nan)).is_err());
+
+    let clip = Clip::of(&editor.project, &[Target::Box(0)], [0.0; 3]);
+    let paste = |at: [f32; 3]| Edit::Paste {
+        clip: Box::new(clip.clone()),
+        at,
+        taken: Vec::new(),
+    };
+    assert!(editor.apply(paste([nan, 0.0, 0.0])).is_err());
+    editor.apply(paste([1.0, 0.0, 0.0])).unwrap();
+    assert_eq!(editor.project.kjk.boxes.len(), 2);
+
+    let lamp = PlacedLamp::new("m13aa_01a", "lamp", [0.0; 3]);
+    let tipped = PlacedLamp {
+        pitch: nan,
+        ..lamp.clone()
+    };
+    let rolled = PlacedLamp {
+        roll: inf,
+        ..lamp.clone()
+    };
+    assert!(editor.apply(Edit::AddLamp(tipped)).is_err());
+    assert!(editor.apply(Edit::AddLamp(rolled)).is_err());
+    editor.apply(Edit::AddLamp(lamp)).unwrap();
+    eprintln!("no file is read and no edit is made with a number that is none");
+}
+
+/// Lamps placed by hand in the level editor (`level_edit::lamps`, proposed
+/// 2026-11-23, awaiting approval; moved here from the crate's own unit
+/// tests). A lamp reads back from the light data's text as it was written,
+/// for its game and its area alone, and a lamp that is not tipped says
+/// nothing of its pitch. An area's lamps and its lights placed by hand are
+/// written to one text and keep each other. The editor places, moves,
+/// turns, copies, changes and deletes lamps, refuses a lamp without a model
+/// and a move of a lamp that is not there, and undoes each step. A level's
+/// kjk-only content reads back with its lamps, and an installed level's
+/// lamps are left out of what its project writes. A whole model is a
+/// placeable's kind of fitting, and one mesh of a room's model is not. No
+/// installs.
+#[test]
+fn level_edit_lamps() {
+    use level_edit::lamps::{read_lamps, write_lamps};
+    use level_edit::lights::{read_placed, write_placed};
+    use level_edit::{Edit, Editor, KjkArea, PlacedLamp, PlacedLight, Project, Target, git};
+
+    // A lamp reads back as written.
+    let lamp = PlacedLamp {
+        yaw: 90.0,
+        pitch: -45.0,
+        roll: 12.5,
+        reason: "Dark corner.".into(),
+        ..PlacedLamp::new("M13AA_01A", "m13aa_01a_lamp2", [1.5, -2.0, 4.2])
+    };
+    let text = write_lamps("", "k1", "danm13", std::slice::from_ref(&lamp)).unwrap();
+    assert_eq!(read_lamps(&text, "k1", "danm13").unwrap(), vec![lamp]);
+    assert!(read_lamps(&text, "tsl", "danm13").unwrap().is_empty());
+    assert!(text.contains("model = \"m13aa_01a\""));
+    assert!(text.contains("on = \"room\""));
+    assert!(text.contains("pitch = -45"));
+    let flat = write_lamps(
+        "",
+        "k1",
+        "danm13",
+        &[PlacedLamp::new("plc_lamp", "", [0.0; 3])],
+    );
+    assert!(
+        !flat.unwrap().contains("pitch"),
+        "a lamp not tipped says nothing of it"
+    );
+
+    // The lamps and the lights of an area keep each other.
+    let light = PlacedLight {
+        at: [1.0, 2.0, 3.0],
+        ..Default::default()
+    };
+    let lamp = PlacedLamp::new("plc_lamp", "", [0.0; 3]);
+    let text = "# Lights.\n\n[rules]\nstrong = 1.1\n";
+    let text = write_placed(text, "k1", "danm13", std::slice::from_ref(&light)).unwrap();
+    let text = write_lamps(&text, "k1", "danm13", std::slice::from_ref(&lamp)).unwrap();
+    assert_eq!(read_placed(&text, "k1", "danm13").unwrap(), vec![light]);
+    assert_eq!(read_lamps(&text, "k1", "danm13").unwrap(), vec![lamp]);
+    assert!(text.starts_with("# Lights.\n\n[rules]\nstrong = 1.1\n"));
+    // Taking the lamps away leaves the light.
+    let text = write_lamps(&text, "k1", "danm13", &[]).unwrap();
+    assert!(!text.contains("[[lamp]]"));
+    assert!(text.contains("[[placed]]"));
+
+    // Lamps are placed, moved, turned, copied and deleted, with undo.
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-lamps"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    let lamp = PlacedLamp::new("m13aa_01a", "lamp2", [4.0, 5.0, 2.5]);
+    editor.apply(Edit::AddLamp(lamp.clone())).unwrap();
+    assert_eq!(editor.selected, Some(Target::Lamp(0)));
+    editor
+        .apply(Edit::Move(Target::Lamp(0), [1.0, 1.0, 2.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Lamp(0), 450.0)).unwrap();
+    assert_eq!(
+        editor.placement(Target::Lamp(0)),
+        Some(([1.0, 1.0, 2.0], 90.0))
+    );
+    editor.apply(Edit::Duplicate(Target::Lamp(0))).unwrap();
+    assert_eq!(editor.project.kjk.lamps.len(), 2);
+    let mut kept = editor.project.kjk.lamps[1].clone();
+    kept.reason = "The hall's far end was dark.".into();
+    editor.apply(Edit::SetLamp(1, kept)).unwrap();
+    editor.apply(Edit::Delete(Target::Lamp(0))).unwrap();
+    assert_eq!(
+        editor.project.kjk.lamps[0].reason,
+        "The hall's far end was dark."
+    );
+    assert!(
+        editor
+            .apply(Edit::AddLamp(PlacedLamp::new("", "", [0.0; 3])))
+            .is_err()
+    );
+    assert!(editor.apply(Edit::Move(Target::Lamp(5), [0.0; 3])).is_err());
+    // The delete, the change, the copy, the turn and the move undone.
+    for _ in 0..5 {
+        assert!(editor.undo());
+    }
+    assert_eq!(editor.project.kjk.lamps, vec![lamp.clone()]);
+
+    // A level's kjk-only content reads back with its lamps. An installed
+    // level's lamps are left out of what its project writes.
+    let area = KjkArea {
+        lamps: vec![lamp],
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    let mut installed = editor.project.clone();
+    installed.kjk = area;
+    assert!(installed.own_kjk().lamps.is_empty());
+
+    // A whole model is a placeable's kind.
+    assert!(PlacedLamp::new("plc_lamp", "", [0.0; 3]).on_placeable);
+    assert!(!PlacedLamp::new("m01aa_01a", "lamp", [0.0; 3]).on_placeable);
+}
+
+/// The waypoints that are places a character is put
+/// (`level_edit::git::is_post`, proposed 2026-11-23, awaiting approval;
+/// moved here from the level editor's own unit tests). The level editor
+/// marks such a waypoint with its own icon. A waypoint is one when a word
+/// of its tag, between `_`s and with its trailing digits left off, is a
+/// party member's name, `pc`, `party` or `post`, in capitals or not. A
+/// word that only begins with such a name is none. No installs.
+#[test]
+fn level_edit_posts() {
+    use level_edit::git::is_post;
+
+    for tag in [
+        "dan13_wp_carth_halk",
+        "POST_dan13_zzshari",
+        "K_MESSENGER_SPAWN_PC0",
+        "wp_hk47_01",
+    ] {
+        assert!(is_post(tag), "{tag} is a post");
+    }
+    for tag in ["wp_dan13_jedim_01", "wp_hkfoo"] {
+        assert!(!is_post(tag), "{tag} is no post");
+    }
+}
+
+/// A project exported as a mod into one folder again and again
+/// (`level_edit::mods::export`, `docs/LEVEL-EDIT.md`, "Sharing a level";
+/// proposed 2026-11-23, awaiting approval), on a project the test makes of
+/// one placeable, one collision box and one compiled script. The first
+/// export writes the level's object list, the script, the level's kjk-only
+/// content, the mod's list of its files and the readme. Two files of the
+/// person's own are then put into the export's folder, and the project's
+/// script is replaced by another. The second export takes the old script
+/// out, brings the new one, leaves the person's two files as they are and
+/// says that 2 files were left. The mod's list names neither of them. A
+/// third export leaves them again, so the list never took them for the
+/// mod's own. A folder that holds a file and no export is refused, and its
+/// file stays. No installs.
+#[test]
+fn level_edit_mod_export() {
+    use level_edit::{BoxRole, CollisionBox, Edit, Editor, Kind, Project, git, mods};
+
+    let root = std::env::temp_dir().join(format!("kjk-mod-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (folder, to) = (root.join("project"), root.join("export"));
+    let mut start = git::empty();
+    git::add(
+        &mut start,
+        Kind::Placeable,
+        "plc_footlker",
+        [3.0, 4.0, 0.0],
+        0.0,
+    );
+    let mut editor = Editor::new(Project::new(&folder, "k1", "ebo_m12aa", "m12aa", start));
+    editor
+        .apply(Edit::AddBox(CollisionBox {
+            name: "ledge".into(),
+            centre: [4.0, 4.0, 2.0],
+            size: [2.0, 1.0, 0.3],
+            yaw: 30.0,
+            role: BoxRole::Solid,
+        }))
+        .unwrap();
+    editor.project.save("kjk test").unwrap();
+    std::fs::write(folder.join("kje_door.ncs"), b"the door's script").unwrap();
+
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 0);
+    let list = "override/kjk-mod-project.toml";
+    for inside in [
+        "override/m12aa.git",
+        "override/kje_door.ncs",
+        "override/kjk-area-m12aa.toml",
+        list,
+        mods::README,
+    ] {
+        assert!(to.join(inside).is_file(), "the export has {inside}");
+    }
+    let listed = std::fs::read_to_string(to.join(list)).unwrap();
+    assert!(listed.contains("override/kje_door.ncs"));
+
+    // The person's own files, and the project's script replaced.
+    std::fs::write(to.join("notes.txt"), "mine").unwrap();
+    std::fs::write(to.join("override").join("mine.txt"), "mine").unwrap();
+    std::fs::remove_file(folder.join("kje_door.ncs")).unwrap();
+    std::fs::write(folder.join("kje_gate.ncs"), b"the gate's script").unwrap();
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 2);
+    assert!(!to.join("override/kje_door.ncs").exists());
+    assert!(to.join("override/kje_gate.ncs").is_file());
+    let mine = |inside: &str| std::fs::read_to_string(to.join(inside)).ok();
+    assert_eq!(mine("notes.txt").as_deref(), Some("mine"));
+    assert_eq!(mine("override/mine.txt").as_deref(), Some("mine"));
+    let listed = std::fs::read_to_string(to.join(list)).unwrap();
+    assert!(listed.contains("override/kje_gate.ncs"));
+    assert!(!listed.contains("kje_door"));
+    assert!(!listed.contains("mine.txt") && !listed.contains("notes.txt"));
+
+    // Exported again, they are left again.
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 2);
+    assert_eq!(mine("notes.txt").as_deref(), Some("mine"));
+    assert_eq!(mine("override/mine.txt").as_deref(), Some("mine"));
+
+    // A folder that holds a file and no export is refused.
+    let other = root.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("keep.txt"), "kept").unwrap();
+    assert!(mods::export(&editor.project, &other, &[]).is_err());
+
+    // A level with a kept bake and no other content of kjk's own: the mod
+    // has the bake, and no file of the level's content.
+    let lit_folder = root.join("lit");
+    let lit = Project::new(&lit_folder, "k1", "tar_m02aa", "m02aa", git::empty());
+    lit.save("kjk test").unwrap();
+    let baked = root.join("baked");
+    std::fs::create_dir_all(&baked).unwrap();
+    std::fs::write(baked.join("lm0.png"), b"png").unwrap();
+    assert_eq!(
+        level_edit::lighting::keep_bake(&lit_folder, "tar_m02aa", &baked),
+        Ok(1)
+    );
+    let lit_to = root.join("lit-mod");
+    mods::export(&lit, &lit_to, &[]).unwrap();
+    assert!(
+        lit_to.join("override/kjk-bake/tar_m02aa/lm0.png").is_file(),
+        "the bake of a level with no other content of kjk's own"
+    );
+    assert!(!lit_to.join("override/kjk-area-m02aa.toml").exists());
+
+    // Read as installed mods. Two mods that bring kjk's content for one
+    // level are named, and the first one read is the level's.
+    let installed = root.join("installed");
+    std::fs::create_dir_all(&installed).unwrap();
+    let area_of = |file: &str, named: &str| {
+        let mut kjk = level_edit::KjkArea::default();
+        kjk.boxes.push(CollisionBox {
+            name: named.into(),
+            centre: [1.0, 1.0, 1.0],
+            size: [1.0, 1.0, 1.0],
+            yaw: 0.0,
+            role: BoxRole::Solid,
+        });
+        let path = installed.join(file);
+        let text = format!(
+            "module = \"tar_m02aa\"\narea = \"m02aa\"\n\n{}",
+            kjk.write()
+        );
+        std::fs::write(&path, text).unwrap();
+        (file.to_string(), path)
+    };
+    let files = vec![
+        area_of("kjk-area-m02aa.toml", "first"),
+        area_of("kjk-area-m02aa_b.toml", "second"),
+    ];
+    let found = mods::read(&files);
+    assert_eq!(found.levels.len(), 2, "{:?}", found.notes);
+    assert!(
+        (found.notes.iter())
+            .any(|note| note.contains("two mods bring kjk's content for the level tar_m02aa")),
+        "{:?}",
+        found.notes
+    );
+    let played = Project::of_mods(&installed, "k1", found.levels);
+    assert_eq!(played.kjk.boxes[0].name, "first");
+    assert!(played.parked.is_empty(), "{:?}", played.parked.keys());
+
+    // A mod's own module file, a new map's, is told when it is missing and
+    // when it is not the file the mod brought.
+    let yard = mods::Manifest {
+        name: "yard".into(),
+        version: "1".into(),
+        files: vec![("modules/kje_yard.mod".into(), 4, String::new())],
+        ..mods::Manifest::default()
+    };
+    let told = |modules: &[(String, std::path::PathBuf)], what: &str| {
+        let notes = mods::module_notes(std::slice::from_ref(&yard), modules);
+        (notes.iter()).any(|note| note.contains(what) && note.contains("modules/kje_yard.mod"))
+    };
+    assert!(told(&[], "are missing"));
+    let another = installed.join("kje_yard.mod");
+    std::fs::write(&another, b"another map").unwrap();
+    assert!(told(
+        &[("kje_yard.mod".into(), another)],
+        "are not the ones it brought"
+    ));
+    assert_eq!(
+        std::fs::read_to_string(other.join("keep.txt"))
+            .ok()
+            .as_deref(),
+        Some("kept")
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// What two machines that play a level editor project together compare
+/// (`level_edit::active::with_scripts`, `docs/LEVEL-EDIT.md`; proposed
+/// 2026-11-23, awaiting approval), in a folder the test makes. The
+/// project's digest is mixed with its compiled scripts, each `NAME.ncs` at
+/// the top of its folder. A compiled script added, a compiled script
+/// changed and another project's digest each give another value. A
+/// script's source, its debug notes and any other file of the folder give
+/// the same value. No installs.
+#[test]
+fn level_edit_compared_scripts() {
+    use level_edit::active::with_scripts;
+
+    let folder = std::env::temp_dir().join(format!("kjk-compared-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let write = |name: &str, bytes: &[u8]| std::fs::write(folder.join(name), bytes).unwrap();
+    let digest = [7u8; 32];
+    let none = with_scripts(&digest, &folder);
+    assert_eq!(with_scripts(&digest, &folder), none);
+
+    write("kje_a.ncs", b"one");
+    let one = with_scripts(&digest, &folder);
+    assert_ne!(one, none, "a compiled script is compared");
+    write("kje_a.nss", b"void main() {}");
+    write("kje_a.ndb", b"notes");
+    write("m12aa.git", b"objects");
+    assert_eq!(
+        with_scripts(&digest, &folder),
+        one,
+        "a source, debug notes and other files are not"
+    );
+    write("kje_a.ncs", b"two");
+    let two = with_scripts(&digest, &folder);
+    assert_ne!(two, one, "a changed script is told");
+    write("kje_b.ncs", b"two");
+    assert_ne!(
+        with_scripts(&digest, &folder),
+        two,
+        "a further script is told"
+    );
+    assert_ne!(
+        with_scripts(&[8u8; 32], &folder),
+        with_scripts(&digest, &folder),
+        "another project's digest is told"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// A lamp placed by hand that is one mesh of a room's model
+/// (`kjk_game::lamps::light_mesh`; proposed 2026-11-23, awaiting approval;
+/// moved here from the game's own unit test), on a model the test makes of
+/// a floor and a lamp's mesh. The lamp is its one mesh, about its own
+/// middle, at the model's root. It is lit at runtime, glows, and casts no
+/// shadow. A node the model does not have is refused, and so is a node
+/// that has no mesh. The game is built only with `--features rig`.
+#[cfg(feature = "rig")]
+#[test]
+fn lamp_light_mesh() {
+    use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
+    use kjk_game::lamps::light_mesh;
+
+    let node = |name: &str, translation: [f32; 3]| {
+        let mut world = IDENTITY;
+        // The translation is in the last column's rows.
+        world[0][3] = translation[0];
+        world[1][3] = translation[1];
+        world[2][3] = translation[2];
+        NodeIr {
+            name: name.into(),
+            parent: Some(0),
+            translation,
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            world,
+            animated: false,
+        }
+    };
+    let mesh = |node: usize, positions: Vec<[f32; 3]>| MeshIr {
+        node,
+        normals: vec![[0.0, 0.0, -1.0]; positions.len()],
+        uv1: Vec::new(),
+        uv2: vec![[0.0; 2]; positions.len()],
+        indices: vec![0, 1, 2],
+        texture: Some("lts_panel".into()),
+        lightmap: Some("room_lm0".into()),
+        transparency_hint: 0,
+        skinned: false,
+        shadow: true,
+        self_illum: [0.0; 3],
+        alpha: 1.0,
+        ambient: [1.0; 3],
+        diffuse: [1.0; 3],
+        uv_scroll: None,
+        skin: None,
+        dangly: None,
+        referenced: false,
+        positions,
+    };
+    let room = ModelIr {
+        name: "m01aa_01a".into(),
+        supermodel: None,
+        nodes: vec![
+            node("m01aa_01a", [0.0; 3]),
+            node("floor", [0.0; 3]),
+            node("lamp", [10.0, 0.0, 3.0]),
+        ],
+        meshes: vec![
+            mesh(1, vec![[0.0; 3], [5.0, 0.0, 0.0], [0.0, 5.0, 0.0]]),
+            mesh(2, vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.5, 0.0]]),
+        ],
+        lights: Vec::new(),
+        emitters: Vec::new(),
+        animations: Vec::new(),
+        animation_scale: 1.0,
+        affected_by_fog: true,
+        refusals: Vec::new(),
+        folded: Vec::new(),
+    };
+    let lamp = light_mesh(room.clone(), "LAMP").unwrap();
+    assert_eq!(lamp.meshes.len(), 1);
+    let mesh = &lamp.meshes[0];
+    assert_eq!(mesh.node, 0);
+    assert_eq!(
+        mesh.positions,
+        vec![[-1.0, -0.25, 0.0], [1.0, -0.25, 0.0], [1.0, 0.25, 0.0]]
+    );
+    // Lit at runtime, glowing, and casting no shadow.
+    assert_eq!(mesh.lightmap, None);
+    assert!(mesh.uv2.is_empty());
+    assert_eq!(mesh.self_illum, [1.0; 3]);
+    assert!(!mesh.shadow);
+    assert!(light_mesh(room.clone(), "nothing").is_err());
+    assert!(light_mesh(room, "m01aa_01a").is_err());
+}
+
+/// The quest window lists the scripts that add each entry. A script adds
+/// an entry when its source calls `AddJournalQuestEntry` with the tag and
+/// the number written out. A call in a comment, or one that takes the tag
+/// or the number from a variable, does not count. The new script the
+/// window offers adds its entry and is found by the same reading.
+#[test]
+fn scripts_that_add_quest_entries() {
+    use level_edit::journal::{added_by_source, entry_script};
+    let source = r#"// kjk_hoth_beat
+// While the quest is open (AddJournalQuestEntry("kjk_hoth_clear", 15) is not called here)
+/* AddJournalQuestEntry("kjk_hoth_clear", 16); */
+void main()
+{
+    string sQuest = "kjk_hoth_clear";
+    AddJournalQuestEntry(sQuest, 30);
+    SendMessageToPC(GetFirstPC(), "// not a comment");
+    AddJournalQuestEntry( "KJK_Hoth_Clear" ,20);
+    MyAddJournalQuestEntry("kjk_hoth_clear", 40);
+    AddJournalQuestEntry("kje_vessk", 10, TRUE);
+}
+"#;
+    assert_eq!(
+        added_by_source(source),
+        vec![
+            ("kjk_hoth_clear".to_string(), 20),
+            ("kje_vessk".to_string(), 10)
+        ]
+    );
+    let made = entry_script(
+        "kjk_hoth_cle_20",
+        "kjk_hoth_clear",
+        20,
+        "No enemy\nis left.",
+        true,
+    );
+    assert!(made.contains("// The entry reads: \"No enemy is left.\""));
+    assert!(made.contains("This entry closes the quest."));
+    assert_eq!(
+        added_by_source(&made),
+        vec![("kjk_hoth_clear".to_string(), 20)]
+    );
+}
+
+/// A conversation's skill check, picked in the editor, is written as a
+/// condition and, when it costs items, as a script that spends them and
+/// then runs the line's own script. Each is read back from its header. A
+/// Computer Use check spends computer spikes (`K_COMPUTER_SPIKE`), a Repair
+/// check repair parts (`K_REPAIR_PART`), and a Security check security
+/// spikes (`g_i_secspike01`). A Persuade check costs nothing.
+#[test]
+fn skill_checks_of_conversations() {
+    use level_edit::checks::{
+        self, Check, fresh_name, is_condition, read_condition, read_payment, skill,
+    };
+    let condition = |check: &Check| checks::condition(check).unwrap();
+    let payment = |check: &Check, then: &str| checks::payment(check, then).unwrap();
+    let check = Check {
+        skill: "computer".into(),
+        score: 6,
+        cost: 2,
+    };
+    let made = condition(&check);
+    assert!(is_condition(&made));
+    assert_eq!(read_condition(&made), Some(check.clone()));
+    assert!(made.contains("GetSkillRank(SKILL_COMPUTER_USE, oPC) < 6"));
+    assert!(made.contains("GetItemPossessedBy(GetFirstPC(), \"K_COMPUTER_SPIKE\")"));
+    assert!(made.contains("GetNumStackedItems(oItem) < 2"));
+    assert_eq!(
+        check.described(),
+        "Needs a Computer Use of 6, and 2 computer spikes, which are spent."
+    );
+
+    let paid = payment(&check, "kjk_hoth_turrets");
+    assert_eq!(
+        read_payment(&paid),
+        Some(("computer".into(), 2, "kjk_hoth_turrets".into()))
+    );
+    assert!(paid.contains("SetItemStackSize(oItem, nHave - 2);"));
+    assert!(paid.contains("ExecuteScript(\"kjk_hoth_turrets\", OBJECT_SELF);"));
+    let alone = payment(&check, "");
+    assert_eq!(
+        read_payment(&alone),
+        Some(("computer".into(), 2, String::new()))
+    );
+    assert!(!alone.contains("ExecuteScript"));
+    assert_eq!(read_condition(&paid), None);
+    assert_eq!(read_payment(&made), None);
+
+    let repair = Check {
+        skill: "repair".into(),
+        score: 10,
+        cost: 1,
+    };
+    assert!(condition(&repair).contains("\"K_REPAIR_PART\""));
+    assert_eq!(
+        repair.described(),
+        "Needs a Repair of 10, and 1 repair part, which is spent."
+    );
+    assert!(
+        condition(&Check {
+            skill: "security".into(),
+            score: 8,
+            cost: 3
+        })
+        .contains("\"g_i_secspike01\"")
+    );
+    let persuade = Check {
+        skill: "persuade".into(),
+        score: 12,
+        cost: 0,
+    };
+    let said = condition(&persuade);
+    assert!(said.contains("SKILL_PERSUADE"));
+    assert!(!said.contains("GetItemPossessedBy"));
+    assert_eq!(persuade.described(), "Needs a Persuade of 12.");
+    assert!(skill("persuade").is_some_and(|skill| skill.item.is_none()));
+
+    assert_eq!(fresh_name(false, |name| name == "kjc_1"), "kjc_2");
+    assert_eq!(fresh_name(true, |_| false), "kjp_1");
+    // A script written by hand is no check.
+    assert_eq!(
+        read_condition("int StartingConditional() { return TRUE; }"),
+        None
+    );
+
+    // No script is written of a check that is wrong: a skill no check
+    // knows, a score over 99, a cost over 99. A condition used to be
+    // written of the first, and it passed for every character.
+    for wrong in [
+        Check {
+            skill: "computers".into(),
+            ..check.clone()
+        },
+        Check {
+            score: 100,
+            ..check.clone()
+        },
+        Check {
+            cost: 100,
+            ..check.clone()
+        },
+    ] {
+        assert!(checks::condition(&wrong).is_err(), "{wrong:?}");
+        assert!(checks::payment(&wrong, "").is_err(), "{wrong:?}");
+    }
+    // The script a line runs after the cost is spent is named as a script
+    // is. KOTOR 1's two scripts named with `+` and `-` are taken, and a
+    // name read back is the one written. A space, a quote, a line break
+    // and a name of 17 characters are refused. A name with a space used to
+    // be written, and the editor then no longer read the script as a
+    // check's.
+    for name in ["k_hmis_talk0+", "k_hmis_talk6-8", "K_Inc_Debug", "a"] {
+        let made = payment(&check, name);
+        assert_eq!(
+            read_payment(&made),
+            Some(("computer".into(), 2, name.to_ascii_lowercase()))
+        );
+    }
+    for name in ["two words", "a\");b(\"", "line\nbreak", "seventeen_letters"] {
+        assert!(checks::payment(&check, name).is_err(), "{name:?}");
+    }
+}
+
+/// A sound object's template as the level editor plays it for its user
+/// (`asset_odyssey::sound::Emitter`): its flags, its pause and its sounds
+/// are read from the UTS, and its mixing group follows from whether it
+/// loops and whether it is positional.
+#[test]
+fn sound_object_template_for_the_editor() {
+    use asset_odyssey::sound::{Emitter, Group};
+    use fmt_odyssey::gff::{GffField, GffStruct, GffValue};
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let sound = |name: &str| GffStruct {
+        id: 0,
+        fields: vec![field("Sound", GffValue::ResRef(name.as_bytes().to_vec()))],
+    };
+    let uts = GffStruct {
+        id: u32::MAX,
+        fields: vec![
+            field("Active", GffValue::Byte(1)),
+            field("Continuous", GffValue::Byte(1)),
+            field("Looping", GffValue::Byte(0)),
+            field("Positional", GffValue::Byte(0)),
+            field("Interval", GffValue::Dword(20000)),
+            field("IntervalVrtn", GffValue::Dword(5000)),
+            field("Volume", GffValue::Byte(52)),
+            field(
+                "Sounds",
+                GffValue::List(vec![sound("as_pl_tarwal2_01"), sound("as_pl_tarwal2_02")]),
+            ),
+        ],
+    };
+    let emitter = Emitter::read(&uts);
+    assert!(emitter.active && emitter.continuous && !emitter.looping);
+    assert_eq!(emitter.interval_ms, 20000);
+    assert_eq!(emitter.volume, 52);
+    assert_eq!(emitter.sounds, ["as_pl_tarwal2_01", "as_pl_tarwal2_02"]);
+    assert_eq!(emitter.group(), Group::GlobalShot);
+    let looping = Emitter {
+        looping: true,
+        positional: true,
+        ..emitter
+    };
+    assert_eq!(looping.group(), Group::PositionalAmbient);
 }

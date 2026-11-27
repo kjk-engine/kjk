@@ -1200,6 +1200,20 @@ kjk play --stage end_m01aa --headless --moves '7s; 10s reply 1; 3s reply 1' \
   runs.
 - `kjk play` writes `transcript.txt` in its run folder as the lines come
   (the host's own, each resolved against the level it was said in).
+- `kjk [--project P] try-conversation <game> <module> DLG --on TAG
+  [--picks 1,2] [--seconds N]` (in a build from source and in the `kjk`
+  of the level editor's package, not in the player's) plays one
+  conversation headless: the
+  player talks to the object tagged TAG, which starts DLG in place of its
+  own, and answers each offer by its place among those offered (1 the
+  first; the first when the list runs out). It prints the transcript:
+  each line, each offer and each pick, then the scripts' faults and the
+  scripts named but missing. The conversation is read through the
+  install's layers (a project's folder first) and added to the module's
+  library (`Library::with_dialogue`), so it plays where nothing names it
+  yet. It is in every build of kjk, the player's too
+  (`launcher::talk_run`, which `kjk dialogue run` steps with as well);
+  the level editor's conversation window runs it.
 - `--global NAME=NUMBER` (`kjk play`, `kjk dialogue run`) sets a script
   global before the first step: a story's state by hand. A global
   `globalcat.2da` declares boolean is set as one (non-zero is TRUE):

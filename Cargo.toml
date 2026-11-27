@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# Crates of others carried here with a change (third_party/README.md), not
+# the workspace's own: built as `[patch.crates-io]` gives them.
+exclude = ["third_party/*"]
 
 [workspace.package]
 edition = "2024"
@@ -26,9 +29,12 @@ movie = { path = "crates/movie" }
 bink = { path = "crates/bink" }
 script_ncs = { path = "crates/script_ncs" }
 store = { path = "crates/store" }
+fonts = { path = "crates/fonts" }
 ui = { path = "crates/ui" }
 saves = { path = "crates/saves" }
 edit = { path = "crates/edit" }
+level_edit = { path = "crates/level_edit" }
+level_editor = { path = "crates/level_editor" }
 game = { path = "crates/game" }
 rules = { path = "crates/rules" }
 bumps = { path = "crates/bumps" }
@@ -56,10 +62,13 @@ steamworks = "0.13"
 # `kjk original`'s copy of an original game: each file cloned where the
 # disk can (APFS, Btrfs, XFS, ReFS), else copied.
 reflink-copy = "0.1.33"
+# kjk's TOML files read: the rules, the light data, a level editor
+# project's files. A crate that also writes them asks for `display`.
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 # The save editor's window (`crates/save_editor`, its `app` feature alone):
 # OpenGL through glow, X11 and Wayland for Linux and the Steam Deck's
 # desktop; tables that draw only the rows in view. No fonts of egui's own
-# (`default_fonts` off): the editor reads the system's (`model::fonts`).
+# (`default_fonts` off): the editor reads the system's (the `fonts` crate).
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
 egui = "0.37"
 egui_extras = { version = "0.37", default-features = false }
@@ -148,3 +157,13 @@ incremental = false
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# The level editor's move, rotate and scale handles (transform-gizmo-egui),
+# carried in third_party/ with egui's own fonts left out: crates.io's ask for
+# egui's default features, which ship fonts under OFL-1.1 and the Ubuntu
+# font licence, licences kjk does not take (about.toml). The copy goes when
+# the level editor moves to egui 0.37, which ships no fonts unless asked
+# (third_party/README.md).
+[patch.crates-io]
+transform-gizmo = { path = "third_party/transform-gizmo" }
+transform-gizmo-egui = { path = "third_party/transform-gizmo-egui" }

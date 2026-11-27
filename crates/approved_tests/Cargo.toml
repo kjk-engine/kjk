@@ -9,13 +9,19 @@ description = "The owner-approved test scenarios, and nothing else (docs/TESTS.m
 
 # The scenarios are the layers' probes (their `probes` feature).
 [dependencies]
+asset_ja.workspace = true
 asset_odyssey.workspace = true
 audio = { workspace = true, features = ["probes"] }
 bink = { workspace = true, features = ["probes"] }
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
+# The `--cmds` script parser (`console::parse`), which builds Bevy: only
+# with `--features rig`.
+console = { workspace = true, optional = true }
 collision_odyssey = { workspace = true, features = ["probes"] }
+fmt_ja.workspace = true
 fmt_odyssey.workspace = true
+level_edit.workspace = true
 net = { workspace = true, features = ["probes"] }
 original_find.workspace = true
 ragdoll = { workspace = true, features = ["probes"] }
@@ -38,7 +44,7 @@ edit = { workspace = true, features = ["probes"], optional = true }
 save_editor = { workspace = true, features = ["probes"], optional = true }
 
 [features]
-rig = ["dep:launcher", "dep:game"]
+rig = ["dep:launcher", "dep:game", "dep:console"]
 editor = ["dep:edit", "dep:save_editor"]
 
 [lints]

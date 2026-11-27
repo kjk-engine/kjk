@@ -86,9 +86,11 @@ struct Params {
 // never ends there. The card then stops the command buffer, and wgpu waits
 // for it for ever (`ray_structures.rs` in the game has the same note).
 
-// The instance mask of the triangles that cast shadows. The lamps' glass has
-// a mask of its own and casts no shadow on the lights.
-const BLOCKERS: u32 = 1u;
+// The instance masks: the triangles that cast shadows, the lamps' glass,
+// which casts none on the lights, and the props that hold a light, in six
+// groups from bit 2 up (`HOLDER_GROUPS` in `gpu.rs`). A light's shadow rays
+// leave out the group of the prop that holds it (`Light::aim`'s w).
+const BLOCKERS: u32 = 0xfdu;
 
 const MODE_DIRECT_SOFT: u32 = 1u;
 const MODE_BOUNCE_NEW: u32 = 3u;
@@ -206,7 +208,7 @@ fn soft(light: u32, at: vec3<f32>) -> f32 {
     var seen = 0u;
     for (var k = 0u; k < count; k++) {
         let goal = lamp_points[light * count + k];
-        if reaches(at, goal.xyz, goal.w, BLOCKERS) {
+        if reaches(at, goal.xyz, goal.w, BLOCKERS & ~bitcast<u32>(lights[light].aim.w)) {
             seen += 1u;
         }
     }

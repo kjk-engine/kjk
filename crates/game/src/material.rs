@@ -149,6 +149,10 @@ const PUNCH_THROUGH: u32 = 2097152;
 /// Water (`OdysseyMaterial::water`): its env map alone, as its bump map
 /// turns it, at full light. The base texture is the bump map's frame.
 const WATER: u32 = 4194304;
+/// A level editor project's Jedi Academy prop: its glow is the room's light
+/// where it stands (`project_props`), which the light probes give it under
+/// Enhanced lighting instead, so there it glows not at all.
+const ROOM_GLOW: u32 = 8388608;
 
 /// The alpha a punch-through texel must be above to be drawn. Both games'
 /// executables draw a texture whose TXI says `blending punchthrough` with
@@ -1251,6 +1255,20 @@ impl OdysseyMaterial {
     pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
         self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
         self.params.flags |= RECOLOUR;
+        self
+    }
+
+    /// A prop whose glow stands in for the room's light (`ROOM_GLOW`). A
+    /// prop whose lightmap stands in for it (`project_props`, under a bake)
+    /// has that lightmap shown as a room's: the baked view shows it at the
+    /// level a room's baked lightmap shows (`ROOM_LIGHTMAP`).
+    pub fn room_glow(mut self, stands_in: bool) -> OdysseyMaterial {
+        if stands_in {
+            self.params.flags |= ROOM_GLOW;
+            if self.params.flags & HAS_LIGHTMAP != 0 {
+                self.params.flags |= ROOM_LIGHTMAP;
+            }
+        }
         self
     }
 

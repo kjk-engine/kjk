@@ -83,7 +83,7 @@ const FLOOR_REACH: f32 = 3.0;
 /// How far a probe's side looks (metres).
 const SIGHT_REACH: f32 = 20.0;
 /// The slot of `AXES` read off the floor: the light from above.
-const FROM_ABOVE: usize = 2;
+pub(crate) const FROM_ABOVE: usize = 2;
 /// A side that sees nothing, in a probe whose other sides see nothing
 /// either, takes this share of the light from above.
 const UNSEEN_SHARE: f32 = 0.5;
@@ -508,9 +508,9 @@ impl Pixels {
         }
     }
 
-    /// `texture`'s first level no larger than `MIP_SIDE`, decoded. `None`
-    /// when that level does not decode.
-    fn of(texture: &TextureIr) -> Option<Pixels> {
+    /// `texture`'s first level no larger than `most` texels on a side,
+    /// decoded. `None` when that level does not decode.
+    fn of(texture: &TextureIr, most: usize) -> Option<Pixels> {
         let size = |level: usize| {
             (
                 (texture.width as usize >> level).max(1),
@@ -520,7 +520,7 @@ impl Pixels {
         let level = (0..texture.mips.len())
             .find(|&level| {
                 let (w, h) = size(level);
-                w.max(h) <= MIP_SIDE
+                w.max(h) <= most
             })
             .or(texture.mips.len().checked_sub(1))?;
         let (width, height) = size(level);
@@ -1074,13 +1074,23 @@ pub fn bake(
 }
 
 /// `texture`'s place among the bake's `maps`, decoded the first time it is
-/// asked for (`Pixels::of`). `None` when it does not decode.
+/// asked for (`Pixels::of`), at most `MIP_SIDE` texels on a side. A room
+/// cut from a Jedi Academy level is read whole (`ja_made::whole_lightmap`):
+/// its lightmap is one atlas of the level, and most of its triangles have
+/// a block of 2 by 2 texels in it. Read at a smaller level, those blocks
+/// blurred into their neighbours, and the probes over Hoth's snow, lit at
+/// 0.8 to 1.0, read about 0.1. `None` when it does not decode.
 fn pixels_of<'t>(
     (name, texture): (&'t String, &'t TextureIr),
     (map_of, maps): (&mut HashMap<&'t str, Option<usize>>, &mut Vec<Pixels>),
 ) -> Option<usize> {
     *map_of.entry(name.as_str()).or_insert_with(|| {
-        Pixels::of(texture).map(|pixels| {
+        let most = if crate::ja_made::whole_lightmap(name) {
+            usize::MAX
+        } else {
+            MIP_SIDE
+        };
+        Pixels::of(texture, most).map(|pixels| {
             maps.push(pixels);
             maps.len() - 1
         })

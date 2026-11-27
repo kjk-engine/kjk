@@ -443,7 +443,21 @@ pub struct Emitter {
 }
 
 impl Emitter {
-    fn read(uts: &GffStruct) -> Emitter {
+    /// The `prioritygroups.2da` row its sounds play in. A looping object
+    /// plays in an ambient group and any other in a shot group. Each kind
+    /// has a group for a positional object and one for an object heard
+    /// alike everywhere.
+    pub fn group(&self) -> Group {
+        match (self.looping, self.positional) {
+            (true, true) => Group::PositionalAmbient,
+            (true, false) => Group::AreaAmbient,
+            (false, true) => Group::PositionalShot,
+            (false, false) => Group::GlobalShot,
+        }
+    }
+
+    /// The sound object a UTS (or a GIT's sound entry) makes.
+    pub fn read(uts: &GffStruct) -> Emitter {
         let flag = |label| uts.uint(label).is_some_and(|v| v != 0);
         Emitter {
             active: flag("Active"),

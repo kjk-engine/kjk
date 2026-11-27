@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3784a16b29671fc5`.
+Edition `bc8726a763d33449`.
 
 ## Contents
 
@@ -10849,6 +10849,12 @@ At each corner of a path, the center of the character stays 0.51 meters away fro
 <a id="walking-route-reached"></a>**Corner Reached** = **0.3 meters** (`12 units`) · `walking.route.reached`
 
 A character within 0.3 meters of a corner of its path has reached that corner.
+
+<sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
+
+<a id="walking-route-take-off"></a>**Link Take-off** = **0.61 meters** (`24 units`) · `walking.route.take_off`
+
+A character crossing a level editor project's link between floors jumps once it stands within 0.61 meters of where the link leaves, seen from above.
 
 <sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
 

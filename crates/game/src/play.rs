@@ -363,11 +363,16 @@ pub fn compose(
     );
     let (mut fog, mut cameras, mut cutscene_models) = (None, Vec::new(), BTreeMap::new());
     let mut instance_models = BTreeMap::new();
+    let mut lamps = Vec::new();
     let mut pull_backs = Vec::new();
     let mut map = None;
     let mut own_fx = Vec::new();
     let mut grass = None;
     let mut weather = viewer::SceneWeather::default();
+    let mut ambient_effects = Vec::new();
+    // A level editor project's sun for the area (`sun::of_area`).
+    let mut sun = None;
+    let mut game = None;
     let mut sound = None;
     let mut probes = Default::default();
     let (mut baked, mut dark_unlit) = (false, false);
@@ -388,8 +393,12 @@ pub fn compose(
         own_fx = module.own_fx;
         grass = module.grass;
         weather = module.weather;
+        ambient_effects = module.ambient_effects;
+        sun = module.sun;
+        game = module.game;
         doors = module.doors;
         instance_models = module.instance_models;
+        lamps = module.lamps;
         pull_backs = module.pull_backs;
         map = module.map;
         creature_views = module.creature_views;
@@ -428,6 +437,7 @@ pub fn compose(
     }
     let scene = LoadedScene {
         name,
+        game,
         models,
         textures,
         images: Default::default(),
@@ -460,11 +470,14 @@ pub fn compose(
         effects: viewer::Effects::default(),
         doors,
         instance_models,
+        lamps,
         creature_views,
         arms,
         grass,
         weather,
+        ambient_effects,
         sound,
+        sun,
     };
     (scene, bodies)
 }
@@ -788,6 +801,24 @@ pub fn load_for(
             (world, Some(first))
         }
         (None, None, None) => {
+            // A stage whose module no plan installs (a Jedi Academy
+            // level's) arrives at the place asked for: its module's entry
+            // is moved there.
+            let at_entry = (options.at)
+                .filter(|_| stage.plan.is_none())
+                .and_then(|at| Some((at, stage.level.module()?.as_ref().clone())));
+            if let Some((at, module)) = at_entry {
+                let entry = sim::module::Spot {
+                    position: at.soles,
+                    yaw: at.facing,
+                };
+                stage.level = stage
+                    .level
+                    .clone()
+                    .with_module(sim::module::ModuleData { entry, ..module });
+            }
+            let at_entry =
+                (options.at).is_some() && stage.plan.is_none() && stage.level.module().is_some();
             let (world, first) = stage.world(1)?;
             let mut world =
                 stage::with_followers(world, options.followers, stage.installer.as_deref())?;
@@ -840,7 +871,7 @@ pub fn load_for(
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
             let talk_later = !options.party.is_empty();
-            if let Some(at) = options.at {
+            if let Some(at) = options.at.filter(|_| !at_entry) {
                 crate::by_hand::place(&mut world, at)?;
             }
             if let Some(talk) = options.talk.as_ref().filter(|_| !talk_later) {
@@ -1187,6 +1218,7 @@ fn load_ja(
         .copied()
         .chain(crate::severing::EFFECTS)
         .chain(crate::landing_fx::EFFECTS)
+        .chain(crate::ambient_fx::names())
         .collect();
     let shaders: Vec<&str> = crate::blade_fx::SHADERS
         .iter()

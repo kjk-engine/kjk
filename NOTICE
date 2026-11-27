@@ -49,6 +49,12 @@ build made from source with `dlss` needs the SDK, under its licence. NVIDIA,
 RTX and DLSS are trademarks of NVIDIA Corporation. kjk is not sponsored or
 endorsed by NVIDIA.
 
+Level editor icons
+------------------
+The level editor's marker icons (crates/level_editor/icons) are from line-md
+(https://github.com/cyberalien/line-md), Copyright 2020 Vjacheslav Trushkin,
+under the MIT License. The licence is in that folder's LICENSE.md.
+
 Sounds
 ------
 crates/game/sounds/camera-shutter.flac, the shutter sound photo mode plays,

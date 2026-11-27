@@ -92,7 +92,14 @@ to the next corner, past it; a route planned from beside a corner may
 turn back round it first), then plans again from where it stands; after a
 second with no progress it plans again passing over the corner, stepping
 aside every other time, right and left by turns (KOTOR's walkers never
-jump; jumping put bodies on props and creatures). After a stall, a body
+jump; jumping put bodies on props and creatures). The one exception is a
+level editor project's links between floors (`collision::nav::Link`,
+`docs/LEVEL-EDIT.md`): where no way leads on foot, the walker routes to
+where the first link of a way leaves (`NavMesh::first_link`, over the
+islands the links join), then makes for where it lands, pressing jump
+from the ground for a jump link and walking off the edge for a drop. A
+mesh without links keeps no link and writes and digests as before, and a
+walk on foot plans as before. After a stall, a body
 standing in its way (`Walker::around`, the others' origins) is gone
 round: it makes for the side a body fits on (`Level::fits`) that is nearer
 its corner. A walker off the mesh where the mesh lies under it (within
@@ -212,6 +219,7 @@ held (scene mode), so its walks route round a closed door, or have no way and en
 ```bash
 kjk collision nav k1 end_m01aa     # the bake twice, 500 routes checked leg by leg
 kjk collision walk k1 end_m01aa    # 50 walks through move_body, doors opened by use
+kjk --project P collision walk k1 danm13 --from 90,92,5.14 --to 95,92,6.14   # one walk, across links
 ```
 
 ## Where walks still differ from the original

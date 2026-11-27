@@ -27,11 +27,16 @@
 //! leaves out of the level each steep non-walkable walkmesh face (its
 //! normal's Z under a half) with all three corners in it: a wall face the
 //! drawn room does not have, which stood as an invisible wall.
+//!
+//! A level editor project (`level_edit`) adds solid shapes of its own to
+//! its module's clip file (`ClipFile::added`): its collision boxes as convex
+//! hulls and its solid props as triangles. They are never read from a clip
+//! file's text, and are solid for every body and every shot, as a room is.
 
 use crate::brush::normalize;
 use crate::{Contents, LevelBuilder, Tag};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClipFile {
     pub brushes: Vec<ClipBrush>,
     pub accepts: Vec<Accept>,
@@ -39,6 +44,27 @@ pub struct ClipFile {
     pub whole_walls: bool,
     /// `leave`: boxes whose non-walkable walkmesh faces are left out.
     pub leaves: Vec<Region>,
+    /// What a level editor project adds; empty for a clip file read from
+    /// text.
+    pub added: Added,
+}
+
+/// The solid shapes a level editor project adds to its area.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Added {
+    /// Collision boxes, each one convex brush.
+    pub hulls: Vec<Hull>,
+    /// Solid props' triangles, each a slab as a room's triangle is.
+    pub triangles: Vec<[[f32; 3]; 3]>,
+}
+
+/// A convex brush: its corners, the normals of its faces, and its edges
+/// (pairs of indices into `points`), as `LevelBuilder::convex` takes them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hull {
+    pub points: Vec<[f32; 3]>,
+    pub faces: Vec<[f32; 3]>,
+    pub edges: Vec<(usize, usize)>,
 }
 
 /// A named box of a `leave` entry.
@@ -108,12 +134,7 @@ impl std::fmt::Display for ClipError {
 
 impl ClipFile {
     pub fn parse(text: &str) -> Result<ClipFile, ClipError> {
-        let mut file = ClipFile {
-            brushes: Vec::new(),
-            accepts: Vec::new(),
-            whole_walls: false,
-            leaves: Vec::new(),
-        };
+        let mut file = ClipFile::default();
         let mut names: Vec<String> = Vec::new();
         for (at, raw) in text.lines().enumerate() {
             let line = at + 1;
@@ -194,13 +215,30 @@ impl ClipFile {
         Ok(file)
     }
 
-    /// Adds every brush as `PLAYER_CLIP`. Returns how many were added.
+    /// Adds every brush as `PLAYER_CLIP`, and what a project adds
+    /// (`added`) as `SOLID` of material 0. Returns how many brushes were
+    /// added.
     pub fn add_to(&self, builder: &mut LevelBuilder) -> usize {
         let tag = Tag::level(Contents::PLAYER_CLIP, 0);
-        self.brushes
+        let clips = self
+            .brushes
             .iter()
             .filter(|brush| brush.shape.add_to(builder, tag))
-            .count()
+            .count();
+        let solid = Tag::level(Contents::SOLID, 0);
+        let hulls = self
+            .added
+            .hulls
+            .iter()
+            .filter(|hull| builder.convex(&hull.points, &hull.faces, &hull.edges, solid))
+            .count();
+        let triangles = self
+            .added
+            .triangles
+            .iter()
+            .filter(|corners| builder.triangle(**corners, solid))
+            .count();
+        clips + hulls + triangles
     }
 }
 

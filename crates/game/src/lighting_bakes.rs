@@ -1514,13 +1514,16 @@ pub fn folders() -> Vec<PathBuf> {
 /// Enhanced Lightmaps) and a download is installed, as this run started. A
 /// change in the options takes effect the next time kjk starts, in both
 /// directions (`settings::Settings::lighting`, which asks this first as
-/// the settings load).
+/// the settings load). `KJK_LIGHTING` (`rolloff::forced`) chooses in place
+/// of the options.
 pub fn chosen() -> bool {
     static CHOSEN: OnceLock<bool> = OnceLock::new();
     *CHOSEN.get_or_init(|| {
-        let stored = crate::settings::stored();
-        stored.get("display.lighting").map(String::as_str) == Some(SETTING_VALUE)
-            && !installed_games().is_empty()
+        let lighting = match crate::rolloff::forced() {
+            Some(forced) => Some(forced.to_string()),
+            None => crate::settings::stored().get("display.lighting").cloned(),
+        };
+        lighting.as_deref() == Some(SETTING_VALUE) && !installed_games().is_empty()
     })
 }
 

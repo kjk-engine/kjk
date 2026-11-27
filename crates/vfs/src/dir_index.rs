@@ -13,12 +13,19 @@ use crate::Install;
 /// are the game folder's alone, and the resolver ranks the items' files.
 /// A Jedi Academy install's names its mod folder (`ja_mod`), whose files
 /// are in the index under its name.
+///
+/// While a level editor project is active (`project`), the modules it makes
+/// (`modules/<name>.mod` in its folder) are in its install's index too, so
+/// a run opens and lists them as the install's own (`copies`,
+/// `Resolver::modules`). They are not among the files (`iter`), so the
+/// install's fingerprint does not change with them.
 #[derive(Debug, Default)]
 pub struct DirIndex {
     files: BTreeMap<String, PathBuf>,
     collisions: Vec<CaseCollision>,
     workshop: Vec<WorkshopFolder>,
     ja_mod: Option<String>,
+    project_modules: BTreeMap<String, PathBuf>,
 }
 
 /// A Steam Workshop item's folder, indexed.
@@ -72,7 +79,18 @@ impl DirIndex {
             }
             index.ja_mod = Some(folder);
         }
+        if let Some((game, folder)) = crate::project::active()
+            && game == install.game
+        {
+            index.project_modules = crate::project::modules(folder);
+        }
         Ok(index)
+    }
+
+    /// The active project's own modules (`modules/<name>.mod`, lowercase)
+    /// with their paths.
+    pub fn project_modules(&self) -> &BTreeMap<String, PathBuf> {
+        &self.project_modules
     }
 
     /// `other`'s files put in this index under `folder/`, as if the folder
@@ -142,7 +160,12 @@ impl DirIndex {
                 item: Some(item.id),
             })
         });
-        game.into_iter().chain(items).collect()
+        let project = self.project_modules.get(relative).map(|path| FileCopy {
+            name: format!("{}/{relative}", crate::project::LAYER),
+            path,
+            item: None,
+        });
+        game.into_iter().chain(items).chain(project).collect()
     }
 
     /// Every file under `root`. A symbolic link or a Windows junction is

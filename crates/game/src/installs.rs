@@ -300,11 +300,26 @@ impl Install {
         Some(self.fingerprint.get_or_init(|| print))
     }
 
-    /// The world data two machines compare (`Fingerprint::world`), with
-    /// what KOTOR 2 lends KOTOR 1's data in it (`WorldData::with_lent`).
+    /// The world data the areas' bakes are keyed by (`Fingerprint::world`),
+    /// with what KOTOR 2 lends KOTOR 1's data in it
+    /// (`WorldData::with_lent`) and what the mods for kjk, or a level
+    /// editor project, change beyond the games' own files
+    /// (`WorldData::with_kjk`).
     pub fn world(&self, print: &Fingerprint) -> vfs::fingerprint::WorldData {
         let lent = self.base().ok().and_then(Resolver::lent_digest);
-        print.world().with_lent(lent)
+        let kjk = level_edit::active::world_digest(self.game.key());
+        print.world().with_lent(lent).with_kjk(kjk)
+    }
+
+    /// The world data two machines that play together compare: `world`'s,
+    /// with a level editor project's compiled scripts in what kjk's mods
+    /// change (`level_edit::active::compared_digest`). The scripts are kept
+    /// out of `world`, so a changed script does not make every area's bake
+    /// anew.
+    pub fn compared(&self, print: &Fingerprint) -> vfs::fingerprint::WorldData {
+        let lent = self.base().ok().and_then(Resolver::lent_digest);
+        let kjk = level_edit::active::compared_digest(self.game.key());
+        print.world().with_lent(lent).with_kjk(kjk)
     }
 
     /// The resolver without a module, opened once.

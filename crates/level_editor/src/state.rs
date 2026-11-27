@@ -1,0 +1,6892 @@
+//! The editor's state: the project being edited, the scene drawn from it,
+//! the collision built from it, and the `edit` commands that change it.
+//! The panels, the gizmo and the asset picker (`ui`) turn clicks and keys
+//! into these commands and edits.
+//!
+//! The scene is drawn again from the project after edits (`redraw`): the
+//! area's resolver with the edited GIT over it, the module's scene made
+//! from it as `kjk module` makes it, then the Jedi Academy props, the
+//! collision boxes and the markers added. While an object is being moved,
+//! its marker and its model move at once (`follow`), and the redraw waits
+//! until the edits stop for a moment.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
+use asset_odyssey::module::ModuleIr;
+use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
+use bevy::prelude::*;
+use console::DumpFacts;
+use fmt_odyssey::ResType;
+use level_edit::editor::{ADDABLE, EDITABLE};
+use level_edit::{BoxRole, Change, CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
+use vfs::Game;
+use vfs::resolver::{Layer, Location, Rank, Resolver};
+
+use kjk_game::project_props::{self, PropModel};
+use kjk_game::scene::{FlyCamera, SceneContent, SceneModel, game_to_bevy};
+use kjk_game::viewer::{LoadedScene, Placed, ResolverSource};
+
+/// How many frames without an edit before the scene is drawn again.
+const SETTLE_FRAMES: u32 = 12;
+/// How far one press of an arrow key moves the selection, metres.
+pub(crate) const STEP_M: f32 = 0.25;
+/// How far one press of `[` or `]` turns it, degrees.
+pub(crate) const TURN_DEG: f32 = 15.0;
+/// How far a marker sits above its object's origin, metres.
+pub(crate) const MARKER_RISE: f32 = 0.35;
+/// The size a new collision box starts at, metres: a ledge.
+const NEW_BOX: [f32; 3] = [2.0, 1.0, 0.3];
+/// How far ahead of the camera something is placed when nothing is under
+/// the screen's centre, metres.
+const PLACE_AHEAD_M: f32 = 4.0;
+
+/// Everything the editor starts from, made before the window opens
+/// (`main`).
+pub struct EditSetup {
+    /// The project as its folder holds it, or as it was just made.
+    pub project: level_edit::Project,
+    pub game: Game,
+    /// The install's resolver with the module's archives and the project's
+    /// folder (`vfs::project`) in it.
+    pub resolver: Resolver,
+    /// Jedi Academy's archives, for props; `None` without the game.
+    pub ja: Option<vfs::ja::JaStack>,
+    /// The install's placeable and creature templates, and Jedi Academy's
+    /// map objects.
+    pub placeables: Vec<String>,
+    pub creatures: Vec<String>,
+    pub models: Vec<String>,
+    /// Jedi Academy's effect files (`effects/**/*.efx`), for its ambient
+    /// effects (`level_edit::effects`).
+    pub effects: Vec<String>,
+    /// The install's compiled scripts and item templates, for the scripts
+    /// and items an object's template names.
+    pub scripts: Vec<String>,
+    /// The game's routines, from its `nwscript.nss`, for the script viewer.
+    pub catalog: Option<script_ncs::Catalog>,
+    /// What `nwscript.nss` says of each routine (`catalog::notes`).
+    pub notes: BTreeMap<String, String>,
+    /// The install's talk table (`dialog.tlk`), for the game's lines of a
+    /// conversation.
+    pub talk: Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>>,
+    pub items: Vec<String>,
+    /// The install's door templates (`.utd`).
+    pub doors: Vec<String>,
+    /// The install's modules, which a door or a trigger can lead to.
+    pub modules: Vec<String>,
+    /// The globals scripts may keep (`globalcat.2da`): each one's name and
+    /// type (`number`, `boolean`, `string`, `location`).
+    pub globals: Vec<(String, String)>,
+    /// The install's waypoint, trigger, sound and store templates.
+    pub waypoints: Vec<String>,
+    pub triggers: Vec<String>,
+    pub sounds: Vec<String>,
+    pub stores: Vec<String>,
+    /// The install's encounter templates (`.ute`).
+    pub encounters: Vec<String>,
+    /// The install's rooms, for a new map (`LibraryRoom`).
+    pub rooms: Vec<LibraryRoom>,
+    /// The Jedi Academy sky boxes a new map can show
+    /// (`kjk_game::ja_made::sky_boxes`); none without Jedi Academy.
+    pub ja_skies: Vec<String>,
+    /// The folder of the fitted lights' rule data (`data/lights`), which an
+    /// installed level's lights placed by hand are read from and `publish`
+    /// writes to: the one `KJK_LIGHT_DATA` names, else the kjk checkout's
+    /// this program was built in. `None` when neither is found.
+    pub light_data: Option<PathBuf>,
+    /// The bakes of the fitted lights found for this area (`kjk
+    /// detail-bake`): each folder of baked lightmaps, for the Baked view.
+    pub bakes: Vec<PathBuf>,
+    /// The `kjk` that `edit play` and `edit audit` start: the one beside
+    /// this program.
+    pub program: PathBuf,
+    /// Whether that `kjk` has the verbs that check and measure (its
+    /// `probes` feature, a build from source): the containment audit and
+    /// the bake. A player's build, as a release package holds, has not.
+    pub tools: bool,
+}
+
+/// Why the audit and the bake are not there with a player's build of kjk.
+pub(crate) const NO_TOOLS: &str = "the kjk beside the editor is a player's build, without the \
+     audit and the bake: they come with kjk built from source (docs/BUILD.md)";
+
+/// A room of the install that a new map can place: its model, where its
+/// own area's layout places it, and that area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryRoom {
+    pub model: String,
+    pub from: [f32; 3],
+    pub area: String,
+    /// The Jedi Academy room the model is built from, for a room the
+    /// project cut from a Jedi Academy level (`kjk_game::ja_made`).
+    pub ja: Option<level_edit::map::JaRoom>,
+    /// The folder of the other project whose cuts the room was built from,
+    /// for a room the project being edited did not cut. Saving a map that
+    /// places such a room copies the level's cuts into the project
+    /// (`copy_cuts`).
+    pub ja_from: Option<PathBuf>,
+}
+
+/// What the editor found of the navigation mesh it drew.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NavFacts {
+    pub(crate) faces: usize,
+    pub(crate) islands: usize,
+    pub(crate) portals: usize,
+    /// Where routes are counted from: a new map's entry, else the largest
+    /// island.
+    pub(crate) from: &'static str,
+    /// Faces of other islands than that one.
+    pub(crate) apart: usize,
+    /// Whether a new map's entry stands on no face of the mesh (routes are
+    /// then counted from the largest island).
+    pub(crate) entry_off: bool,
+    /// Each link between floors (`KjkArea::links`), in order: whether the
+    /// mesh takes it and a plain jump or a drop crosses it, else why not.
+    pub(crate) links: Vec<Result<(), String>>,
+    /// Faces of other islands that the links lead to from the one routes
+    /// are counted from.
+    pub(crate) by_links: usize,
+}
+
+/// A room's level as its stored lightmaps show it, about as `kjk
+/// detail-bake` measures it: `original` is the mean of their texels' levels,
+/// and `lit` the same mean with each texel counted by its own level. The
+/// bake counts only the texels a surface covers; this counts every texel
+/// of the room's lightmaps, so it is a guide.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RoomMeasure {
+    pub(crate) room: String,
+    pub(crate) original: f32,
+    pub(crate) lit: f32,
+}
+
+/// Each room's level from the lightmaps of `scene` (`RoomMeasure`).
+fn measure_rooms(scene: &LoadedScene) -> Vec<RoomMeasure> {
+    use asset_odyssey::texture::Encoding;
+    let luma = |texture: &asset_odyssey::texture::TextureIr| -> Option<Vec<f32>> {
+        // Its first level no wider or taller than 128 texels.
+        let size = |level: usize| {
+            (
+                (texture.width as usize >> level).max(1),
+                (texture.height as usize >> level).max(1),
+            )
+        };
+        let level = (0..texture.mips.len())
+            .find(|&level| size(level).0.max(size(level).1) <= 128)
+            .or(texture.mips.len().checked_sub(1))?;
+        let (width, height) = size(level);
+        let data = &texture.mips[level];
+        let rgba = match texture.encoding {
+            Encoding::Rgba8 => data.clone(),
+            Encoding::Bc1 | Encoding::Bc1Holes => {
+                fmt_odyssey::dxt::decode(data, width, height, false)?
+            }
+            Encoding::Bc3 => fmt_odyssey::dxt::decode(data, width, height, true)?,
+        };
+        Some(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .take(width * height)
+                .map(|[r, g, b, _]| {
+                    (0.2126 * f32::from(*r) + 0.7152 * f32::from(*g) + 0.0722 * f32::from(*b))
+                        / 255.0
+                })
+                .collect(),
+        )
+    };
+    let mut out = Vec::new();
+    for room in &scene.rooms {
+        let Some(model) = room.model.and_then(|model| scene.models.get(model)) else {
+            continue;
+        };
+        let names: std::collections::BTreeSet<&String> = model
+            .ir
+            .meshes
+            .iter()
+            .filter_map(|mesh| mesh.lightmap.as_ref())
+            .collect();
+        let (mut sum, mut squares, mut count) = (0.0f64, 0.0f64, 0usize);
+        for name in names {
+            let Some(levels) = scene.textures.get(name.as_str()).and_then(luma) else {
+                continue;
+            };
+            for level in levels {
+                sum += f64::from(level);
+                squares += f64::from(level * level);
+                count += 1;
+            }
+        }
+        if count > 0 {
+            out.push(RoomMeasure {
+                room: room.name.to_ascii_lowercase(),
+                original: (sum / count as f64) as f32,
+                lit: (squares / sum.max(1e-9)) as f32,
+            });
+        }
+    }
+    out
+}
+
+/// The rooms' copies by their name, their model, and how far they moved
+/// and turned (each as bits).
+type MadeRooms = BTreeMap<(String, String, [u32; 4], bool), Vec<(String, ResType, Vec<u8>)>>;
+
+/// What a scene's drawing placed for each thing the project holds.
+#[derive(Default)]
+pub(crate) struct Drawn {
+    /// Each target's own model roots (not attached ones). Its marker is an
+    /// icon over the view (`markers`), not a model of the scene.
+    pub(crate) things: Vec<(Target, Vec<usize>)>,
+    /// The collision overlay's model, when drawn.
+    pub(crate) overlay: Option<usize>,
+    /// Each new map room's yaw as its copy was drawn turned: a room turned
+    /// since is shown turned by the difference (`follow`).
+    pub(crate) room_yaws: Vec<f32>,
+}
+
+/// Where a running audit's output arrives, or why it did not start.
+type AuditResult = std::sync::Arc<std::sync::Mutex<Option<Result<std::process::Output, String>>>>;
+
+/// The editor's state.
+#[derive(Resource)]
+pub struct EditorState {
+    pub(crate) setup: EditSetup,
+    /// The edits are made here.
+    pub editor: Editor,
+    pub(crate) drawn: Drawn,
+    built: u64,
+    /// The editor's count of changes after the last edit that only moved
+    /// or turned things the drawing follows (`follows`), when every change
+    /// since the scene was drawn was such an edit. The scene is then not
+    /// drawn again: `follow` has put each moved thing where it now is.
+    followed: u64,
+    /// Frames since the last edit.
+    pub(crate) quiet: u32,
+    pub(crate) prop_models: BTreeMap<String, Result<PropModel, String>>,
+    /// The lamps the asset picker offers (`lamps`), found a few models a
+    /// frame.
+    pub(crate) lamp_library: crate::lamps::LampLibrary,
+    /// Whether each creature template of the area has a conversation, and
+    /// whether it updates the journal (`markers::creature_talks`), read when
+    /// the scene is drawn.
+    pub(crate) creature_talks: BTreeMap<String, Option<bool>>,
+    /// The rooms' copies made so far (`level_edit::map::room_copy`).
+    made_rooms: MadeRooms,
+    collision: Option<(u64, collision_odyssey::ModuleCollision)>,
+    pub(crate) show_collision: bool,
+    shown_collision: bool,
+    /// How the view lights the rooms (`fitted_lights::Mode`), the bake the
+    /// Baked view shows, and whether the lights are drawn; with what the
+    /// scene was last drawn with.
+    pub(crate) light_view: kjk_game::fitted_lights::Mode,
+    pub(crate) bake: Option<PathBuf>,
+    pub(crate) show_lights: bool,
+    /// The Lighting that Play starts kjk with (`play_lighting`): `classic`,
+    /// `enhanced` or `baked`, or `None` for the game's own options.
+    pub(crate) play_lighting: Option<&'static str>,
+    /// Each kind of fitting the editor changed, as the light data held it
+    /// before: what the view shows again when the change is undone.
+    pub(crate) kind_originals: BTreeMap<(String, bool), level_edit::kinds::KindEdit>,
+    /// The module's bake as `bake.toml` says it, the levels its file held
+    /// when the editor opened (or last saved), each room's level from its
+    /// stored lightmaps (measured once, when the Room levels window first
+    /// opens), and whether that window is open.
+    pub(crate) bake_entry: level_edit::levels::BakeEntry,
+    pub(crate) levels_original: BTreeMap<String, f32>,
+    pub(crate) room_measures: Option<Vec<RoomMeasure>>,
+    pub(crate) show_levels: bool,
+    /// Why each of the project's scripts did not compile at the last save,
+    /// by name, and how many times they have been compiled, so the script
+    /// viewer reads them again.
+    pub(crate) script_errors: BTreeMap<String, String>,
+    pub(crate) script_round: u32,
+    /// The scripts written in the script viewer, by name, as they are being
+    /// edited (`script_edit`), and the names of the scripts in the
+    /// project's folder.
+    pub(crate) drafts: BTreeMap<String, crate::script_edit::Draft>,
+    pub(crate) project_scripts: std::collections::BTreeSet<String>,
+    /// A script being tried (`script try`), and how the last try went.
+    pub(crate) script_try: Option<crate::script_edit::Try>,
+    pub(crate) tried: Option<crate::script_edit::Outcome>,
+    /// Other modules as a link reads them: each one's entry area and that
+    /// area's GIT as the install has it, read once.
+    pub(crate) module_facts: BTreeMap<String, Result<(String, fmt_odyssey::gff::Gff), String>>,
+    /// A bake running (`bake`), and the label of one asked for, which
+    /// starts when the scene is next drawn (it bakes from the scene's
+    /// lights).
+    pub(crate) bake_job: Option<crate::bake::BakeJob>,
+    bake_request: Option<String>,
+    /// What the bake asked for or running was made from (`light_digest`),
+    /// written into its folder when it is done.
+    bake_from: Option<String>,
+    /// Whether the bake asked for or running is kept in the project when
+    /// it is done (`bake renew`).
+    bake_renew: bool,
+    /// How the lights were drawn: the view's mode, its bake, and whether
+    /// the lights are shown. The selected light's reach is drawn over the
+    /// view (`ui::reach_in_view`), so a selection never draws the scene
+    /// again.
+    shown_lights: (kjk_game::fitted_lights::Mode, Option<PathBuf>, bool),
+    /// Whether the navigation mesh is drawn, and what was found of it when
+    /// it last was.
+    pub(crate) show_nav: bool,
+    shown_nav: bool,
+    pub(crate) nav_facts: Option<NavFacts>,
+    /// A gizmo is being dragged: the scene is not drawn again until it is
+    /// let go.
+    pub(crate) dragging: bool,
+    /// A click `edit pick` asks for, at a point of the view (pixels).
+    pub(crate) pending_pick: Option<Vec2>,
+    /// Whether that pick joins the selection (Ctrl held), or leaves it.
+    pub(crate) pending_pick_adds: bool,
+    /// Objects copied (`edit copy`), for the window's clipboard.
+    pub(crate) copied: Option<String>,
+    /// A command a toolbar or details button asked for, run after the
+    /// panels are laid out.
+    pub(crate) pending_command: Option<String>,
+    /// `edit ui ...` commands for the window's own state.
+    pub(crate) pending_ui: Vec<Vec<String>>,
+    pub(crate) messages: Vec<String>,
+    pub(crate) audit: Vec<String>,
+    /// A recovery copy an editor that did not close left of this project
+    /// (`recover`), until it is taken or discarded.
+    pub(crate) recovery: Option<PathBuf>,
+    /// When this editor's own recovery copy was last written.
+    pub(crate) autosave: crate::recover::Autosave,
+    /// The kinds of object whose markers and labels the view hides.
+    pub(crate) hidden: Vec<Kind>,
+    /// Why the last edit was refused and when, for the view to show over
+    /// the level for a few seconds.
+    pub(crate) refusal: Option<(std::time::Instant, String)>,
+    /// An installed level's lights and lamps placed by hand as kjk's light
+    /// data holds them: what the level has until the project changes them
+    /// (`lights_own`).
+    shipped_lights: (Vec<level_edit::PlacedLight>, Vec<level_edit::PlacedLamp>),
+    /// A picture of the window the agent link asked for, and the file it
+    /// goes to (`ui::take_shot`).
+    pub(crate) pending_shot: Option<PathBuf>,
+    /// A picture of the view alone that the agent link asked for
+    /// (`shot view`): its file, and how many frames are still drawn
+    /// without the panels before it is taken.
+    pub(crate) pending_bare: Option<(PathBuf, u8)>,
+    /// What the command running now answers beyond "ok", for the agent
+    /// link: the number of a node it made, or what it found.
+    pub(crate) answer: Option<String>,
+    /// Why the last edit was refused (`refuse`), until the command that
+    /// asked for it takes it.
+    refused: Option<String>,
+    /// What the editor plays for its user to hear (`listen`).
+    pub(crate) listening: crate::listen::Listening,
+    /// The install's templates read so far (`template_gff`), by name and
+    /// type; `None` for one that does not read. The install does not change
+    /// while the editor is open, so each is read and parsed once.
+    install_templates: std::sync::Mutex<BTreeMap<(String, ResType), Option<fmt_odyssey::gff::Gff>>>,
+    /// What the game's other levels have that this one does not, looked
+    /// for when it is first asked for.
+    elsewhere: std::sync::OnceLock<crate::elsewhere::Elsewhere>,
+    /// The links between the level's objects that their scripts make
+    /// (`links::table`), found again after a change.
+    pub(crate) links: std::sync::Mutex<crate::links::Kept>,
+    /// The game's items, creatures and conversations by name, for the
+    /// search-and-pick fields (`choose`), read when first asked for.
+    pub(crate) names: crate::choose::Names,
+    /// The editor's keys (`keys`), read from their file as the editor
+    /// opens.
+    pub(crate) keys: crate::keys::Keys,
+    /// An audit running (`edit audit`): when it started, and where its
+    /// output arrives.
+    pub(crate) audit_job: Option<(std::time::Instant, AuditResult)>,
+    redraws: u32,
+    /// A conversation changed since the creatures' markers were read
+    /// (`creature_talks`), with the scene kept as it is drawn.
+    talks_stale: bool,
+    /// How long the editor's work takes, for the agent link and the big
+    /// level benchmark.
+    pub(crate) timings: Timings,
+    /// The kept bake's facts as last found (`bake_facts`): when, for which
+    /// count of changes, its folder, and whether it is stale.
+    bake_seen: std::sync::Mutex<Option<BakeSeen>>,
+}
+
+/// What `bake_facts` keeps: when it looked, the editor's count of changes
+/// then, the kept bake's folder, and whether the bake is stale.
+type BakeSeen = (std::time::Instant, u64, Option<PathBuf>, bool);
+
+impl EditorState {
+    /// The state `setup` starts from, with its scene drawn.
+    pub fn new(setup: EditSetup) -> Result<(EditorState, LoadedScene), String> {
+        let mut project = setup.project.clone();
+        // An installed level's lights and lamps placed by hand are the ones
+        // kjk's light data holds for it (`fittings.toml`: the folder's, else
+        // the copy built into kjk), until the project has its own.
+        let mut shipped_lights = (Vec::new(), Vec::new());
+        if project.map.is_none() {
+            let text = match &setup.light_data {
+                Some(folder) => {
+                    let path = folder.join("fittings.toml");
+                    std::fs::read_to_string(&path)
+                        .map_err(|error| format!("{}: {error}", path.display()))?
+                }
+                None => kjk_game::fitted_lights::fittings_text().into_owned(),
+            };
+            shipped_lights = (
+                level_edit::lights::read_placed(&text, &project.game, &project.module)?,
+                level_edit::lamps::read_lamps(&text, &project.game, &project.module)?,
+            );
+            if !project.kjk.own_lights {
+                project.kjk.lights = shipped_lights.0.clone();
+                project.kjk.lamps = shipped_lights.1.clone();
+            }
+        }
+        // The module's bake, and the levels its rooms aim at.
+        let (bake_entry, levels_original) = match &setup.light_data {
+            Some(folder) => {
+                let entry = std::fs::read_to_string(folder.join("bake.toml"))
+                    .map(|text| level_edit::levels::bake_entry(&text, &project.module))
+                    .unwrap_or_else(|_| level_edit::levels::BakeEntry::default());
+                let levels = (entry.levels.as_ref())
+                    .and_then(|file| std::fs::read_to_string(folder.join(file)).ok())
+                    .map(|text| level_edit::levels::read_levels(&text))
+                    .unwrap_or_else(BTreeMap::new);
+                (entry, levels)
+            }
+            None => (level_edit::levels::BakeEntry::default(), BTreeMap::new()),
+        };
+        // The project's own rules (`level_edit::lighting`): its levels for
+        // this module in place of the light data's, and the kinds it changed.
+        let mut setup = setup;
+        if let Some(kept) = level_edit::lighting::kept_bake(&project.folder, &project.module) {
+            setup.bakes.retain(|had| *had != kept);
+            setup.bakes.insert(0, kept);
+        }
+        let own = level_edit::lighting::OwnLighting::read(&project.folder)?;
+        project.levels =
+            (own.levels.get(&project.module).cloned()).unwrap_or_else(|| levels_original.clone());
+        project.kinds = own.kinds;
+        let project_scripts = crate::script_edit::project_scripts(&project.folder);
+        let recovery = crate::recover::found(&project.name);
+        let editor = Editor::new(project);
+        let mut state = EditorState {
+            setup,
+            editor,
+            drawn: Drawn::default(),
+            built: u64::MAX,
+            followed: u64::MAX,
+            quiet: SETTLE_FRAMES,
+            prop_models: BTreeMap::new(),
+            lamp_library: Default::default(),
+            creature_talks: BTreeMap::new(),
+            made_rooms: BTreeMap::new(),
+            collision: None,
+            show_collision: false,
+            shown_collision: false,
+            show_nav: false,
+            shown_nav: false,
+            light_view: kjk_game::fitted_lights::mode(),
+            bake: None,
+            show_lights: false,
+            play_lighting: crate::play_lighting::load(),
+            kind_originals: BTreeMap::new(),
+            bake_entry,
+            levels_original,
+            room_measures: None,
+            show_levels: false,
+            script_errors: BTreeMap::new(),
+            script_round: 0,
+            drafts: BTreeMap::new(),
+            project_scripts,
+            script_try: None,
+            tried: None,
+            module_facts: BTreeMap::new(),
+            bake_job: None,
+            bake_request: None,
+            bake_from: None,
+            bake_renew: false,
+            shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false),
+            nav_facts: None,
+            dragging: false,
+            pending_pick: None,
+            pending_pick_adds: false,
+            copied: None,
+            pending_command: None,
+            pending_ui: Vec::new(),
+            messages: Vec::new(),
+            audit: Vec::new(),
+            recovery,
+            autosave: Default::default(),
+            hidden: Vec::new(),
+            refusal: None,
+            shipped_lights,
+            pending_shot: None,
+            pending_bare: None,
+            answer: None,
+            refused: None,
+            listening: Default::default(),
+            install_templates: Default::default(),
+            elsewhere: Default::default(),
+            links: Default::default(),
+            names: Default::default(),
+            keys: crate::keys::Keys::standard(),
+            audit_job: None,
+            redraws: 0,
+            talks_stale: false,
+            timings: Timings::default(),
+            bake_seen: Default::default(),
+        };
+        // How the light data holds each kind the project changed: what the
+        // view shows again when a change is undone, and what Publish and a
+        // save compare with.
+        for kind in state.editor.project.kinds.clone() {
+            let shipped = shipped_kind(&state, &kind.texture, kind.placeable);
+            state
+                .kind_originals
+                .insert((kind.texture.clone(), kind.placeable), shipped);
+        }
+        let scene = draw(&mut state)?;
+        if !state.setup.program.is_file() {
+            state.say(format!(
+                "kjk was not found at {}: Play, Walk and trying a script or a conversation need it there",
+                state.setup.program.display()
+            ));
+        }
+        if let Some(folder) = &state.recovery {
+            let what = crate::recover::describe(folder);
+            state.say(format!(
+                "work that was not saved was found, {what}: Recover takes it, Discard removes it"
+            ));
+        }
+        let mut key_problems = Vec::new();
+        state.keys = crate::keys::Keys::load(&mut |problem| key_problems.push(problem));
+        for problem in key_problems {
+            state.say(problem);
+        }
+        Ok((state, scene))
+    }
+}
+
+impl EditorState {
+    /// Whether anything is not saved: the project's edits, or a script
+    /// written in the viewer.
+    pub(crate) fn unsaved(&self) -> bool {
+        self.editor.unsaved() || self.drafts.values().any(crate::script_edit::Draft::changed)
+    }
+
+    /// Writes every script changed in the viewer to the project's folder.
+    pub(crate) fn write_drafts(&mut self) -> Result<(), String> {
+        let folder = self.editor.project.folder.clone();
+        std::fs::create_dir_all(&folder)
+            .map_err(|error| format!("{}: {error}", folder.display()))?;
+        let mut written = 0;
+        let mut lost = Vec::new();
+        for (name, draft) in &mut self.drafts {
+            if draft.changed() {
+                let (_, replaced) = crate::script_edit::write(&folder, name, draft)?;
+                if replaced > 0 {
+                    lost.push(format!("{replaced} in {name}"));
+                }
+                written += 1;
+            }
+        }
+        if !lost.is_empty() {
+            self.say(format!(
+                "characters that the games' code page does not have were written as ?: {}",
+                lost.join(", ")
+            ));
+        }
+        if written > 0 {
+            self.project_scripts = crate::script_edit::project_scripts(&folder);
+            let scripts = if written == 1 { "script" } else { "scripts" };
+            self.say(format!("wrote {written} {scripts}"));
+        }
+        Ok(())
+    }
+
+    /// The script `name` held as a draft: the project's own, read from its
+    /// folder, else a copy of the install's source, else a new one.
+    pub(crate) fn draft_of(&mut self, name: &str) -> Result<(), String> {
+        if self.drafts.contains_key(name) {
+            return Ok(());
+        }
+        if let Some(problem) = crate::script_edit::name_problem(name) {
+            return Err(problem);
+        }
+        let text_of = |bytes: Vec<u8>| bytes.into_iter().map(char::from).collect::<String>();
+        let own = std::fs::read(self.editor.project.folder.join(format!("{name}.nss")))
+            .ok()
+            .map(text_of);
+        let draft = match own {
+            Some(text) => crate::script_edit::Draft {
+                saved: text.clone(),
+                text,
+            },
+            None => {
+                // The install's source, else its compiled script read back
+                // into source, else a new script.
+                let decompiled = || {
+                    let bytes = self.setup.resolver.read(name, ResType::NCS)?;
+                    let ncs = fmt_odyssey::ncs::Ncs::parse(&bytes).ok()?;
+                    let catalog = self.setup.catalog.as_ref()?;
+                    crate::script_view::decompiled(name, &ncs, catalog).ok()
+                };
+                let text = self
+                    .setup
+                    .resolver
+                    .read(name, ResType::NSS)
+                    .map(text_of)
+                    .or_else(decompiled)
+                    .unwrap_or_else(|| crate::script_edit::template(name, false));
+                // Not in the folder yet: it is written at the next save.
+                crate::script_edit::Draft {
+                    text,
+                    saved: String::new(),
+                }
+            }
+        };
+        self.drafts.insert(name.to_string(), draft);
+        Ok(())
+    }
+
+    pub(crate) fn say(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        info!(target: "editor", "{message}");
+        self.messages.push(message);
+        let over = self.messages.len().saturating_sub(8);
+        self.messages.drain(..over);
+    }
+
+    /// Says why an edit was refused, and keeps it for the command that
+    /// asked for the edit (`command`), which answers with it.
+    fn refuse(&mut self, why: String) {
+        self.refused = Some(why.clone());
+        self.refusal = Some((std::time::Instant::now(), why.clone()));
+        self.say(why);
+    }
+
+    pub(crate) fn apply(&mut self, edit: Edit) {
+        let (before, follows) = (self.editor.changes(), self.follows(&edit));
+        self.talks_stale |= changes_talk(&edit);
+        if let Err(why) = self.editor.apply(edit) {
+            self.refuse(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// `edits` made as one, one undo step (`Editor::apply_many`): what is
+    /// done to everything selected.
+    pub(crate) fn apply_many(&mut self, edits: Vec<Edit>) {
+        let (before, follows) = (
+            self.editor.changes(),
+            !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
+        );
+        self.talks_stale |= edits.iter().any(changes_talk);
+        if let Err(why) = self.editor.apply_many(edits) {
+            self.refuse(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// `apply_many`, joining the last edit's undo step (a drag).
+    pub(crate) fn apply_many_continuing(&mut self, edits: Vec<Edit>) {
+        let (before, follows) = (
+            self.editor.changes(),
+            !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
+        );
+        self.talks_stale |= edits.iter().any(changes_talk);
+        if let Err(why) = self.editor.apply_many_continuing(edits) {
+            self.refuse(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// `apply`, joining the last edit's undo step (a drag).
+    pub(crate) fn apply_continuing(&mut self, edit: Edit) {
+        let (before, follows) = (self.editor.changes(), self.follows(&edit));
+        self.talks_stale |= changes_talk(&edit);
+        if let Err(why) = self.editor.apply_continuing(edit) {
+            self.refuse(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// Whether `edit` only moves or turns a thing that `follow` puts where
+    /// it now is, with nothing else drawn changing with it. A thing whose
+    /// fittings light the room (a placeable, a door, a lamp, a light, a
+    /// new map's room) counts only while the view shows the game's own
+    /// lightmaps. The collision and the navigation mesh, while shown, are
+    /// drawn again after any move.
+    fn follows(&self, edit: &Edit) -> bool {
+        use kjk_game::fitted_lights::Mode;
+        if draws_nothing(edit) {
+            return true;
+        }
+        let target = match edit {
+            Edit::Move(target, _) | Edit::Turn(target, _) => *target,
+            // A lamp moved or turned in its details, as the gizmo turns it.
+            Edit::SetLamp(at, lamp) => {
+                let Some(was) = self.editor.project.kjk.lamps.get(*at) else {
+                    return false;
+                };
+                let placed_alone = level_edit::PlacedLamp {
+                    at: was.at,
+                    yaw: was.yaw,
+                    pitch: was.pitch,
+                    roll: was.roll,
+                    ..lamp.clone()
+                } == *was;
+                if !placed_alone {
+                    return false;
+                }
+                Target::Lamp(*at)
+            }
+            _ => return false,
+        };
+        if self.show_collision || self.show_nav {
+            return false;
+        }
+        let unlit = self.light_view == Mode::Off;
+        match target {
+            Target::Object(
+                Kind::Creature
+                | Kind::Waypoint
+                | Kind::Sound
+                | Kind::Store
+                | Kind::Encounter
+                | Kind::Trigger,
+                _,
+            )
+            | Target::Prop(_)
+            | Target::Box(_)
+            | Target::Entry => true,
+            Target::Object(Kind::Placeable | Kind::Door, _)
+            | Target::Room(_)
+            | Target::Lamp(_)
+            | Target::Light(_) => unlit,
+            // Its effect is laid out where it stands when the scene is
+            // drawn (`ambient_fx::preview`): the area is drawn again.
+            Target::Effect(_) => false,
+            // The sun lights everything: the area is drawn again.
+            Target::Fitted(_) | Target::Sun => false,
+        }
+    }
+
+    /// Keeps the scene as it is drawn after an edit that `follows`, when
+    /// every change since the drawing was one (`followed`).
+    fn followed_to(&mut self, before: u64, follows: bool) {
+        let chained = before == self.built || before == self.followed;
+        if follows && chained {
+            self.followed = self.editor.changes();
+        }
+    }
+}
+
+/// Whether `edit` changes nothing the scene draws: a conversation, or one
+/// of the project's items or its journal. A conversation does change a
+/// creature's marker, which `redraw` reads again without drawing the area. Typing a conversation's line
+/// makes an edit at each key, and the whole area was drawn again after
+/// each pause in the typing.
+fn draws_nothing(edit: &Edit) -> bool {
+    match edit {
+        // A template no object of the area is made from.
+        Edit::SetTemplate { .. } | Edit::DropTemplate(_) => true,
+        _ => changes_talk(edit),
+    }
+}
+
+/// Whether `edit` changes a conversation, which a creature's marker reads
+/// (`markers::creature_talks`).
+fn changes_talk(edit: &Edit) -> bool {
+    matches!(
+        edit,
+        Edit::NewConversation { .. } | Edit::Conversation(..) | Edit::DropConversation(_)
+    )
+}
+
+impl EditorState {
+    fn area_index(ir: &ModuleIr, area: &str) -> Option<usize> {
+        ir.areas
+            .iter()
+            .position(|candidate| candidate.resref.eq_ignore_ascii_case(area))
+    }
+
+    /// A new map's module as it is now (saved or not): its `module.ifo`,
+    /// its area's ARE, layout and visibility, and its rooms' copies, made
+    /// from the install's rooms.
+    fn map_files(&mut self) -> Vec<(String, ResType, Vec<u8>)> {
+        let project = &self.editor.project;
+        let Some(map) = &project.map else {
+            return Vec::new();
+        };
+        let (module, area) = (project.module.clone(), project.area.clone());
+        let mut files = vec![
+            (
+                "module".to_string(),
+                ResType::IFO,
+                map.ifo(&module, &area).write(),
+            ),
+            (area.clone(), ResType::ARE, project.map_are(map).write()),
+            (area.clone(), ResType::LYT, map.layout(&module).write()),
+            (area.clone(), ResType::VIS, map.visibility(&module).write()),
+        ];
+        let rooms = map.rooms.clone();
+        let mut problems = Vec::new();
+        let mut used = std::collections::BTreeSet::new();
+        for (index, room) in rooms.iter().enumerate() {
+            let name = level_edit::map::room_name(&module, index);
+            let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
+            // A room placed again gets lightmaps of its own.
+            let own_light = map.own_light(index);
+            let key = (
+                name.clone(),
+                room.model.clone(),
+                [by[0], by[1], by[2], room.yaw].map(f32::to_bits),
+                own_light,
+            );
+            if !self.made_rooms.contains_key(&key) {
+                let resolver = &self.setup.resolver;
+                let read = |name: &str, restype: ResType| resolver.read(name, restype);
+                match level_edit::map::room_copy(room, &name, own_light, &read) {
+                    Ok(made) => {
+                        self.made_rooms.insert(key.clone(), made);
+                    }
+                    Err(why) => {
+                        problems.push(why);
+                        continue;
+                    }
+                }
+            }
+            files.extend(self.made_rooms[&key].iter().cloned());
+            used.insert(key);
+        }
+        // A copy of a room where it no longer stands is dropped.
+        self.made_rooms.retain(|key, _| used.contains(key));
+        for problem in problems {
+            self.say(problem);
+        }
+        files
+    }
+
+    /// The resolver with the edited GIT, the project's templates and a new
+    /// map's module as they are now (saved or not) over the project's
+    /// folder.
+    fn resolver(&mut self) -> Resolver {
+        let held = |bytes: Vec<u8>| Location {
+            path: PathBuf::from("editor"),
+            offset: 0,
+            size: bytes.len() as u64,
+            held: Some(bytes.into()),
+        };
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            (self.editor.project.area.clone(), ResType::GIT),
+            held(self.editor.project.git.write()),
+        );
+        for (resref, made) in &self.editor.project.templates {
+            resources.insert((resref.clone(), made.restype), held(made.gff.write()));
+        }
+        // An installed area's ARE as the project changes it.
+        if self.editor.project.map.is_none()
+            && let Some(are) = &self.editor.project.are
+        {
+            resources.insert(
+                (self.editor.project.area.clone(), ResType::ARE),
+                held(are.write()),
+            );
+        }
+        for (resref, restype, bytes) in self.map_files() {
+            resources.insert((resref, restype), held(bytes));
+        }
+        self.setup.resolver.with_layer(Layer {
+            name: "editor".into(),
+            rank: Rank::Directory,
+            resources,
+        })
+    }
+
+    /// What the game's other levels have that this one does not.
+    pub(crate) fn elsewhere(&self) -> &crate::elsewhere::Elsewhere {
+        self.elsewhere.get_or_init(|| {
+            crate::elsewhere::Elsewhere::of(
+                self.setup.game,
+                &self.setup.modules,
+                &self.setup.resolver,
+            )
+        })
+    }
+
+    /// A template as the object would be made from it: the project's own
+    /// (saved or not), else the install's.
+    pub(crate) fn template_gff(
+        &self,
+        resref: &str,
+        restype: ResType,
+    ) -> Option<fmt_odyssey::gff::Gff> {
+        if let Some(made) = self.editor.project.templates.get(resref) {
+            return Some(made.gff.clone());
+        }
+        let read = || {
+            self.setup
+                .resolver
+                .read(resref, restype)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        };
+        // The panels ask for the selected object's template every frame.
+        let Ok(mut kept) = self.install_templates.lock() else {
+            return read();
+        };
+        kept.entry((resref.to_ascii_lowercase(), restype))
+            .or_insert_with(read)
+            .clone()
+    }
+
+    /// What says what an object does: its template for a kind made from
+    /// one (the project's copy, else the install's), its own GIT entry for
+    /// a kind read whole from it (a door, a waypoint).
+    pub(crate) fn behaviour_source(
+        &self,
+        kind: Kind,
+        entry: &Entry,
+    ) -> Option<fmt_odyssey::gff::Gff> {
+        match level_edit::template::restype(kind) {
+            Some(restype) => self.template_gff(&entry.template, restype),
+            None => {
+                level_edit::git::item(&self.editor.project.git, kind, entry.index).map(|item| {
+                    fmt_odyssey::gff::Gff {
+                        file_type: *b"GIT ",
+                        root: item.clone(),
+                    }
+                })
+            }
+        }
+    }
+
+    /// Makes `change` in the template of `target` (`Editor::change_template`).
+    pub(crate) fn change_template(&mut self, target: Target, change: Change) {
+        let resolver = &self.setup.resolver;
+        let read = |name: &str, restype: ResType| resolver.read(name, restype);
+        let series = own_series(&self.editor.project.name);
+        let taken = |name: &str| {
+            outside_series(name, level_edit::template::PREFIX, series)
+                || level_edit::template::TYPES
+                    .iter()
+                    .any(|(restype, _)| resolver.find(name, *restype).is_some())
+        };
+        if let Err(why) = self
+            .editor
+            .change_template(target, &change, (&read, &taken))
+        {
+            self.refuse(why);
+        }
+        self.quiet = 0;
+    }
+
+    /// The edited area's collision, with the project's boxes and solid
+    /// props, built again when the project changed since.
+    pub(crate) fn collision(&mut self) -> Option<&collision_odyssey::ModuleCollision> {
+        let changes = self.editor.changes();
+        if self.collision.as_ref().is_none_or(|(at, _)| *at != changes) {
+            let resolver = self.resolver();
+            let (added, _) =
+                level_edit::active::collision_of(&self.editor.project, self.setup.ja.as_ref());
+            let game = self.setup.game.key();
+            let module = self.editor.project.module.clone();
+            let clip = match collision_odyssey::built_in_clip(game, &module) {
+                Ok(clip) => clip,
+                Err(why) => {
+                    self.say(why);
+                    None
+                }
+            };
+            let clip = level_edit::active::with_added(clip, &added);
+            match collision_odyssey::build_module(
+                &ResolverSource(&resolver),
+                &module,
+                Some(&clip),
+                &collision_odyssey::BuildOptions::default(),
+            ) {
+                Ok(mut built) => {
+                    built.set_doors(collision_odyssey::Doors::Openable);
+                    self.collision = Some((changes, built));
+                }
+                Err(why) => {
+                    self.say(format!("the collision does not build: {why}"));
+                    return None;
+                }
+            }
+        }
+        self.collision.as_ref().map(|(_, built)| built)
+    }
+
+    /// The tag an entry goes by: its own, else its template's.
+    pub(crate) fn tag_of(&self, entry: &Entry) -> String {
+        if !entry.tag.is_empty() {
+            return entry.tag.clone();
+        }
+        let (_, restype) = entry.kind.list_and_type();
+        self.template_gff(&entry.template, restype)
+            .and_then(|gff| {
+                gff.root
+                    .bytes("Tag")
+                    .map(|tag| String::from_utf8_lossy(tag).into_owned())
+            })
+            .unwrap_or_else(String::new)
+    }
+}
+
+/// A flat colour as a 4 by 4 texture.
+fn colour_texture(rgba: [u8; 4]) -> TextureIr {
+    TextureIr {
+        width: 4,
+        height: 4,
+        encoding: Encoding::Rgba8,
+        mips: vec![rgba.repeat(16)],
+        cube: false,
+        frames: 1,
+        facts: TextureFacts {
+            alpha: rgba[3] < 255,
+            two_sided: true,
+            ..TextureFacts::default()
+        },
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    }
+}
+
+/// A model of one node and one mesh of `triangles` in its own space,
+/// coloured by `texture`.
+fn flat_model(name: &str, triangles: &[[[f32; 3]; 3]], texture: &str, glow: bool) -> ModelIr {
+    let mut positions = Vec::with_capacity(triangles.len() * 3);
+    let mut normals = Vec::with_capacity(triangles.len() * 3);
+    for [a, b, c] in triangles {
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = Vec3::from_array([
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ])
+        .normalize_or(Vec3::Z)
+        .to_array();
+        positions.extend([*a, *b, *c]);
+        normals.extend([n; 3]);
+    }
+    let count = positions.len();
+    ModelIr {
+        name: name.to_string(),
+        supermodel: None,
+        nodes: vec![NodeIr {
+            name: name.to_string(),
+            parent: None,
+            translation: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            world: IDENTITY,
+            animated: false,
+        }],
+        meshes: vec![MeshIr {
+            node: 0,
+            positions,
+            normals,
+            uv1: vec![[0.5, 0.5]; count],
+            uv2: Vec::new(),
+            indices: (0..count as u32).collect(),
+            texture: Some(texture.to_string()),
+            lightmap: None,
+            transparency_hint: 0,
+            skinned: false,
+            shadow: false,
+            self_illum: if glow { [1.0; 3] } else { [0.0; 3] },
+            alpha: 1.0,
+            ambient: [1.0; 3],
+            diffuse: [1.0; 3],
+            uv_scroll: None,
+            skin: None,
+            dangly: None,
+            referenced: false,
+        }],
+        lights: Vec::new(),
+        emitters: Vec::new(),
+        animations: Vec::new(),
+        animation_scale: 1.0,
+        affected_by_fog: false,
+        refusals: Vec::new(),
+        folded: Vec::new(),
+    }
+}
+
+/// A light's marker texture: its name and its colour, the colour scaled so
+/// its strongest channel is full.
+pub(crate) fn light_texture(colour: [f32; 3]) -> (String, [u8; 4]) {
+    let most = colour.iter().fold(0.0f32, |a, b| a.max(*b)).max(1e-3);
+    let [r, g, b] = colour.map(|value| ((value / most).clamp(0.0, 1.0) * 255.0) as u8);
+    (
+        format!("kjk-editor-light-{r:02x}{g:02x}{b:02x}"),
+        [r, g, b, 255],
+    )
+}
+
+/// The marker colour of each kind.
+pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
+    match kind {
+        Kind::Creature => ("kjk-editor-creature", [255, 80, 80, 255]),
+        Kind::Door => ("kjk-editor-door", [170, 120, 255, 255]),
+        Kind::Placeable => ("kjk-editor-placeable", [255, 190, 60, 255]),
+        Kind::Trigger => ("kjk-editor-trigger", [80, 220, 255, 255]),
+        Kind::Waypoint => ("kjk-editor-waypoint", [90, 255, 120, 255]),
+        Kind::Sound => ("kjk-editor-sound", [255, 120, 220, 255]),
+        Kind::Encounter => ("kjk-editor-encounter", [255, 255, 255, 255]),
+        Kind::Store => ("kjk-editor-store", [255, 255, 120, 255]),
+    }
+}
+
+pub(crate) const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
+/// A lamp placed by hand: warm yellow.
+pub(crate) const LAMP_MARKER: (&str, [u8; 4]) = ("kjk-editor-lamp", [255, 210, 90, 255]);
+pub(crate) const EFFECT_MARKER: (&str, [u8; 4]) = ("kjk-editor-effect", [255, 140, 70, 255]);
+pub(crate) const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
+const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
+const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
+const ENCOUNTER_FILL: (&str, [u8; 4]) = ("kjk-editor-encounter-fill", [255, 255, 255, 60]);
+const WALK_FILL: (&str, [u8; 4]) = ("kjk-editor-walkable", [60, 255, 90, 90]);
+const WALKABLE_BOX: (&str, [u8; 4]) = ("kjk-editor-walkable-box", [80, 255, 170, 110]);
+const NAV_BLOCK_BOX: (&str, [u8; 4]) = ("kjk-editor-nav-block", [255, 60, 60, 90]);
+const NAV_FLOOR_BOX: (&str, [u8; 4]) = ("kjk-editor-nav-floor", [120, 255, 60, 90]);
+/// The navigation mesh's islands, each its own colour in turn.
+const NAV_ISLANDS: [(&str, [u8; 4]); 6] = [
+    ("kjk-editor-nav-0", [70, 200, 255, 120]),
+    ("kjk-editor-nav-1", [255, 210, 60, 120]),
+    ("kjk-editor-nav-2", [190, 110, 255, 120]),
+    ("kjk-editor-nav-3", [60, 255, 160, 120]),
+    ("kjk-editor-nav-4", [255, 140, 200, 120]),
+    ("kjk-editor-nav-5", [255, 255, 255, 120]),
+];
+/// A face under furniture, and one under a door or a placeable.
+const NAV_COVERED: (&str, [u8; 4]) = ("kjk-editor-nav-covered", [200, 30, 30, 150]);
+const NAV_HELD: (&str, [u8; 4]) = ("kjk-editor-nav-held", [130, 40, 160, 150]);
+const SOLID_FILL: (&str, [u8; 4]) = ("kjk-editor-solid", [255, 130, 60, 60]);
+const WALL_FILL: (&str, [u8; 4]) = ("kjk-editor-wall", [90, 120, 255, 80]);
+
+/// The scene of the project as it is now.
+fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
+    let started = std::time::Instant::now();
+    // The lighting the scene is drawn with: the view's mode, its bake, and
+    // the lights placed by hand as the project has them now.
+    let module = state.editor.project.module.clone();
+    kjk_game::fitted_lights::set_mode(state.light_view);
+    kjk_game::viewer::set_bake_folder(match state.light_view {
+        kjk_game::fitted_lights::Mode::Baked => state.bake.clone(),
+        _ => None,
+    });
+    kjk_game::fitted_lights::set_placed(
+        &module,
+        Some(
+            state
+                .editor
+                .project
+                .kjk
+                .lights
+                .iter()
+                .map(kjk_game::fitted_lights::Light::of_placed)
+                .collect(),
+        ),
+    );
+    kjk_game::lamps::set_lamps(&module, Some(state.editor.project.kjk.lamps.clone()));
+    kjk_game::sun::set_sun(&module, Some(state.editor.project.kjk.sun));
+    // A new map's Jedi Academy sky, as the project has it now.
+    let sky = (state.editor.project.map.as_ref()).and_then(|map| map.ja_sky.clone());
+    kjk_game::ja_made::set_sky(&module, sky.as_deref());
+    // Where it places its Jedi Academy rooms, for their props' light.
+    if let Some(map) = &state.editor.project.map {
+        kjk_game::ja_made::set_placements(&module, map);
+    }
+    // The kinds of fitting changed, and the ones changed back.
+    let mut kinds = String::new();
+    for (key, original) in &state.kind_originals {
+        let kind = (state.editor.project.kinds)
+            .iter()
+            .find(|kind| (kind.texture.clone(), kind.placeable) == *key)
+            .unwrap_or(original);
+        kinds.push_str(&level_edit::kinds::kind_entry(kind));
+        kinds.push('\n');
+    }
+    if !kinds.is_empty()
+        && let Err(why) =
+            kjk_game::fitted_lights::set_kinds(&state.editor.project.game.clone(), &kinds)
+    {
+        state.say(format!("the kinds changed do not read: {why}"));
+    }
+    let resolver = state.resolver();
+    let ir = ModuleIr::build(&module, &ResolverSource(&resolver))
+        .map_err(|refusal| format!("{module}: {refusal:?}"))?;
+    let area = EditorState::area_index(&ir, &state.editor.project.area).ok_or(format!(
+        "{module} has no area {}",
+        state.editor.project.area
+    ))?;
+    let mut scene = kjk_game::viewer::module_scene(&resolver, state.setup.game, &ir, area)?;
+    // The game's sun (`kjk_game::sun::found`) and the middle of the level's
+    // floors, which the sun is turned round (`Target::Sun`).
+    state.editor.game_sun = kjk_game::sun::found(&scene.models);
+    let (mut low, mut high) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+    for corner in scene
+        .rooms
+        .iter()
+        .flat_map(|room| room.floor.iter().flatten())
+    {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(corner[axis]);
+            high[axis] = high[axis].max(corner[axis]);
+        }
+    }
+    if low.iter().chain(&high).all(|value| value.is_finite()) {
+        state.editor.level_middle = std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5);
+    }
+    let mut drawn = Drawn::default();
+
+    // The objects' models: a door's or placeable's by its object number,
+    // a creature's body. The module reader leaves out a creature it cannot
+    // make, so entries are matched to objects in order, kind by kind, by
+    // template.
+    let instances = &ir.areas[area].instances;
+    let entries = state.editor.entries();
+    let mut models_of: Vec<Vec<usize>> = vec![Vec::new(); entries.len()];
+    let mut next = 0usize;
+    for (object, instance) in instances.iter().enumerate() {
+        let found = (next..entries.len()).find(|&at| {
+            entries[at].kind == instance.kind
+                && entries[at]
+                    .template
+                    .eq_ignore_ascii_case(&instance.template)
+        });
+        let Some(at) = found else { continue };
+        next = at + 1;
+        if let Some(model) = scene.instance_models.get(&(object as u32)) {
+            models_of[at].push(*model);
+        }
+        for view in scene
+            .creature_views
+            .iter()
+            .filter(|view| view.object == object as u32)
+        {
+            models_of[at].push(view.body);
+        }
+    }
+
+    // Props.
+    let files = state
+        .setup
+        .ja
+        .as_ref()
+        .map(kjk_game::viewer_ja::Files::base);
+    let props = state.editor.project.kjk.props.clone();
+    let (prop_models, mut notes) = project_props::add(
+        &mut scene,
+        &module,
+        files.as_ref(),
+        &mut state.prop_models,
+        &props,
+    );
+    // Jedi Academy's ambient effects, played round a loop (`ambient_fx`).
+    if let Some(files) = files.as_ref() {
+        let effects = state.editor.project.kjk.effects.clone();
+        kjk_game::ambient_fx::preview(files, &effects, &mut scene, &mut notes);
+    }
+    drop(files);
+    for note in notes {
+        state.say(note);
+    }
+
+    // Boxes and outlines. The markers are icons over the view (`markers`).
+    let mut textures: Vec<(&str, [u8; 4])> = vec![
+        BOX_FILL,
+        WALKABLE_BOX,
+        NAV_BLOCK_BOX,
+        NAV_FLOOR_BOX,
+        TRIGGER_FILL,
+        ENCOUNTER_FILL,
+    ];
+    for (entry, models) in entries.iter().zip(models_of) {
+        drawn
+            .things
+            .push((Target::Object(entry.kind, entry.index), models));
+    }
+    // A trigger's and an encounter's outline: a see-through floor of its
+    // shape, a few centimetres up, moved with the object.
+    for (entry_at, entry) in entries.iter().enumerate() {
+        if !matches!(entry.kind, Kind::Trigger | Kind::Encounter) {
+            continue;
+        }
+        let outline = level_edit::git::outline(&state.editor.project.git, entry.kind, entry.index);
+        if outline.len() < 3 {
+            continue;
+        }
+        let lift = |p: [f32; 3]| [p[0], p[1], p[2] + 0.05];
+        let fan: Vec<[[f32; 3]; 3]> = (1..outline.len() - 1)
+            .map(|at| [lift(outline[0]), lift(outline[at]), lift(outline[at + 1])])
+            .collect();
+        let texture = if entry.kind == Kind::Trigger {
+            TRIGGER_FILL.0
+        } else {
+            ENCOUNTER_FILL.0
+        };
+        let model = scene.models.len();
+        scene.models.push(Placed::at(
+            flat_model("outline", &fan, texture, true),
+            entry.position,
+        ));
+        if let Some((_, models)) = drawn.things.get_mut(entry_at) {
+            models.push(model);
+        }
+    }
+    for (at, model) in prop_models.into_iter().enumerate() {
+        drawn
+            .things
+            .push((Target::Prop(at), model.into_iter().collect()));
+    }
+    // The lamps placed by hand: the scene drew their models
+    // (`kjk_game::lamps`), in the order the project lists them.
+    let lamps = state.editor.project.kjk.lamps.clone();
+    for (at, lamp) in lamps.iter().enumerate() {
+        let models = scene.lamps.get(at).and_then(|(model, _)| *model);
+        if models.is_none() {
+            state.say(format!(
+                "lamp {at} ({}) is not drawn: its model does not read",
+                lamp.label()
+            ));
+        }
+        drawn
+            .things
+            .push((Target::Lamp(at), models.into_iter().collect()));
+    }
+    for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
+        let local = CollisionBox {
+            centre: [0.0; 3],
+            yaw: 0.0,
+            ..shape.clone()
+        };
+        let fill = match shape.role {
+            BoxRole::Solid => BOX_FILL.0,
+            BoxRole::Walkable => WALKABLE_BOX.0,
+            BoxRole::NavBlock => NAV_BLOCK_BOX.0,
+            BoxRole::NavFloor => NAV_FLOOR_BOX.0,
+        };
+        let model = scene.models.len();
+        scene.models.push(Placed {
+            facing: shape.yaw.to_radians(),
+            ..Placed::at(
+                flat_model("box", &local.triangles(), fill, true),
+                shape.centre,
+            )
+        });
+        drawn.things.push((Target::Box(at), vec![model]));
+    }
+
+    // A new map's rooms, in the layout's order, and its entry.
+    if let Some(map) = &state.editor.project.map {
+        for at in 0..map.rooms.len() {
+            let models = scene
+                .rooms
+                .get(at)
+                .and_then(|room| room.model)
+                .into_iter()
+                .collect();
+            drawn.things.push((Target::Room(at), models));
+            drawn.room_yaws.push(map.rooms[at].yaw);
+        }
+    }
+
+    // The collision overlay.
+    if state.show_collision {
+        textures.extend([WALK_FILL, SOLID_FILL, WALL_FILL]);
+        if let Some(built) = state.collision() {
+            let mut walk = Vec::new();
+            let mut solid = Vec::new();
+            let mut walls = Vec::new();
+            let lift = |t: &[[f32; 3]; 3]| t.map(|[x, y, z]| [x, y, z + 0.02]);
+            for triangle in &built.collision.triangles {
+                match triangle.origin {
+                    collision_odyssey::Origin::Walkmesh
+                        if built.surfaces.walkable(triangle.material) =>
+                    {
+                        walk.push(lift(&triangle.corners));
+                    }
+                    collision_odyssey::Origin::EdgeWall => walls.push(triangle.corners),
+                    _ => solid.push(triangle.corners),
+                }
+            }
+            let mut overlay = flat_model("collision", &walk, WALK_FILL.0, true);
+            for (triangles, texture) in [(solid, SOLID_FILL.0), (walls, WALL_FILL.0)] {
+                let mut part = flat_model("collision", &triangles, texture, true);
+                overlay.meshes.append(&mut part.meshes);
+            }
+            drawn.overlay = Some(scene.models.len());
+            scene.models.push(Placed::at(overlay, [0.0; 3]));
+        }
+    }
+    // A bake asked for starts from the scene's lights, before the editor's
+    // markers join the scene.
+    if let Some(label) = state.bake_request.take() {
+        match start_bake(state, &scene, label) {
+            Ok(job) => state.bake_job = Some(job),
+            Err(why) => state.say(format!("the bake did not start: {why}")),
+        }
+    }
+
+    // Each room's level, measured once, from the stored lightmaps.
+    if state.show_levels
+        && state.room_measures.is_none()
+        && state.light_view != kjk_game::fitted_lights::Mode::Baked
+    {
+        state.room_measures = Some(measure_rooms(&scene));
+    }
+
+    // The lights the game places itself, read from the scene as play
+    // places them (`fitted_lights::explained`). Each light's marker is an
+    // icon over the view (`markers`), and the selected one's reach is drawn
+    // there too (`ui::reach_in_view`).
+    state.editor.seen_lights.clear();
+    state.editor.seen_on_placeable.clear();
+    if state.show_lights {
+        let found = kjk_game::fitted_lights::explained(&scene);
+        let fitted: Vec<_> = found
+            .iter()
+            .filter(|(_, source, _)| source != "placed")
+            .collect();
+        state.editor.seen_lights = fitted
+            .iter()
+            .map(|(light, source, _)| (light.placed(), source.clone()))
+            .collect();
+        state.editor.seen_on_placeable = fitted.iter().map(|(_, _, on)| *on).collect();
+    }
+    state.shown_lights = (state.light_view, state.bake.clone(), state.show_lights);
+    state.creature_talks = crate::markers::creature_talks(state);
+    state.talks_stale = false;
+
+    // The navigation mesh, as play bakes it with the project's changes
+    // (`level_edit::nav`).
+    state.nav_facts = None;
+    if state.show_nav {
+        textures.extend(NAV_ISLANDS);
+        textures.extend([NAV_COVERED, NAV_HELD]);
+        let boxes = state.editor.project.kjk.boxes.clone();
+        let entry = state.editor.project.map.as_ref().map(|map| map.entry);
+        let wanted: Vec<_> = (state.editor.project.kjk.links.iter())
+            .map(|link| (link.kind, link.from, link.to))
+            .collect();
+        // A new map's rooms cut from a Jedi Academy level are joined as
+        // play joins them.
+        let ja = (state.editor.project.map.iter())
+            .flat_map(|map| &map.rooms)
+            .any(|room| room.ja.is_some());
+        if let Some(built) = state.collision() {
+            let floor = level_edit::nav::edited(built.collision.nav_faces(), &boxes);
+            let radius = sim::walk::CLEARANCE * collision::UNIT;
+            let mut nav = if ja {
+                asset_ja::level_collision::joined_nav(&floor, &built.collision.level, radius)
+            } else {
+                collision::nav::NavMesh::build(&floor, radius)
+            };
+            nav.mark(&built.collision.level);
+            // The links between floors, as play adds them, each checked as
+            // the containment audit moves a player: a plain jump, or a drop.
+            let mut checks: Vec<Result<(), String>> = vec![Ok(()); wanted.len()];
+            for (at, why) in nav.add_links(&wanted) {
+                checks[at] = Err(why);
+            }
+            for (check, (kind, from, to)) in checks.iter_mut().zip(&wanted) {
+                if check.is_ok() {
+                    *check = collision::jumps::link_lands(
+                        &built.collision.level,
+                        (*from, *to),
+                        collision::jumps::PLAIN_JUMP,
+                        *kind == collision::nav::LinkKind::Drop,
+                    );
+                }
+            }
+            let mut sizes = vec![0usize; nav.islands];
+            for face in &nav.faces {
+                sizes[face.island as usize] += 1;
+            }
+            let largest = (0..sizes.len()).max_by_key(|&island| sizes[island]);
+            let at_entry = entry
+                .and_then(|entry| nav.locate(entry, 1.0, 1.0))
+                .map(|face| nav.faces[face as usize].island);
+            let entry_off = entry.is_some() && at_entry.is_none();
+            let (main, from) = match at_entry {
+                Some(island) => (Some(island), "the entry"),
+                None => (largest.map(|island| island as u32), "the largest island"),
+            };
+            let mut groups: BTreeMap<&str, Vec<[[f32; 3]; 3]>> = BTreeMap::new();
+            for face in &nav.faces {
+                let texture = if face.covered {
+                    NAV_COVERED.0
+                } else if face.entity.is_some() {
+                    NAV_HELD.0
+                } else {
+                    NAV_ISLANDS[face.island as usize % NAV_ISLANDS.len()].0
+                };
+                groups.entry(texture).or_default().push(
+                    face.corners
+                        .map(|corner| [corner[0], corner[1], corner[2] + 0.04]),
+                );
+            }
+            let mut overlay = flat_model("nav", &[], NAV_ISLANDS[0].0, true);
+            overlay.meshes.clear();
+            for (texture, triangles) in groups {
+                let mut part = flat_model("nav", &triangles, texture, true);
+                overlay.meshes.append(&mut part.meshes);
+            }
+            scene.models.push(Placed::at(overlay, [0.0; 3]));
+            // The islands the links lead to from the main one.
+            let mut reached: std::collections::BTreeSet<u32> = main.into_iter().collect();
+            loop {
+                let more: Vec<u32> = (nav.links.iter())
+                    .flat_map(|link| {
+                        reached
+                            .iter()
+                            .filter_map(|island| link.crossed_from(&nav, *island))
+                            .filter_map(|(_, land)| nav.island_at(land, 0.5, 0.5))
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|island| !reached.contains(island))
+                    .collect();
+                if more.is_empty() {
+                    break;
+                }
+                reached.extend(more);
+            }
+            let apart_of = |counted: &dyn Fn(u32) -> bool| {
+                nav.faces
+                    .iter()
+                    .filter(|face| !counted(face.island))
+                    .count()
+            };
+            let apart = apart_of(&|island| Some(island) == main);
+            state.nav_facts = Some(NavFacts {
+                faces: nav.faces.len(),
+                islands: nav.islands,
+                portals: nav.portals(),
+                from,
+                apart,
+                entry_off,
+                links: checks,
+                by_links: apart - apart_of(&|island| reached.contains(&island)),
+            });
+        }
+    }
+    for (name, rgba) in textures {
+        scene
+            .textures
+            .insert(name.to_string(), colour_texture(rgba));
+    }
+    state.drawn = drawn;
+    state.built = state.editor.changes();
+    state.followed = u64::MAX;
+    state.shown_collision = state.show_collision;
+    state.shown_nav = state.show_nav;
+    state.redraws += 1;
+    state.timings.redraw_ms = started.elapsed().as_secs_f32() * 1000.0;
+    info!(
+        target: "editor",
+        "drew {module} in {:.0} ms",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    Ok(scene)
+}
+
+/// The scene drawn again once the edits have stopped for a moment.
+pub(crate) fn redraw(
+    mut commands: Commands,
+    mut state: ResMut<EditorState>,
+    time: Option<Res<Time>>,
+) {
+    if let Some(time) = time {
+        state.timings.frame(time.delta_secs() * 1000.0);
+    }
+    state.quiet = state.quiet.saturating_add(1);
+    crate::recover::tick(&mut state);
+    // A bake that ended is shown.
+    let ended = state.bake_job.as_mut().and_then(crate::bake::BakeJob::poll);
+    if let Some(ended) = ended {
+        let job = state.bake_job.take().expect("polled above");
+        let seconds = job.started.elapsed().as_secs();
+        match ended {
+            Ok(bake) => {
+                // What the bake was made from, for telling a stale one.
+                if let Some(from) = state.bake_from.take() {
+                    let _ = std::fs::write(bake.join(level_edit::lighting::MADE_FROM), from);
+                }
+                forget_bake(&state);
+                state.setup.bakes.retain(|had| *had != bake);
+                state.setup.bakes.insert(0, bake.clone());
+                state.bake = Some(bake);
+                state.light_view = kjk_game::fitted_lights::Mode::Baked;
+                state.say(format!(
+                    "bake {} done in {seconds} s: {}",
+                    job.label, job.status
+                ));
+                if std::mem::take(&mut state.bake_renew)
+                    && let Err(why) = keep_shown_bake(&mut state)
+                {
+                    state.say(format!("the new bake was not kept: {why}"));
+                }
+            }
+            Err(why) => {
+                state.bake_renew = false;
+                state.say(format!(
+                    "bake {} failed after {seconds} s: {why}",
+                    job.label
+                ));
+            }
+        }
+    }
+    // An audit that ended is shown.
+    let audited = (state.audit_job.as_ref())
+        .and_then(|(_, result)| result.lock().ok().and_then(|mut slot| slot.take()));
+    if let Some(audited) = audited {
+        let seconds =
+            (state.audit_job.take()).map_or(0, |(started, _)| started.elapsed().as_secs());
+        match audited {
+            Ok(output) => finish_audit(&mut state, &output, seconds),
+            Err(why) => state.say(why),
+        }
+    }
+    // A try that ended is shown.
+    let tried = state
+        .script_try
+        .as_ref()
+        .and_then(crate::script_edit::Try::poll);
+    if let Some(tried) = tried {
+        state.script_try = None;
+        match tried {
+            Ok(outcome) => {
+                let how = if outcome.ok {
+                    "ran"
+                } else {
+                    "did not run cleanly"
+                };
+                state.say(format!("{} {how}", outcome.script));
+                state.tried = Some(outcome);
+            }
+            Err(why) => state.say(why),
+        }
+    }
+    let asked = state.bake_request.is_some();
+    // The Room levels window measures the rooms when a scene is drawn.
+    let measure = state.show_levels
+        && state.room_measures.is_none()
+        && state.light_view != kjk_game::fitted_lights::Mode::Baked;
+    let stale = measure
+        || asked
+        || state.built != state.editor.changes()
+        || state.shown_collision != state.show_collision
+        || state.shown_nav != state.show_nav
+        || state.shown_lights != (state.light_view, state.bake.clone(), state.show_lights);
+    if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
+        return;
+    }
+    // Only moved or turned things since the drawing, which `follow` has put
+    // where they are: the scene stays, and letting go of a drag does not
+    // stop the editor while the whole area is drawn again.
+    let others_stale = measure
+        || asked
+        || state.shown_collision != state.show_collision
+        || state.shown_nav != state.show_nav
+        || state.shown_lights != (state.light_view, state.bake.clone(), state.show_lights);
+    if !others_stale && state.followed == state.editor.changes() {
+        state.built = state.editor.changes();
+        state.followed = u64::MAX;
+        // A conversation's lines changed: a creature's marker may now say
+        // that its conversation updates the journal.
+        if std::mem::take(&mut state.talks_stale) {
+            state.creature_talks = crate::markers::creature_talks(&state);
+        }
+        return;
+    }
+    match draw(&mut state) {
+        Ok(scene) => commands.insert_resource(SceneContent(Box::new(scene))),
+        Err(why) => {
+            state.say(format!("the area does not draw: {why}"));
+            state.built = state.editor.changes();
+        }
+    }
+}
+
+/// Each drawn thing's models and marker moved to where the project has it
+/// now: an edit shows before the scene is drawn again.
+pub(crate) fn follow(
+    state: Res<EditorState>,
+    scene: Option<Res<SceneContent>>,
+    mut roots: Query<(&SceneModel, &mut Transform)>,
+) {
+    let Some(scene) = scene else { return };
+    let mut wanted: BTreeMap<usize, Mat4> = BTreeMap::new();
+    for (target, models) in &state.drawn.things {
+        let Some((position, facing)) = state.editor.placement(*target) else {
+            continue;
+        };
+        // A room's copy was drawn turned already: it turns by what it has
+        // turned since.
+        let facing = match target {
+            Target::Room(at) => facing - state.drawn.room_yaws.get(*at).copied().unwrap_or(facing),
+            _ => facing,
+        };
+        // A lamp's pitch and roll as it has them now, not as it was drawn.
+        let tilt = match target {
+            Target::Lamp(at) => Some(
+                state
+                    .editor
+                    .project
+                    .kjk
+                    .lamps
+                    .get(*at)
+                    .and_then(kjk_game::lamps::tilt),
+            ),
+            _ => None,
+        };
+        for &model in models {
+            let Some(placed) = scene.0.models.get(model) else {
+                continue;
+            };
+            if placed.hook.is_some() {
+                continue;
+            }
+            let frame = match &tilt {
+                Some(attach) => root_attached(attach, position, facing),
+                None => root(placed, position, facing),
+            };
+            wanted.insert(model, frame);
+        }
+    }
+    for (model, mut transform) in &mut roots {
+        if let Some(matrix) = wanted.get(&model.index) {
+            let next = Transform::from_matrix(*matrix);
+            if *transform != next {
+                *transform = next;
+            }
+        }
+    }
+}
+
+/// Where a placed model's root sits when its object stands at `position`
+/// facing `facing` degrees: as `scene::placement` places it.
+pub(crate) fn root(placed: &Placed, position: [f32; 3], facing: f32) -> Mat4 {
+    root_attached(&placed.attach, position, facing)
+}
+
+/// `root` for a model attached by `attach`, whatever the model is.
+fn root_attached(
+    attach: &Option<asset_odyssey::model::Matrix>,
+    position: [f32; 3],
+    facing: f32,
+) -> Mat4 {
+    let frame = Mat4::from_rotation_translation(
+        Quat::from_rotation_z(facing.to_radians()),
+        Vec3::from_array(position),
+    );
+    match attach {
+        Some(attach) => frame * kjk_game::scene::to_mat4(attach),
+        None => frame,
+    }
+}
+
+/// A ray from the camera through a point of its view (pixels), in game
+/// space.
+/// Where the camera's eye is, in game space.
+pub(crate) fn eye_in_game(
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Option<Vec3> {
+    let (_, transform) = cameras.iter().next()?;
+    Some(game_to_bevy().inverse() * transform.translation())
+}
+
+/// `point` moved along the line from the camera's eye `eye` through it, to
+/// `share` times as far from the eye as it is. On the screen it stays
+/// where it was.
+pub(crate) fn along_view(
+    eye: bevy::math::DVec3,
+    point: bevy::math::DVec3,
+    share: f64,
+) -> bevy::math::DVec3 {
+    eye + (point - eye) * share
+}
+
+pub(crate) fn ray_at(
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    point: Vec2,
+) -> Option<(Vec3, Vec3)> {
+    let (camera, transform) = cameras.iter().next()?;
+    let ray = camera.viewport_to_world(transform, point).ok()?;
+    let to_game = game_to_bevy().inverse();
+    Some((to_game * ray.origin, to_game * Vec3::from(ray.direction)))
+}
+
+/// The centre of the camera's view, pixels.
+pub(crate) fn view_centre(
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Option<Vec2> {
+    let (camera, _) = cameras.iter().next()?;
+    camera.logical_viewport_size().map(|size| size / 2.0)
+}
+
+/// Where a ray first meets the level, if within 200 m.
+pub(crate) fn ground(
+    state: &mut EditorState,
+    (origin, direction): (Vec3, Vec3),
+) -> Option<[f32; 3]> {
+    use collision::CollisionWorld;
+    let end = origin + direction.normalize_or_zero() * 200.0;
+    let built = state.collision()?;
+    let trace = built.collision.level.trace(
+        origin.to_array(),
+        end.to_array(),
+        &collision::Extents::POINT,
+        collision::Contents::PLAYER_SOLID,
+    );
+    (trace.fraction < 1.0 && !trace.start_solid).then_some(trace.end)
+}
+
+/// How high each surface of the level is at `x` `y` (metres), from the top
+/// down: a roof, then the floors under it. At most 16 are found, within
+/// 200 m above and below the level's middle. `None` when the collision
+/// does not build.
+pub(crate) fn surfaces_at(state: &mut EditorState, x: f32, y: f32) -> Option<Vec<f32>> {
+    use collision::CollisionWorld;
+    let middle = state.editor.level_middle[2];
+    let (top, bottom) = (middle + 200.0, middle - 200.0);
+    let built = state.collision()?;
+    let mut found: Vec<f32> = Vec::new();
+    let mut from = top;
+    while from > bottom && found.len() < 16 {
+        let trace = built.collision.level.trace(
+            [x, y, from],
+            [x, y, bottom],
+            &collision::Extents::POINT,
+            collision::Contents::PLAYER_SOLID,
+        );
+        // Inside something solid: on down until the point is free.
+        if trace.start_solid {
+            from -= 0.25;
+            continue;
+        }
+        if trace.fraction >= 1.0 {
+            break;
+        }
+        let z = trace.end[2];
+        if found.last().is_none_or(|last| (last - z).abs() > 0.05) {
+            found.push(z);
+        }
+        from = z - 0.05;
+    }
+    Some(found)
+}
+
+/// How high the walkable floor is at `x` `y` (metres), from the top down:
+/// each walkable face of the rooms' walkmeshes there, and the top of each
+/// of the project's boxes that are walked on (but the box `but`, which is
+/// the one being dropped). Furniture, walls and roofs are left out.
+pub(crate) fn walkable_at(state: &mut EditorState, x: f32, y: f32, but: Option<usize>) -> Vec<f32> {
+    let faces = walkable_faces(state, but);
+    let mut found: Vec<f32> = Vec::new();
+    for [a, b, c] in faces {
+        if let Some(z) = height_in(&[a, b, c], x, y) {
+            found.push(z);
+        }
+    }
+    found.sort_by(|a, b| b.total_cmp(a));
+    found.dedup_by(|a, b| (*a - *b).abs() < 0.02);
+    found
+}
+
+/// The height of the face under the point `x`, `y`, seen from above; `None`
+/// where the point is outside it.
+fn height_in([a, b, c]: &[[f32; 3]; 3], x: f32, y: f32) -> Option<f32> {
+    let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if d.abs() < 1e-9 {
+        return None;
+    }
+    let u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+    let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+    let w = 1.0 - u - v;
+    (u >= -1e-4 && v >= -1e-4 && w >= -1e-4).then(|| u * a[2] + v * b[2] + w * c[2])
+}
+
+/// How near a doorway a door must be added or let go to stand in it,
+/// metres.
+pub(crate) const DOOR_REACH: f32 = 1.5;
+
+/// How near another thing's line a thing must be let go to take it,
+/// metres.
+pub(crate) const ALIGN_REACH: f32 = 0.25;
+
+/// The doorways of the level: where its layout says a door hangs, and the
+/// way the door faces (degrees from +X). A layout (`.lyt`) names them as
+/// door hooks, each of one room. A new map's rooms bring the hooks of the
+/// areas they are from, moved and turned as the map places the rooms.
+pub(crate) fn doorways(state: &EditorState) -> Vec<([f32; 3], f32)> {
+    let resolver = &state.setup.resolver;
+    // A hook's line is its room, its name, a 0, its place and a quaternion
+    // as W X Y Z. `fmt_odyssey::lyt` keeps the eight numbers in order.
+    let hooks = |area: &str| -> Vec<(String, [f32; 3], f32)> {
+        (resolver.read(area, ResType::LYT))
+            .and_then(|bytes| fmt_odyssey::lyt::Layout::parse(&bytes).ok())
+            .map_or_else(Vec::new, |layout| {
+                (layout.door_hooks.into_iter())
+                    .map(|hook| {
+                        let at = [hook.position[1], hook.position[2], hook.extra[0]];
+                        // From -180 to 180, as the games' own doors face.
+                        let turn = 2.0 * hook.extra[4].atan2(hook.extra[1]).to_degrees();
+                        let facing = (turn + 180.0).rem_euclid(360.0) - 180.0;
+                        (hook.room, at, facing)
+                    })
+                    .collect()
+            })
+    };
+    let project = &state.editor.project;
+    let Some(map) = &project.map else {
+        return (hooks(&project.area).into_iter())
+            .map(|(_, at, facing)| (at, facing))
+            .collect();
+    };
+    let mut read: BTreeMap<String, Vec<(String, [f32; 3], f32)>> = BTreeMap::new();
+    let mut found = Vec::new();
+    for room in &map.rooms {
+        let Some(library) = (state.setup.rooms.iter())
+            .find(|library| library.model.eq_ignore_ascii_case(&room.model))
+        else {
+            continue;
+        };
+        let of_area = (read.entry(library.area.clone())).or_insert_with(|| hooks(&library.area));
+        let (sin, cos) = collision::trig::sin_cos_deg(room.yaw);
+        for (_, at, facing) in of_area
+            .iter()
+            .filter(|(name, ..)| name.eq_ignore_ascii_case(&room.model))
+        {
+            let (x, y) = (at[0] - room.from[0], at[1] - room.from[1]);
+            found.push((
+                [
+                    room.position[0] + x * cos - y * sin,
+                    room.position[1] + x * sin + y * cos,
+                    room.position[2] + at[2] - room.from[2],
+                ],
+                facing + room.yaw,
+            ));
+        }
+    }
+    found
+}
+
+/// Puts the door `target` in the nearest doorway of the layout within
+/// `reach` metres, facing as the doorway does: where it now stands, or
+/// `None` when no doorway is that near. `joining` joins the edit before
+/// it (the door's add, or its drag).
+pub(crate) fn snap_door(
+    state: &mut EditorState,
+    target: Target,
+    reach: f32,
+    joining: bool,
+) -> Result<Option<[f32; 3]>, String> {
+    if !matches!(target, Target::Object(Kind::Door, _)) {
+        return Err("only a door stands in a doorway".into());
+    }
+    let (at, _) = (state.editor.placement(target)).ok_or("the door has no place")?;
+    let distance = |hook: &[f32; 3]| {
+        ((hook[0] - at[0]).powi(2) + (hook[1] - at[1]).powi(2) + (hook[2] - at[2]).powi(2)).sqrt()
+    };
+    let nearest = (doorways(state).into_iter())
+        .map(|(hook, facing)| (distance(&hook), hook, facing))
+        .filter(|(far, ..)| *far <= reach)
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, hook, facing)) = nearest else {
+        return Ok(None);
+    };
+    let edits = vec![Edit::Move(target, hook), Edit::Turn(target, facing)];
+    if joining {
+        state.apply_many_continuing(edits);
+    } else {
+        state.apply_many(edits);
+    }
+    Ok(Some(hook))
+}
+
+/// Lines the selected thing up with a thing near it: it takes the X of
+/// the nearest thing whose X is within `reach` metres of its own, and the Y
+/// likewise, so a row of crates or a pair of statues stands straight.
+/// Whether it moved. `joining` joins the edit before it (a drag).
+pub(crate) fn align_selected(
+    state: &mut EditorState,
+    reach: f32,
+    joining: bool,
+) -> Result<bool, String> {
+    let target = selected(state)?;
+    if matches!(target, Target::Sun | Target::Fitted(_) | Target::Room(_))
+        || state.editor.selection().len() > 1
+    {
+        return Ok(false);
+    }
+    let (at, _) = (state.editor.placement(target)).ok_or("the selection has no place")?;
+    let project = &state.editor.project;
+    let others: Vec<Target> = (state.editor.entries().into_iter())
+        .map(|entry| Target::Object(entry.kind, entry.index))
+        .chain((0..project.kjk.props.len()).map(Target::Prop))
+        .chain((0..project.kjk.boxes.len()).map(Target::Box))
+        .chain((0..project.kjk.lamps.len()).map(Target::Lamp))
+        .chain((0..project.kjk.lights.len()).map(Target::Light))
+        .filter(|other| *other != target)
+        .collect();
+    // Only things on the same floor and close by are lined up with.
+    let places: Vec<[f32; 3]> = (others.into_iter())
+        .filter_map(|other| state.editor.placement(other))
+        .map(|(place, _)| place)
+        .filter(|place| {
+            (place[2] - at[2]).abs() < 3.0
+                && (place[0] - at[0]).abs() < 30.0
+                && (place[1] - at[1]).abs() < 30.0
+        })
+        .collect();
+    let mut to = at;
+    for axis in 0..2 {
+        let nearest = (places.iter())
+            .map(|place| place[axis])
+            .filter(|line| (line - at[axis]).abs() <= reach && (line - at[axis]).abs() > 1e-4)
+            .min_by(|a, b| (a - at[axis]).abs().total_cmp(&(b - at[axis]).abs()));
+        if let Some(line) = nearest {
+            to[axis] = line;
+        }
+    }
+    if to == at {
+        return Ok(false);
+    }
+    let edit = Edit::Move(target, to);
+    if joining {
+        state.apply_continuing(edit);
+    } else {
+        state.apply(edit);
+    }
+    state.say(format!(
+        "lined up with what stands near: now at {:.2} {:.2}",
+        to[0], to[1]
+    ));
+    Ok(true)
+}
+
+/// The place `words` name: three numbers, or a thing as `select` names it.
+fn place_named(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<[f32; 3], String> {
+    if words.len() == 3 && words.iter().all(|word| word.parse::<f32>().is_ok()) {
+        return point(words);
+    }
+    if words.is_empty() {
+        return Err("measure takes two things or places: measure A to B".into());
+    }
+    let kept = state.editor.kept_selection();
+    let mut select = vec!["select"];
+    select.extend(words.iter().copied());
+    let found = command(state, &select, cameras)
+        .and_then(|()| {
+            state
+                .editor
+                .selected
+                .ok_or("nothing is named so".to_string())
+        })
+        .and_then(|target| {
+            (state.editor.placement(target))
+                .map(|(at, _)| at)
+                .ok_or("that has no place".to_string())
+        });
+    state.editor.set_selection(kept);
+    found
+}
+
+/// A digest of what a bake of the level is made from: its lights and lamps
+/// placed by hand, its sun, the kinds of fitting and room levels the
+/// project changed, and a new map's rooms.
+pub(crate) fn light_digest(state: &EditorState) -> String {
+    let project = &state.editor.project;
+    let lit = level_edit::KjkArea {
+        lights: project.kjk.lights.clone(),
+        lamps: project.kjk.lamps.clone(),
+        sun: project.kjk.sun,
+        own_lights: project.kjk.own_lights,
+        ..level_edit::KjkArea::default()
+    };
+    let mut hasher = blake3::Hasher::new();
+    for part in [
+        lit.write(),
+        format!("{:?}", project.kinds),
+        format!("{:?}", project.levels),
+        project
+            .map
+            .as_ref()
+            .map_or_else(String::new, level_edit::map::NewMap::write),
+    ] {
+        hasher.update(&(part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// The tag of a file that another mod brings: `override` when the game
+/// reads it from an override folder, `mod` when it reads it from the
+/// level's mod file. None for the game's own files, for the project's, for
+/// a room kjk made in memory and for a file the edited level does not have.
+pub(crate) fn mod_tag(state: &EditorState, name: &str, restype: ResType) -> Option<&'static str> {
+    use vfs::resolver::Origin;
+    match state.setup.resolver.find(name, restype)?.origin() {
+        Origin::Override => Some("override"),
+        Origin::ModFile => Some("mod"),
+        Origin::Game | Origin::Project | Origin::Made => None,
+    }
+}
+
+/// Whether the bake the project keeps of this level is stale: it says what
+/// it was made from (`level_edit::lighting::MADE_FROM`), and the level's
+/// lights are no longer that. A kept bake that does not say is not marked.
+pub(crate) fn bake_stale(state: &EditorState) -> bool {
+    bake_facts(state).1
+}
+
+/// How long the kept bake's facts are trusted (`bake_facts`) before the
+/// project's folder is looked at again, so a bake that another program
+/// puts there or takes out shows.
+const BAKE_SEEN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The bake the project keeps of the level being edited, and whether it is
+/// stale. The agent link and the Lighting menu ask many times a second, and
+/// the answer lists the bake's folder and digests the level's lights. So it
+/// is kept for the project as it is now (`Editor::changes`), for at most
+/// `BAKE_SEEN`, and forgotten when the editor itself changes it
+/// (`forget_bake`).
+fn bake_facts(state: &EditorState) -> (Option<PathBuf>, bool) {
+    let changes = state.editor.changes();
+    let mut seen = state.bake_seen.lock().ok();
+    if let Some((at, of, kept, stale)) = seen.as_deref().and_then(Option::as_ref)
+        && *of == changes
+        && at.elapsed() < BAKE_SEEN
+    {
+        return (kept.clone(), *stale);
+    }
+    let project = &state.editor.project;
+    let kept = level_edit::lighting::kept_bake(&project.folder, &project.module);
+    let stale = (kept.as_ref())
+        .and_then(|bake| std::fs::read_to_string(bake.join(level_edit::lighting::MADE_FROM)).ok())
+        .is_some_and(|from| from.trim() != light_digest(state));
+    if let Some(seen) = seen.as_deref_mut() {
+        *seen = Some((std::time::Instant::now(), changes, kept.clone(), stale));
+    }
+    (kept, stale)
+}
+
+/// Forgets what `bake_facts` keeps: the editor kept a bake, took one out,
+/// finished one or saved, so the answer is found again.
+fn forget_bake(state: &EditorState) {
+    if let Ok(mut seen) = state.bake_seen.lock() {
+        *seen = None;
+    }
+}
+
+/// Keeps the bake the view shows in the project (`bake keep`).
+fn keep_shown_bake(state: &mut EditorState) -> Result<(), String> {
+    let shown = (state.bake.clone())
+        .ok_or("the view shows no bake to keep: bake first, or pick one in the Lighting menu")?;
+    let project = &state.editor.project;
+    let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
+    if shown == kept {
+        return Err("the bake shown is the one the project keeps already".into());
+    }
+    let count = level_edit::lighting::keep_bake(&project.folder, &project.module, &shown)?;
+    forget_bake(state);
+    // The view goes on showing the same lightmaps, now the project's.
+    state.setup.bakes.retain(|had| *had != kept);
+    state.setup.bakes.insert(0, kept.clone());
+    state.bake = Some(kept.clone());
+    state.say(format!(
+        "kept the bake's {count} lightmaps in the project, at {}; play with the project is lit with it",
+        kept.display()
+    ));
+    Ok(())
+}
+
+/// The most places `floor_map` lists.
+const FLOOR_PLACES: usize = 60_000;
+
+/// The level's walkable floor as places `cell` metres apart, for the agent
+/// link's `floor.json`: each place's X, Y and height, the floor's bounds,
+/// and for a new map each room's bounds. A place is one the editor would
+/// drop a thing on: `walkable_at` finds its height there.
+pub(crate) fn floor_map(state: &mut EditorState, cell: f32) -> Result<serde_json::Value, String> {
+    if !(0.25..=20.0).contains(&cell) {
+        return Err("the places are 0.25 to 20 metres apart".into());
+    }
+    let faces = walkable_faces(state, None);
+    if faces.is_empty() {
+        return Err("the level has no walkable floor".into());
+    }
+    let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for corner in faces.iter().flatten() {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(corner[axis]);
+            high[axis] = high[axis].max(corner[axis]);
+        }
+    }
+    // The places stand on whole multiples of `cell`, so two maps of one
+    // level name the same places.
+    let at = |index: i32| index as f32 * cell;
+    let mut places: BTreeMap<(i32, i32), Vec<f32>> = BTreeMap::new();
+    for face in &faces {
+        let span = |axis: usize| {
+            let (least, most) = face
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(least, most), corner| {
+                    (least.min(corner[axis]), most.max(corner[axis]))
+                });
+            ((least / cell).ceil() as i32, (most / cell).floor() as i32)
+        };
+        let ((x0, x1), (y0, y1)) = (span(0), span(1));
+        for i in x0..=x1 {
+            for j in y0..=y1 {
+                if let Some(z) = height_in(face, at(i), at(j)) {
+                    let heights = places.entry((i, j)).or_default();
+                    if !heights.iter().any(|had| (had - z).abs() < 0.05) {
+                        heights.push(z);
+                    }
+                }
+            }
+        }
+        if places.len() > FLOOR_PLACES {
+            return Err(format!(
+                "the floor has more than {FLOOR_PLACES} places {cell} m apart: ask for places further apart"
+            ));
+        }
+    }
+    let round = |value: f32| (f64::from(value) * 100.0).round() / 100.0;
+    let listed: Vec<[f64; 3]> = places
+        .iter()
+        .flat_map(|((i, j), heights)| {
+            heights
+                .iter()
+                .map(move |z| [round(at(*i)), round(at(*j)), round(*z)])
+        })
+        .collect();
+    // A new map's rooms, each by the bounds of its own walkable floor.
+    let mut rooms = Vec::new();
+    if let Some(map) = &state.editor.project.map {
+        let module = state.editor.project.module.clone();
+        for (index, room) in map.rooms.iter().enumerate() {
+            let walkmesh = (state.setup.resolver.read(&room.model, ResType::WOK))
+                .and_then(|bytes| fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok())
+                .map(|walkmesh| room.placed(&walkmesh));
+            let bounds = walkmesh
+                .filter(|walkmesh| !walkmesh.vertices.is_empty())
+                .map(|walkmesh| {
+                    let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+                    for corner in &walkmesh.vertices {
+                        for axis in 0..3 {
+                            low[axis] = low[axis].min(corner[axis]);
+                            high[axis] = high[axis].max(corner[axis]);
+                        }
+                    }
+                    (low.map(round), high.map(round))
+                });
+            rooms.push(serde_json::json!({
+                "index": index,
+                "name": level_edit::map::room_name(&module, index),
+                "model": room.model,
+                "least": bounds.map(|(low, _)| low),
+                "most": bounds.map(|(_, high)| high),
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "note": "Each place is [X, Y, Z] in metres: a point of the walkable floor, where a thing can stand. A place with two heights is listed twice, one for each floor. A room's least and most are the corners of its walkmesh's box. A doorway is where the layout hangs a door, with the way the door faces: a door added within 1.5 m of one stands in it.",
+        "metres_apart": cell,
+        "least": low.map(round),
+        "most": high.map(round),
+        "places": listed,
+        "rooms": rooms,
+        "doorways": doorways(state)
+            .into_iter()
+            .map(|(at, facing)| serde_json::json!({
+                "at": at.map(round),
+                "facing_degrees": round(facing),
+            }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// The faces of the floor that can be walked on: the walkmesh's walkable
+/// faces, the doorways' floors and the tops of the project's walkable
+/// boxes, but for the box `but`.
+fn walkable_faces(state: &mut EditorState, but: Option<usize>) -> Vec<[[f32; 3]; 3]> {
+    let mut faces: Vec<[[f32; 3]; 3]> = Vec::new();
+    for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
+        if Some(at) != but && matches!(shape.role, BoxRole::Walkable | BoxRole::NavFloor) {
+            faces.extend(shape.top());
+        }
+    }
+    // The walkmesh's walkable faces and the doorways' floors, as the
+    // navigation mesh takes them (`AreaCollision::nav_faces`), before
+    // furniture is cut out of them: a thing may be dropped beside a crate.
+    if let Some(built) = state.collision() {
+        faces.extend(built.collision.walkable.iter().map(|(corners, _)| *corners));
+        faces.extend(built.collision.doorways.iter().copied());
+    }
+    faces
+}
+
+/// Puts everything selected on the walkable floor under it, as one edit:
+/// each thing goes straight down to the highest floor at or under it, or,
+/// with none under it, up to the lowest above. A box rests its underside
+/// on the floor. The sun, the game's own lights and a new map's rooms stay.
+fn drop_to_floor(state: &mut EditorState) -> Result<(), String> {
+    let selection = state.editor.selection();
+    if selection.is_empty() {
+        return Err("nothing is selected".into());
+    }
+    let mut edits = Vec::new();
+    let (mut standing, mut floorless) = (0, 0);
+    for target in selection {
+        if matches!(target, Target::Sun | Target::Fitted(_) | Target::Room(_)) {
+            continue;
+        }
+        let Some((at, _)) = state.editor.placement(target) else {
+            continue;
+        };
+        let (lift, own) = match target {
+            Target::Box(n) => (
+                (state.editor.project.kjk.boxes.get(n)).map_or(0.0, |shape| shape.size[2] * 0.5),
+                Some(n),
+            ),
+            _ => (0.0, None),
+        };
+        let floors = walkable_at(state, at[0], at[1], own);
+        let under = at[2] - lift + 0.5;
+        let floor = (floors.iter().copied().find(|z| *z <= under)).or(floors.last().copied());
+        match floor {
+            Some(floor) if (floor + lift - at[2]).abs() > 1e-3 => {
+                edits.push(Edit::Move(target, [at[0], at[1], floor + lift]));
+            }
+            Some(_) => standing += 1,
+            None => floorless += 1,
+        }
+    }
+    // Nothing to move is no mistake when everything stands on its floor.
+    // It is one when a thing has no floor to go to.
+    if edits.is_empty() {
+        if floorless > 0 {
+            return Err(format!(
+                "{floorless} of the things selected have no walkable floor under them, and nothing moved"
+            ));
+        }
+        state.say(format!(
+            "nothing moved: the {standing} things selected stand on their floor already"
+        ));
+        return Ok(());
+    }
+    if floorless > 0 {
+        state.say(format!(
+            "{floorless} of the things selected have no walkable floor under them and stayed"
+        ));
+    }
+    state.apply_many(edits);
+    Ok(())
+}
+
+/// The text of the project's script `name` as its folder holds it.
+pub(crate) fn script_text_on_disk(state: &EditorState, name: &str) -> Option<String> {
+    let bytes = std::fs::read(state.editor.project.folder.join(format!("{name}.nss"))).ok()?;
+    Some(bytes.into_iter().map(char::from).collect())
+}
+
+/// Where a new thing goes: the level under the screen's centre, else a
+/// few metres ahead of the camera.
+pub(crate) fn place_point(
+    state: &mut EditorState,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> [f32; 3] {
+    let Some(ray) = view_centre(cameras).and_then(|centre| ray_at(cameras, centre)) else {
+        return [0.0; 3];
+    };
+    ground(state, ray)
+        .unwrap_or_else(|| (ray.0 + ray.1.normalize_or_zero() * PLACE_AHEAD_M).to_array())
+}
+
+/// The nearest drawn thing a ray passes through: its model's bounds. A
+/// marker is picked on the screen before this (`markers::under`). A new map's room is picked last, when nothing else is: the room
+/// whose model holds `floor`, where the ray meets the level, and of those
+/// the smallest.
+pub(crate) fn pick(
+    state: &EditorState,
+    scene: &LoadedScene,
+    (origin, direction): (Vec3, Vec3),
+    floor: Option<[f32; 3]>,
+) -> Option<Target> {
+    let direction = direction.normalize_or_zero();
+    let mut best: Option<(f32, Target)> = None;
+    let mut offer = |distance: f32, target: Target| {
+        if best.is_none_or(|(nearest, _)| distance < nearest) {
+            best = Some((distance, target));
+        }
+    };
+    for (target, models) in &state.drawn.things {
+        let Some((position, facing)) = state.editor.placement(*target) else {
+            continue;
+        };
+        if let Target::Room(_) = target {
+            continue;
+        }
+        for &model in models {
+            let Some((low, high)) = scene
+                .models
+                .get(model)
+                .and_then(kjk_game::scene::local_bounds)
+            else {
+                continue;
+            };
+            // The ray in the model's own space.
+            let frame = Mat4::from_rotation_translation(
+                Quat::from_rotation_z(facing.to_radians()),
+                Vec3::from_array(position),
+            )
+            .inverse();
+            let o = frame.transform_point3(origin);
+            let d = frame.transform_vector3(direction);
+            let mut near = 0.0f32;
+            let mut far = f32::INFINITY;
+            let mut hit = true;
+            for axis in 0..3 {
+                if d[axis].abs() < 1e-6 {
+                    if o[axis] < low[axis] || o[axis] > high[axis] {
+                        hit = false;
+                    }
+                    continue;
+                }
+                let a = (low[axis] - o[axis]) / d[axis];
+                let b = (high[axis] - o[axis]) / d[axis];
+                near = near.max(a.min(b));
+                far = far.min(a.max(b));
+            }
+            if hit && near <= far && far > 0.0 {
+                offer(near, *target);
+            }
+        }
+    }
+    if best.is_none()
+        && let Some(floor) = floor
+    {
+        let floor = Vec3::from_array(floor);
+        let mut smallest: Option<(f32, Target)> = None;
+        for (target, models) in &state.drawn.things {
+            let (Target::Room(_), Some((position, _))) = (target, state.editor.placement(*target))
+            else {
+                continue;
+            };
+            for &model in models {
+                let Some((low, high)) = scene
+                    .models
+                    .get(model)
+                    .and_then(kjk_game::scene::local_bounds)
+                else {
+                    continue;
+                };
+                let local = floor - Vec3::from_array(position);
+                let slack = Vec3::splat(0.05);
+                if local.cmpge(low - slack).all() && local.cmple(high + slack).all() {
+                    let size = (high - low).x * (high - low).y;
+                    if smallest.is_none_or(|(least, _)| size < least) {
+                        smallest = Some((size, *target));
+                    }
+                }
+            }
+        }
+        return smallest.map(|(_, target)| target);
+    }
+    best.map(|(_, target)| target)
+}
+
+/// The walkmesh of the new map's room `at`, moved to where the map places
+/// it; `None` for a room the install has no walkmesh of.
+pub(crate) fn room_walkmesh(state: &EditorState, at: usize) -> Option<fmt_odyssey::bwm::Walkmesh> {
+    let room = state.editor.project.map.as_ref()?.rooms.get(at)?;
+    let bytes = state.setup.resolver.read(&room.model, ResType::WOK)?;
+    let walkmesh = fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok()?;
+    Some(room.placed(&walkmesh))
+}
+
+/// Moves the new map's room `at` so that an edge of its floor meets the
+/// nearest edge of another room's (`level_edit::map::seam_offset`), as a
+/// part of the last edit when `continuing`. False when no seam is near.
+pub(crate) fn snap_to_seam(state: &mut EditorState, at: usize, continuing: bool) -> bool {
+    let Some(moving) = room_walkmesh(state, at) else {
+        return false;
+    };
+    let rooms = state
+        .editor
+        .project
+        .map
+        .as_ref()
+        .map_or(0, |map| map.rooms.len());
+    let others: Vec<_> = (0..rooms)
+        .filter(|&other| other != at)
+        .filter_map(|other| room_walkmesh(state, other))
+        .collect();
+    let Some(by) = level_edit::map::seam_offset(&moving, &others, level_edit::map::SEAM_REACH)
+    else {
+        return false;
+    };
+    let Some((position, _)) = state.editor.placement(Target::Room(at)) else {
+        return false;
+    };
+    let to = std::array::from_fn(|axis| position[axis] + by[axis]);
+    let edit = Edit::Move(Target::Room(at), to);
+    if continuing {
+        state.apply_continuing(edit);
+    } else {
+        state.apply(edit);
+    }
+    true
+}
+
+/// Adds the install's room `model` to the new map so that its floor's
+/// middle stands at `at` (`library` says where its own area places it).
+pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Result<(), String> {
+    if state.editor.project.map.is_none() {
+        return Err("only a new map has rooms (docs/LEVEL-EDIT.md)".into());
+    }
+    let found = state
+        .setup
+        .rooms
+        .iter()
+        .find(|room| room.model.eq_ignore_ascii_case(model))
+        .cloned()
+        .ok_or(format!("the install has no room {model}"))?;
+    // The walkmesh's middle and floor, which stand where the room is put.
+    let (middle, low) = state
+        .setup
+        .resolver
+        .read(&found.model, ResType::WOK)
+        .and_then(|bytes| fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok())
+        .and_then(|walkmesh| {
+            let points = walkmesh
+                .vertices
+                .iter()
+                .map(|point| Vec3::from_array(*point));
+            kjk_game::scene::span(points)
+        })
+        .map_or(
+            (Vec3::from_array(found.from), found.from[2]),
+            |(low, high)| ((low + high) * 0.5, low.z),
+        );
+    let offset = middle - Vec3::from_array(found.from);
+    let position = [
+        at[0] - offset.x,
+        at[1] - offset.y,
+        at[2] - (low - found.from[2]),
+    ];
+    state.apply(Edit::AddRoom(level_edit::Room {
+        model: found.model.clone(),
+        from: found.from,
+        position,
+        yaw: 0.0,
+        ja: found.ja.clone(),
+        dry: false,
+    }));
+    Ok(())
+}
+
+/// Adds the install's room `model` to the new map at the place its own
+/// level's layout gives it.
+pub(crate) fn add_room_home(state: &mut EditorState, model: &str) -> Result<(), String> {
+    if state.editor.project.map.is_none() {
+        return Err("only a new map has rooms (docs/LEVEL-EDIT.md)".into());
+    }
+    let found = (state.setup.rooms.iter())
+        .find(|room| room.model.eq_ignore_ascii_case(model))
+        .cloned()
+        .ok_or(format!("the install has no room {model}"))?;
+    state.apply(Edit::AddRoom(level_edit::Room {
+        model: found.model.clone(),
+        from: found.from,
+        position: found.from,
+        yaw: 0.0,
+        ja: found.ja.clone(),
+        dry: false,
+    }));
+    Ok(())
+}
+
+/// A finite number a command names.
+pub(crate) fn number(word: &str) -> Result<f32, String> {
+    word.parse::<f32>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or(format!("{word:?} is not a number"))
+}
+
+pub(crate) fn point(words: &[&str]) -> Result<[f32; 3], String> {
+    match words {
+        [x, y, z] => Ok([number(x)?, number(y)?, number(z)?]),
+        _ => Err("a point is three numbers: x y z".into()),
+    }
+}
+
+fn kind_named(word: &str) -> Option<Kind> {
+    match word {
+        "placeable" => Some(Kind::Placeable),
+        "creature" => Some(Kind::Creature),
+        "door" => Some(Kind::Door),
+        "waypoint" => Some(Kind::Waypoint),
+        "trigger" => Some(Kind::Trigger),
+        "sound" => Some(Kind::Sound),
+        "store" => Some(Kind::Store),
+        "encounter" => Some(Kind::Encounter),
+        _ => None,
+    }
+}
+
+impl EditSetup {
+    /// The install's templates of a kind the editor adds.
+    pub(crate) fn templates_of(&self, kind: Kind) -> &[String] {
+        match kind {
+            Kind::Placeable => &self.placeables,
+            Kind::Creature => &self.creatures,
+            Kind::Door => &self.doors,
+            Kind::Waypoint => &self.waypoints,
+            Kind::Trigger => &self.triggers,
+            Kind::Sound => &self.sounds,
+            Kind::Store => &self.stores,
+            Kind::Encounter => &self.encounters,
+        }
+    }
+}
+
+/// Adds an object of `kind` made from the install's `template` at
+/// `position`. A kind read whole from its GIT entry (a waypoint) takes the
+/// template's own fields into its entry.
+pub(crate) fn add_object(
+    state: &mut EditorState,
+    kind: Kind,
+    template: &str,
+    position: [f32; 3],
+) -> Result<(), String> {
+    let template = template.to_ascii_lowercase();
+    if !ADDABLE.contains(&kind) {
+        return Err(format!("a {} cannot be added", kind_name(kind)));
+    }
+    let (_, restype) = kind.list_and_type();
+    let whole = level_edit::template::whole(kind);
+    let here = (state.setup.templates_of(kind).binary_search(&template)).is_ok()
+        || (state.editor.project.templates.get(&template))
+            .is_some_and(|made| made.restype == restype);
+    // A template only another level of the game has is copied into the
+    // project with what it names (`elsewhere`).
+    let mut edits = Vec::new();
+    let mut read = None;
+    if !here {
+        let import = crate::elsewhere::import(state, &template, restype, !whole).ok_or(
+            format!("the game has no {} template {template}", kind_name(kind)),
+        )??;
+        let scripts = crate::elsewhere::write_scripts(state, &import)?;
+        let (items, conversations, creatures) = import.with;
+        state.say(format!(
+            "{template} is copied from the level {}, with {items} items, {conversations} conversations, {creatures} creatures and {scripts} scripts it names",
+            import.module
+        ));
+        edits = import.edits;
+        read = Some(import.gff);
+    }
+    let base = if whole {
+        let gff = read
+            .or_else(|| state.template_gff(&template, restype))
+            .ok_or(format!("the template {template} does not read"))?;
+        Some(gff.root)
+    } else {
+        None
+    };
+    edits.push(Edit::AddObject {
+        kind,
+        template,
+        position,
+        facing: 0.0,
+        base,
+    });
+    let imported = edits.len() > 1;
+    state.apply_many(edits);
+    // A door added near a doorway of the layout stands in it.
+    if kind == Kind::Door
+        && let Some(added) = state.editor.selection().last().copied()
+        && let Ok(Some(at)) = snap_door(state, added, DOOR_REACH, true)
+    {
+        state.say(format!(
+            "the door stands in the doorway at {:.2} {:.2} {:.2}",
+            at[0], at[1], at[2]
+        ));
+    }
+    // The new object alone is selected, as after any add: the edits that
+    // copied its template kept what was selected before among the
+    // selection, and a `tag` after the add would have named that instead.
+    if imported && let Some(added) = state.editor.selection().last().copied() {
+        state.editor.select(Some(added), false);
+    }
+    Ok(())
+}
+
+/// Runs one `edit` command (`docs/LEVEL-EDIT.md`). Keys run the same
+/// commands.
+pub(crate) fn run(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) {
+    if let Err(why) = command(state, words, cameras) {
+        // A refused edit has said why already (`EditorState::refuse`).
+        if state.messages.last() != Some(&why) {
+            state.say(format!("edit {}: {why}", words.join(" ")));
+        }
+    }
+}
+
+/// The object a command names by its kind's word and its place in that
+/// kind's list, from 0.
+fn object_at(state: &EditorState, kind: &str, n: &str) -> Result<Target, String> {
+    let kind = kind_named(kind).ok_or(format!("{kind:?} is not a kind of object"))?;
+    let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+    if state.editor.entry(kind, at).is_none() {
+        return Err(format!("there is no {} {at}", kind_name(kind)));
+    }
+    Ok(Target::Object(kind, at))
+}
+
+fn selected(state: &EditorState) -> Result<Target, String> {
+    state.editor.selected.ok_or("nothing is selected".into())
+}
+
+/// Runs one `edit` command and answers how it went: an edit the project
+/// refused (a sun's colour below 0, a box too small) is an error here, not
+/// only a message.
+pub(crate) fn command(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    state.refused = None;
+    let done = command_words(state, words, cameras).and_then(|()| match state.refused.take() {
+        Some(why) => Err(why),
+        None => Ok(()),
+    });
+    // A command that did nothing says why over the view too.
+    if let Err(why) = &done {
+        state.refusal = Some((std::time::Instant::now(), why.clone()));
+    }
+    done
+}
+
+fn command_words(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    match words {
+        ["select", "prop", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.props.len() {
+                return Err(format!("there is no prop {at}"));
+            }
+            state.editor.select(Some(Target::Prop(at)), false);
+        }
+        ["select", "box", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.boxes.len() {
+                return Err(format!("there is no box {at}"));
+            }
+            state.editor.select(Some(Target::Box(at)), false);
+        }
+        ["select", "room", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            let rooms = state
+                .editor
+                .project
+                .map
+                .as_ref()
+                .map_or(0, |map| map.rooms.len());
+            if at >= rooms {
+                return Err(format!("there is no room {at}"));
+            }
+            state.editor.select(Some(Target::Room(at)), false);
+        }
+        ["select", "sun"] => state.editor.select(Some(Target::Sun), false),
+        ["sun", "game"] => state.apply(Edit::SetSun(None)),
+        ["sun", field, rest @ ..] => {
+            let middle = state.editor.level_middle;
+            let mut sun = state
+                .editor
+                .sun()
+                .unwrap_or_else(|| level_edit::area::SunLight {
+                    at: [middle[0], middle[1], middle[2] + 500.0],
+                    colour: [1.0; 3],
+                    multiplier: 1.0,
+                    radius: 2000.0,
+                });
+            let numbers: Vec<f32> = rest
+                .iter()
+                .map(|word| {
+                    word.parse::<f32>()
+                        .map_err(|_| format!("{word:?} is not a number"))
+                })
+                .collect::<Result<_, _>>()?;
+            let (bearing, height, distance) = sun.seen_from(middle);
+            match (*field, numbers.as_slice()) {
+                ("add", []) => {}
+                ("bearing", [degrees]) => {
+                    sun = sun.placed(
+                        middle,
+                        (*degrees, height, distance),
+                        &collision::trig::sin_cos_deg,
+                    );
+                }
+                ("height", [degrees]) => {
+                    sun = sun.placed(
+                        middle,
+                        (bearing, *degrees, distance),
+                        &collision::trig::sin_cos_deg,
+                    );
+                }
+                ("colour", [r, g, b]) => sun.colour = [*r, *g, *b],
+                ("multiplier", [value]) => sun.multiplier = *value,
+                ("radius", [value]) => sun.radius = *value,
+                _ => {
+                    return Err(
+                        "sun add, sun bearing DEGREES, sun height DEGREES, sun colour R G B, sun multiplier M, sun radius METRES or sun game"
+                            .into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetSun(Some(sun)));
+        }
+        ["select", "entry"] => {
+            if state.editor.project.map.is_none() {
+                return Err("only a new map has an entry".into());
+            }
+            state.editor.select(Some(Target::Entry), false);
+        }
+        ["select", "none"] | ["deselect"] => state.editor.select(None, false),
+        ["drop"] => drop_to_floor(state)?,
+        // The selection moved along the line from the camera through its
+        // middle: away from the camera by METRES, nearer by a negative
+        // number. The mouse wheel does this during a free move.
+        ["push", metres] => {
+            let metres = number(metres)?;
+            let eye = eye_in_game(cameras).ok_or("there is no camera")?;
+            let middle = state
+                .editor
+                .selection_centre()
+                .ok_or("nothing is selected")?;
+            let to = Vec3::from_array(middle) - eye;
+            if to.length() < 1e-3 {
+                return Err("the selection is at the camera".into());
+            }
+            let share = f64::from(((to.length() + metres) / to.length()).max(0.0));
+            let moved = along_view(eye.as_dvec3(), Vec3::from_array(middle).as_dvec3(), share);
+            let by = (moved.as_vec3() - Vec3::from_array(middle)).to_array();
+            state.apply_many(state.editor.moves_by(by));
+        }
+        ["markers", kind, on @ ("on" | "off")] => {
+            let kinds: Vec<Kind> = match *kind {
+                "all" => Kind::ALL.to_vec(),
+                kind => vec![kind_named(kind).ok_or("markers takes a kind of object, or all")?],
+            };
+            for kind in kinds {
+                state.hidden.retain(|hidden| *hidden != kind);
+                if *on == "off" {
+                    state.hidden.push(kind);
+                }
+            }
+        }
+        // The level's lights and lamps given to kjk's light data, then the
+        // project saved without them.
+        ["publish"] => {
+            if state.setup.light_data.is_none() {
+                return Err(
+                    "kjk's light data was not found: publishing needs kjk built from source, or KJK_LIGHT_DATA set to a data/lights folder"
+                        .into(),
+                );
+            }
+            if state.editor.project.map.is_none() {
+                publish_lights(state)?;
+            }
+            publish_rules(state)?;
+            command(state, &["save"], cameras)?;
+        }
+        // The project as a mod of the game, in a folder to copy into the
+        // game's own (`level_edit::mods`): saved first.
+        ["export", folder @ ..] => {
+            command(state, &["save"], cameras)?;
+            let project = &state.editor.project;
+            let to = match folder {
+                [] => store::kjk_folder(|var| std::env::var(var).ok())
+                    .ok_or("kjk's folder is not known: name a folder to export to")?
+                    .join("exports")
+                    .join(&project.name),
+                words => PathBuf::from(words.join(" ")),
+            };
+            let needs = crate::elsewhere::needs(state);
+            let exported = level_edit::mods::export(project, &to, &needs)?;
+            let built_on = match exported.needs {
+                0 => String::new(),
+                1 => ". It was built on 1 file of another mod, which a player must install first"
+                    .to_string(),
+                count => format!(
+                    ". It was built on {count} files of other mods, which a player must install first"
+                ),
+            };
+            let left = match exported.left {
+                0 => String::new(),
+                1 => ". 1 other file in that folder was left as it is".to_string(),
+                count => format!(". {count} other files in that folder were left as they are"),
+            };
+            let said = format!(
+                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads{built_on}{left}",
+                project.name,
+                to.display(),
+                exported.game_files,
+                exported.kjk_files
+            );
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        // The version an exported mod says it is: kept in `project.toml`,
+        // so the project is saved with it.
+        ["mod", "version"] => {
+            let project = &state.editor.project;
+            let said = format!("{} is version {}", project.name, project.version);
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        ["mod", "version", version] => {
+            let fits = version.len() <= 24
+                && (version.bytes()).all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+            if !fits {
+                return Err(format!(
+                    "{version:?}: a version is 1 to 24 letters, digits, dots, - and _"
+                ));
+            }
+            state.editor.project.version = version.to_string();
+            command(state, &["save"], cameras)?;
+        }
+        ["recover"] => crate::recover::take(state)?,
+        ["recover", "discard"] => crate::recover::discard(state)?,
+        // The recovery copy written now, not at its next turn.
+        ["recover", "write"] => {
+            if state.recovery.is_some() {
+                return Err("a recovery copy waits to be taken or discarded first".into());
+            }
+            let folder = crate::recover::write(state)?;
+            state.say(format!("recovery copy written to {}", folder.display()));
+        }
+        // An object by its kind and its place in that kind's list, for one
+        // whose tag names another object first, or has a space in it.
+        ["select", kind, n] if kind_named(kind).is_some() => {
+            let target = object_at(state, kind, n)?;
+            state.editor.select(Some(target), false);
+        }
+        ["select", "more", kind, n] if kind_named(kind).is_some() => {
+            let target = object_at(state, kind, n)?;
+            if !state.editor.selection().contains(&target) {
+                state.editor.select(Some(target), true);
+            }
+        }
+        ["select", "more", tag] => {
+            let found = state
+                .editor
+                .entries()
+                .into_iter()
+                .find(|entry| state.tag_of(entry).eq_ignore_ascii_case(tag))
+                .ok_or(format!("no object is tagged {tag}"))?;
+            let target = Target::Object(found.kind, found.index);
+            if !state.editor.selection().contains(&target) {
+                state.editor.select(Some(target), true);
+            }
+        }
+        ["select", tag] => {
+            let tags: Vec<(Entry, String)> = state
+                .editor
+                .entries()
+                .into_iter()
+                .map(|entry| {
+                    let tag = state.tag_of(&entry);
+                    (entry, tag)
+                })
+                .collect();
+            let found = tags
+                .iter()
+                .find(|(_, own)| own.eq_ignore_ascii_case(tag))
+                .ok_or(format!("no object is tagged {tag}"))?;
+            state
+                .editor
+                .select(Some(Target::Object(found.0.kind, found.0.index)), false);
+        }
+        ["copy"] => {
+            state.copied = Some(copy_text(state)?);
+        }
+        ["copy", "to", path @ ..] => {
+            let path = path.join(" ");
+            std::fs::write(&path, copy_text(state)?).map_err(|error| format!("{path}: {error}"))?;
+            state.say(format!("copied to {path}"));
+        }
+        ["paste", "from", path @ ..] => {
+            let path = path.join(" ");
+            let text =
+                std::fs::read_to_string(&path).map_err(|error| format!("{path}: {error}"))?;
+            paste(state, &text, cameras)?;
+        }
+        ["move", "by", dx, dy, dz] => {
+            let by = point(&[dx, dy, dz])?;
+            let moves = state.editor.moves_by(by);
+            state.apply_many(moves);
+        }
+        ["move", rest @ ..] => {
+            let target = selected(state)?;
+            state.apply(Edit::Move(target, point(rest)?));
+        }
+        ["nudge", rest @ ..] => {
+            let target = selected(state)?;
+            let by = point(rest)?;
+            let (at, _) = state
+                .editor
+                .placement(target)
+                .ok_or("the selection is gone")?;
+            state.apply(Edit::Move(target, [0, 1, 2].map(|i| at[i] + by[i])));
+        }
+        ["turn", degrees] => {
+            let target = selected(state)?;
+            state.apply(Edit::Turn(target, number(degrees)?));
+        }
+        // The selected door put in the nearest doorway of the layout, as
+        // far away as it may be, facing as the doorway does.
+        ["snap", "door"] => {
+            let target = selected(state)?;
+            let at = snap_door(state, target, f32::MAX, false)?
+                .ok_or("the level's layout names no doorway")?;
+            state.answer = Some(format!("{:.2} {:.2} {:.2}", at[0], at[1], at[2]));
+        }
+        // The selected thing lined up with a thing near it (`align_selected`).
+        ["align"] => {
+            if !align_selected(state, ALIGN_REACH * 4.0, false)? {
+                return Err("nothing stands near enough to line up with".into());
+            }
+        }
+        // How far two things or places are apart. Each is named as `select`
+        // names a thing, or is a place: X Y Z.
+        ["measure", rest @ ..] => {
+            let at = rest
+                .iter()
+                .position(|word| *word == "to")
+                .ok_or("measure takes two things or places: measure A to B")?;
+            let (from, to) = (&rest[..at], &rest[at + 1..]);
+            let (a, b) = (
+                place_named(state, from, cameras)?,
+                place_named(state, to, cameras)?,
+            );
+            let flat = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+            let all = (flat.powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            let said = format!(
+                "{all:.2} m apart: {flat:.2} m along the floor, {:.2} m up",
+                b[2] - a[2]
+            );
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        ["scale", scale] => match selected(state)? {
+            Target::Prop(at) => state.apply(Edit::Scale(at, number(scale)?)),
+            _ => return Err("only a prop has a scale".into()),
+        },
+        ["size", rest @ ..] => match selected(state)? {
+            Target::Box(at) => state.apply(Edit::Resize(at, point(rest)?)),
+            _ => return Err("only a box has a size".into()),
+        },
+        // Several selected: each is copied, or deleted, as one edit.
+        ["duplicate"] => {
+            let selection = state.editor.selection();
+            if selection.len() > 1 {
+                state.apply_many(selection.into_iter().map(Edit::Duplicate).collect());
+            } else {
+                let target = selected(state)?;
+                state.apply(Edit::Duplicate(target));
+            }
+        }
+        ["delete"] => {
+            if state.editor.selection().len() > 1 {
+                let deletes = state.editor.deletes();
+                state.apply_many(deletes);
+            } else {
+                let target = selected(state)?;
+                state.apply(Edit::Delete(target));
+            }
+        }
+        ["turn", "by", degrees] => {
+            let degrees: f32 = degrees
+                .parse()
+                .map_err(|_| format!("{degrees:?} is not a number of degrees"))?;
+            let centre = state
+                .editor
+                .selection_centre()
+                .ok_or("nothing is selected")?;
+            let turns =
+                state
+                    .editor
+                    .turns_round(centre, degrees, collision::trig::sin_cos_deg(degrees));
+            state.apply_many(turns);
+        }
+        ["undo"] => {
+            if !state.editor.undo() {
+                return Err("nothing to undo".into());
+            }
+            state.quiet = 0;
+        }
+        ["redo"] => {
+            if !state.editor.redo() {
+                return Err("nothing to redo".into());
+            }
+            state.quiet = 0;
+        }
+        ["add", "light", shape, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            let light =
+                light_shape(shape, at).ok_or("add light takes point, spot, panel or strip")?;
+            state.apply(Edit::AddLight(light));
+        }
+        ["add", "lamp", model, rest @ ..] => {
+            // `-` names no mesh: the whole model.
+            let (mesh, rest) = match rest {
+                [mesh, rest @ ..] if mesh.parse::<f32>().is_err() => (*mesh, rest),
+                rest => ("-", rest),
+            };
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            let mesh = if mesh == "-" { "" } else { mesh };
+            add_lamp(state, level_edit::PlacedLamp::new(model, mesh, at))?;
+        }
+        ["add", "effect", effect, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            add_effect(state, effect, at)?;
+        }
+        ["select", "effect", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.effects.len() {
+                return Err(format!("there is no effect {at}"));
+            }
+            state.editor.select(Some(Target::Effect(at)), false);
+        }
+        ["effect", field, rest @ ..] => {
+            let Target::Effect(at) = selected(state)? else {
+                return Err("select an effect first".into());
+            };
+            let mut effect = state.editor.project.kjk.effects[at].clone();
+            let value = |words: &[&str]| -> Result<f32, String> {
+                match words {
+                    [word] => word
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|value| value.is_finite())
+                        .ok_or(format!("{word:?} is not a number")),
+                    _ => Err("give one number".into()),
+                }
+            };
+            match (*field, rest) {
+                ("pitch", words) => effect.pitch = value(words)?,
+                ("every", words) => effect.every = value(words)?,
+                ("file", [file]) => {
+                    effect.effect = level_edit::effects::effect_path(file);
+                    known_effect(state, &effect.effect)?;
+                }
+                _ => {
+                    return Err(
+                        "effect pitch DEGREES, effect every SECONDS or effect file PATH".into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetEffect(at, effect));
+        }
+        ["listen", rest @ ..] => listen_command(state, rest)?,
+        ["effects", "list", rest @ ..] => {
+            let filter = rest.join(" ").to_ascii_lowercase();
+            let found: Vec<String> = (state.setup.effects.iter())
+                .filter(|path| path.contains(filter.as_str()))
+                .cloned()
+                .collect();
+            state.say(format!("{} effects", found.len()));
+            for path in found {
+                state.say(path);
+            }
+        }
+        ["select", "lamp", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.lamps.len() {
+                return Err(format!("there is no lamp {at}"));
+            }
+            state.editor.select(Some(Target::Lamp(at)), false);
+        }
+        ["lamp", field, rest @ ..] => {
+            let Target::Lamp(at) = selected(state)? else {
+                return Err("select a lamp first".into());
+            };
+            let mut lamp = state.editor.project.kjk.lamps[at].clone();
+            match (*field, rest) {
+                ("kind", [on @ ("room" | "placeable")]) => lamp.on_placeable = *on == "placeable",
+                ("reason", words) => lamp.reason = words.join(" "),
+                (turn @ ("pitch" | "roll"), [degrees]) => {
+                    let degrees: f32 = degrees
+                        .parse()
+                        .ok()
+                        .filter(|degrees: &f32| degrees.is_finite())
+                        .ok_or(format!("{degrees:?} is not a number of degrees"))?;
+                    if turn == "pitch" {
+                        lamp.pitch = degrees;
+                    } else {
+                        lamp.roll = degrees;
+                    }
+                }
+                _ => {
+                    return Err(
+                        "lamp kind room|placeable, lamp pitch DEGREES, lamp roll DEGREES or lamp reason TEXT"
+                            .into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetLamp(at, lamp));
+        }
+        ["lamps", "list"] => {
+            let rooms = state.setup.rooms.iter().map(|room| room.model.clone());
+            state.lamp_library.start(&state.setup.resolver, rooms);
+            let game = state.setup.game.key();
+            state.lamp_library.finish(&state.setup.resolver, game);
+            let lines: Vec<String> = (state.lamp_library.found.iter())
+                .map(|lamp| {
+                    let mesh = if lamp.mesh.is_empty() {
+                        "-"
+                    } else {
+                        &lamp.mesh
+                    };
+                    format!("lamp {} {mesh} ({})", lamp.model, lamp.texture)
+                })
+                .collect();
+            state.say(format!("{} lamps to place", lines.len()));
+            for line in lines {
+                state.say(line);
+            }
+        }
+        // A room where its own level has it: rooms of one level then fit
+        // together as they do there.
+        ["add", "room", model, "home"] => add_room_home(state, model)?,
+        ["add", "room", model, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            add_room(state, model, at)?;
+        }
+        ["seam"] => {
+            let Target::Room(at) = selected(state)? else {
+                return Err("only a room meets another's seam".into());
+            };
+            if !snap_to_seam(state, at, false) {
+                return Err(format!(
+                    "no other room's edge is within {} m of this room's",
+                    level_edit::map::SEAM_REACH
+                ));
+            }
+        }
+        ["entry", rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            state.apply(Edit::Move(Target::Entry, at));
+        }
+        ["add", kind, template, rest @ ..] => {
+            let kind = kind_named(kind).ok_or(
+                "add takes placeable, creature, door, waypoint, trigger, sound, store or encounter",
+            )?;
+            let position = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            add_object(state, kind, template, position)?;
+        }
+        ["tag", tag] => {
+            let target = selected(state)?;
+            state.change_template(target, Change::Tag(tag.to_string()));
+        }
+        ["prop", model, rest @ ..] => {
+            let model = fmt_ja::game_path(model);
+            if !state.setup.models.contains(&model) {
+                let known = state
+                    .setup
+                    .ja
+                    .as_ref()
+                    .is_some_and(|stack| stack.base().contains_key(model.as_str()));
+                if !known {
+                    return Err(format!("Jedi Academy's archives have no {model}"));
+                }
+            }
+            let (position, scale) = match rest {
+                [] => (place_point(state, cameras), 1.0),
+                [x, y, z] => (point(&[x, y, z])?, 1.0),
+                [x, y, z, scale] => (point(&[x, y, z])?, number(scale)?),
+                _ => return Err("prop takes a model, then x y z and a scale".into()),
+            };
+            let name = state.editor.project.kjk.free_name("prop");
+            state.apply(Edit::AddProp(Prop {
+                name,
+                model,
+                position,
+                yaw: 0.0,
+                scale,
+                solid: true,
+            }));
+        }
+        ["box", rest @ ..] => {
+            let (centre, size, yaw) = match rest {
+                [] => {
+                    let mut at = place_point(state, cameras);
+                    at[2] += NEW_BOX[2] * 0.5;
+                    (at, NEW_BOX, 0.0)
+                }
+                [cx, cy, cz, sx, sy, sz] => (point(&[cx, cy, cz])?, point(&[sx, sy, sz])?, 0.0),
+                [cx, cy, cz, sx, sy, sz, yaw] => {
+                    (point(&[cx, cy, cz])?, point(&[sx, sy, sz])?, number(yaw)?)
+                }
+                _ => return Err("box takes a centre, a size and a yaw".into()),
+            };
+            let name = state.editor.project.kjk.free_name("box");
+            state.apply(Edit::AddBox(CollisionBox {
+                name,
+                centre,
+                size,
+                yaw,
+                role: BoxRole::Solid,
+            }));
+        }
+        ["role", word] => {
+            let Target::Box(at) = selected(state)? else {
+                return Err("only a box has a role".into());
+            };
+            let role =
+                BoxRole::from_word(word).ok_or("role takes solid, walkable, block or floor")?;
+            state.apply(Edit::Role(at, role));
+        }
+        ["light", "view", view, rest @ ..] => {
+            use kjk_game::fitted_lights::Mode;
+            state.light_view = match *view {
+                "game" => Mode::Off,
+                "live" => Mode::Live,
+                "lamps" => Mode::LampsOnly,
+                "baked" => Mode::Baked,
+                _ => return Err("light view takes game, live, lamps or baked".into()),
+            };
+            if let [folder] = rest {
+                state.bake = Some(PathBuf::from(folder));
+            } else if state.light_view == Mode::Baked && state.bake.is_none() {
+                state.bake = state.setup.bakes.first().cloned();
+                if state.bake.is_none() {
+                    state.say("no bake of this area was found; name its folder");
+                }
+            }
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["lights", on @ ("on" | "off")] => {
+            state.show_lights = *on == "on";
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["select", "light", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.lights.len() {
+                return Err(format!("there is no placed light {at}"));
+            }
+            state.editor.select(Some(Target::Light(at)), false);
+        }
+        ["select", "fitted", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.seen_lights.len() {
+                return Err(format!(
+                    "there is no fitted light {at} (are the lights drawn?)"
+                ));
+            }
+            state.editor.select(Some(Target::Fitted(at)), false);
+        }
+        ["light", "copy"] => {
+            let Target::Fitted(at) = selected(state)? else {
+                return Err("only a fitted light is copied as a placed light".into());
+            };
+            let (mut light, source) = state.editor.seen_lights[at].clone();
+            light.reason = format!("Copied from the fitted light of {source}.");
+            state.apply(Edit::AddLight(light));
+        }
+        [
+            "light",
+            field @ ("colour" | "radius" | "cone" | "strip" | "reason"),
+            rest @ ..,
+        ] => {
+            let Target::Light(at) = selected(state)? else {
+                return Err("only a light placed by hand is changed".into());
+            };
+            let mut light = state.editor.project.kjk.lights[at].clone();
+            match (*field, rest) {
+                ("colour", [r, g, b]) => light.colour = [number(r)?, number(g)?, number(b)?],
+                ("radius", [r]) => light.radius = number(r)?,
+                ("cone", [c]) => {
+                    light.cone = number(c)?;
+                    if light.cone > 0.0 && light.aim == [0.0; 3] {
+                        light.aim = [0.0, 0.0, -1.0];
+                    }
+                }
+                ("strip", [half]) => {
+                    light.half = number(half)?;
+                    if light.half > 0.0 && light.way == [0.0; 3] {
+                        light.way = [1.0, 0.0, 0.0];
+                    }
+                }
+                ("reason", words) => light.reason = words.join(" "),
+                _ => {
+                    return Err(
+                        "light colour R G B, radius R, cone C, strip HALF or reason TEXT".into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetLight(at, light));
+        }
+        ["kind", field, rest @ ..] => {
+            let mut kind = selected_kind(state)?;
+            match (*field, rest) {
+                ("strength", [s]) => kind.strength = number(s)?,
+                ("reach", [r]) => kind.reach = number(r)?,
+                ("colour", [r, g, b]) => kind.colour = [number(r)?, number(g)?, number(b)?],
+                ("cone", [c]) => kind.cone = number(c)?,
+                ("lamp", [on @ ("on" | "off")]) => kind.lamp = *on == "on",
+                ("reason", words) => kind.reason = words.join(" "),
+                _ => {
+                    return Err(
+                        "kind strength S, reach R, colour R G B, cone C, lamp on|off or reason TEXT"
+                            .into(),
+                    );
+                }
+            }
+            set_kind(state, kind);
+        }
+        ["level", room, level] => {
+            let level = match *level {
+                "none" => None,
+                level => Some(number(level)?),
+            };
+            state.apply(Edit::SetLevel(room.to_string(), level));
+        }
+        ["bake"] | ["bake", "renew"] | ["audit"] if !state.setup.tools => {
+            return Err(NO_TOOLS.into());
+        }
+        // `bake renew` bakes and keeps the new bake in the project when it
+        // is done: a stale kept bake made again in one step.
+        ["bake"] | ["bake", "renew"] => {
+            if state.bake_job.is_some() || state.bake_request.is_some() {
+                return Err("a bake is running".into());
+            }
+            command(state, &["save"], cameras)?;
+            state.bake_from = Some(light_digest(state));
+            state.bake_renew = words.len() == 2;
+            state.bake_request = Some(crate::bake::label_now());
+            state.quiet = SETTLE_FRAMES;
+        }
+        // The bake the view shows kept in the project, where play with the
+        // project finds it; and the project's bake taken out again.
+        ["bake", "keep"] => keep_shown_bake(state)?,
+        ["bake", "drop"] => {
+            let project = &state.editor.project;
+            let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
+            if !level_edit::lighting::drop_bake(&project.folder, &project.module)? {
+                return Err("the project keeps no bake of this level".into());
+            }
+            forget_bake(state);
+            state.setup.bakes.retain(|had| *had != kept);
+            if state.bake.as_ref() == Some(&kept) {
+                state.bake = state.setup.bakes.first().cloned();
+                if state.bake.is_none() {
+                    state.light_view = kjk_game::fitted_lights::Mode::Off;
+                }
+            }
+            state.say("took the project's bake of this level out; play with the project is lit as the game stores it");
+        }
+        ["bake", "compare"] => {
+            let [newest, before, ..] = state.setup.bakes.as_slice() else {
+                return Err("there are not two bakes of this area to compare".into());
+            };
+            let other = if state.bake.as_ref() == Some(newest) {
+                before.clone()
+            } else {
+                newest.clone()
+            };
+            state.say(format!("showing the bake {}", other.display()));
+            state.bake = Some(other);
+            state.light_view = kjk_game::fitted_lights::Mode::Baked;
+        }
+        ["walk"] => {
+            command(state, &["save"], cameras)?;
+            walk(state, None)?;
+        }
+        ["walk", "here"] => {
+            let spot = view_spot(state, cameras)?;
+            command(state, &["save"], cameras)?;
+            walk(state, Some(spot))?;
+        }
+        ["nav", on @ ("on" | "off")] => {
+            state.show_nav = *on == "on";
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["outline", rest @ ..] => {
+            let target = selected(state)?;
+            let Target::Object(kind @ (Kind::Trigger | Kind::Encounter), index) = target else {
+                return Err("select a trigger or an encounter".into());
+            };
+            let z = state
+                .editor
+                .entry(kind, index)
+                .map_or(0.0, |entry| entry.position[2]);
+            if rest.len() < 6 || rest.len() % 2 != 0 {
+                return Err("an outline is three or more points, X Y each".into());
+            }
+            let points = rest
+                .chunks(2)
+                .map(|pair| Ok([number(pair[0])?, number(pair[1])?, z]))
+                .collect::<Result<Vec<_>, String>>()?;
+            state.apply(Edit::Outline(target, points));
+        }
+        ["area", rest @ ..] => area_command(state, rest)?,
+        ["talk", name] => {
+            let target = selected(state)?;
+            let name = if *name == "-" { "" } else { name };
+            state.change_template(target, Change::Conversation(name.to_ascii_lowercase()));
+        }
+        ["conversation", rest @ ..] => conversation_command(state, rest, cameras)?,
+        ["keys", rest @ ..] => crate::keys::command(state, rest)?,
+        ["blocks", event, "clear"] => {
+            let target = selected(state)?;
+            set_blocks(state, target, event, Vec::new())?;
+        }
+        ["blocks", event, "remove", n] => {
+            let target = selected(state)?;
+            let mut blocks = event_blocks(state, target, event)?
+                .1
+                .unwrap_or_else(Vec::new);
+            let n: usize = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not a block's place"))?;
+            if n == 0 || n > blocks.len() {
+                return Err(format!("there is no block {n}"));
+            }
+            blocks.remove(n - 1);
+            set_blocks(state, target, event, blocks)?;
+        }
+        ["blocks", event, "add", key, values @ ..] => {
+            let target = selected(state)?;
+            let kind = level_edit::blocks::kind(key).ok_or_else(|| {
+                let kinds: Vec<&str> = (level_edit::blocks::KINDS.iter())
+                    .map(|kind| kind.key)
+                    .collect();
+                format!(
+                    "{key:?} is not a kind of block: the kinds are {}",
+                    kinds.join(", ")
+                )
+            })?;
+            let mut block = level_edit::blocks::Block::new(kind);
+            for (slot, value) in block.values.iter_mut().zip(values.iter()) {
+                *slot = value.to_string();
+            }
+            let mut blocks = event_blocks(state, target, event)?
+                .1
+                .unwrap_or_else(Vec::new);
+            blocks.push(block);
+            set_blocks(state, target, event, blocks)?;
+        }
+        ["link", "none"] => link(state, "", "")?,
+        ["link", module] => link(state, module, "")?,
+        ["link", module, tag] => link(state, module, tag)?,
+        ["entrance", "drop", area] => state.apply(Edit::DropOther(area.to_string())),
+        // A new trigger in another level that leads into this one.
+        ["entrance", "add", module, template, x, y, z, rest @ ..] => {
+            let at = point(&[x, y, z])?;
+            entrance_add(state, module, template, at, rest)?;
+        }
+        ["entrance", module, kind, index] => {
+            entrance(state, module, (kind, index), "")?;
+        }
+        ["entrance", module, kind, index, tag] => {
+            entrance(state, module, (kind, index), tag)?;
+        }
+        // A script's whole text, from a file: for an agent, which cannot
+        // type in the viewer.
+        ["script", "text", name, path @ ..] if !path.is_empty() => {
+            let name = name.to_ascii_lowercase();
+            let path = path.join(" ");
+            let bytes = std::fs::read(&path).map_err(|error| format!("{path}: {error}"))?;
+            let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+            state.draft_of(&name)?;
+            if let Some(draft) = state.drafts.get_mut(&name) {
+                draft.text = text;
+            }
+            state.say(format!(
+                "{name} has the text of {path}; a save writes and compiles it"
+            ));
+            state.pending_ui.push(vec!["view".into(), name]);
+        }
+        ["script", "new", name] => new_script(state, name, false)?,
+        ["script", "new", name, "conditional"] => new_script(state, name, true)?,
+        ["script", "edit", name] => {
+            let name = name.to_ascii_lowercase();
+            state.draft_of(&name)?;
+            state.pending_ui.push(vec!["view".into(), name]);
+        }
+        ["script", "write"] => state.write_drafts()?,
+        ["script", "compile"] => {
+            state.write_drafts()?;
+            compile_scripts(state);
+        }
+        ["script", "try", name] => try_script(state, name, None, false, cameras)?,
+        ["script", "try", name, tag] => try_script(state, name, Some(tag), false, cameras)?,
+        ["script", "debug", name] => try_script(state, name, None, true, cameras)?,
+        ["script", "debug", name, tag] => try_script(state, name, Some(tag), true, cameras)?,
+        ["script", label, script] => {
+            let target = selected(state)?;
+            let script = if *script == "-" { "" } else { script };
+            state.change_template(
+                target,
+                Change::Script(label.to_string(), script.to_string()),
+            );
+        }
+        [
+            "flag",
+            flag @ ("useable" | "inventory"),
+            on @ ("on" | "off"),
+        ] => {
+            let target = selected(state)?;
+            let label = if *flag == "useable" {
+                "Useable"
+            } else {
+                "HasInventory"
+            };
+            state.change_template(target, Change::Flag(label.to_string(), *on == "on"));
+        }
+        // The project's own items (`level_edit::items`): a copy of one of
+        // the game's, with a name and a text of its own.
+        ["item", "new", name, base] => {
+            let (name, base) = (name.to_ascii_lowercase(), base.to_ascii_lowercase());
+            if let Some(problem) = level_edit::items::name_problem(&name) {
+                return Err(problem);
+            }
+            if state.editor.project.templates.contains_key(&name)
+                || state.setup.resolver.find(&name, ResType::UTI).is_some()
+            {
+                return Err(format!("there is an item named {name} already"));
+            }
+            let gff = match (state.setup.resolver.read(&base, ResType::UTI))
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+            {
+                Some(gff) => gff,
+                // An item only another level of the game has.
+                None => {
+                    crate::elsewhere::import(state, &base, ResType::UTI, false)
+                        .ok_or(format!("the game has no item {base} to copy"))??
+                        .gff
+                }
+            };
+            let mut gff = level_edit::items::new_item(&gff, &name)?;
+            level_edit::items::note_base(&mut gff, &base);
+            state.apply(Edit::SetTemplate {
+                name: name.clone(),
+                template: Box::new(level_edit::Template {
+                    restype: ResType::UTI,
+                    from: base.clone(),
+                    gff,
+                }),
+            });
+            state.say(format!("new item {name}, a copy of {base}"));
+        }
+        ["item", what @ ("name" | "text"), name, words @ ..] => {
+            let text = words.join(" ");
+            let change = if *what == "name" {
+                level_edit::items::ItemChange::Name(text)
+            } else {
+                level_edit::items::ItemChange::Text(text)
+            };
+            change_item(state, name, change)?;
+        }
+        ["item", "tag", name, tag] => {
+            change_item(
+                state,
+                name,
+                level_edit::items::ItemChange::Tag(tag.to_string()),
+            )?;
+        }
+        ["item", "number", name, label, value] => {
+            let value = f64::from(number(value)?);
+            change_item(
+                state,
+                name,
+                level_edit::items::ItemChange::Number(label.to_string(), value),
+            )?;
+        }
+        ["item", "drop", name] => {
+            own_item(state, name)?;
+            state.apply(Edit::DropTemplate(name.to_ascii_lowercase()));
+        }
+        // What one of the project's items does (`level_edit::item_props`).
+        [
+            "item",
+            "property",
+            name,
+            "add",
+            row,
+            subtype,
+            value,
+            rest @ ..,
+        ] => {
+            let param = match rest {
+                [] => 0,
+                [param] => row_number(param)?,
+                _ => return Err("item property NAME add ROW SUBTYPE VALUE [PARAM]".into()),
+            };
+            let property = property_of(
+                state,
+                row_number(row)?,
+                row_number(subtype)?,
+                row_number(value)?,
+                param,
+            )?;
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::add(&mut item.gff, property);
+            let shown = property_shown(state, &property);
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+            state.say(format!("{name} has {shown}"));
+        }
+        ["item", "property", name, "remove", at] => {
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::remove(&mut item.gff, usize::from(row_number(at)?))?;
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+        }
+        ["item", "property", name, "clear"] => {
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::clear(&mut item.gff);
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+        }
+        ["item", "properties", name] => {
+            let item = own_item(state, name)?;
+            let shown = properties_shown(state, &item.gff);
+            let said = if shown.is_empty() {
+                format!("{name} has no properties")
+            } else {
+                format!("{name} has {}", shown.join("; "))
+            };
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        // The project's own quests (`level_edit::journal`): the game's
+        // journal with quests added.
+        ["quest", "new", tag, name @ ..] => {
+            let mut jrl = journal(state);
+            level_edit::journal::add_quest(&mut jrl, tag, &name.join(" "))?;
+            set_journal(state, jrl);
+        }
+        ["quest", how @ ("entry" | "end"), tag, n, text @ ..] => {
+            let id: u32 = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not an entry's number"))?;
+            let mut jrl = journal(state);
+            level_edit::journal::set_entry(&mut jrl, tag, id, &text.join(" "), *how == "end")?;
+            set_journal(state, jrl);
+        }
+        ["quest", "drop", tag] => {
+            let mut jrl = journal(state);
+            level_edit::journal::drop_quest(&mut jrl, tag)?;
+            set_journal(state, jrl);
+        }
+        ["quest", "show", tag] => {
+            let (tag, name, entries) = level_edit::journal::quest(&journal(state), tag)
+                .ok_or(format!("the journal has no quest {tag}"))?;
+            state.say(format!("quest {tag}: {name}, {} entries", entries.len()));
+            let mut listed = Vec::new();
+            for (id, text, end) in entries {
+                let closes = if end { ", closes the quest" } else { "" };
+                state.say(format!("  {id}{closes}: {text}"));
+                listed.push(format!("{id}{closes}: {text}"));
+            }
+            state.answer = Some(format!("quest {tag}: {name}; {}", listed.join("; ")));
+            for line in crate::quest_links::described(state, &tag) {
+                state.say(format!("  {line}"));
+            }
+        }
+        ["quest", "script", tag, n] => {
+            let id: u32 = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not an entry's number"))?;
+            let (tag, _, entries) = level_edit::journal::quest(&journal(state), tag)
+                .ok_or(format!("the journal has no quest {tag}"))?;
+            let (_, text, end) = (entries.iter())
+                .find(|(had, _, _)| *had == id)
+                .ok_or(format!("the quest {tag} has no entry {id}"))?;
+            let name = quest_script_name(state, &tag, id)?;
+            let text = level_edit::journal::entry_script(&name, &tag, id, text, *end);
+            add_script(state, &name, text)?;
+        }
+        ["item", "add", item] => {
+            let target = selected(state)?;
+            state.change_template(target, Change::AddItem(item.to_ascii_lowercase()));
+        }
+        // The items whose file name or in-game name holds TEXT, the best
+        // first, as the search-and-pick fields list them (`choose`).
+        ["item", "find", words @ ..] if !words.is_empty() => {
+            let typed = words.join(" ");
+            let all = crate::choose::items(state);
+            let found: Vec<String> = crate::choose::ranked(&all, &typed)
+                .into_iter()
+                .take(10)
+                .map(|choice| {
+                    if choice.name.is_empty() {
+                        choice.value.clone()
+                    } else {
+                        format!("{} ({}, {})", choice.value, choice.name, choice.note)
+                    }
+                })
+                .collect();
+            let said = if found.is_empty() {
+                format!("no item holds {typed:?}")
+            } else {
+                found.join("; ")
+            };
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        // An item given to the selected creature, store or placeable. A
+        // placeable that holds no items is made a container first.
+        ["item", "give", item] => {
+            let item = item.to_ascii_lowercase();
+            if !crate::choose::item_known(state, &item) {
+                return Err(format!("there is no item {item}"));
+            }
+            let target = selected(state)?;
+            let Target::Object(kind @ (Kind::Creature | Kind::Placeable | Kind::Store), index) =
+                target
+            else {
+                return Err("only a creature, a store or a placeable is given items".into());
+            };
+            if kind == Kind::Placeable {
+                let holds = (state.editor.entry(kind, index))
+                    .and_then(|entry| state.behaviour_source(kind, &entry))
+                    .and_then(|gff| level_edit::template::flag(&gff, "HasInventory"))
+                    .unwrap_or(false);
+                if !holds {
+                    state.change_template(target, Change::Flag("HasInventory".into(), true));
+                }
+            }
+            state.change_template(target, Change::AddItem(item.clone()));
+            state.say(format!("gave {item}"));
+        }
+        ["item", "remove", at] => {
+            let target = selected(state)?;
+            let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
+            state.change_template(target, Change::RemoveItem(at));
+        }
+        // The selected creature made as tough as another: it takes that
+        // creature's classes, feats, attributes and hit points
+        // (`level_edit::fields::FIGHT`) and keeps its own name, look,
+        // faction, scripts and equipment.
+        ["fights", "like", template] => {
+            let target = selected(state)?;
+            let name = template.to_ascii_lowercase();
+            let other = match state.template_gff(&name, ResType::UTC) {
+                Some(gff) => gff,
+                None => {
+                    crate::elsewhere::import(state, &name, ResType::UTC, false)
+                        .ok_or(format!("the game has no creature template {name}"))??
+                        .gff
+                }
+            };
+            let level: u32 = (level_edit::fields::classes(&other).iter())
+                .map(|(_, levels, _)| u32::from(*levels))
+                .sum();
+            let hit_points = other.root.int("MaxHitPoints").unwrap_or(0);
+            state.change_template(
+                target,
+                Change::Field(level_edit::fields::FieldChange::Like(Box::new(other.root))),
+            );
+            state.say(format!(
+                "the selected creature fights like {name}: level {level}, {hit_points} hit points"
+            ));
+        }
+        [
+            "number" | "name" | "class" | "feat" | "power" | "skill" | "equip" | "spawn"
+            | "spawnpoint",
+            ..,
+        ]
+        | ["item", _, "drops" | "infinite", _] => field_command(state, words)?,
+        ["navlink", kind @ ("jump" | "drop"), x1, y1, z1, x2, y2, z2] => {
+            let number = |word: &str| {
+                word.parse::<f32>()
+                    .map_err(|_| format!("{word:?} is not a number"))
+            };
+            let kind = if *kind == "jump" {
+                collision::nav::LinkKind::Jump
+            } else {
+                collision::nav::LinkKind::Drop
+            };
+            state.apply(Edit::AddLink(level_edit::area::NavLink {
+                kind,
+                from: [number(x1)?, number(y1)?, number(z1)?],
+                to: [number(x2)?, number(y2)?, number(z2)?],
+            }));
+        }
+        ["navlink", "remove", at] => {
+            let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
+            state.apply(Edit::RemoveLink(at));
+        }
+        ["collision", on @ ("on" | "off")] => {
+            state.show_collision = *on == "on";
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["save"] => save(state)?,
+        ["play"] => {
+            command(state, &["save"], cameras)?;
+            play(state, None)?;
+        }
+        ["play", "here"] => {
+            let spot = view_spot(state, cameras)?;
+            command(state, &["save"], cameras)?;
+            play(state, Some(spot))?;
+        }
+        ["play", "lighting", word] => {
+            state.play_lighting = crate::play_lighting::of_word(word)?;
+            crate::play_lighting::save(state.play_lighting)?;
+            let choice = crate::play_lighting::choice(state.play_lighting);
+            state.say(format!("play lighting: {}. {}", choice.name, choice.hint));
+        }
+        // The audit takes a while, so it runs on a thread of its own and
+        // `redraw` shows its result when it ends.
+        ["audit"] => {
+            if state.audit_job.is_some() {
+                return Err("an audit is running".into());
+            }
+            command(state, &["save"], cameras)?;
+            let project = &state.editor.project;
+            let mut audit = std::process::Command::new(&state.setup.program);
+            audit.args([
+                "--project",
+                &project.name,
+                "collision",
+                "audit",
+                &project.game,
+                &project.module,
+            ]);
+            let result = AuditResult::default();
+            let slot = result.clone();
+            std::thread::spawn(move || {
+                let output = crate::child::output(audit)
+                    .map_err(|error| format!("kjk collision audit did not start: {error}"));
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(output);
+                }
+            });
+            state.audit_job = Some((std::time::Instant::now(), result));
+            state.say("the audit started");
+        }
+        _ => return Err("not an edit command (docs/LEVEL-EDIT.md lists them)".into()),
+    }
+    Ok(())
+}
+
+/// Shows the result of an audit that ended: its lines kept for the details
+/// panel and the dump, and its summary said.
+fn finish_audit(state: &mut EditorState, output: &std::process::Output, seconds: u64) {
+    let text = String::from_utf8_lossy(&output.stdout);
+    state.audit = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect();
+    // Each reach's line ends "... N regions: E escapes, P perches, ...".
+    let count = |line: &str, word: &str| {
+        line.split(',').find_map(|part| {
+            part.trim()
+                .strip_suffix(word)?
+                .rsplit(' ')
+                .next()?
+                .parse::<usize>()
+                .ok()
+        })
+    };
+    let reaches: Vec<String> = state
+        .audit
+        .iter()
+        .filter(|line| {
+            let line = line.trim_start();
+            ["walk ", "jump ", "force "]
+                .iter()
+                .any(|reach| line.starts_with(reach))
+        })
+        .cloned()
+        .collect();
+    let most = |word: &str| {
+        reaches
+            .iter()
+            .filter_map(|line| count(line, word))
+            .max()
+            .unwrap_or(0)
+    };
+    let (escapes, perches) = (most(" escapes"), most(" perches"));
+    if !output.status.success() && reaches.is_empty() {
+        state.say(format!(
+            "the audit failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+        return;
+    }
+    state.say(format!(
+        "audit, {seconds} s: at the highest reach a body escapes the level in {escapes} regions and reaches {perches} perches off the walkmesh"
+    ));
+}
+
+/// Starts a bake of the area from `scene`'s lights (`bake`): its dump is
+/// written first, then `kjk detail-bake` runs on a thread of its own.
+fn start_bake(
+    state: &EditorState,
+    scene: &LoadedScene,
+    label: String,
+) -> Result<crate::bake::BakeJob, String> {
+    let project = &state.editor.project;
+    let light_data = (state.setup.light_data.clone())
+        .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+    let light_kinds = crate::light_kinds_of(&state.setup.program)
+        .ok_or("no folder for bakes was found: set KJK_HOME")?;
+    let folder = crate::bake::folder_of(&light_kinds, &project.module);
+    std::fs::create_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    let dump = folder.join(format!("lights-{label}.txt"));
+    kjk_game::fitted_lights::dump_lights(scene, &dump.to_string_lossy());
+    if !dump.is_file() {
+        return Err(format!(
+            "the lights' dump {} was not written",
+            dump.display()
+        ));
+    }
+    let mut entry = std::fs::read_to_string(light_data.join("bake.toml"))
+        .map(|text| level_edit::levels::bake_entry(&text, &project.module))
+        .map_err(|error| format!("bake.toml: {error}"))?;
+    // A module whose entry sets no sun takes the sun the project sets for
+    // its area, seen from the middle of its floors. A new map's sun lit
+    // its characters and none of its bake, and the owner's snowfield came
+    // out of the bake evenly grey (24 November 2026).
+    if entry.sun_args.is_none()
+        && let Some(sun) = state.editor.sun()
+    {
+        let (low, high) = (scene.rooms.iter())
+            .flat_map(|room| room.floor.iter().flatten())
+            .fold(([f32::MAX; 3], [f32::MIN; 3]), |(low, high), p| {
+                (
+                    std::array::from_fn(|axis| low[axis].min(p[axis])),
+                    std::array::from_fn(|axis| high[axis].max(p[axis])),
+                )
+            });
+        if low[0] <= high[0] {
+            let middle = std::array::from_fn(|axis| (low[axis] + high[axis]) / 2.0);
+            entry.sun_args = level_edit::levels::project_sun_args(&sun, middle);
+        }
+    }
+    Ok(crate::bake::BakeJob::start(crate::bake::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        module: project.module.clone(),
+        game: project.game.clone(),
+        light_data,
+        own_levels: levels_own(state).then(|| project.levels.clone()),
+        entry,
+        folder,
+        label,
+        dump,
+    }))
+}
+
+/// The kind of fitting of the selected light the game places (a fitted
+/// light): as the editor has changed it, else as the light data holds it,
+/// else the general rules' faint light for a texture the data does not
+/// name.
+pub(crate) fn selected_kind(state: &EditorState) -> Result<level_edit::kinds::KindEdit, String> {
+    let Target::Fitted(at) = selected(state)? else {
+        return Err("only a light the game places at a fitting has a kind".into());
+    };
+    let (_, texture) = state
+        .editor
+        .seen_lights
+        .get(at)
+        .ok_or("the light is gone")?;
+    if texture == "hidden lamp" {
+        return Err("a room's hidden lamp has no kind".into());
+    }
+    let placeable = state
+        .editor
+        .seen_on_placeable
+        .get(at)
+        .copied()
+        .unwrap_or(false);
+    kind_of(state, texture, placeable)
+}
+
+/// The kind `texture` (on placeables or rooms) as the editor has it.
+pub(crate) fn kind_of(
+    state: &EditorState,
+    texture: &str,
+    placeable: bool,
+) -> Result<level_edit::kinds::KindEdit, String> {
+    if let Some(kind) = (state.editor.project.kinds)
+        .iter()
+        .find(|kind| kind.texture == texture && kind.placeable == placeable)
+    {
+        return Ok(kind.clone());
+    }
+    Ok(shipped_kind(state, texture, placeable))
+}
+
+/// The kind `texture` (on placeables or rooms) as kjk's light data holds
+/// it: the folder's `<game>.toml`, else the copy built into kjk. A texture
+/// the data does not name is the general rules' faint light.
+fn shipped_kind(
+    state: &EditorState,
+    texture: &str,
+    placeable: bool,
+) -> level_edit::kinds::KindEdit {
+    let game = &state.editor.project.game;
+    let text = (state.setup.light_data.as_ref())
+        .and_then(|folder| std::fs::read_to_string(folder.join(format!("{game}.toml"))).ok())
+        .or_else(|| kjk_game::fitted_lights::kinds_text(game).map(std::borrow::Cow::into_owned))
+        .unwrap_or_else(String::new);
+    level_edit::kinds::read_kind(&text, texture, placeable).unwrap_or(level_edit::kinds::KindEdit {
+        texture: texture.to_string(),
+        placeable,
+        lamp: true,
+        form: "faint".into(),
+        colour: [1.0; 3],
+        reach: 3.0,
+        strength: 0.5,
+        cone: 0.2,
+        reason: String::new(),
+    })
+}
+
+/// Changes a kind of fitting (`Edit::SetKind`), keeping how the light data
+/// held it the first time, for the view to show again on undo.
+pub(crate) fn set_kind(state: &mut EditorState, kind: level_edit::kinds::KindEdit) {
+    let key = (kind.texture.clone(), kind.placeable);
+    if !state.kind_originals.contains_key(&key)
+        && let Ok(original) = kind_of(state, &kind.texture, kind.placeable)
+    {
+        state.kind_originals.insert(key, original);
+    }
+    state.apply(Edit::SetKind(kind));
+}
+
+/// A light placed by hand of a ready shape at `at`: a lamp that shines all
+/// ways, a spotlight straight down, a panel's light that shines along +X,
+/// or a strip 1 m long each way along X.
+pub(crate) fn light_shape(shape: &str, at: [f32; 3]) -> Option<level_edit::PlacedLight> {
+    let base = level_edit::PlacedLight {
+        at,
+        ..level_edit::PlacedLight::default()
+    };
+    Some(match shape {
+        "point" => base,
+        "spot" => level_edit::PlacedLight {
+            aim: [0.0, 0.0, -1.0],
+            cone: 0.7,
+            ..base
+        },
+        "panel" => level_edit::PlacedLight {
+            aim: [1.0, 0.0, 0.0],
+            cone: 0.2,
+            radius: 3.0,
+            ..base
+        },
+        "strip" => level_edit::PlacedLight {
+            way: [1.0, 0.0, 0.0],
+            half: 1.0,
+            ..base
+        },
+        _ => return None,
+    })
+}
+
+/// Adds `lamp`, refused when the install has no such model or the model
+/// has no such mesh.
+/// Whether Jedi Academy has the effect file `path`; it is refused when the
+/// game is not found or lacks it.
+fn known_effect(state: &EditorState, path: &str) -> Result<(), String> {
+    if state.setup.ja.is_none() {
+        return Err("Jedi Academy is not installed: its effects cannot be placed".into());
+    }
+    if !state.setup.effects.iter().any(|known| known == path) {
+        return Err(format!(
+            "Jedi Academy has no effect {path}: effects list names them"
+        ));
+    }
+    Ok(())
+}
+
+/// Adds Jedi Academy's ambient effect `effect` (a path, `env/fire` or
+/// `effects/env/fire.efx`) at `at`, pointing up.
+pub(crate) fn add_effect(
+    state: &mut EditorState,
+    effect: &str,
+    at: [f32; 3],
+) -> Result<(), String> {
+    let path = level_edit::effects::effect_path(effect);
+    known_effect(state, &path)?;
+    let name = state.editor.project.kjk.free_name("effect");
+    state.apply(Edit::AddEffect(level_edit::effects::AmbientEffect::new(
+        &name, &path, at,
+    )));
+    Ok(())
+}
+
+pub(crate) fn add_lamp(
+    state: &mut EditorState,
+    lamp: level_edit::PlacedLamp,
+) -> Result<(), String> {
+    kjk_game::lamps::model(&state.setup.resolver, &lamp)?;
+    state.apply(Edit::AddLamp(lamp));
+    Ok(())
+}
+
+/// Where the view looks down to the level, and the way the camera faces
+/// (degrees from +X): a place for the player to start (`kjk play --at`).
+pub(crate) fn view_spot(
+    state: &mut EditorState,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<([f32; 3], f32), String> {
+    let ray = view_centre(cameras)
+        .and_then(|centre| ray_at(cameras, centre))
+        .ok_or("the view has no camera")?;
+    let at =
+        ground(state, ray).ok_or("the view's centre does not meet the level: look at a floor")?;
+    let ahead = kjk_game::scene::game_to_bevy().inverse() * ray.1;
+    let facing = ahead.y.atan2(ahead.x).to_degrees();
+    Ok((at, facing))
+}
+
+/// The `--at` of a place to start.
+fn at_arg((at, facing): ([f32; 3], f32)) -> String {
+    format!("{},{},{},{facing:.0}", at[0], at[1], at[2])
+}
+
+/// Starts `kjk play` on the project's module, at its entry or at `spot`.
+fn play(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
+    let project = state.editor.project.clone();
+    let mut play = std::process::Command::new(&state.setup.program);
+    play.args(lighting_args(state));
+    play.args([
+        "--project",
+        &project.name,
+        "play",
+        "--stage",
+        &project.module,
+        "--class",
+        "jedi",
+    ]);
+    if let Some(spot) = spot {
+        play.args(["--at", &at_arg(spot)]);
+    }
+    play.spawn()
+        .map_err(|error| format!("kjk play did not start: {error}"))?;
+    let lit = crate::play_lighting::choice(state.play_lighting).name;
+    state.say(match spot {
+        Some(spot) => format!(
+            "kjk play started on {} at {}, lighting {lit}",
+            project.module,
+            at_arg(spot)
+        ),
+        None => format!("kjk play started on {}, lighting {lit}", project.module),
+    });
+    Ok(())
+}
+
+/// The `--lighting` that Play passes kjk (`play_lighting`): none when the
+/// game's options choose.
+fn lighting_args(state: &EditorState) -> Vec<&'static str> {
+    match state.play_lighting {
+        Some(lighting) => vec!["--lighting", lighting],
+        None => Vec::new(),
+    }
+}
+
+/// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
+/// view is: its mode, its bake, and the light data the project saves to.
+pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
+    use kjk_game::fitted_lights::Mode;
+    let project = state.editor.project.clone();
+    let mut walk = std::process::Command::new(&state.setup.program);
+    walk.args(lighting_args(state));
+    walk.args([
+        "--project",
+        &project.name,
+        "play",
+        "--stage",
+        &project.module,
+        "--walk",
+    ]);
+    if let Some(spot) = spot {
+        walk.args(["--at", &at_arg(spot)]);
+    }
+    walk.env(
+        "KJK_FITTED_LIGHTS",
+        match state.light_view {
+            Mode::Off => "off",
+            Mode::Live => "on",
+            Mode::LampsOnly => "lamps",
+            Mode::Baked => "baked",
+        },
+    );
+    if let (Mode::Baked, Some(bake)) = (state.light_view, &state.bake) {
+        walk.env("KJK_DETAIL_BAKE", bake);
+    }
+    if let Some(folder) = &state.setup.light_data {
+        walk.env("KJK_LIGHT_DATA", folder);
+    }
+    walk.spawn()
+        .map_err(|error| format!("kjk play --walk did not start: {error}"))?;
+    state.say(format!("walk mode started on {}", project.module));
+    Ok(())
+}
+
+/// `edit number|name|class|feat|power|skill|equip|item|spawn|spawnpoint
+/// ...`: a creature's, a store's or an encounter's fields
+/// (`level_edit::fields`), on the selected object.
+fn field_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    use level_edit::fields::{FieldChange, Spawn};
+    let target = selected(state)?;
+    let number = |word: &str| {
+        word.parse::<f64>()
+            .map_err(|_| format!("{word:?} is not a number"))
+    };
+    let whole = |word: &str| {
+        word.parse::<u16>()
+            .map_err(|_| format!("{word:?} is not a whole number"))
+    };
+    let place = |word: &str| {
+        word.parse::<usize>()
+            .map_err(|_| format!("{word:?} is not a place in a list"))
+    };
+    let on = |word: &str| match word {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(format!("{word:?} is not on or off")),
+    };
+    let change = match words {
+        ["number", label, value] => FieldChange::Number(label.to_string(), number(value)?),
+        ["name", label, text @ ..] => FieldChange::Name(label.to_string(), text.join(" ")),
+        ["class", at, "-"] => FieldChange::Class(place(at)?, None),
+        ["class", at, row, levels] => {
+            FieldChange::Class(place(at)?, Some((whole(row)?, whole(levels)?)))
+        }
+        ["feat", row, switch] => FieldChange::Feat(whole(row)?, on(switch)?),
+        ["power", class, row, switch] => {
+            FieldChange::Power(place(class)?, whole(row)?, on(switch)?)
+        }
+        ["skill", at, rank] => FieldChange::Skill(
+            place(at)?,
+            rank.parse::<u8>()
+                .map_err(|_| format!("{rank:?} is not a rank"))?,
+        ),
+        ["equip", slot, item] => {
+            let slot = level_edit::fields::SLOTS
+                .iter()
+                .find(|(number, name)| {
+                    number.to_string() == *slot
+                        || name.eq_ignore_ascii_case(&slot.replace('_', " "))
+                })
+                .map(|(number, _)| *number)
+                .ok_or(format!("{slot:?} is not an equipment slot"))?;
+            let item = if *item == "-" { "" } else { item };
+            FieldChange::Equip(slot, item.to_ascii_lowercase())
+        }
+        ["item", at, flag, switch] => FieldChange::ItemFlag(
+            place(at)?,
+            if *flag == "drops" {
+                "Dropable"
+            } else {
+                "Infinite"
+            },
+            on(switch)?,
+        ),
+        ["spawn", at, "-"] => FieldChange::Spawn(place(at)?, None),
+        ["spawn", at, template, cr, rest @ ..] => FieldChange::Spawn(
+            place(at)?,
+            Some(Spawn {
+                template: template.to_ascii_lowercase(),
+                cr: number(cr)? as f32,
+                single: rest.first() == Some(&"single"),
+            }),
+        ),
+        ["spawnpoint", "add", x, y, z, facing @ ..] => {
+            let Target::Object(Kind::Encounter, index) = target else {
+                return Err("only an encounter has spawn points".into());
+            };
+            let facing = facing.first().map_or(Ok(0.0), |word| number(word))? as f32;
+            let mut points = level_edit::git::spawn_points(&state.editor.project.git, index);
+            points.push((
+                [number(x)? as f32, number(y)? as f32, number(z)? as f32],
+                facing,
+            ));
+            state.apply(Edit::SpawnPoints(target, points));
+            return Ok(());
+        }
+        ["spawnpoint", "remove", at] => {
+            let Target::Object(Kind::Encounter, index) = target else {
+                return Err("only an encounter has spawn points".into());
+            };
+            let mut points = level_edit::git::spawn_points(&state.editor.project.git, index);
+            let at = place(at)?;
+            if at >= points.len() {
+                return Err(format!("there is no spawn point {at}"));
+            }
+            points.remove(at);
+            state.apply(Edit::SpawnPoints(target, points));
+            return Ok(());
+        }
+        _ => return Err("that is not a change of a template's fields".into()),
+    };
+    state.change_template(target, Change::Field(change));
+    Ok(())
+}
+
+/// What is selected, as a copy's text (`level_edit::clip`).
+pub(crate) fn copy_text(state: &mut EditorState) -> Result<String, String> {
+    let selection = state.editor.selection();
+    let centre = state
+        .editor
+        .selection_centre()
+        .ok_or("nothing is selected")?;
+    let mut clip = level_edit::clip::Clip::of(&state.editor.project, &selection, centre);
+    // The game's templates the objects use go with them too: a module's own
+    // (Belaya's in the enclave's archive) is read nowhere else. A paste
+    // leaves out each one the level it goes to reads the same (`paste`).
+    for (kind, item) in clip.entries.clone() {
+        let Some(restype) = level_edit::template::restype(kind) else {
+            continue;
+        };
+        let label = if kind == Kind::Store {
+            "ResRef"
+        } else {
+            "TemplateResRef"
+        };
+        let Some(name) = item.resref(label).map(|name| name.to_ascii_lowercase()) else {
+            continue;
+        };
+        if clip.templates.iter().any(|(had, _)| *had == name) {
+            continue;
+        }
+        if let Some(gff) = state
+            .setup
+            .resolver
+            .read(&name, restype)
+            .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        {
+            clip.templates.push((
+                name.clone(),
+                level_edit::Template {
+                    restype,
+                    from: name,
+                    gff,
+                },
+            ));
+        }
+    }
+    if clip.is_empty() {
+        return Err(
+            "nothing selected is copied: only objects, props, boxes, lamps and lights are".into(),
+        );
+    }
+    let count = clip.entries.len()
+        + clip.kjk.props.len()
+        + clip.kjk.boxes.len()
+        + clip.kjk.lamps.len()
+        + clip.kjk.lights.len();
+    state.say(format!(
+        "copied {count} things and the {} templates they use",
+        clip.templates.len()
+    ));
+    Ok(clip.write())
+}
+
+/// Pastes the copy `text` with its middle where the view looks
+/// (`place_point`), as one edit.
+pub(crate) fn paste(
+    state: &mut EditorState,
+    text: &str,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    let mut clip = level_edit::clip::Clip::read(text)?;
+    let at = place_point(state, cameras);
+    // A copied template this level reads the same already stays out of
+    // the project: the game's own shared ones, most often.
+    let project = &state.editor.project;
+    let resolver = &state.setup.resolver;
+    clip.templates.retain(|(name, made)| {
+        project.templates.contains_key(name)
+            || resolver
+                .read(name, made.restype)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .is_none_or(|had| had != made.gff)
+    });
+    // The names a pasted template must keep clear of: the install's, of
+    // each copied template's kind, among the names a new one could take.
+    let resolver = &state.setup.resolver;
+    let series = own_series(&state.editor.project.name);
+    let mut taken = Vec::new();
+    for (name, made) in &clip.templates {
+        // `template::fresh_name`'s names, `kjeN_from` cut to a resref. A
+        // number outside the project's own series is taken too
+        // (`own_series`).
+        let names = std::iter::once((0, name.clone())).chain((1..SERIES * 9).map(|n| {
+            let mut candidate = format!("{}{n}_{}", level_edit::template::PREFIX, made.from);
+            candidate.truncate(level_edit::git::RESREF_LEN);
+            (n, candidate)
+        }));
+        for (n, candidate) in names {
+            let outside = n != 0 && n % SERIES != series;
+            if !state.editor.project.templates.contains_key(&candidate)
+                && (outside || resolver.find(&candidate, made.restype).is_some())
+            {
+                taken.push(candidate);
+            }
+        }
+    }
+    let count = clip.entries.len()
+        + clip.kjk.props.len()
+        + clip.kjk.boxes.len()
+        + clip.kjk.lamps.len()
+        + clip.kjk.lights.len();
+    state.apply(Edit::Paste {
+        clip: Box::new(clip),
+        at,
+        taken,
+    });
+    state.say(format!("pasted {count} things"));
+    Ok(())
+}
+
+/// A conversation's line by its words: `line N` or `reply N`.
+fn node_at(side: &str, n: &str) -> Result<(level_edit::dialog::Side, usize), String> {
+    use level_edit::dialog::Side;
+    let side = match side {
+        "line" | "entry" => Side::Entry,
+        "reply" => Side::Reply,
+        _ => return Err(format!("{side:?}: a node is a line or a reply")),
+    };
+    let n = n
+        .parse::<usize>()
+        .map_err(|_| format!("{n:?} is not a node's number"))?;
+    Ok((side, n))
+}
+
+/// A link by its words: `start I`, or `line N I` / `reply N I`.
+fn link_at(words: &[&str]) -> Result<(level_edit::dialog::LinkAt, usize), String> {
+    use level_edit::dialog::LinkAt;
+    let number = |word: &str| {
+        word.parse::<usize>()
+            .map_err(|_| format!("{word:?} is not a link's number"))
+    };
+    match words {
+        ["start", i, ..] => Ok((LinkAt::Start(number(i)?), 2)),
+        [side, n, i, ..] => {
+            let (side, n) = node_at(side, n)?;
+            Ok((LinkAt::From(side, n, number(i)?), 3))
+        }
+        _ => Err("a link is start I, or line N I, or reply N I".into()),
+    }
+}
+
+/// `edit conversation ...`: the project's conversations made, copied from
+/// the game's, changed and tried (`level_edit::dialog`).
+fn conversation_command(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    use level_edit::dialog::Edit as Talk;
+    let none = |word: &str| {
+        if word == "-" {
+            String::new()
+        } else {
+            word.to_ascii_lowercase()
+        }
+    };
+    match words {
+        ["new", name] => {
+            state.apply(Edit::NewConversation {
+                name: name.to_string(),
+                base: None,
+            });
+            state
+                .pending_ui
+                .push(vec!["conversation".into(), name.to_ascii_lowercase()]);
+            return Ok(());
+        }
+        ["copy", name] => {
+            let name = name.to_ascii_lowercase();
+            let bytes = state
+                .setup
+                .resolver
+                .read(&name, ResType::DLG)
+                .ok_or(format!("the game has no conversation {name}"))?;
+            let gff =
+                fmt_odyssey::gff::Gff::parse(&bytes).map_err(|error| format!("{name}: {error}"))?;
+            state.apply(Edit::NewConversation {
+                name: name.clone(),
+                base: Some(gff),
+            });
+            state.pending_ui.push(vec!["conversation".into(), name]);
+            return Ok(());
+        }
+        ["drop", name] => {
+            state.apply(Edit::DropConversation(name.to_ascii_lowercase()));
+            return Ok(());
+        }
+        ["try", name, on, picks @ ..] => {
+            let picks = picks
+                .iter()
+                .map(|pick| {
+                    pick.parse::<u8>()
+                        .map_err(|_| format!("{pick:?} is not a reply's place"))
+                })
+                .collect::<Result<Vec<u8>, String>>()?;
+            return try_conversation(state, name, on, picks, cameras);
+        }
+        _ => {}
+    }
+    let [name, rest @ ..] = words else {
+        return Err(
+            "edit conversation takes new, copy, drop, try, or a conversation's name".into(),
+        );
+    };
+    let name = name.to_ascii_lowercase();
+    // How many lines and replies the conversation has: a new node takes
+    // the next number of its side.
+    let count = |state: &EditorState, list: &str| {
+        (state.editor.project.conversations.get(&name)).map(|gff| gff.root.list(list).len())
+    };
+    let named = |side: level_edit::dialog::Side, at: usize| match side {
+        level_edit::dialog::Side::Entry => format!("line {at}"),
+        level_edit::dialog::Side::Reply => format!("reply {at}"),
+    };
+    let list_of = |side: level_edit::dialog::Side| match side {
+        level_edit::dialog::Side::Entry => "EntryList",
+        level_edit::dialog::Side::Reply => "ReplyList",
+    };
+    match rest {
+        // A node made with its text in one step. `say start TEXT` is a
+        // line the conversation starts with. `say reply N TEXT` is the
+        // line that answers reply N. `say line N TEXT` is a reply to line
+        // N. The answer is the new node's number.
+        ["say", "start", text @ ..] | ["say", _, _, text @ ..] if !text.is_empty() => {
+            let under = match rest {
+                ["say", "start", ..] => None,
+                ["say", side, n, ..] => Some(node_at(side, n)?),
+                _ => unreachable!("matched above"),
+            };
+            let side = under.map_or(level_edit::dialog::Side::Entry, |(side, _)| side.other());
+            let at = count(state, list_of(side))
+                .ok_or(format!("the project has no conversation {name}"))?;
+            state.apply_many(vec![
+                Edit::Conversation(name.clone(), Talk::Add { under }),
+                Edit::Conversation(name.clone(), Talk::Text(side, at, text.join(" "))),
+            ]);
+            state.answer = Some(named(side, at));
+            return Ok(());
+        }
+        // Several replies to one line, each with its text, in one step:
+        // the choices of a question. The answer is their numbers.
+        ["replies", "line", n, texts @ ..] if !texts.is_empty() => {
+            let under = node_at("line", n)?;
+            let first = count(state, "ReplyList")
+                .ok_or(format!("the project has no conversation {name}"))?;
+            let mut edits = Vec::new();
+            for (place, text) in texts.iter().enumerate() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Add { under: Some(under) },
+                ));
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Text(
+                        level_edit::dialog::Side::Reply,
+                        first + place,
+                        (*text).to_string(),
+                    ),
+                ));
+            }
+            state.apply_many(edits);
+            state.answer = Some(format!("replies {first} to {}", first + texts.len() - 1));
+            return Ok(());
+        }
+        // Several replies led to one line that is shown elsewhere: the
+        // wrong answers of a quiz, which all lead to the same line.
+        ["lead", "line", to, "from", replies @ ..] if !replies.is_empty() => {
+            let to: usize = to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a line's number"))?;
+            let mut edits = Vec::new();
+            for reply in replies {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::LinkTo {
+                        from: Some(node_at("reply", reply)?),
+                        to,
+                    },
+                ));
+            }
+            state.apply_many(edits);
+            return Ok(());
+        }
+        // A skill check on a link (`level_edit::checks`): `check LINK SKILL
+        // SCORE [COST]`, or `check LINK none`.
+        ["check", link @ ..] => {
+            let (at, used) = link_at(link)?;
+            let check = match &link[used..] {
+                ["none"] => None,
+                [skill, score, cost @ ..] if cost.len() <= 1 => {
+                    let score =
+                        (score.parse::<i32>()).map_err(|_| format!("{score:?} is not a score"))?;
+                    let cost = match cost.first() {
+                        Some(cost) => (cost.parse::<u32>())
+                            .map_err(|_| format!("{cost:?} is not a number of items"))?,
+                        None => 0,
+                    };
+                    Some(level_edit::checks::Check {
+                        skill: skill.to_ascii_lowercase(),
+                        score,
+                        cost,
+                    })
+                }
+                _ => return Err("a check is SKILL SCORE [COST], or none".into()),
+            };
+            let said = match &check {
+                Some(check) => format!("the link's skill check: {}", check.described()),
+                None => "the link has no skill check now".to_string(),
+            };
+            set_check(state, &name, at, check)?;
+            state.say(said);
+            return Ok(());
+        }
+        // The script of a line that spends a check's cost is the one it
+        // runs once the cost is spent.
+        ["script", side, n, script] => {
+            let (side, n) = node_at(side, n)?;
+            let gff = (state.editor.project.conversations.get(&name))
+                .ok_or(format!("the project has no conversation {name}"))?;
+            let dlg = level_edit::dialog::read(gff);
+            let nodes = match side {
+                level_edit::dialog::Side::Entry => &dlg.entries,
+                level_edit::dialog::Side::Reply => &dlg.replies,
+            };
+            let runs = nodes
+                .get(n)
+                .map_or_else(String::new, |node| node.script.script.clone());
+            if payment_of(state, &runs).is_some() {
+                return set_payment_then(state, &runs, &none(script));
+            }
+        }
+        // A plain `add` answers the new node's number too.
+        ["add"] | ["add", _, _] => {
+            let under = match rest {
+                ["add", side, n] => Some(node_at(side, n)?),
+                _ => None,
+            };
+            let side = under.map_or(level_edit::dialog::Side::Entry, |(side, _)| side.other());
+            if let Some(at) = count(state, list_of(side)) {
+                state.answer = Some(named(side, at));
+            }
+        }
+        _ => {}
+    }
+    let change = match rest {
+        ["add"] => Talk::Add { under: None },
+        ["add", side, n] => Talk::Add {
+            under: Some(node_at(side, n)?),
+        },
+        ["text", side, n, text @ ..] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Text(side, n, text.join(" "))
+        }
+        ["speaker", side, n, tag] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Speaker(
+                side,
+                n,
+                if *tag == "-" {
+                    String::new()
+                } else {
+                    tag.to_string()
+                },
+            )
+        }
+        ["listener", side, n, tag] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Listener(
+                side,
+                n,
+                if *tag == "-" {
+                    String::new()
+                } else {
+                    tag.to_string()
+                },
+            )
+        }
+        ["script", side, n, script] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Script(side, n, none(script))
+        }
+        ["quest", side, n, quest, entry] => {
+            let (side, n) = node_at(side, n)?;
+            let entry = entry
+                .parse::<u32>()
+                .map_err(|_| format!("{entry:?} is not an entry's number"))?;
+            Talk::Quest(side, n, quest.to_string(), entry)
+        }
+        ["condition", link @ ..] => {
+            let (at, used) = link_at(link)?;
+            let script = link
+                .get(used)
+                .ok_or("a condition names a script, or - for none")?;
+            Talk::Condition(at, none(script))
+        }
+        ["link", "start", to] => Talk::LinkTo {
+            from: None,
+            to: to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a line's number"))?,
+        },
+        ["link", side, n, to] => Talk::LinkTo {
+            from: Some(node_at(side, n)?),
+            to: to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a node's number"))?,
+        },
+        ["unlink", link @ ..] => Talk::Unlink(link_at(link)?.0),
+        ["up", link @ ..] => Talk::Shift(link_at(link)?.0, -1),
+        ["down", link @ ..] => Talk::Shift(link_at(link)?.0, 1),
+        ["delete", side, n] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Delete(side, n)
+        }
+        ["end", script] => Talk::End(none(script)),
+        ["screen", kind] => Talk::Screen(match *kind {
+            "talk" => 0,
+            "computer" => 1,
+            "rakatan" => 2,
+            _ => return Err("a conversation is shown as talk, computer or rakatan".into()),
+        }),
+        ["abort", script] => Talk::Abort(none(script)),
+        _ => {
+            return Err(
+                "a conversation's change is add, text, speaker, listener, script, quest, condition, link, unlink, up, down, delete, end or abort"
+                    .into(),
+            );
+        }
+    };
+    state.apply(Edit::Conversation(name, change));
+    Ok(())
+}
+
+/// Saves, then plays the project's conversation `name` headless with the
+/// player talking to the object tagged `on`, answering by `picks`
+/// (`kjk try-conversation`).
+pub(crate) fn try_conversation(
+    state: &mut EditorState,
+    name: &str,
+    on: &str,
+    picks: Vec<u8>,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    if state.script_try.is_some() {
+        return Err("a try is running".into());
+    }
+    let name = name.to_ascii_lowercase();
+    command(state, &["save"], cameras)?;
+    let project = &state.editor.project;
+    let plan = crate::script_edit::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        game: project.game.clone(),
+        module: project.module.clone(),
+        script: name.clone(),
+        on: Some(on.to_string()),
+        seconds: 40.0,
+        debug: None,
+        conversation: Some(picks),
+    };
+    state.script_try = Some(crate::script_edit::Try::start(plan));
+    state.say(format!("trying the conversation {name} with {on}"));
+    Ok(())
+}
+
+/// The text of the project's script `name`: its draft, else its file.
+pub(crate) fn script_text(state: &EditorState, name: &str) -> Option<String> {
+    if let Some(draft) = state.drafts.get(name) {
+        return Some(draft.text.clone());
+    }
+    let bytes = std::fs::read(state.editor.project.folder.join(format!("{name}.nss"))).ok()?;
+    Some(bytes.into_iter().map(char::from).collect())
+}
+
+/// The script an object runs on `event`, and its blocks: `None` when the
+/// script is no script of blocks (written by hand, or the game's), and
+/// none at all when the event runs nothing.
+pub(crate) fn event_blocks(
+    state: &EditorState,
+    target: Target,
+    event: &str,
+) -> Result<(String, Option<Vec<level_edit::blocks::Block>>), String> {
+    let Target::Object(kind, index) = target else {
+        return Err("only an object of the area runs scripts".into());
+    };
+    let entry = state
+        .editor
+        .entry(kind, index)
+        .ok_or("the object is not there")?;
+    let gff = state
+        .behaviour_source(kind, &entry)
+        .ok_or("the object's template does not read")?;
+    let script = level_edit::template::scripts(&gff)
+        .into_iter()
+        .find(|(label, _)| label == event)
+        .map(|(_, script)| script)
+        .ok_or(format!("the object has no event {event}"))?;
+    if script.is_empty() {
+        return Ok((script, Some(Vec::new())));
+    }
+    let blocks = script_text(state, &script).and_then(|text| level_edit::blocks::read(&text));
+    Ok((script, blocks))
+}
+
+/// Gives an object's `event` the script `blocks` make: the script of blocks
+/// it runs already, else a new one (`kjb_N`), written as a draft that the
+/// next save writes and compiles.
+pub(crate) fn set_blocks(
+    state: &mut EditorState,
+    target: Target,
+    event: &str,
+    blocks: Vec<level_edit::blocks::Block>,
+) -> Result<(), String> {
+    let (script, held) = event_blocks(state, target, event)?;
+    let name = if !script.is_empty() && held.is_some() {
+        script.clone()
+    } else {
+        let series = own_series(&state.editor.project.name);
+        let taken = |name: &str| {
+            outside_series(name, "kjb_", series)
+                || state.project_scripts.contains(name)
+                || state.drafts.contains_key(name)
+                || state.setup.scripts.binary_search(&name.to_string()).is_ok()
+        };
+        level_edit::blocks::fresh_name(taken)
+    };
+    let text = level_edit::blocks::write(&blocks);
+    match state.drafts.get_mut(&name) {
+        Some(draft) => draft.text = text,
+        None => {
+            let saved = script_text(state, &name).unwrap_or_else(String::new);
+            state
+                .drafts
+                .insert(name.clone(), crate::script_edit::Draft { text, saved });
+        }
+    }
+    if script != name {
+        state.change_template(target, Change::Script(event.to_string(), name));
+    }
+    Ok(())
+}
+
+/// Holds `text` as the draft of the project's script `name`, which the
+/// next save writes and compiles.
+fn put_draft(state: &mut EditorState, name: &str, text: String) {
+    match state.drafts.get_mut(name) {
+        Some(draft) => draft.text = text,
+        None => {
+            let saved = script_text(state, name).unwrap_or_else(String::new);
+            state
+                .drafts
+                .insert(name.to_string(), crate::script_edit::Draft { text, saved });
+        }
+    }
+}
+
+/// The project's conversation `name`, read, and where its link `at` leads:
+/// the side and the number of the line or reply.
+fn conversation_link(
+    state: &EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+) -> Result<
+    (
+        fmt_odyssey::dlg::Dlg,
+        level_edit::dialog::Side,
+        usize,
+        String,
+    ),
+    String,
+> {
+    use level_edit::dialog::{LinkAt, Side};
+    let gff = (state.editor.project.conversations.get(name))
+        .ok_or(format!("the project has no conversation {name}"))?;
+    let dlg = level_edit::dialog::read(gff);
+    let (side, link) = match at {
+        LinkAt::Start(n) => (Side::Entry, dlg.starts.get(n)),
+        LinkAt::From(from, parent, n) => {
+            let nodes = if from == Side::Entry {
+                &dlg.entries
+            } else {
+                &dlg.replies
+            };
+            (
+                from.other(),
+                nodes.get(parent).and_then(|node| node.links.get(n)),
+            )
+        }
+    };
+    let link = link.ok_or(format!("the conversation {name} has no such link"))?;
+    let (index, condition) = (link.index as usize, link.active.script.to_ascii_lowercase());
+    Ok((dlg, side, index, condition))
+}
+
+/// The skill check on the link `at` of the project's conversation `name`,
+/// if its condition is one (`level_edit::checks`).
+pub(crate) fn link_check(
+    state: &EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+) -> Option<level_edit::checks::Check> {
+    let (_, _, _, condition) = conversation_link(state, name, at).ok()?;
+    if condition.is_empty() {
+        return None;
+    }
+    level_edit::checks::read_condition(&script_text(state, &condition)?)
+}
+
+/// What the script `script` holds when it spends a check's cost: the
+/// skill, the cost, and the script it runs after.
+pub(crate) fn payment_of(state: &EditorState, script: &str) -> Option<(String, u32, String)> {
+    if script.is_empty() {
+        return None;
+    }
+    level_edit::checks::read_payment(&script_text(state, &script.to_ascii_lowercase())?)
+}
+
+/// Sets the skill check of the link `at` of the project's conversation
+/// `name`, or takes it away (`None`). The check's condition is the link's
+/// condition. When the check costs items, the line or reply the link leads
+/// to runs a script that spends them, then runs the script it ran before.
+/// Taking the check away gives the link no condition, and gives the line
+/// or reply back the script it ran before.
+pub(crate) fn set_check(
+    state: &mut EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+    check: Option<level_edit::checks::Check>,
+) -> Result<(), String> {
+    use level_edit::checks;
+    use level_edit::dialog::{Edit as Talk, Side};
+    let name = name.to_ascii_lowercase();
+    if let Some(why) = check.as_ref().and_then(checks::problem) {
+        return Err(why);
+    }
+    let (dlg, side, index, condition) = conversation_link(state, &name, at)?;
+    let node = match side {
+        Side::Entry => dlg.entries.get(index),
+        Side::Reply => dlg.replies.get(index),
+    }
+    .ok_or(format!("the conversation {name} has no node {index}"))?;
+    let runs = node.script.script.to_ascii_lowercase();
+    let held = (!condition.is_empty())
+        .then(|| script_text(state, &condition))
+        .flatten()
+        .is_some_and(|text| checks::is_condition(&text));
+    let paid = payment_of(state, &runs);
+    // The script the line ran before a check's cost was added to it.
+    let then = paid
+        .as_ref()
+        .map_or_else(|| runs.clone(), |(_, _, then)| then.clone());
+    let series = own_series(&state.editor.project.name);
+    let fresh = |state: &EditorState, payment: bool| {
+        let prefix = if payment { "kjp_" } else { "kjc_" };
+        checks::fresh_name(payment, |candidate| {
+            outside_series(candidate, prefix, series)
+                || state.project_scripts.contains(candidate)
+                || state.drafts.contains_key(candidate)
+                || state
+                    .setup
+                    .scripts
+                    .binary_search(&candidate.to_string())
+                    .is_ok()
+        })
+    };
+    let mut edits = Vec::new();
+    match &check {
+        Some(check) => {
+            let costs = checks::skill(&check.skill).is_some_and(|skill| skill.item.is_some())
+                && check.cost > 0;
+            // Both scripts are made before either is kept, so a refusal
+            // of the second (the line's own script is named with a space
+            // or a quote) leaves the first as it was.
+            let made = checks::condition(check)?;
+            let spends = match costs {
+                true => Some(checks::payment(check, &then)?),
+                false => None,
+            };
+            let script = if held {
+                condition.clone()
+            } else {
+                fresh(state, false)
+            };
+            put_draft(state, &script, made);
+            if script != condition {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Condition(at, script),
+                ));
+            }
+            if let Some(spends) = spends {
+                let script = if paid.is_some() {
+                    runs.clone()
+                } else {
+                    fresh(state, true)
+                };
+                put_draft(state, &script, spends);
+                if script != runs {
+                    edits.push(Edit::Conversation(
+                        name.clone(),
+                        Talk::Script(side, index, script),
+                    ));
+                }
+            } else if paid.is_some() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Script(side, index, then.clone()),
+                ));
+            }
+        }
+        None => {
+            if held {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Condition(at, String::new()),
+                ));
+            }
+            if paid.is_some() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Script(side, index, then.clone()),
+                ));
+            }
+        }
+    }
+    if !edits.is_empty() {
+        state.apply_many(edits);
+    }
+    Ok(())
+}
+
+/// Sets the script that a line or reply which spends a check's cost runs
+/// after it has spent it: the script `payment` spends the cost and then runs
+/// `then` (empty for none).
+pub(crate) fn set_payment_then(
+    state: &mut EditorState,
+    payment: &str,
+    then: &str,
+) -> Result<(), String> {
+    let payment = payment.to_ascii_lowercase();
+    let (skill, cost, _) =
+        payment_of(state, &payment).ok_or(format!("{payment} spends no check's cost"))?;
+    let check = level_edit::checks::Check {
+        skill,
+        score: 0,
+        cost,
+    };
+    let then = then.trim().to_ascii_lowercase();
+    let made = level_edit::checks::payment(&check, &then)?;
+    put_draft(state, &payment, made);
+    Ok(())
+}
+
+/// The area's ARE as the project has it now: a new map's, the project's
+/// copy of an installed area's, else the install's.
+pub(crate) fn area_are(state: &EditorState) -> Option<fmt_odyssey::gff::Gff> {
+    let project = &state.editor.project;
+    if let Some(map) = &project.map {
+        return Some(map.are.clone());
+    }
+    if let Some(are) = &project.are {
+        return Some(are.clone());
+    }
+    install_are(state)
+}
+
+/// The installed area's ARE as the install has it.
+fn install_are(state: &EditorState) -> Option<fmt_odyssey::gff::Gff> {
+    let bytes = state
+        .setup
+        .resolver
+        .read(&state.editor.project.area, ResType::ARE)?;
+    fmt_odyssey::gff::Gff::parse(&bytes).ok()
+}
+
+/// Changes one of the area's settings (`level_edit::settings`).
+pub(crate) fn change_area(state: &mut EditorState, change: level_edit::settings::AreaChange) {
+    let base = (state.editor.project.map.is_none() && state.editor.project.are.is_none())
+        .then(|| install_are(state))
+        .flatten();
+    state.apply(Edit::Area { change, base });
+}
+
+/// `edit area ...`: the area's music, ambient sound, fog, ambient light and
+/// scripts, and a new map's module scripts.
+fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    use fmt_odyssey::gff::GffValue;
+    use level_edit::settings::{AreaChange, colour_value};
+    let row = |word: &str| -> Result<u32, String> {
+        word.parse::<u32>()
+            .map_err(|_| format!("{word:?} is not a row's number"))
+    };
+    let colour = |words: &[&str]| -> Result<u32, String> {
+        match words {
+            [r, g, b] => Ok(colour_value([number(r)?, number(g)?, number(b)?])),
+            _ => Err("a colour is three numbers from 0 to 1: R G B".into()),
+        }
+    };
+    let script = |word: &str| {
+        if word == "-" {
+            String::new()
+        } else {
+            word.to_ascii_lowercase()
+        }
+    };
+    let change = match words {
+        ["music", when @ ("day" | "night" | "battle"), n] => {
+            let label = match *when {
+                "day" => "MusicDay",
+                "night" => "MusicNight",
+                _ => "MusicBattle",
+            };
+            AreaChange::Property(label.into(), row(n)?)
+        }
+        ["ambience", when @ ("day" | "night"), n] => {
+            let label = if *when == "day" {
+                "AmbientSndDay"
+            } else {
+                "AmbientSndNight"
+            };
+            AreaChange::Property(label.into(), row(n)?)
+        }
+        ["volume", when @ ("day" | "night"), n] => {
+            let label = if *when == "day" {
+                "AmbientSndDayVol"
+            } else {
+                "AmbientSndNitVol"
+            };
+            AreaChange::Property(label.into(), row(n)?.min(127))
+        }
+        ["fog", on @ ("on" | "off")] => {
+            AreaChange::Are("SunFogOn".into(), GffValue::Byte(u8::from(*on == "on")))
+        }
+        // Both ends of the fog as one edit, one undo step.
+        ["fog", near, far] => {
+            let (near, far) = (number(near)?, number(far)?);
+            let base = (state.editor.project.map.is_none() && state.editor.project.are.is_none())
+                .then(|| install_are(state))
+                .flatten();
+            let edits = [("SunFogNear", near), ("SunFogFar", far)]
+                .into_iter()
+                .map(|(label, value)| Edit::Area {
+                    change: AreaChange::Are(label.into(), GffValue::Float(value.to_bits())),
+                    base: base.clone(),
+                })
+                .collect();
+            state.apply_many(edits);
+            return Ok(());
+        }
+        ["fog", "colour", rgb @ ..] => {
+            AreaChange::Are("SunFogColor".into(), GffValue::Dword(colour(rgb)?))
+        }
+        ["ambient", rgb @ ..] => {
+            AreaChange::Are("DynAmbientColor".into(), GffValue::Dword(colour(rgb)?))
+        }
+        ["script", label, name] => AreaChange::Are(
+            (*label).to_string(),
+            GffValue::ResRef(script(name).into_bytes()),
+        ),
+        ["module", "script", label, name] => {
+            AreaChange::ModuleScript((*label).to_string(), script(name))
+        }
+        ["weather", kind, chance] => {
+            let label = (level_edit::settings::WEATHER_CHANCES.iter())
+                .find(|(_, name)| name == kind)
+                .map(|(label, _)| *label)
+                .ok_or("edit area weather takes rain, snow or lightning")?;
+            let chance = chance
+                .parse::<i32>()
+                .map_err(|_| format!("{chance:?} is not a chance from 0 to 100"))?;
+            AreaChange::Are(label.into(), GffValue::Int(chance))
+        }
+        ["wind", power] => {
+            let power = power
+                .parse::<i32>()
+                .map_err(|_| format!("{power:?} is not a wind from 0 to 2"))?;
+            AreaChange::Are(level_edit::settings::WIND.into(), GffValue::Int(power))
+        }
+        ["indoors", on @ ("on" | "off")] => {
+            let flags = area_are(state)
+                .and_then(|are| are.root.uint("Flags"))
+                .unwrap_or(0);
+            let flags = if *on == "on" {
+                flags | level_edit::settings::INDOORS
+            } else {
+                flags & !level_edit::settings::INDOORS
+            };
+            AreaChange::Are("Flags".into(), GffValue::Dword(flags))
+        }
+        ["dry", room, on @ ("on" | "off")] => AreaChange::DryRoom((*room).to_string(), *on == "on"),
+        ["sky", "none"] => AreaChange::JaSky(None),
+        ["sky", name] => {
+            let name = name.to_ascii_lowercase();
+            if !state.setup.ja_skies.contains(&name) {
+                return Err(format!(
+                    "Jedi Academy has no sky box {name}: the catalog's ja_skies lists them"
+                ));
+            }
+            AreaChange::JaSky(Some(name))
+        }
+        _ => {
+            return Err(
+                "edit area takes music, ambience, volume, fog, ambient, weather, wind, indoors, dry, script, module script or sky"
+                    .into(),
+            );
+        }
+    };
+    change_area(state, change);
+    Ok(())
+}
+
+/// The entry area of `module` and its GIT as the install has it: the
+/// project's own area's as the editor has it, another module's read once.
+pub(crate) fn module_area(
+    state: &mut EditorState,
+    module: &str,
+) -> Result<(String, fmt_odyssey::gff::Gff), String> {
+    let module = module.to_ascii_lowercase();
+    if module == state.editor.project.module {
+        return Ok((
+            state.editor.project.area.clone(),
+            state.editor.project.git.clone(),
+        ));
+    }
+    // Another level of the project, a new map among them, as the project
+    // has it.
+    if let Some(level) = state.editor.project.parked.get(&module) {
+        return Ok((level.area.clone(), level.git.clone()));
+    }
+    if !state.setup.modules.contains(&module) {
+        return Err(format!(
+            "neither the game nor the project has a level {module}"
+        ));
+    }
+    let game = state.setup.game;
+    state
+        .module_facts
+        .entry(module.clone())
+        .or_insert_with(|| {
+            let resolver = kjk_game::viewer::resolver(&kjk_game::discover(), game, Some(&module))?;
+            let ifo = resolver
+                .read("module", ResType::IFO)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .ok_or(format!("{module} has no module.ifo"))?;
+            let area = ifo
+                .root
+                .resref("Mod_Entry_Area")
+                .map(|area| area.to_ascii_lowercase())
+                .ok_or(format!("{module}'s module.ifo names no entry area"))?;
+            let git = resolver
+                .read(&area, ResType::GIT)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .ok_or(format!("{module}'s area {area} has no GIT"))?;
+            Ok((area, git))
+        })
+        .clone()
+}
+
+/// The doors and waypoints of `module`'s entry area a link can arrive at.
+pub(crate) fn arrivals(
+    state: &mut EditorState,
+    module: &str,
+) -> Result<Vec<(String, bool)>, String> {
+    module_area(state, module).map(|(_, git)| level_edit::git::arrivals(&git))
+}
+
+/// Leads the selected door or trigger to `module` (nowhere when empty),
+/// arriving at the door or waypoint tagged `tag` (the module's entry when
+/// empty).
+pub(crate) fn link(state: &mut EditorState, module: &str, tag: &str) -> Result<(), String> {
+    let target = selected(state)?;
+    let Target::Object(kind @ (Kind::Door | Kind::Trigger), _) = target else {
+        return Err("select a door or a trigger to lead it somewhere".into());
+    };
+    let _ = kind;
+    let module = module.to_ascii_lowercase();
+    let to_door = if module.is_empty() || tag.is_empty() {
+        false
+    } else {
+        let arrivals = arrivals(state, &module)?;
+        let found = arrivals
+            .iter()
+            .find(|(own, _)| own.eq_ignore_ascii_case(tag))
+            .ok_or(format!("{module} has no door or waypoint tagged {tag}"))?;
+        found.1
+    };
+    state.change_template(
+        target,
+        Change::Link(level_edit::template::Link {
+            module,
+            to: tag.to_string(),
+            to_door,
+        }),
+    );
+    Ok(())
+}
+
+/// Leads a door or trigger of `module`'s entry area (its kind and its place
+/// in that kind's list) into this project's level, arriving at the door or
+/// waypoint tagged `tag` here (the entry when empty).
+pub(crate) fn entrance(
+    state: &mut EditorState,
+    module: &str,
+    (kind, index): (&str, &str),
+    tag: &str,
+) -> Result<(), String> {
+    let module = module.to_ascii_lowercase();
+    if module == state.editor.project.module {
+        return Err("that is this level: select the door or trigger and set where it leads".into());
+    }
+    let kind = match kind {
+        "door" => Kind::Door,
+        "trigger" => Kind::Trigger,
+        _ => return Err(format!("{kind:?}: a way in is a door or a trigger")),
+    };
+    let index: usize = index
+        .parse()
+        .map_err(|_| format!("{index:?} is not a place in the list"))?;
+    let (area, git) = module_area(state, &module)?;
+    let own = state.editor.project.module.clone();
+    let to_door = if tag.is_empty() {
+        false
+    } else {
+        let here = level_edit::git::arrivals(&state.editor.project.git);
+        here.iter()
+            .find(|(own_tag, _)| own_tag.eq_ignore_ascii_case(tag))
+            .ok_or(format!("this level has no door or waypoint tagged {tag}"))?
+            .1
+    };
+    let base = (!state.editor.project.others.contains_key(&area)).then_some(git);
+    state.apply(Edit::LinkOther {
+        module,
+        area,
+        base,
+        kind,
+        index,
+        link: level_edit::template::Link {
+            module: own,
+            to: tag.to_string(),
+            to_door,
+        },
+    });
+    Ok(())
+}
+
+/// The project's item `name`, refused when the project has no such item.
+fn own_item(state: &EditorState, name: &str) -> Result<level_edit::Template, String> {
+    let name = name.to_ascii_lowercase();
+    (state.editor.project.templates.get(&name))
+        .filter(|made| made.restype == ResType::UTI)
+        .cloned()
+        .ok_or(format!(
+            "the project has no item {name}: item new NAME BASE makes one from one of the game's"
+        ))
+}
+
+/// How long the editor's work takes (`live.json`'s `timings`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Timings {
+    /// A frame's time, smoothed over about the last second, milliseconds.
+    pub(crate) frame_ms: f32,
+    /// The longest frame among the last `Timings::WINDOW` frames.
+    pub(crate) frame_worst_ms: f32,
+    /// The longest frame of the window being counted, and how many of its
+    /// frames have passed.
+    counting: (f32, u32),
+    /// How long the scene took to build the last time it was drawn again.
+    pub(crate) redraw_ms: f32,
+    /// How long the last save took.
+    pub(crate) save_ms: f32,
+}
+
+impl Timings {
+    /// How many frames the longest frame is taken over.
+    const WINDOW: u32 = 120;
+
+    /// Takes one frame's time.
+    fn frame(&mut self, ms: f32) {
+        self.frame_ms = if self.frame_ms == 0.0 {
+            ms
+        } else {
+            self.frame_ms * 0.97 + ms * 0.03
+        };
+        self.counting = (self.counting.0.max(ms), self.counting.1 + 1);
+        if self.counting.1 >= Timings::WINDOW {
+            self.frame_worst_ms = self.counting.0;
+            self.counting = (0.0, 0);
+        }
+    }
+}
+
+/// How many series of numbers the names of copies are dealt into
+/// (`own_series`).
+const SERIES: u32 = 251;
+
+/// The series of numbers the project's copies are named with, from 1 to
+/// 250, made from the project's name. The editor names a copy of a
+/// template `kjeN_NAME` and a script of logic blocks `kjb_N`. Every project
+/// counting N from 1 would give two mods files of one name, and the games
+/// read one file of a name. So a project takes only the numbers that leave
+/// its series when divided by 251: for the series 117, the numbers 117,
+/// 368, 619 and on. Two projects get the same series once in 250 times,
+/// and kjk says at its start when two mods bring a file of one name
+/// (`level_edit::mods`).
+fn own_series(project: &str) -> u32 {
+    let digest = blake3::hash(project.to_ascii_lowercase().as_bytes());
+    let bytes = digest.as_bytes();
+    let number = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    1 + number % (SERIES - 1)
+}
+
+/// Whether `name` is `PREFIX` and a number of another project's series: a
+/// name this project leaves alone.
+fn outside_series(name: &str, prefix: &str, series: u32) -> bool {
+    let Some(rest) = name.strip_prefix(prefix) else {
+        return false;
+    };
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits
+        .parse::<u32>()
+        .is_ok_and(|number| number % SERIES != series)
+}
+
+/// A row of a table a command names: a whole number from 0.
+fn row_number(word: &str) -> Result<u16, String> {
+    word.parse::<u16>()
+        .map_err(|_| format!("{word} is not a row: a whole number from 0"))
+}
+
+/// The rows of the 2DA `table` as a picker lists them: each row's number
+/// and its name (its talk-table `name`, with its label where that says
+/// something else). Rows with neither are left out.
+pub(crate) fn table_names(state: &EditorState, table: &str) -> Vec<(u16, String)> {
+    let mut rows = Vec::new();
+    let Some(two) = state.setup.resolver.two_da(table) else {
+        return rows;
+    };
+    let talk = state.setup.talk.as_deref();
+    for row in 0..two.row_labels.len().min(usize::from(u16::MAX)) {
+        let named = two
+            .text(row, "name")
+            .and_then(|cell| cell.parse::<u32>().ok())
+            .and_then(|strref| talk?.text(strref))
+            .map(|text| level_edit::game_text(text).trim().to_string())
+            .filter(|text| !text.is_empty() && !text.starts_with("Bad Strref"));
+        let label = two
+            .text(row, "label")
+            .filter(|label| !label.is_empty() && label != "****");
+        let shown = match (named, label) {
+            (Some(name), Some(label)) if !name.eq_ignore_ascii_case(&label) => {
+                format!("{name} ({label})")
+            }
+            (Some(name), _) => name,
+            (None, Some(label)) => label,
+            (None, None) => continue,
+        };
+        rows.push((row as u16, shown));
+    }
+    rows
+}
+
+/// What the game's `itempropdef.2da` says of one kind of item property.
+pub(crate) struct PropertyKind {
+    /// Its name, as the editor shows it.
+    pub name: String,
+    /// The table its subtype is a row of, when it has subtypes.
+    pub subtypes: Option<String>,
+    /// Its row of `iprp_costtable.2da` and the table that row names, which
+    /// its value is a row of.
+    pub values: Option<(u8, String)>,
+    /// Its row of `iprp_paramtable.2da` and the table that row names, when
+    /// the property itself takes a parameter.
+    pub params: Option<(u8, String)>,
+}
+
+/// The table row `at` of `index` names under `column`, with `at`.
+fn indexed_table(
+    state: &EditorState,
+    index: &str,
+    at: Option<i64>,
+    column: &str,
+) -> Option<(u8, String)> {
+    let at = u8::try_from(at?).ok().filter(|at| *at != 255)?;
+    let table = (state.setup.resolver.two_da(index))?.resref(usize::from(at), column)?;
+    Some((at, table))
+}
+
+/// The kind of item property row `row` of `itempropdef.2da` is, when the
+/// game has one there.
+pub(crate) fn property_kind(state: &EditorState, row: u16) -> Option<PropertyKind> {
+    let def = state.setup.resolver.two_da("itempropdef")?;
+    let at = usize::from(row);
+    if at >= def.row_labels.len() {
+        return None;
+    }
+    let name = (table_names(state, "itempropdef").into_iter())
+        .find(|(found, _)| *found == row)?
+        .1;
+    Some(PropertyKind {
+        name,
+        subtypes: def.resref(at, "subtyperesref"),
+        values: indexed_table(
+            state,
+            "iprp_costtable",
+            def.int(at, "costtableresref"),
+            "name",
+        ),
+        params: indexed_table(
+            state,
+            "iprp_paramtable",
+            def.int(at, "param1resref"),
+            "tableresref",
+        ),
+    })
+}
+
+/// How many rows the 2DA `table` has.
+pub(crate) fn table_len(state: &EditorState, table: &str) -> usize {
+    (state.setup.resolver.two_da(table)).map_or(0, |two| two.row_labels.len())
+}
+
+/// The parameter table of a property: its own, else the one its subtype's
+/// row names (a property that acts on a hit names its duration there).
+pub(crate) fn param_table(
+    state: &EditorState,
+    kind: &PropertyKind,
+    subtype: u16,
+) -> Option<(u8, String)> {
+    kind.params.clone().or_else(|| {
+        let table = kind.subtypes.as_deref()?;
+        let at = (state.setup.resolver.two_da(table))?.int(usize::from(subtype), "param1resref");
+        indexed_table(state, "iprp_paramtable", at, "tableresref")
+    })
+}
+
+/// The property a command names, checked against the game's tables.
+fn property_of(
+    state: &EditorState,
+    row: u16,
+    subtype: u16,
+    value: u16,
+    param: u16,
+) -> Result<level_edit::item_props::Property, String> {
+    let kind = property_kind(state, row).ok_or(format!(
+        "the game has no item property {row}: the link's `properties` lists them"
+    ))?;
+    match &kind.subtypes {
+        Some(table) if usize::from(subtype) >= table_len(state, table) => {
+            return Err(format!(
+                "{} has no subtype {subtype}: its subtypes are the {} rows of {table}",
+                kind.name,
+                table_len(state, table)
+            ));
+        }
+        None if subtype != 0 => {
+            return Err(format!("{} has no subtypes: give 0", kind.name));
+        }
+        _ => {}
+    }
+    let cost_table = match &kind.values {
+        Some((at, table)) => {
+            // A cost table the game names but has no file for (`base1`,
+            // of properties that are on or off) takes any value.
+            let rows = table_len(state, table);
+            if rows > 0 && usize::from(value) >= rows {
+                return Err(format!(
+                    "{} has no value {value}: its values are the {} rows of {table}",
+                    kind.name,
+                    table_len(state, table)
+                ));
+            }
+            *at
+        }
+        None if value != 0 => {
+            return Err(format!("{} has no values: give 0", kind.name));
+        }
+        None => 0,
+    };
+    let (param_table, param) = match param_table(state, &kind, subtype) {
+        Some((at, table)) => {
+            if usize::from(param) >= table_len(state, &table) {
+                return Err(format!(
+                    "{} has no parameter {param}: its parameters are the {} rows of {table}",
+                    kind.name,
+                    table_len(state, &table)
+                ));
+            }
+            (at, param as u8)
+        }
+        None if param != 0 => {
+            return Err(format!("{} takes no parameter", kind.name));
+        }
+        None => (255, 0),
+    };
+    Ok(level_edit::item_props::Property {
+        name: row,
+        subtype,
+        cost_table,
+        value,
+        param_table,
+        param,
+    })
+}
+
+/// The name of row `row` of `table`, else the row's number.
+fn row_shown(state: &EditorState, table: &str, row: u16) -> String {
+    (table_names(state, table).into_iter())
+        .find(|(at, _)| *at == row)
+        .map_or_else(|| format!("row {row}"), |(_, name)| name)
+}
+
+/// One property as the editor says it: its kind, its subtype and its value
+/// by their names in the game's tables.
+pub(crate) fn property_shown(
+    state: &EditorState,
+    property: &level_edit::item_props::Property,
+) -> String {
+    let Some(kind) = property_kind(state, property.name) else {
+        return format!("property {}", property.name);
+    };
+    let mut shown = kind.name.clone();
+    if let Some(table) = &kind.subtypes {
+        shown.push_str(&format!(", {}", row_shown(state, table, property.subtype)));
+    }
+    // A property that is on or off has a value that says nothing.
+    if let Some((_, table)) = &kind.values
+        && table_len(state, table) > 0
+    {
+        shown.push_str(&format!(", {}", row_shown(state, table, property.value)));
+    }
+    if let Some((_, table)) = param_table(state, &kind, property.subtype) {
+        shown.push_str(&format!(
+            ", {}",
+            row_shown(state, &table, u16::from(property.param))
+        ));
+    }
+    shown
+}
+
+/// An item's properties as the editor says them, each after its place in
+/// the item's list.
+pub(crate) fn properties_shown(state: &EditorState, item: &fmt_odyssey::gff::Gff) -> Vec<String> {
+    (level_edit::item_props::properties(item).iter().enumerate())
+        .map(|(at, property)| format!("{at}: {}", property_shown(state, property)))
+        .collect()
+}
+
+/// Every kind of item property the game has, for the agent link's
+/// `properties.json`: each kind with the tables its subtype, value and
+/// parameter are rows of, and those tables' rows by name.
+pub(crate) fn property_catalog(state: &EditorState) -> serde_json::Value {
+    let mut kinds = Vec::new();
+    let mut tables = std::collections::BTreeMap::new();
+    for (row, _) in table_names(state, "itempropdef") {
+        let Some(kind) = property_kind(state, row) else {
+            continue;
+        };
+        let values = kind.values.as_ref().map(|(_, table)| table.clone());
+        let params = kind.params.as_ref().map(|(_, table)| table.clone());
+        for table in [&kind.subtypes, &values, &params].into_iter().flatten() {
+            if !tables.contains_key(table) {
+                let rows: Vec<serde_json::Value> = (table_names(state, table).into_iter())
+                    .map(|(row, name)| serde_json::json!({"row": row, "name": name}))
+                    .collect();
+                tables.insert(table.clone(), rows);
+            }
+        }
+        kinds.push(serde_json::json!({
+            "row": row,
+            "name": kind.name,
+            "subtype_table": kind.subtypes,
+            "value_table": values,
+            "parameter_table": params,
+            "add_command": format!(
+                "edit item property NAME add {row} {} {}{}",
+                if kind.subtypes.is_some() { "SUBTYPE" } else { "0" },
+                if values.is_some() { "VALUE" } else { "0" },
+                if params.is_some() { " PARAM" } else { "" },
+            ),
+        }));
+    }
+    serde_json::json!({
+        "note": "SUBTYPE, VALUE and PARAM are rows of the tables named, listed under tables.",
+        "properties": kinds,
+        "tables": tables,
+    })
+}
+
+/// Makes `change` in the project's item `name`.
+fn change_item(
+    state: &mut EditorState,
+    name: &str,
+    change: level_edit::items::ItemChange,
+) -> Result<(), String> {
+    let mut item = own_item(state, name)?;
+    level_edit::items::apply(&mut item.gff, &change)?;
+    state.apply(Edit::SetTemplate {
+        name: name.to_ascii_lowercase(),
+        template: Box::new(item),
+    });
+    Ok(())
+}
+
+/// The journal as the project has it: its own, else the game's, else an
+/// empty one.
+pub(crate) fn journal(state: &EditorState) -> fmt_odyssey::gff::Gff {
+    state
+        .template_gff(level_edit::journal::NAME, ResType::JRL)
+        .unwrap_or_else(level_edit::journal::empty)
+}
+
+/// Makes `jrl` the project's journal.
+fn set_journal(state: &mut EditorState, jrl: fmt_odyssey::gff::Gff) {
+    state.apply(Edit::SetTemplate {
+        name: level_edit::journal::NAME.to_string(),
+        template: Box::new(level_edit::Template {
+            restype: ResType::JRL,
+            from: level_edit::journal::NAME.to_string(),
+            gff: jrl,
+        }),
+    });
+}
+
+/// Adds a trigger to `module`'s entry area that leads into this project's
+/// level: made from the install's trigger template `template`, at `at` in
+/// that area. `rest` may name the trigger's tag, then the door or waypoint
+/// of this level to arrive at (the level's entry when left out).
+fn entrance_add(
+    state: &mut EditorState,
+    module: &str,
+    template: &str,
+    at: [f32; 3],
+    rest: &[&str],
+) -> Result<(), String> {
+    let module = module.to_ascii_lowercase();
+    let template = template.to_ascii_lowercase();
+    let own = state.editor.project.module.clone();
+    if module == own {
+        return Err("that is this level: add the trigger from the asset picker".into());
+    }
+    if state.setup.triggers.binary_search(&template).is_err() {
+        return Err(format!("the install has no trigger template {template}"));
+    }
+    let (tag, arrival) = match rest {
+        [] => (format!("kje_to_{own}"), ""),
+        [tag] => ((*tag).to_string(), ""),
+        [tag, arrival] => ((*tag).to_string(), *arrival),
+        _ => {
+            return Err(
+                "entrance add takes MODULE TEMPLATE X Y Z, then a tag and an arrival".into(),
+            );
+        }
+    };
+    let to_door = if arrival.is_empty() {
+        false
+    } else {
+        let here = level_edit::git::arrivals(&state.editor.project.git);
+        here.iter()
+            .find(|(own_tag, _)| own_tag.eq_ignore_ascii_case(arrival))
+            .ok_or(format!(
+                "this level has no door or waypoint tagged {arrival}"
+            ))?
+            .1
+    };
+    let (area, git) = module_area(state, &module)?;
+    let base = (!state.editor.project.others.contains_key(&area)).then_some(git);
+    state.apply(Edit::AddOther {
+        module,
+        area,
+        base,
+        template,
+        position: at,
+        tag,
+        link: level_edit::template::Link {
+            module: own,
+            to: arrival.to_string(),
+            to_door,
+        },
+    });
+    Ok(())
+}
+
+/// A new script of the project, `name`, opened in the viewer: a `main`, or
+/// a conversation's `StartingConditional`.
+fn new_script(state: &mut EditorState, name: &str, conditional: bool) -> Result<(), String> {
+    let name = name.to_ascii_lowercase();
+    let text = crate::script_edit::template(&name, conditional);
+    add_script(state, &name, text)
+}
+
+/// A new script of the project, `name`, with the text `text`, opened in
+/// the viewer. The next save writes and compiles it.
+fn add_script(state: &mut EditorState, name: &str, text: String) -> Result<(), String> {
+    if state.project_scripts.contains(name) || state.drafts.contains_key(name) {
+        return Err(format!("the project has a script {name} already"));
+    }
+    if let Some(problem) = crate::script_edit::name_problem(name) {
+        return Err(problem);
+    }
+    state.drafts.insert(
+        name.to_string(),
+        crate::script_edit::Draft {
+            text,
+            saved: String::new(),
+        },
+    );
+    state.say(format!("new script {name}"));
+    state.pending_ui.push(vec!["view".into(), name.to_string()]);
+    Ok(())
+}
+
+/// A free name for a new script that adds the entry `id` of the quest
+/// `tag`: the tag and the number (`kje_vessk_30`), with the tag cut short
+/// to fit 16 characters. When that name is taken, a letter goes before the
+/// number (`kje_vessk_b30`).
+fn quest_script_name(state: &EditorState, tag: &str, id: u32) -> Result<String, String> {
+    let taken = |name: &str| {
+        state.project_scripts.contains(name)
+            || state.drafts.contains_key(name)
+            || state.setup.scripts.binary_search(&name.to_string()).is_ok()
+    };
+    let tag: String = (tag.to_ascii_lowercase().chars())
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+        .collect();
+    let tag = tag.trim_end_matches('_');
+    for letter in std::iter::once(None).chain(('b'..='z').map(Some)) {
+        let number = match letter {
+            Some(letter) => format!("_{letter}{id}"),
+            None => format!("_{id}"),
+        };
+        let room = 16usize.saturating_sub(number.len());
+        let head: String = tag.chars().take(room).collect();
+        let name = format!("{}{number}", head.trim_end_matches('_'));
+        if crate::script_edit::name_problem(&name).is_none() && !taken(&name) {
+            return Ok(name);
+        }
+    }
+    Err(format!("no free name for a script of the quest {tag}"))
+}
+
+/// Saves (which writes and compiles the scripts), then tries `name` for the
+/// object tagged `on` (else the player) in the module installed headless.
+fn try_script(
+    state: &mut EditorState,
+    name: &str,
+    on: Option<&str>,
+    debug: bool,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    if state.script_try.is_some() {
+        return Err("a script is being tried".into());
+    }
+    let name = name.to_ascii_lowercase();
+    command(state, &["save"], cameras)?;
+    if let Some(why) = state.script_errors.get(&name) {
+        return Err(format!("{name} did not compile: {why}"));
+    }
+    let project = &state.editor.project;
+    let plan = crate::script_edit::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        game: project.game.clone(),
+        module: project.module.clone(),
+        script: name.clone(),
+        on: on.map(str::to_string),
+        seconds: 3.0,
+        debug: debug.then(|| project.folder.join(format!("{name}.ndb"))),
+        conversation: None,
+    };
+    state.script_try = Some(crate::script_edit::Try::start(plan));
+    state.say(format!("trying {name} for {}", on.unwrap_or("the player")));
+    Ok(())
+}
+
+/// Compiles the project's scripts (`level_edit::scripts`) and says how it
+/// went: each mistake, with its file and line.
+fn compile_scripts(state: &mut EditorState) {
+    let folder = state.editor.project.folder.clone();
+    if level_edit::scripts::sources(&folder).is_empty() {
+        return;
+    }
+    let Some(catalog) = state.setup.catalog.clone() else {
+        state.say("the project's scripts were not compiled: the install has no nwscript.nss");
+        return;
+    };
+    let resolver = state.setup.resolver.clone();
+    let install = |name: &str| resolver.read(name, ResType::NSS);
+    let compiled = level_edit::scripts::compile_all(&folder, &install, &catalog);
+    state.script_errors.clear();
+    state.script_round = state.script_round.wrapping_add(1);
+    let good = compiled.iter().filter(|each| each.outcome.is_ok()).count();
+    for each in compiled {
+        if let Err(why) = each.outcome {
+            state.say(format!("{} did not compile: {why}", each.name));
+            state.script_errors.insert(each.name, why);
+        }
+    }
+    if good > 0 {
+        state.say(format!("compiled {good} of the project's scripts"));
+    }
+}
+
+/// Copies into the project the cuts of each Jedi Academy level that its
+/// map places rooms of and that it does not keep itself: the file of
+/// the other project the rooms were built from (`LibraryRoom::ja_from`).
+/// A map's project so holds the cuts of every room it places, and plays
+/// without the other project.
+fn copy_cuts(state: &mut EditorState) -> Result<(), String> {
+    let folder = state.editor.project.folder.clone();
+    let levels: std::collections::BTreeSet<String> = (state.editor.project.map.iter())
+        .flat_map(|map| &map.rooms)
+        .filter_map(|room| Some(room.ja.as_ref()?.level.clone()))
+        .collect();
+    for level in levels {
+        let own = level_edit::ja_rooms::path(&folder, &level);
+        if own.exists() {
+            continue;
+        }
+        let Some(from) = (state.setup.rooms.iter())
+            .filter(|room| room.ja.as_ref().is_some_and(|ja| ja.level == level))
+            .find_map(|room| room.ja_from.clone())
+        else {
+            continue;
+        };
+        let source = level_edit::ja_rooms::path(&from, &level);
+        if let Some(parent) = own.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::copy(&source, &own)
+            .map_err(|error| format!("{} to {}: {error}", source.display(), own.display()))?;
+        state.say(format!(
+            "copied the rooms of {level} from the project {} into this one",
+            from.file_name()
+                .map_or(String::new(), |name| name.to_string_lossy().into_owned())
+        ));
+    }
+    Ok(())
+}
+
+/// Saves the project (`save_timed`) and keeps how long the save took
+/// (`Timings::save_ms`).
+pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let saved = save_timed(state);
+    state.timings.save_ms = started.elapsed().as_secs_f32() * 1000.0;
+    saved
+}
+
+/// Saves the project (`Editor::save_with`), saying its warnings and what
+/// was written. It then writes the scripts changed in the viewer, compiles
+/// the project's scripts, and saves the project's own lighting rules
+/// (`save_own_rules`). When the rules do not save, the project's other
+/// files are saved all the same, and the error says so.
+fn save_timed(state: &mut EditorState) -> Result<(), String> {
+    let made_by = format!("kjk {}", kjk_game::GIT_SHA);
+    let warnings: Vec<String> = state
+        .editor
+        .project
+        .problems()
+        .into_iter()
+        .filter(|problem| !problem.blocks)
+        .map(|problem| problem.what)
+        .collect();
+    for warning in warnings {
+        state.say(warning);
+    }
+    // An installed level's lights and lamps placed by hand are the
+    // project's own from the save at which they differ from the light
+    // data's, and the light data's again once they are the same.
+    let own = lights_own(state);
+    state.editor.project.kjk.own_lights = own;
+    forget_bake(state);
+    copy_cuts(state)?;
+    let resolver = state.setup.resolver.clone();
+    let read = |name: &str, restype: ResType| resolver.read(name, restype);
+    let written = state.editor.save_with(&made_by, &read)?;
+    state.write_drafts()?;
+    crate::recover::clear(state);
+    state.say(format!(
+        "saved {} files to {}",
+        written.len(),
+        state.editor.project.folder.display()
+    ));
+    compile_scripts(state);
+    save_own_rules(state).map_err(|why| {
+        format!("the project's own files were saved, but its lighting rules were not: {why}")
+    })
+}
+
+/// The kinds of fitting the project changed: each that differs from how
+/// the light data holds it.
+pub(crate) fn kinds_own(state: &EditorState) -> Vec<level_edit::kinds::KindEdit> {
+    (state.editor.project.kinds.iter())
+        .filter(|kind| {
+            state
+                .kind_originals
+                .get(&(kind.texture.clone(), kind.placeable))
+                .is_none_or(|original| original != *kind)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether the level's room levels are the project's own: they differ
+/// from the ones the light data holds for the module.
+pub(crate) fn levels_own(state: &EditorState) -> bool {
+    state.editor.project.levels != state.levels_original
+}
+
+/// Saves the project's own lighting rules to its `kjk-lighting.toml`
+/// (`level_edit::lighting`): the kinds of fitting it changed, and this
+/// level's room levels when it changed them. The other levels' room levels
+/// the file holds stay as they are.
+fn save_own_rules(state: &mut EditorState) -> Result<(), String> {
+    let folder = state.editor.project.folder.clone();
+    let module = state.editor.project.module.clone();
+    let mut own = level_edit::lighting::OwnLighting::read(&folder)?;
+    own.kinds = kinds_own(state);
+    if levels_own(state) {
+        own.levels
+            .insert(module, state.editor.project.levels.clone());
+    } else {
+        own.levels.remove(&module);
+    }
+    own.save(&folder)
+}
+
+/// The bake the project keeps of the level being edited, if it keeps one.
+pub(crate) fn bake_kept(state: &EditorState) -> Option<PathBuf> {
+    bake_facts(state).0
+}
+
+/// Whether an installed level's lights and lamps placed by hand are the
+/// project's own: they differ from the ones kjk's light data holds for the
+/// level. A new map's are always its own, and this is false for it.
+pub(crate) fn lights_own(state: &EditorState) -> bool {
+    let project = &state.editor.project;
+    project.map.is_none()
+        && (project.kjk.lights != state.shipped_lights.0
+            || project.kjk.lamps != state.shipped_lights.1)
+}
+
+/// Writes an installed level's lights and lamps placed by hand to kjk's
+/// light data (`fittings.toml`), where a build of kjk takes them for every
+/// player. They are then the light data's, and the next save leaves them
+/// out of the project.
+fn publish_lights(state: &mut EditorState) -> Result<(), String> {
+    if state.editor.project.map.is_some() {
+        return Err("a new map's lights and lamps are saved with its project".into());
+    }
+    if state.setup.light_data.is_none() {
+        return Err(
+            "kjk's light data was not found: publishing needs kjk built from source, or KJK_LIGHT_DATA set to a data/lights folder"
+                .into(),
+        );
+    }
+    // An installed level's lights placed by hand go to the light data's
+    // `fittings.toml`, where the game reads them.
+    let project = &state.editor.project;
+    if project.map.is_none()
+        && let Some(folder) = &state.setup.light_data
+    {
+        let path = folder.join("fittings.toml");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let lights = &project.kjk.lights;
+        let had = level_edit::lights::read_placed(&text, &project.game, &project.module)?;
+        if had != *lights {
+            let new =
+                level_edit::lights::write_placed(&text, &project.game, &project.module, lights)?;
+            std::fs::write(&path, new).map_err(|error| format!("{}: {error}", path.display()))?;
+            let message = format!(
+                "saved {} lights placed by hand to {}",
+                lights.len(),
+                path.display()
+            );
+            state.say(message);
+        }
+    }
+    // And its lamps, to the same file.
+    let project = &state.editor.project;
+    if project.map.is_none()
+        && let Some(folder) = &state.setup.light_data
+    {
+        let path = folder.join("fittings.toml");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let lamps = &project.kjk.lamps;
+        let had = level_edit::lamps::read_lamps(&text, &project.game, &project.module)?;
+        if had != *lamps {
+            let new = level_edit::lamps::write_lamps(&text, &project.game, &project.module, lamps)?;
+            std::fs::write(&path, new).map_err(|error| format!("{}: {error}", path.display()))?;
+            let message = format!("saved {} lamps to {}", lamps.len(), path.display());
+            state.say(message);
+        }
+    }
+    let project = &state.editor.project;
+    state.shipped_lights = (project.kjk.lights.clone(), project.kjk.lamps.clone());
+    Ok(())
+}
+
+/// Writes the project's own lighting rules to kjk's light data, where a
+/// build of kjk takes them for every player: the kinds of fitting it
+/// changed and the levels this level's rooms aim at in the bake. They are
+/// then the light data's, and the next save leaves them out of the
+/// project.
+fn publish_rules(state: &mut EditorState) -> Result<(), String> {
+    // The kinds of fitting changed go to the light data: their `[[kind]]`
+    // entries, which the game reads, and a `[[fitting]]` each, which
+    // `kinds.py` reads.
+    let changed = kinds_own(state);
+    if !changed.is_empty() {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let game = state.editor.project.game.clone();
+        let kinds_path = folder.join(format!("{game}.toml"));
+        let fittings_path = folder.join("fittings.toml");
+        let read = |path: &std::path::Path| {
+            std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+        };
+        let (mut kinds_text, mut fittings_text) = (read(&kinds_path)?, read(&fittings_path)?);
+        for kind in &changed {
+            kinds_text = level_edit::kinds::write_kind(&kinds_text, kind)?;
+            fittings_text = level_edit::kinds::write_fitting(&fittings_text, &game, kind)?;
+        }
+        for (path, text) in [(&kinds_path, kinds_text), (&fittings_path, fittings_text)] {
+            std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+        for kind in &changed {
+            state
+                .kind_originals
+                .insert((kind.texture.clone(), kind.placeable), kind.clone());
+        }
+        let message = format!(
+            "published {} kinds of fitting to {} and {}",
+            changed.len(),
+            kinds_path.display(),
+            fittings_path.display()
+        );
+        state.say(message);
+    }
+    // The levels the bake's rooms aim at go to the module's levels file,
+    // which `bake.toml` names (and is made to name, the first time).
+    if state.editor.project.levels != state.levels_original {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let module = state.editor.project.module.clone();
+        let file =
+            (state.bake_entry.levels.clone()).unwrap_or_else(|| format!("levels/{module}.txt"));
+        let path = folder.join(&file);
+        let old = std::fs::read_to_string(&path).ok();
+        let text = level_edit::levels::write_levels(
+            old.as_deref(),
+            &state.editor.project.levels,
+            &format!(
+                "The level each room of {module} aims at in the bake, of its {} level, set in kjk's level editor.",
+                state.bake_entry.of
+            ),
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        if state.bake_entry.levels.is_none() {
+            let bake = folder.join("bake.toml");
+            let text = std::fs::read_to_string(&bake)
+                .map_err(|error| format!("{}: {error}", bake.display()))?;
+            let text = level_edit::levels::with_levels_file(&text, &module, &file)?;
+            std::fs::write(&bake, &text).map_err(|error| format!("{}: {error}", bake.display()))?;
+            state.bake_entry = level_edit::levels::bake_entry(&text, &module);
+        }
+        state.levels_original = state.editor.project.levels.clone();
+        state.say(format!("published the rooms' levels to {}", path.display()));
+    }
+    Ok(())
+}
+
+/// `edit` commands from `--cmds`, in order.
+pub(crate) fn commands_from_console(
+    mut state: ResMut<EditorState>,
+    mut requests: ResMut<console::EditRequests>,
+    cameras: Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) {
+    let state = &mut *state;
+    for words in std::mem::take(&mut requests.0) {
+        if let ["pick", x, y] = words.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+            let (Ok(x), Ok(y)) = (number(x), number(y)) else {
+                state.say("edit pick takes a point of the view in pixels");
+                continue;
+            };
+            state.pending_pick = Some(Vec2::new(x, y));
+            state.pending_pick_adds = false;
+            continue;
+        }
+        // The window's own state (`ui`): its tool, the picker's tab and
+        // search, for scripted screenshots.
+        if words.first().is_some_and(|word| word == "ui") {
+            state.pending_ui.push(words[1..].to_vec());
+            continue;
+        }
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        run(state, &words, &cameras);
+    }
+}
+
+pub(crate) fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Creature => "creature",
+        Kind::Door => "door",
+        Kind::Placeable => "placeable",
+        Kind::Trigger => "trigger",
+        Kind::Waypoint => "waypoint",
+        Kind::Sound => "sound",
+        Kind::Encounter => "encounter",
+        Kind::Store => "store",
+    }
+}
+
+/// What the panel and a dump say about a target.
+pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value {
+    let placement = state.editor.placement(target);
+    let (position, facing) = placement.unwrap_or(([0.0; 3], 0.0));
+    match target {
+        Target::Object(kind, index) => {
+            let entry = state.editor.entry(kind, index);
+            // What its template makes it do.
+            let behaviour = entry.as_ref().and_then(|entry| {
+                let gff = state.behaviour_source(kind, entry)?;
+                let own = state.editor.project.templates.get(&entry.template);
+                let scripts: BTreeMap<String, String> = level_edit::template::scripts(&gff)
+                    .into_iter()
+                    .filter(|(_, script)| !script.is_empty())
+                    .collect();
+                // Every event it has, set or not, and the numbers the
+                // editor changes of it (a door's lock, a creature's
+                // faction and attributes), each by its field.
+                let events: Vec<String> = level_edit::template::scripts(&gff)
+                    .into_iter()
+                    .map(|(event, _)| event)
+                    .collect();
+                let restype = level_edit::template::restype(kind).unwrap_or(match kind {
+                    Kind::Door => ResType::UTD,
+                    _ => ResType::UTW,
+                });
+                let numbers: BTreeMap<&str, f64> = level_edit::fields::numbers(restype)
+                    .iter()
+                    .filter_map(|number| {
+                        Some((
+                            number.label,
+                            level_edit::fields::number_of(&gff, number.label)?,
+                        ))
+                    })
+                    .collect();
+                Some(serde_json::json!({
+                    "project_template": own.is_some(),
+                    "copied_from": own.map(|made| made.from.clone()),
+                    "scripts": scripts,
+                    "events": events,
+                    "numbers": numbers,
+                    "useable": level_edit::template::flag(&gff, "Useable"),
+                    "holds_items": level_edit::template::flag(&gff, "HasInventory"),
+                    "items": level_edit::template::items(&gff),
+                }))
+            });
+            serde_json::json!({
+                "kind": kind_name(kind),
+                "index": index,
+                "template": entry.as_ref().map(|e| e.template.clone()),
+                "tag": entry.as_ref().map(|e| state.tag_of(e)),
+                "position": position,
+                "facing": facing,
+                "editable": EDITABLE.contains(&kind),
+                "behaviour": behaviour,
+                "links": crate::links::described(state, kind, index),
+            })
+        }
+        Target::Prop(at) => {
+            let prop = state.editor.project.kjk.props.get(at);
+            // Where its model's corners stand, lowest and highest.
+            let bounds = prop.and_then(|prop| {
+                let model = state.prop_models.get(&prop.model)?.as_ref().ok()?;
+                let points = model.ir.meshes.iter().flat_map(|mesh| &mesh.positions);
+                kjk_game::scene::span(points.map(|point| {
+                    let ja = point.map(|value| value / collision::UNIT);
+                    Vec3::from_array(prop.place(ja))
+                }))
+                .map(|(low, high)| [low.to_array(), high.to_array()])
+            });
+            serde_json::json!({
+                "bounds": bounds,
+                "kind": "prop",
+                "index": at,
+                "name": prop.map(|p| p.name.clone()),
+                "model": prop.map(|p| p.model.clone()),
+                "scale": prop.map(|p| p.scale),
+                "solid": prop.map(|p| p.solid),
+                "position": position,
+                "facing": facing,
+            })
+        }
+        Target::Box(at) => {
+            let shape = state.editor.project.kjk.boxes.get(at);
+            serde_json::json!({
+                "kind": "box",
+                "index": at,
+                "name": shape.map(|b| b.name.clone()),
+                "size": shape.map(|b| b.size),
+                "role": shape.map(|b| b.role.word()),
+                "position": position,
+                "facing": facing,
+            })
+        }
+        Target::Room(at) => {
+            let project = &state.editor.project;
+            let room = project.map.as_ref().and_then(|map| map.rooms.get(at));
+            serde_json::json!({
+                "kind": "room",
+                "index": at,
+                "name": level_edit::map::room_name(&project.module, at),
+                "model": room.map(|room| room.model.clone()),
+                "from": room.map(|room| room.from),
+                "position": position,
+                "facing": facing,
+            })
+        }
+        Target::Entry => serde_json::json!({
+            "kind": "entry",
+            "position": position,
+            "facing": facing,
+        }),
+        Target::Light(at) => {
+            let light = state.editor.project.kjk.lights.get(at);
+            serde_json::json!({
+                "kind": "light",
+                "index": at,
+                "position": position,
+                "colour": light.map(|l| l.colour),
+                "radius": light.map(|l| l.radius),
+                "aim": light.map(|l| l.aim),
+                "cone": light.map(|l| l.cone),
+                "half": light.map(|l| l.half),
+                "reason": light.map(|l| l.reason.clone()),
+            })
+        }
+        Target::Sun => {
+            let sun = state.editor.sun();
+            let middle = state.editor.level_middle;
+            let seen = sun.map(|sun| sun.seen_from(middle));
+            serde_json::json!({
+                "kind": "sun",
+                "the_projects": state.editor.project.kjk.sun.is_some(),
+                "at": sun.map(|sun| sun.at),
+                "bearing": seen.map(|seen| seen.0),
+                "height": seen.map(|seen| seen.1),
+                "distance": seen.map(|seen| seen.2),
+                "colour": sun.map(|sun| sun.colour),
+                "multiplier": sun.map(|sun| sun.multiplier),
+                "radius": sun.map(|sun| sun.radius),
+                "level_middle": middle,
+            })
+        }
+        Target::Lamp(at) => {
+            let lamp = state.editor.project.kjk.lamps.get(at);
+            let drawn = (state.drawn.things.iter())
+                .any(|(target, models)| *target == Target::Lamp(at) && !models.is_empty());
+            serde_json::json!({
+                "kind": "lamp",
+                "index": at,
+                "position": position,
+                "facing": facing,
+                "model": lamp.map(|l| l.model.clone()),
+                "mesh": lamp.map(|l| l.mesh.clone()),
+                "on": lamp.map(|l| if l.on_placeable { "placeable" } else { "room" }),
+                "reason": lamp.map(|l| l.reason.clone()),
+                "drawn": drawn,
+            })
+        }
+        Target::Effect(at) => {
+            let effect = state.editor.project.kjk.effects.get(at);
+            serde_json::json!({
+                "kind": "effect",
+                "index": at,
+                "name": effect.map(|e| e.name.clone()),
+                "effect": effect.map(|e| e.effect.clone()),
+                "pitch": effect.map(|e| e.pitch),
+                "every": effect.map(|e| e.every),
+                "position": position,
+                "facing": facing,
+            })
+        }
+        Target::Fitted(at) => {
+            let seen = state.editor.seen_lights.get(at);
+            serde_json::json!({
+                "kind": "fitted light",
+                "index": at,
+                "position": position,
+                "source": seen.map(|(_, source)| source.clone()),
+                "colour": seen.map(|(l, _)| l.colour),
+                "radius": seen.map(|(l, _)| l.radius),
+            })
+        }
+    }
+}
+
+pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
+    if !facts.wanted() {
+        return;
+    }
+    facts.0.insert("editor".into(), facts_of(&state));
+}
+
+/// Everything a dump says of the editor (its `editor` fact), which the
+/// agent link writes too (`level`): the project, every object, the
+/// selection, the props and boxes, the lighting, the navigation mesh, the
+/// scripts and conversations, the messages and the project's problems.
+pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
+    let project = &state.editor.project;
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let entries = state.editor.entries();
+    for entry in &entries {
+        *counts.entry(kind_name(entry.kind)).or_insert(0) += 1;
+    }
+    let objects: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "kind": kind_name(entry.kind),
+                "index": entry.index,
+                "template": entry.template,
+                "tag": state.tag_of(entry),
+                "position": entry.position,
+                "facing": entry.facing,
+            })
+        })
+        .collect();
+    // The project's own quests, each with its entries.
+    let project_quests: Vec<serde_json::Value> = {
+        let jrl = journal(state);
+        level_edit::journal::own_quests(&jrl).map_or_else(Vec::new, |own| {
+            level_edit::journal::tags(&own)
+                .iter()
+                .filter_map(|tag| level_edit::journal::quest(&own, tag))
+                .map(|(tag, name, entries)| {
+                    let entries: Vec<serde_json::Value> = (entries.iter())
+                        .map(|(number, text, closes)| {
+                            serde_json::json!({
+                                "number": number,
+                                "text": text,
+                                "closes_the_quest": closes,
+                            })
+                        })
+                        .collect();
+                    serde_json::json!({"tag": tag, "name": name, "entries": entries})
+                })
+                .collect()
+        })
+    };
+    serde_json::json!({
+            "project": project.name,
+            "folder": project.folder,
+            "game": project.game,
+            "module": project.module,
+            "area": project.area,
+            "unsaved": state.unsaved(),
+            "undo": state.editor.undo_depth(),
+            "redo": state.editor.redo_depth(),
+            "counts": counts,
+            "objects": objects,
+            "selected": state.editor.selected.map(|target| describe(state, target)),
+            "props": (0..project.kjk.props.len()).map(|at| describe(state, Target::Prop(at))).collect::<Vec<_>>(),
+            "boxes": (0..project.kjk.boxes.len()).map(|at| describe(state, Target::Box(at))).collect::<Vec<_>>(),
+            "lighting": {
+                "view": format!("{:?}", state.light_view),
+                "play_lighting": state.play_lighting.unwrap_or("options"),
+                "bake": state.bake.as_ref().map(|bake| bake.display().to_string()),
+                "placed": (0..project.kjk.lights.len()).map(|at| describe(state, Target::Light(at))).collect::<Vec<_>>(),
+                "lamps": (0..project.kjk.lamps.len()).map(|at| describe(state, Target::Lamp(at))).collect::<Vec<_>>(),
+                "sun": describe(state, Target::Sun),
+                "lamps_offered": state.lamp_library.found.len(),
+                "fitted": state.editor.seen_lights.len(),
+                "fitted_by_source": state.editor.seen_lights.iter().fold(BTreeMap::<String, usize>::new(), |mut counts, (_, source)| {
+                    *counts.entry(source.clone()).or_insert(0) += 1;
+                    counts
+                }),
+                "light_data": state.setup.light_data.as_ref().map(|folder| folder.display().to_string()),
+            },
+            "nav": state.nav_facts.as_ref().map(|nav| serde_json::json!({
+                "faces": nav.faces,
+                "islands": nav.islands,
+                "portals": nav.portals,
+                "from": nav.from,
+                "apart": nav.apart,
+                "entry_off": nav.entry_off,
+                "by_links": nav.by_links,
+                "links": nav.links.iter().map(|check| match check {
+                    Ok(()) => "crossed".to_string(),
+                    Err(why) => why.clone(),
+                }).collect::<Vec<_>>(),
+            })),
+            "prop_models": state.prop_models.iter().map(|(path, read)| match read {
+                Ok(model) => serde_json::json!({
+                    "model": path,
+                    "meshes": model.ir.meshes.iter().map(|mesh| mesh.texture.clone()).collect::<Vec<_>>(),
+                    "textures": model.textures.iter().map(|(name, texture)| {
+                        let texels = texture.mips.first().map_or(&[][..], Vec::as_slice);
+                        let mean = texels.chunks(4).fold([0u64; 3], |sum, t| [sum[0] + u64::from(t[0]), sum[1] + u64::from(t[1]), sum[2] + u64::from(t[2])]);
+                        let count = (texels.len() / 4).max(1) as u64;
+                        serde_json::json!({"name": name, "size": [texture.width, texture.height], "mean": mean.map(|c| c / count)})
+                    }).collect::<Vec<_>>(),
+                }),
+                Err(why) => serde_json::json!({"model": path, "error": why}),
+            }).collect::<Vec<_>>(),
+            "drawn_props": state.drawn.things.iter().filter(|(t, models)| matches!(t, Target::Prop(_)) && !models.is_empty()).count(),
+            "collision_overlay": state.drawn.overlay.is_some(),
+            "templates": { "placeables": state.setup.placeables.len(), "creatures": state.setup.creatures.len(), "ja_models": state.setup.models.len() },
+            "messages": state.messages,
+            "audit": state.audit,
+            "redraws": state.redraws,
+            "keys": crate::keys::facts(&state.keys.map),
+            "timings": {
+                "frame_ms": (state.timings.frame_ms * 10.0).round() / 10.0,
+                "frame_worst_ms": (state.timings.frame_worst_ms * 10.0).round() / 10.0,
+                "redraw_ms": state.timings.redraw_ms.round(),
+            },
+            "problems": project.problems().into_iter().map(|p| p.what).collect::<Vec<_>>(),
+            "conversations": project.conversations.keys().collect::<Vec<_>>(),
+            "project_items": project.templates.iter()
+                .filter(|(_, made)| made.restype == ResType::UTI)
+                .map(|(name, made)| {
+                    let (shown, text) = level_edit::items::shown(&made.gff);
+                    serde_json::json!({
+                        "name": name,
+                        "copied_from": made.from,
+                        "shown": shown,
+                        "text": text,
+                        "properties": properties_shown(state, &made.gff),
+                    })
+                })
+                .collect::<Vec<_>>(),
+            "project_journal": project.templates.contains_key(level_edit::journal::NAME),
+            "project_quests": project_quests,
+            "project_scripts": state.project_scripts,
+            "script_errors": state.script_errors,
+            "nav_links": project.kjk.links.iter().map(|link| serde_json::json!({
+                "kind": format!("{:?}", link.kind),
+                "from": link.from,
+                "to": link.to,
+            })).collect::<Vec<_>>(),
+            "room_levels": project.levels,
+            "other_areas": project.others.keys().collect::<Vec<_>>(),
+            "levels_of_the_project": project.level_list(),
+    })
+}
+
+/// The area's music and ambient sound that the editor plays (`listen`):
+/// each one's field in the area's settings, its volume's field, and how
+/// the editor names it.
+pub(crate) const HEARD_SLOTS: [(&str, Option<&str>, &str); 5] = [
+    ("MusicDay", None, "The music by day"),
+    ("MusicNight", None, "The music by night"),
+    ("MusicBattle", None, "The music in battle"),
+    (
+        "AmbientSndDay",
+        Some("AmbientSndDayVol"),
+        "The ambient sound by day",
+    ),
+    (
+        "AmbientSndNight",
+        Some("AmbientSndNitVol"),
+        "The ambient sound by night",
+    ),
+];
+
+/// Plays the area's music or ambient sound of the field `label`
+/// (`HEARD_SLOTS`) at the area's volume.
+pub(crate) fn listen_area(state: &mut EditorState, label: &str) -> Result<(), String> {
+    use kjk_game::ambience::Hear;
+    let (_, volume, shown) = (HEARD_SLOTS.iter())
+        .find(|(field, ..)| *field == label)
+        .ok_or_else(|| format!("{label} is not the area's music or ambient sound"))?;
+    let git = &state.editor.project.git;
+    let row = level_edit::settings::property(git, label);
+    let row =
+        u16::try_from(row).map_err(|_| format!("{shown} is row {row}, which no table has"))?;
+    let heard = match volume {
+        None => Hear::Music(row),
+        Some(volume) => Hear::Ambient(
+            row,
+            level_edit::settings::property(git, volume).min(127) as u8,
+        ),
+    };
+    listen(state, label.to_string(), shown, &heard)
+}
+
+/// What the editor calls the sound object template `resref` while it plays
+/// (`crate::listen::Listening::is`).
+pub(crate) fn listen_key(resref: &str) -> String {
+    format!("sound {}", resref.to_ascii_lowercase())
+}
+
+/// Plays the sound object template `resref` (the project's copy, else this
+/// level's, else another level's) as it sounds next to the player.
+pub(crate) fn listen_template(state: &mut EditorState, resref: &str) -> Result<(), String> {
+    let (gff, from) = match state.template_gff(resref, ResType::UTS) {
+        Some(gff) => (gff, None),
+        None => match crate::elsewhere::read(state, resref, ResType::UTS) {
+            Some((gff, module)) => (gff, Some(module)),
+            None => {
+                state.listening.stop();
+                return Err(format!("The sound template {resref} does not read"));
+            }
+        },
+    };
+    let emitter = asset_odyssey::sound::Emitter::read(&gff.root);
+    let shown = match from {
+        Some(module) => format!("The sound {resref} of the level {module}"),
+        None => format!("The sound {resref}"),
+    };
+    listen(
+        state,
+        listen_key(resref),
+        &shown,
+        &kjk_game::ambience::Hear::Object(emitter),
+    )
+}
+
+fn listen(
+    state: &mut EditorState,
+    what: String,
+    shown: &str,
+    heard: &kjk_game::ambience::Hear,
+) -> Result<(), String> {
+    let not_read = state
+        .listening
+        .play((what, shown), heard, &state.setup.resolver)
+        .map_err(|why| format!("{shown} {why}"))?;
+    let files = state.listening.file().unwrap_or("").to_string();
+    state.say(format!("Playing {}: {files}", shown.to_lowercase()));
+    if !not_read.is_empty() {
+        state.say(format!("These files do not read: {}", not_read.join(", ")));
+    }
+    Ok(())
+}
+
+/// `edit listen ...`: plays the area's music or ambient sound, or a sound
+/// object, for the user to hear, or stops it.
+fn listen_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    match words {
+        ["stop"] => {
+            state.listening.stop();
+            state.say("Stopped playing");
+            Ok(())
+        }
+        ["music", when] => listen_area(
+            state,
+            match *when {
+                "day" => "MusicDay",
+                "night" => "MusicNight",
+                "battle" => "MusicBattle",
+                _ => return Err("listen music takes day, night or battle".into()),
+            },
+        ),
+        ["ambience", when] => listen_area(
+            state,
+            match *when {
+                "day" => "AmbientSndDay",
+                "night" => "AmbientSndNight",
+                _ => return Err("listen ambience takes day or night".into()),
+            },
+        ),
+        ["sound", resref] => listen_template(state, resref),
+        [] | ["selected"] => {
+            let Target::Object(Kind::Sound, index) = selected(state)? else {
+                return Err("select a sound object first".into());
+            };
+            let entry = state
+                .editor
+                .entry(Kind::Sound, index)
+                .ok_or("the selected sound object is gone")?;
+            listen_template(state, &entry.template)
+        }
+        ["status"] => {
+            let said = match (state.listening.shown(), state.listening.file()) {
+                (Some(what), Some(file)) => format!("Playing {}: {file}", what.to_lowercase()),
+                (Some(what), None) => {
+                    format!("Playing {}, between two sounds", what.to_lowercase())
+                }
+                _ => "Nothing is playing".to_string(),
+            };
+            state.say(said);
+            Ok(())
+        }
+        _ => Err(
+            "listen takes music day|night|battle, ambience day|night, sound TEMPLATE, selected, status or stop"
+                .into(),
+        ),
+    }
+}

@@ -140,6 +140,46 @@ impl fmt::Display for CatalogError {
 
 impl std::error::Error for CatalogError {}
 
+/// What `nwscript.nss` says of each routine: the comment lines right above
+/// its prototype, without their `//` and its number (`// 6: Assign ...`
+/// reads "Assign ..."), by routine name.
+pub fn notes(text: &str) -> std::collections::BTreeMap<String, String> {
+    let mut notes = std::collections::BTreeMap::new();
+    let mut comment: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(said) = line.strip_prefix("//") {
+            let said = said.trim();
+            // `6: Assign ...`: the routine's number, which the prototype has.
+            let said = match said.split_once(':') {
+                Some((number, rest))
+                    if !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()) =>
+                {
+                    rest.trim()
+                }
+                _ => said,
+            };
+            comment.push(said.to_string());
+            continue;
+        }
+        if let Some(open) = line.find('(')
+            && line.ends_with(';')
+            && !comment.is_empty()
+        {
+            let name = line[..open]
+                .split_whitespace()
+                .last()
+                .unwrap_or("")
+                .to_string();
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                notes.insert(name, comment.join("\n"));
+            }
+        }
+        comment.clear();
+    }
+    notes
+}
+
 /// The text without comments, strings kept whole.
 fn uncommented(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -291,6 +331,20 @@ impl Catalog {
     /// An earlier constant's value, by name.
     fn value(&self, name: &str) -> Option<Value> {
         self.constant_named(name).map(|c| c.value.clone())
+    }
+
+    /// This catalog as an older `nwscript.nss` had it: each routine named
+    /// keeps only its first parameters, as many as given. A script compiled
+    /// back then pushes no value for the parameters added since
+    /// (`decompile::Decompiled::routines`).
+    pub fn cut(&self, routines: &[(String, usize)]) -> Catalog {
+        let mut cut = self.clone();
+        for routine in &mut cut.routines {
+            if let Some((_, count)) = routines.iter().find(|(name, _)| *name == routine.name) {
+                routine.params.truncate(*count);
+            }
+        }
+        cut
     }
 
     pub fn constant_named(&self, name: &str) -> Option<&Constant> {

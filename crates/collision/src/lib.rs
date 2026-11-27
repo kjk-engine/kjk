@@ -30,7 +30,7 @@
 //!   it off; [`trig`] is the portable trigonometry the build and the sim
 //!   use.
 
-#[cfg(feature = "probes")]
+#[cfg(feature = "audit")]
 pub mod audit;
 mod bodies;
 mod boxes;
@@ -38,6 +38,7 @@ mod brush;
 mod brushes;
 pub mod clip_file;
 mod digester;
+pub mod jumps;
 mod level;
 pub mod libm;
 pub mod nav;

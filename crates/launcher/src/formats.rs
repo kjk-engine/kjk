@@ -112,6 +112,75 @@ fn inventory(index: &DirIndex) -> Result<Vec<Copy>, String> {
     Ok(copies)
 }
 
+/// Every ERF-family archive of the install (`.erf`, `.mod`, `.sav`,
+/// `.hak`) written back from its resources (`fmt_odyssey::erf::write`).
+/// The games' archives hold localized strings and a build date that the
+/// writer leaves out, so the check is that the written archive holds the
+/// same resources with the same bytes, in the same order.
+fn archives_written_back(index: &DirIndex, tallies: &mut BTreeMap<String, Tally>) {
+    use fmt_odyssey::erf::{self, Erf};
+    for (key, path) in index.iter() {
+        let Some(extension) = key.rsplit_once('.').map(|(_, extension)| extension) else {
+            continue;
+        };
+        if PLAYER_FOLDERS.iter().any(|dir| key.starts_with(dir))
+            || !matches!(extension, "erf" | "mod" | "sav" | "hak")
+        {
+            continue;
+        }
+        let tally = tallies
+            .entry(format!("{extension} (archive)"))
+            .or_default();
+        tally.copies += 1;
+        let read = std::fs::read(path).map_err(|error| error.to_string()).and_then(|bytes| {
+            let archive = Erf::parse(&bytes).map_err(|error| error.to_string())?;
+            let resources = archive
+                .entries
+                .iter()
+                .map(|entry| {
+                    let at = entry.offset as usize;
+                    let data = bytes
+                        .get(at..at + entry.size as usize)
+                        .ok_or_else(|| format!("{}.{} runs past the end", entry.resref, entry.restype))?;
+                    Ok((entry.resref.clone(), entry.restype, data.to_vec()))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok((bytes, archive.kind, resources))
+        });
+        let (bytes, kind, resources) = match read {
+            Ok(read) => read,
+            Err(error) => {
+                tally.failures.push(format!("{key}: {error}"));
+                continue;
+            }
+        };
+        tally.parsed += 1;
+        let written = match erf::write(kind, &resources) {
+            Ok(written) => written,
+            Err(error) => {
+                tally.lossy.push(format!("{key}: {error}"));
+                continue;
+            }
+        };
+        let kept = Erf::parse(&written).is_ok_and(|again| {
+            again.entries.len() == resources.len()
+                && again.entries.iter().zip(&resources).all(|(entry, (resref, restype, data))| {
+                    let at = entry.offset as usize;
+                    entry.resref == *resref
+                        && entry.restype == *restype
+                        && written.get(at..at + entry.size as usize) == Some(data.as_slice())
+                })
+        });
+        if written == bytes {
+            tally.same += 1;
+        } else if kept {
+            tally.differs.push(key.to_string());
+        } else {
+            tally.lossy.push(key.to_string());
+        }
+    }
+}
+
 fn loose(key: &str, stem: &str, restype: ResType, path: &Path) -> Copy {
     Copy {
         source: key
@@ -148,10 +217,14 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
         eprintln!("{}: not found (set {})", game.key(), game.env_var());
         return ExitCode::FAILURE;
     };
-    let copies = match DirIndex::of_install(install)
-        .map_err(|error| error.to_string())
-        .and_then(|index| inventory(&index))
-    {
+    let index = match DirIndex::of_install(install) {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let copies = match inventory(&index) {
         Ok(copies) => copies,
         Err(error) => {
             eprintln!("{error}");
@@ -160,6 +233,7 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
     };
 
     let mut tallies: BTreeMap<String, Tally> = BTreeMap::new();
+    archives_written_back(&index, &mut tallies);
     let mdx_type = ResType::MDX;
     let mdx_of: BTreeMap<(&str, &str), &Copy> = copies
         .iter()
@@ -207,20 +281,37 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
         }
         if extension == "lyt" || extension == "vis" {
             let tally = tallies
-                .entry(format!("{extension} (text, read only)"))
+                .entry(format!("{extension} (text)"))
                 .or_default();
             tally.copies += 1;
             tally.parsed += 1;
-            let mut note = |key: String| {
-                let slot = tally.kinds.entry(key).or_insert((0, Vec::new()));
-                slot.0 += 1;
-                if slot.1.len() < 2 {
-                    slot.1.push(copy.name.clone());
+            let label = format!("{} {}.{extension}", copy.source, copy.name);
+            // Written back, and how: the same bytes, the same reading in
+            // another layout, or a different reading.
+            let mut verdict = |same: bool, kept: bool| {
+                if same {
+                    tally.same += 1;
+                } else if kept {
+                    tally.differs.push(label.clone());
+                } else {
+                    tally.lossy.push(label.clone());
                 }
             };
+            let mut notes: Vec<String> = Vec::new();
             if extension == "lyt" {
                 match fmt_odyssey::lyt::Layout::parse(&bytes) {
                     Ok(layout) => {
+                        let written = layout.write();
+                        // Lines outside the known sections are not written.
+                        let known = fmt_odyssey::lyt::Layout {
+                            unknown: Vec::new(),
+                            ..layout.clone()
+                        };
+                        verdict(
+                            written == bytes,
+                            fmt_odyssey::lyt::Layout::parse(&written).as_ref() == Ok(&known),
+                        );
+                        let mut note = |key: String| notes.push(key);
                         note(format!(
                             "rooms {}",
                             if layout.rooms.is_empty() {
@@ -238,6 +329,9 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                         for line in &layout.unknown {
                             note(format!("line outside known sections: {line}"));
                         }
+                        if !layout.unknown.is_empty() {
+                            note("written back without its lines outside known sections".into());
+                        }
                     }
                     Err(error) => {
                         tally.parsed -= 1;
@@ -248,23 +342,49 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                 }
             } else {
                 let vis = fmt_odyssey::vis::Visibility::parse(&bytes);
+                let written = vis.write();
+                verdict(
+                    written == bytes,
+                    fmt_odyssey::vis::Visibility::parse(&written).rooms == vis.rooms,
+                );
                 if vis.rooms.is_empty() {
-                    note("no rooms".into());
+                    notes.push("no rooms".into());
                 }
                 if !vis.count_mismatches.is_empty() {
-                    note("room count differs from its list".into());
+                    notes.push("room count differs from its list".into());
+                }
+            }
+            for key in notes {
+                let slot = tally.kinds.entry(key).or_insert((0, Vec::new()));
+                slot.0 += 1;
+                if slot.1.len() < 2 {
+                    slot.1.push(copy.name.clone());
                 }
             }
             continue;
         }
         if matches!(extension.as_str(), "wok" | "pwk" | "dwk") {
             let tally = tallies
-                .entry(format!("{extension} (walkmesh, read only)"))
+                .entry(format!("{extension} (walkmesh)"))
                 .or_default();
             tally.copies += 1;
             match fmt_odyssey::bwm::Walkmesh::parse(&bytes) {
                 Ok(walkmesh) => {
                     tally.parsed += 1;
+                    let written = walkmesh.write();
+                    let label = format!("{} {}.{extension}", copy.source, copy.name);
+                    if written == bytes {
+                        tally.same += 1;
+                    } else if fmt_odyssey::bwm::Walkmesh::parse(&written).as_ref() == Ok(&walkmesh) {
+                        tally.differs.push(format!(
+                            "{label}: {} vs {} bytes, first difference at {}",
+                            written.len(),
+                            bytes.len(),
+                            first_difference(&written, &bytes)
+                        ));
+                    } else {
+                        tally.lossy.push(label);
+                    }
                     let mut note = |key: String| {
                         let slot = tally.kinds.entry(key).or_insert((0, Vec::new()));
                         slot.0 += 1;

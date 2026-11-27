@@ -61,6 +61,10 @@ pub struct Placed {
     /// A creature's body and head: the env map its appearance asks for
     /// (`creature::EnvMap`). None for any other model.
     pub envmap: Option<WornEnvMap>,
+    /// Its meshes' own glow stands in for the room's light, which the light
+    /// probes give it under Enhanced lighting instead: a level editor
+    /// project's Jedi Academy prop (`project_props`), lit where it stands.
+    pub room_glow: bool,
 }
 
 /// The env map a creature's body and head ask for: the cube map they are
@@ -90,6 +94,7 @@ impl Placed {
             hook_local: None,
             clip: None,
             envmap: None,
+            room_glow: false,
         }
     }
 }
@@ -218,6 +223,10 @@ impl Plays {
 #[derive(Default)]
 pub struct LoadedScene {
     pub name: String,
+    /// The game the scene's module is of. `None` for a scene that is no
+    /// module of KOTOR or The Sith Lords. A level editor project's lights
+    /// and bake are asked for by it (`level_edit::active`).
+    pub game: Option<Game>,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
     /// The images `textures` were uploaded as, which the characters and
@@ -280,6 +289,13 @@ pub struct LoadedScene {
     /// Each placed door and placeable's model index, by its object (its
     /// index in the area's instances): a cutscene moves the ones it names.
     pub instance_models: BTreeMap<u32, usize>,
+    /// The lamps placed by hand (`lamps`), in the order the area lists
+    /// them: each one's model index (`None` for one whose model does not
+    /// read), and whether its glowing texture is a placeable's kind.
+    pub lamps: Vec<(Option<usize>, bool)>,
+    /// The area's sun as a project sets it (`sun`), in place of the game's;
+    /// `None` keeps the game's.
+    pub sun: Option<level_edit::area::SunLight>,
     /// A module's creatures, to move and animate as the sim has them.
     pub creature_views: Vec<CreatureView>,
     /// In a play scene, every character's weapon models (`weapons::arm`).
@@ -288,6 +304,9 @@ pub struct LoadedScene {
     pub grass: Option<SceneGrass>,
     /// What the area's weather goes by (none outside a module).
     pub weather: SceneWeather,
+    /// The Jedi Academy ambient effects a level editor project places in
+    /// the area, which play plays again and again (`ambient_fx`).
+    pub ambient_effects: Vec<level_edit::effects::AmbientEffect>,
     /// A module's sound, read with it for the world's first frame
     /// (`ambience`); `None` where nothing plays it.
     pub sound: Option<crate::ambience::Preread>,
@@ -336,6 +355,38 @@ pub struct WeatherModel {
     pub fall: Fall,
     pub model: crate::fx_model::Model,
     pub textures: BTreeMap<String, TextureIr>,
+}
+
+/// KOTOR 2's install, which lends KOTOR 1 its weather: KOTOR 1 has no
+/// rain, snow or lightning models, nor thunder. kjk requires both games,
+/// and the models are read from the player's own KOTOR 2. A KOTOR 1 area
+/// a project gives a chance of rain, snow or lightning then has it.
+fn lent_weather() -> Option<Arc<crate::installs::Install>> {
+    crate::installs::open(&crate::discover(), Game::Kotor2)
+        .inspect_err(|why| warn!("KOTOR 2's weather is not lent to KOTOR 1: {why}"))
+        .ok()
+}
+
+/// What an area's lightning plays (`weather::lightning`): from the area's
+/// own game where it has the lightning's model, else from KOTOR 2's
+/// (`lent_weather`), with KOTOR 2's thunder.
+fn weather_lightning(
+    resolver: &Resolver,
+    game: Game,
+    weather: &AreaWeather,
+) -> Option<crate::weather::Lightning> {
+    if weather.lightning == 0 {
+        return None;
+    }
+    let own = parsed(resolver, crate::weather::LIGHTNING_MODEL)
+        .ok()
+        .flatten()
+        .is_some();
+    if game == Game::Kotor2 || own {
+        return crate::weather::lightning(resolver, game, weather);
+    }
+    let tsl = lent_weather()?;
+    crate::weather::lightning(tsl.base().ok()?, Game::Kotor2, weather)
 }
 
 /// The weather model of an area with `weather`: `fx_rain` while it has a
@@ -793,7 +844,7 @@ pub fn texture_facts(
 /// One that is there but does not read is warned of, once a name, and
 /// drawn as a missing one. One larger than the GPU takes is reduced to fit
 /// (`scene::fit_to_gpu`).
-pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
+pub fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let parsed = resolver.read_texture(name)?;
     let decoded = (parsed.as_ref().ok()).and_then(|texture| {
         let txi = texture_txi(Some(texture), |restype| resolver.read(name, restype));
@@ -881,24 +932,41 @@ struct BakeFolder {
     stamp: Option<Result<crate::bake_fingerprint::Fingerprint, String>>,
 }
 
+/// The folder of baked lightmaps at `path`, read now. `None` where no
+/// folder is there.
+fn read_bake_folder(path: std::path::PathBuf) -> Option<BakeFolder> {
+    let Ok(entries) = std::fs::read_dir(&path) else {
+        warn!("no folder of baked lightmaps at {}", path.display());
+        return None;
+    };
+    let mut lightmaps = BTreeMap::new();
+    for file in entries.flatten().map(|entry| entry.path()) {
+        if file.extension().is_some_and(|extension| extension == "png")
+            && let Some(name) = file.file_stem().and_then(|name| name.to_str())
+        {
+            lightmaps.insert(name.to_ascii_lowercase(), file);
+        }
+    }
+    Some(BakeFolder {
+        lightmaps,
+        fills: baked_numbers(&path, "fill.txt"),
+        floors: baked_numbers(&path, "floor.txt"),
+        unlit: path.join("unlit.txt").is_file(),
+        stored: crate::stored_fill::stored_names(&path),
+        stamp: crate::bake_fingerprint::read(&path),
+        path,
+    })
+}
+
 /// Every folder of `baked_folders`, in the list's order.
-static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock::new(|| {
+static BAKE_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> = std::sync::LazyLock::new(|| {
     let mut folders = Vec::new();
     for path in baked_folders() {
-        let Ok(entries) = std::fs::read_dir(&path) else {
-            warn!("no folder of baked lightmaps at {}", path.display());
+        let Some(folder) = read_bake_folder(path) else {
             continue;
         };
-        let mut lightmaps = BTreeMap::new();
-        for file in entries.flatten().map(|entry| entry.path()) {
-            if file.extension().is_some_and(|extension| extension == "png")
-                && let Some(name) = file.file_stem().and_then(|name| name.to_str())
-            {
-                lightmaps.insert(name.to_ascii_lowercase(), file);
-            }
-        }
-        let stamp = crate::bake_fingerprint::read(&path);
-        match &stamp {
+        let path = &folder.path;
+        match &folder.stamp {
             None => warn!(
                 "the bake in {} has no {}, so the game cannot check that it was made from the game's files, and shows it as it is",
                 path.display(),
@@ -910,18 +978,51 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
             ),
             Some(Ok(_)) => {}
         }
-        folders.push(BakeFolder {
-            lightmaps,
-            fills: baked_numbers(&path, "fill.txt"),
-            floors: baked_numbers(&path, "floor.txt"),
-            unlit: path.join("unlit.txt").is_file(),
-            stored: crate::stored_fill::stored_names(&path),
-            stamp,
-            path,
-        });
+        folders.push(Arc::new(folder));
     }
     folders
 });
+
+/// The folders of baked lightmaps a program set (`set_bake_folder`), each
+/// read when it was set. `None` while no program set any.
+static SET_FOLDERS: std::sync::RwLock<Option<Vec<Arc<BakeFolder>>>> = std::sync::RwLock::new(None);
+
+/// Draws the rooms' lightmaps from the bake in `folder` (`detail_baked`) in
+/// the scenes loaded from now on, or (`None`) as stored. The folder is read
+/// now, so a bake made into it later is read when it is set again. The
+/// level editor's lighting view sets it. While it is set, the game takes no
+/// other bake: not the lighting download's, not the ones the variables
+/// name, and not the ones a project keeps.
+pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
+    let folders = (folder.into_iter())
+        .filter_map(read_bake_folder)
+        .map(Arc::new)
+        .collect();
+    *SET_FOLDERS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folders);
+}
+
+/// The bakes the active level editor projects keep, read once
+/// (`level_edit::lighting`). While the rooms are lit `Baked`
+/// (`fitted_lights::baked`), the game takes the one of the level being
+/// drawn (`used_folders`).
+static PROJECT_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> =
+    std::sync::LazyLock::new(|| {
+        (level_edit::active::bake_folders().into_iter())
+            .filter_map(|path| read_bake_folder(path.to_path_buf()))
+            .map(Arc::new)
+            .collect()
+    });
+
+/// The folders of the bakes the game takes for the module `module`
+/// (`used_folders`): the lightmaps, the props' baked lightmaps
+/// (`project_props`) and the rest.
+pub(crate) fn bake_folders(game: Game, module: &str) -> Vec<std::path::PathBuf> {
+    (used_folders(game, module).into_iter())
+        .map(|used| used.folder.path.clone())
+        .collect()
+}
 
 /// How much of a folder of `BAKE_FOLDERS` the game takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -951,10 +1052,10 @@ struct Decision {
 static FOLDER_USES: std::sync::Mutex<BTreeMap<(usize, String), Decision>> =
     std::sync::Mutex::new(BTreeMap::new());
 
-/// A folder of `BAKE_FOLDERS` that the game takes something of for an area.
+/// A folder of bakes that the game takes something of for an area.
 #[derive(Debug, Clone)]
-struct Used<'a> {
-    folder: &'a BakeFolder,
+struct Used {
+    folder: Arc<BakeFolder>,
     using: FolderUse,
     /// How the set fits the player's files, for a set with exact lines.
     fit: Option<Arc<crate::bake_fingerprint::Fit>>,
@@ -965,24 +1066,62 @@ struct Used<'a> {
 /// fingerprint is taken whole. One with a fingerprint is taken as
 /// `choose_bakes` decided for this module, and not at all before the
 /// module's area has loaded.
-fn used_folders(module: &str) -> Vec<Used<'static>> {
-    let module = module.to_ascii_lowercase();
+///
+/// The folders a program set (`set_bake_folder`) are the only ones taken
+/// while they are set. The bake a level editor project keeps of `module`
+/// comes after the list while the rooms are lit `Baked`, so it wins there.
+/// The projects' bakes of other levels are left out: two new maps built
+/// from one room have lightmaps of the same names, and with every
+/// project's bake in the list one map showed the other's. Both kinds are
+/// taken whole, unless their fingerprint does not read: they are the
+/// author's own bakes of the project's levels.
+fn used_folders(game: Game, module: &str) -> Vec<Used> {
+    let whole = |folders: &[Arc<BakeFolder>]| -> Vec<Used> {
+        (folders.iter())
+            .filter(|folder| !matches!(folder.stamp, Some(Err(_))))
+            .map(|folder| Used {
+                folder: folder.clone(),
+                using: FolderUse::Whole,
+                fit: None,
+            })
+            .collect()
+    };
+    if let Some(set) = SET_FOLDERS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        return whole(set);
+    }
+    let lower = module.to_ascii_lowercase();
     let uses = FOLDER_USES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    (BAKE_FOLDERS.iter().enumerate())
+    let mut used: Vec<Used> = (BAKE_FOLDERS.iter().enumerate())
         .filter_map(|(index, folder)| {
             let (using, fit) = match &folder.stamp {
                 None => (FolderUse::Whole, None),
                 Some(Err(_)) => return None,
                 Some(Ok(_)) => {
-                    let decision = uses.get(&(index, module.clone()))?;
+                    let decision = uses.get(&(index, lower.clone()))?;
                     (decision.using, decision.fit.clone())
                 }
             };
-            (using != FolderUse::Nothing).then_some(Used { folder, using, fit })
+            (using != FolderUse::Nothing).then(|| Used {
+                folder: folder.clone(),
+                using,
+                fit,
+            })
         })
-        .collect()
+        .collect();
+    if crate::fitted_lights::baked() {
+        let level = level_edit::active::bake_of(game.key(), module);
+        used.extend(
+            (whole(&PROJECT_FOLDERS).into_iter())
+                .filter(|used| Some(used.folder.path.as_path()) == level),
+        );
+    }
+    used
 }
 
 /// A stamped set's verdict over the player's files, and its fit when it has
@@ -1570,7 +1709,7 @@ fn baked_folders() -> Vec<std::path::PathBuf> {
 ///
 /// The numbers are the bake's (`stored_fill`).
 /// With `floor` the stored light times `fill` is the least the texel shows,
-/// and not added (`BAKED_FLOORS`).
+/// and not added (`floor.txt`, `baked_numbers`).
 fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32, floor: bool) {
     use crate::stored_fill::{GAIN, GAMMA, level_of, linear_of};
     let Some(texels) = crate::stored_fill::StoredTexels::of(stored) else {
@@ -1659,7 +1798,7 @@ enum Picture<'a> {
 /// in `stored.txt`, is kept as it is, so it shows at twice its stored
 /// light, as the owner approved.
 fn lightmap_source<'a>(
-    used: &[Used<'a>],
+    used: &'a [Used],
     room_lightmaps: &BTreeSet<String>,
     key: &str,
 ) -> Option<(&'a BakeFolder, Picture<'a>)> {
@@ -2043,6 +2182,7 @@ pub fn load_model(
         hook_local: None,
         clip: None,
         envmap: None,
+        room_glow: false,
     }];
     let (textures, missing) = textures(&resolver, &models);
     Ok(LoadedScene {
@@ -2074,6 +2214,7 @@ pub fn load_model(
         effects: Effects::default(),
         doors: Vec::new(),
         instance_models: BTreeMap::new(),
+        lamps: Vec::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
         ..LoadedScene::default()
@@ -2198,13 +2339,15 @@ pub fn module_scene(
     area: usize,
 ) -> Result<LoadedScene, String> {
     let module = ir.name.as_str();
+    // A level whose project keeps a bake of it is lit with that bake.
+    crate::fitted_lights::for_module(game, module);
     let area = &ir.areas[area];
     let mut laps = crate::launch_times::Laps::new("kotor stage/scene");
     // Which bake of this area, if any, was made from the files the game
     // reads, before its lightmaps load (`detail_baked`).
     crate::lighting_bakes::note_played(game);
     choose_bakes(resolver, area, module);
-    let used = used_folders(module);
+    let used = used_folders(game, module);
     // Under Enhanced Lightmaps an area with no accepted bake is drawn as
     // under Enhanced (`fitted_lights::baked_area`).
     let area_baked = crate::fitted_lights::baked_area(takes_bake(&used, &area.resref));
@@ -2266,6 +2409,7 @@ pub fn module_scene(
                     hook_local: None,
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 Some(models.len() - 1)
             }
@@ -2285,6 +2429,24 @@ pub fn module_scene(
             sees_all: without_vis,
             floor,
             floor_error,
+        });
+    }
+    // A new map's Jedi Academy sky box, which the scene keeps round the
+    // camera (`sky_box`). It is not a room: it has no floor, and nothing
+    // stands in it.
+    let sky = crate::ja_made::sky_of(module);
+    if let Some(sky) = &sky {
+        models.push(Placed {
+            ir: sky.model.clone(),
+            offset: [0.0; 3],
+            facing: 0.0,
+            is_static: false,
+            attach: None,
+            hook: None,
+            hook_local: None,
+            clip: None,
+            envmap: None,
+            room_glow: false,
         });
     }
     laps.lap("rooms");
@@ -2391,6 +2553,7 @@ pub fn module_scene(
                     hook_local: None,
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 instances += 1;
             }
@@ -2417,7 +2580,13 @@ pub fn module_scene(
     }
     missing_models.append(&mut creatures.missing_models);
     laps.lap("creatures");
+    let lamps = crate::lamps::place(resolver, game, module, &mut models);
+    laps.lap("lamps");
     let (mut textures, mut missing) = textures(resolver, &models);
+    if let Some(sky) = &sky {
+        textures.extend(sky.textures.clone());
+        missing.retain(|name| !sky.textures.contains_key(name));
+    }
     for room in &own_fx {
         crate::model_fx::add_textures(resolver, (&room.fx, &room.chunks), &mut textures);
     }
@@ -2441,6 +2610,8 @@ pub fn module_scene(
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        game: Some(game),
+        sun: crate::sun::of_area(game, module),
         probes: Arc::new(probes),
         baked: area_baked,
         dark_unlit: dark,
@@ -2473,6 +2644,7 @@ pub fn module_scene(
         effects: Effects::default(),
         doors,
         instance_models,
+        lamps,
         creature_views,
         arms: BTreeMap::new(),
         sound: None,
@@ -2490,10 +2662,41 @@ pub fn module_scene(
             area: area.weather,
             resref: area.resref.clone(),
             dry_rooms: area.rooms.iter().map(|room| room.disable_weather).collect(),
-            model: weather_model(resolver, &area.weather).map(Arc::new),
-            lightning: crate::weather::lightning(resolver, game, &area.weather).map(Arc::new),
+            model: weather_model(resolver, &area.weather)
+                .or_else(|| {
+                    // KOTOR 1 alone borrows, and only for an area with a
+                    // chance of rain or snow. Asked for every area, this
+                    // opened KOTOR 2's install at each dry area of both
+                    // games, and warned at each one where it is missing.
+                    let falls = area.weather.rain != 0 || area.weather.snow != 0;
+                    let tsl = (game == Game::Kotor1 && falls).then(lent_weather)??;
+                    weather_model(tsl.base().ok()?, &area.weather)
+                })
+                .map(Arc::new),
+            lightning: weather_lightning(resolver, game, &area.weather).map(Arc::new),
         },
+        ambient_effects: Vec::new(),
     })
+}
+
+/// The models of a creature made from `template`, standing at the origin
+/// facing +X in its rest pose: its body, its head and its weapons, as an
+/// area's scene places them (`CreatureLoad::place`). Empty when its look
+/// does not resolve. For pictures of one creature (the level editor's
+/// thumbnails).
+pub fn creature_models(
+    resolver: &Resolver,
+    game: Game,
+    template: &str,
+) -> Result<Vec<Placed>, String> {
+    let mut models = Vec::new();
+    CreatureLoad::default().place(
+        (resolver, game),
+        (0, template),
+        ([0.0; 3], 0.0),
+        &mut models,
+    )?;
+    Ok(models)
 }
 
 /// A body model wearing `texture` (`appearance.2da`'s, when the install

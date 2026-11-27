@@ -48,6 +48,9 @@ pub enum Command {
     /// An order in the combat arena, as its keys give it (`arena spawn
     /// g_sithtroop01`, `arena clear`, `arena god`), handed over at once.
     Arena(Vec<String>),
+    /// A level editor command (`edit select TAG`, `edit move X Y Z`, `edit
+    /// save`; `docs/LEVEL-EDIT.md`), handed over at once.
+    Edit(Vec<String>),
     /// Makes `<name>.mp4` of the screenshots `<name>-0000.png` on, with
     /// the run's sound (`audio.wav`, on the game's clock) from their first
     /// moment, when the run has one. `record` and `clip` end with it.
@@ -153,6 +156,20 @@ impl fmt::Display for Command {
             Command::Ui(words) => write!(f, "ui {}", words.join(" ")),
             Command::Vfx(words) => write!(f, "vfx {}", words.join(" ")),
             Command::Arena(words) => write!(f, "arena {}", words.join(" ")),
+            Command::Edit(words) => {
+                // A word with a space in it is shown in quotes, as it was
+                // written.
+                let shown: Vec<String> = (words.iter())
+                    .map(|word| {
+                        if word.is_empty() || word.contains(char::is_whitespace) {
+                            format!("\"{word}\"")
+                        } else {
+                            word.clone()
+                        }
+                    })
+                    .collect();
+                write!(f, "edit {}", shown.join(" "))
+            }
             Command::Video(Video {
                 name,
                 frames: Frames::Even { from, fps, count },
@@ -193,16 +210,86 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// A script's commands: its text cut at each `;` and each line's end that
+/// is not inside double quotes, so a conversation's line can hold a `;`.
+///
+/// A quote that is opened and not closed is an error, which names the
+/// command it is in. Without the error the rest of the script became
+/// part of that command, and a `quit` after it never ran. A quoted part
+/// cannot hold a double quote itself.
+fn commands_of(script: &str) -> Result<Vec<&str>, ParseError> {
+    let mut pieces = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (at, c) in script.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            ';' | '\n' if !quoted => {
+                pieces.push(&script[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = script[start..].trim();
+    let mut commands: Vec<&str> = (pieces.into_iter())
+        .map(str::trim)
+        .filter(|piece| !piece.is_empty())
+        .collect();
+    if quoted {
+        return Err(ParseError {
+            index: commands.len() + 1,
+            // The command's first line: the rest of the script is not its
+            // own.
+            text: last.lines().next().unwrap_or(last).to_string(),
+            reason: "a double quote is opened and not closed".to_string(),
+        });
+    }
+    if !last.is_empty() {
+        commands.push(last);
+    }
+    Ok(commands)
+}
+
+/// An `edit` command's words. A part between double quotes is one word,
+/// spaces and all, as the level editor's agent link reads a line
+/// (`level_editor::agent`): `edit conversation NAME replies line 2 "Who
+/// are you?" "Leave me."` gives two replies, not five. `""` is an empty
+/// word.
+fn edit_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut any) = (false, false);
+    for c in text.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if any {
+                    words.push(std::mem::take(&mut word));
+                    any = false;
+                }
+            }
+            c => {
+                word.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        words.push(word);
+    }
+    words
+}
+
 /// Parses a whole script. Names default to a counter per verb so that two
 /// screenshots in one script never overwrite each other.
 pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
     let mut commands = Vec::new();
     let (mut screenshots, mut dumps, mut films) = (0, 0, 0);
-    let pieces = script
-        .split([';', '\n'])
-        .map(str::trim)
-        .filter(|piece| !piece.is_empty());
-    for (index, text) in pieces.enumerate() {
+    let pieces = commands_of(script)?;
+    for (index, text) in pieces.into_iter().enumerate() {
         let error = |reason: &str| ParseError {
             index: index + 1,
             text: text.to_string(),
@@ -299,6 +386,10 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 | ["level" | "ability" | "skill", _, _]
                 | ["level", _, _, _, _]),
             ) => Command::Arena(order.iter().map(|word| word.to_string()).collect()),
+            ("edit", words) if !words.is_empty() => {
+                Command::Edit(edit_words(text["edit".len()..].trim_start()))
+            }
+            ("edit", _) => return Err(error("edit takes a command, e.g. edit select TAG")),
             ("arena", _) => {
                 return Err(error(
                     "arena takes spawn TEMPLATE, clear, god, down N, level CLASS N [CLASS N], \

@@ -85,6 +85,7 @@ impl Hint {
             party: self.party.clone(),
             picks: Vec::new(),
             read_ms: READ_MS,
+            added: None,
         })
     }
 

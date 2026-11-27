@@ -382,6 +382,7 @@ fn load_with(
                 hook_local: None,
                 clip: clip.clone(),
                 envmap: None,
+                room_glow: false,
             });
             models.push(Placed {
                 ir: head,
@@ -393,6 +394,7 @@ fn load_with(
                 hook_local: None,
                 clip,
                 envmap: None,
+                room_glow: false,
             });
             // A KOTOR hilt hangs at its weapon node as K1 hangs it; a JA
             // one turned to match (the hand's turn is the same either way).
@@ -420,6 +422,7 @@ fn load_with(
                     hook_local: local,
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 hilts.push((models.len() - 1, blades, ja, Some((grip.weapon, local))));
             }
@@ -463,6 +466,7 @@ fn load_with(
                 hook_local: None,
                 clip,
                 envmap: None,
+                room_glow: false,
             });
             for h in &held {
                 models.push(Placed {
@@ -475,6 +479,7 @@ fn load_with(
                     hook_local: Some(h.bolt.matrix),
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 hilts.push((models.len() - 1, h.ja_blades.clone(), true, None));
             }
@@ -658,6 +663,7 @@ fn load_with(
                 hook_local: None,
                 clip: None,
                 envmap: None,
+                room_glow: false,
             });
             if *ja {
                 flying_ja.push(model);
@@ -747,6 +753,7 @@ fn load_with(
         hook_local: None,
         clip: None,
         envmap: None,
+        room_glow: false,
     });
     let scene = LoadedScene {
         name: format!("rig {} {}", options.probe, options.body),
@@ -777,6 +784,7 @@ fn load_with(
         effects,
         doors: Vec::new(),
         instance_models: BTreeMap::new(),
+        lamps: Vec::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
         ..LoadedScene::default()

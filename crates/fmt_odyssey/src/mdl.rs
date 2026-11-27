@@ -1066,3 +1066,652 @@ pub fn unpack_quaternion(word: u32) -> [f32; 4] {
     };
     [x, y, z, w]
 }
+
+/// A copy of the model file `mdl` under another name: the name in its
+/// header (32 bytes) is `name`, and nothing else changes. The level editor
+/// copies a room's model this way when it places the room somewhere new,
+/// since the room's walkmesh goes by the model's name. Refused when `name`
+/// does not fit the header or the file is too short to have one.
+pub fn renamed(mdl: &[u8], name: &str) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    if name.len() >= 32 || !name.is_ascii() {
+        return Err(unsupported(format!("{name:?} does not fit a model's name")));
+    }
+    let mut copy = mdl.to_vec();
+    let field = &mut copy[DATA + 8..DATA + 40];
+    field.fill(0);
+    field[..name.len()].copy_from_slice(name.as_bytes());
+    Ok(copy)
+}
+
+/// The most controllers of a node, nodes under a root and animations
+/// that `shifted` and `turned` go through. A room has a handful of the
+/// first and a few hundred of the second at most. A file that claims more
+/// is damaged, and is refused (`at_most`). The loops used to stop at these
+/// numbers without a word, which left the rest of such a model unmoved.
+const MOST_CONTROLLERS: usize = 256;
+const MOST_CHILDREN: usize = 4096;
+const MOST_ANIMATIONS: usize = 1024;
+
+/// `count`, refused when it is more than `most` of `what`.
+fn at_most(count: usize, most: usize, what: &str) -> Result<usize, FormatError> {
+    if count > most {
+        return Err(unsupported(format!(
+            "{count} {what}, more than the {most} a model is moved with"
+        )));
+    }
+    Ok(count)
+}
+
+/// A copy of the model file `mdl` whose meshes name other lightmaps:
+/// each mesh's lightmap that `rename` gives a new name for takes that
+/// name. A room placed twice in one map gets lightmaps of its own in its
+/// second copy, so a bake lights each copy where it stands. Gives the copy
+/// and every lightmap name the model had. Every node under the root is
+/// visited once. Refused when a node or a name lies outside the file, or
+/// a new name does not fit.
+pub fn relit(
+    mdl: &[u8],
+    rename: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Vec<u8>, Vec<String>), FormatError> {
+    const LIGHTMAP: usize = NODE_HEADER + 120;
+    let mut copy = mdl.to_vec();
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut nodes = vec![get(&copy, 40)? as usize];
+    while let Some(at) = nodes.pop() {
+        if !seen.insert(at) {
+            continue;
+        }
+        let flags = (copy.get(DATA + at..DATA + at + 2))
+            .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+            .ok_or(truncated(DATA + at + 2, copy.len()))?;
+        if flags & FLAG_MESH != 0 {
+            let field = DATA + at + LIGHTMAP;
+            let len = copy.len();
+            let bytes = copy
+                .get_mut(field..field + 32)
+                .ok_or(truncated(field + 32, len))?;
+            let end = bytes.iter().position(|&byte| byte == 0).unwrap_or(32);
+            let name = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+            if !name.is_empty() && !fmt_is_null(&name) {
+                if let Some(new) = rename(&name) {
+                    // A lightmap's name is a resource's: 16 characters at
+                    // most, as `written` takes. The field's own 31 were
+                    // let through.
+                    if new.len() > 16 || !new.is_ascii() {
+                        return Err(unsupported(format!(
+                            "{new:?} does not fit a lightmap's name"
+                        )));
+                    }
+                    bytes.fill(0);
+                    bytes[..new.len()].copy_from_slice(new.as_bytes());
+                }
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        let (children, count) = (get(&copy, at + 44)? as usize, get(&copy, at + 48)? as usize);
+        for child in 0..count {
+            nodes.push(get(&copy, children + child * 4)? as usize);
+        }
+    }
+    Ok((copy, names))
+}
+
+/// Whether a texture name is the games' word for none.
+fn fmt_is_null(name: &str) -> bool {
+    name.eq_ignore_ascii_case("null")
+}
+
+/// A copy of the model file `mdl` moved by `by`: each child of the root
+/// node is moved, its place in its node header and in its position
+/// controllers, and so are the same nodes in each animation. Everything
+/// under them moves with them, so no vertex changes and the MDX stays as
+/// it is. The model's bounding box moves too. A room cut from a Jedi
+/// Academy level is built in the level's own coordinates, and its copy in
+/// a map is moved so that the map's place for it is its origin
+/// (`level_edit::map::room_copy`). Refused when a node or a controller
+/// lies outside the file.
+pub fn shifted(mdl: &[u8], by: [f32; 3]) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    let mut copy = mdl.to_vec();
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let float = |copy: &[u8], at: usize| get(copy, at).map(f32::from_bits);
+    let add = |copy: &mut [u8], at: usize, value: f32| -> Result<(), FormatError> {
+        let len = copy.len();
+        let now = float(copy, at)?;
+        copy.get_mut(DATA + at..DATA + at + 4)
+            .ok_or(truncated(DATA + at + 4, len))?
+            .copy_from_slice(&(now + value).to_bits().to_le_bytes());
+        Ok(())
+    };
+    // One node: its header's place (x, y, z at 16), then its position
+    // controller's rows.
+    let move_node = |copy: &mut Vec<u8>, at: usize| -> Result<(), FormatError> {
+        for (axis, part) in by.iter().enumerate() {
+            add(copy, at + 16 + axis * 4, *part)?;
+        }
+        let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
+        let data_at = get(copy, at + 68)? as usize;
+        for k in 0..at_most(keys, MOST_CONTROLLERS, "controllers of a node")? {
+            let key = keys_at + k * 16;
+            let kind = get(copy, key)?;
+            let rows = (get(copy, key + 4)? >> 16) as usize;
+            let values = (get(copy, key + 8)? >> 16) as usize;
+            let raw = copy
+                .get(DATA + key + 12)
+                .copied()
+                .ok_or(truncated(DATA + key + 13, copy.len()))?;
+            let (columns, bezier) = (raw & !BEZIER, raw & BEZIER != 0);
+            if (kind, columns) != (CONTROLLER_POSITION, 3) {
+                continue;
+            }
+            // How a Bézier row's control points move with it is not known
+            // here, so such a model is not moved.
+            if bezier {
+                return Err(unsupported(
+                    "a node's position is a Bézier curve, which is not moved".to_string(),
+                ));
+            }
+            let start = data_at + values * 4;
+            for row in 0..rows {
+                let at = start + row * 12;
+                for (axis, part) in by.iter().enumerate() {
+                    add(copy, at + axis * 4, *part)?;
+                }
+            }
+        }
+        Ok(())
+    };
+    let children = |copy: &[u8], root: usize| -> Result<Vec<usize>, FormatError> {
+        let (at, count) = (
+            get(copy, root + 44)? as usize,
+            get(copy, root + 48)? as usize,
+        );
+        (0..at_most(count, MOST_CHILDREN, "nodes under a root")?)
+            .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
+            .collect()
+    };
+    let root = get(&copy, 40)? as usize;
+    for child in children(&copy, root)? {
+        move_node(&mut copy, child)?;
+    }
+    let header = 80;
+    let (animations_at, animations) = (
+        get(&copy, header + 8)? as usize,
+        get(&copy, header + 12)? as usize,
+    );
+    for i in 0..at_most(animations, MOST_ANIMATIONS, "animations")? {
+        let animation = get(&copy, animations_at + i * 4)? as usize;
+        let animation_root = get(&copy, animation + 40)? as usize;
+        for child in children(&copy, animation_root)? {
+            move_node(&mut copy, child)?;
+        }
+    }
+    // The bounding box.
+    for corner in 0..2 {
+        for (axis, part) in by.iter().enumerate() {
+            add(&mut copy, header + 24 + corner * 12 + axis * 4, *part)?;
+        }
+    }
+    Ok(copy)
+}
+
+/// A packed orientation word (`unpack_quaternion`) of a unit quaternion
+/// (x, y, z, w). The word keeps no sign for w, which it reads as negative
+/// or zero, so a quaternion with w above zero is packed as its negative,
+/// which turns the same way.
+pub fn pack_quaternion(q: [f32; 4]) -> u32 {
+    let q = if q[3] > 0.0 { q.map(|v| -v) } else { q };
+    let bits = |value: f32, most: f32| ((1.0 - value.clamp(-1.0, 1.0)) * most).round() as u32;
+    bits(q[0], 1023.0) | bits(q[1], 1023.0) << 11 | bits(q[2], 511.0) << 22
+}
+
+/// A copy of the model file `mdl` turned about Z (anticlockwise seen from
+/// above) round its origin by the angle whose sine and cosine are `turn`,
+/// as a room of a new map is turned.
+/// Each child of the model's root node is turned: its place and its
+/// orientation, in its node header and in its position and orientation
+/// controllers, and so are the same nodes in each animation. Everything
+/// under them turns with them, so no vertex changes and the MDX stays as
+/// it is. The model's bounding box is made round the turned box. Refused
+/// when a node or a controller lies outside the file.
+pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    let mut copy = mdl.to_vec();
+    // The half angle's, for the quaternions: cos² (a/2) = (1 + cos a) / 2.
+    let half_cos = ((1.0 + cos) * 0.5).max(0.0).sqrt();
+    let half_sin = ((1.0 - cos) * 0.5).max(0.0).sqrt().copysign(sin);
+    let turn = |x: f32, y: f32| (cos * x - sin * y, sin * x + cos * y);
+    // Rz ⊗ q, with q as (x, y, z, w).
+    let spin = |q: [f32; 4]| {
+        let (s, c) = (half_sin, half_cos);
+        [
+            c * q[0] - s * q[1],
+            c * q[1] + s * q[0],
+            c * q[2] + s * q[3],
+            c * q[3] - s * q[2],
+        ]
+    };
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let float = |copy: &[u8], at: usize| get(copy, at).map(f32::from_bits);
+    let put = |copy: &mut [u8], at: usize, word: u32| -> Result<(), FormatError> {
+        let len = copy.len();
+        copy.get_mut(DATA + at..DATA + at + 4)
+            .ok_or(truncated(DATA + at + 4, len))?
+            .copy_from_slice(&word.to_le_bytes());
+        Ok(())
+    };
+    let set = |copy: &mut [u8], at: usize, value: f32| put(copy, at, value.to_bits());
+
+    // One node: its header's place (x, y, z at 16) and orientation
+    // (w, x, y, z at 28), then its controllers' rows.
+    let turn_node = |copy: &mut Vec<u8>, at: usize| -> Result<(), FormatError> {
+        let (x, y) = turn(float(copy, at + 16)?, float(copy, at + 20)?);
+        set(copy, at + 16, x)?;
+        set(copy, at + 20, y)?;
+        let wxyz = [
+            float(copy, at + 28)?,
+            float(copy, at + 32)?,
+            float(copy, at + 36)?,
+            float(copy, at + 40)?,
+        ];
+        let q = spin([wxyz[1], wxyz[2], wxyz[3], wxyz[0]]);
+        for (offset, value) in [(28, q[3]), (32, q[0]), (36, q[1]), (40, q[2])] {
+            set(copy, at + offset, value)?;
+        }
+        let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
+        let data_at = get(copy, at + 68)? as usize;
+        for k in 0..at_most(keys, MOST_CONTROLLERS, "controllers of a node")? {
+            let key = keys_at + k * 16;
+            let kind = get(copy, key)?;
+            let head = get(copy, key + 4)?;
+            let rows = (head >> 16) as usize;
+            let values = (get(copy, key + 8)? >> 16) as usize;
+            let raw = copy
+                .get(DATA + key + 12)
+                .copied()
+                .ok_or(truncated(DATA + key + 13, copy.len()))?;
+            let (columns, bezier) = (raw & !BEZIER, raw & BEZIER != 0);
+            let start = data_at + values * 4;
+            match (kind, columns) {
+                (CONTROLLER_POSITION, 3) => {
+                    let triples = rows * if bezier { 3 } else { 1 };
+                    for row in 0..triples {
+                        let at = start + row * 12;
+                        let (x, y) = turn(float(copy, at)?, float(copy, at + 4)?);
+                        set(copy, at, x)?;
+                        set(copy, at + 4, y)?;
+                    }
+                }
+                (CONTROLLER_ORIENTATION, 4) => {
+                    for row in 0..rows {
+                        let at = start + row * 16;
+                        let q = [
+                            float(copy, at)?,
+                            float(copy, at + 4)?,
+                            float(copy, at + 8)?,
+                            float(copy, at + 12)?,
+                        ];
+                        for (i, value) in spin(q).into_iter().enumerate() {
+                            set(copy, at + i * 4, value)?;
+                        }
+                    }
+                }
+                (CONTROLLER_ORIENTATION, 2) => {
+                    for row in 0..rows {
+                        let at = start + row * 4;
+                        let q = unpack_quaternion(get(copy, at)?);
+                        put(copy, at, pack_quaternion(spin(q)))?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    };
+    // The children of a root node at `root`.
+    let children = |copy: &[u8], root: usize| -> Result<Vec<usize>, FormatError> {
+        let (at, count) = (
+            get(copy, root + 44)? as usize,
+            get(copy, root + 48)? as usize,
+        );
+        (0..at_most(count, MOST_CHILDREN, "nodes under a root")?)
+            .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
+            .collect()
+    };
+    let root = get(&copy, 40)? as usize;
+    for child in children(&copy, root)? {
+        turn_node(&mut copy, child)?;
+    }
+    let header = 80;
+    let (animations_at, animations) = (
+        get(&copy, header + 8)? as usize,
+        get(&copy, header + 12)? as usize,
+    );
+    for i in 0..at_most(animations, MOST_ANIMATIONS, "animations")? {
+        let animation = get(&copy, animations_at + i * 4)? as usize;
+        let animation_root = get(&copy, animation + 40)? as usize;
+        for child in children(&copy, animation_root)? {
+            turn_node(&mut copy, child)?;
+        }
+    }
+    // The bounding box round the turned box's corners.
+    let box_at = header + 24;
+    let low = [
+        float(&copy, box_at)?,
+        float(&copy, box_at + 4)?,
+        float(&copy, box_at + 8)?,
+    ];
+    let high = [
+        float(&copy, box_at + 12)?,
+        float(&copy, box_at + 16)?,
+        float(&copy, box_at + 20)?,
+    ];
+    let (mut min, mut max) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+    for x in [low[0], high[0]] {
+        for y in [low[1], high[1]] {
+            let (tx, ty) = turn(x, y);
+            min = [min[0].min(tx), min[1].min(ty)];
+            max = [max[0].max(tx), max[1].max(ty)];
+        }
+    }
+    if min.iter().chain(&max).all(|v| v.is_finite()) {
+        set(&mut copy, box_at, min[0])?;
+        set(&mut copy, box_at + 4, min[1])?;
+        set(&mut copy, box_at + 12, max[0])?;
+        set(&mut copy, box_at + 16, max[1])?;
+    }
+    Ok(copy)
+}
+
+/// One mesh of a model `written` lays out: its name, its texture and its
+/// lightmap (16 characters at most each: they name resources), and its
+/// vertices and triangles in the model's space.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WrittenMesh {
+    pub name: String,
+    pub texture: String,
+    pub lightmap: String,
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub uv1: Vec<[f32; 2]>,
+    pub uv2: Vec<[f32; 2]>,
+    /// Counter-clockwise seen from the front.
+    pub triangles: Vec<[u16; 3]>,
+    /// Walk surface material of every face (`surfacemat.2da`).
+    pub material: u32,
+    /// The mesh's transparency hint. kjk counts a room's mesh with any hint
+    /// as see-through, so it is not solid.
+    pub transparency_hint: u32,
+}
+
+/// A K1 model file and its MDX of `meshes`, each a mesh node under one root
+/// node named `name`, at the model's origin, with no controller and no
+/// animation. Only kjk reads such a model: it is laid out as `Model::parse`
+/// reads one, and `renamed` and `turned` change it as they change a room's.
+/// It is what kjk builds a Jedi Academy room as (`asset_ja`), in memory.
+///
+/// Layout, offsets after the file header: the geometry and model headers,
+/// then the name table and its names, then each node (the root first): its
+/// header, a mesh's header after it, then the mesh's faces, and last the
+/// root's list of children. A mesh's vertices are in the MDX, one after
+/// another: place, normal, texture place and lightmap place (40 bytes).
+///
+/// Refused when a mesh has more than 65,535 vertices (a face numbers them
+/// with 16 bits), when its arrays differ in length, when a name does not
+/// fit or is not ASCII, or when there are more than 65,534 meshes (a node's
+/// number has 16 bits, and the root takes 0).
+pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>), FormatError> {
+    const GEOMETRY: usize = 80;
+    const MODEL: usize = 116;
+    const MESH: usize = 332;
+    const STRIDE: usize = 40;
+    if name.len() >= 32 || !name.is_ascii() {
+        return Err(unsupported(format!("{name:?} does not fit a model's name")));
+    }
+    // Each mesh is a node numbered from 1. More of them than 16 bits count
+    // used to wrap round to numbers already given.
+    if meshes.len() >= usize::from(u16::MAX) {
+        return Err(unsupported(format!(
+            "{name}: {} meshes, more than a model can number",
+            meshes.len()
+        )));
+    }
+    for mesh in meshes {
+        let count = mesh.positions.len();
+        if count > usize::from(u16::MAX) {
+            return Err(unsupported(format!(
+                "{}: {count} vertices, more than a face can number",
+                mesh.name
+            )));
+        }
+        if [mesh.normals.len(), mesh.uv1.len(), mesh.uv2.len()]
+            .iter()
+            .any(|len| *len != count)
+        {
+            return Err(unsupported(format!(
+                "{}: its arrays differ in length",
+                mesh.name
+            )));
+        }
+        if mesh.texture.len() > 16 || mesh.lightmap.len() > 16 || mesh.name.len() >= 32 {
+            return Err(unsupported(format!("{}: a name is too long", mesh.name)));
+        }
+        // The names are resources' and a node's, a byte a character. Only
+        // the model's own name was checked.
+        if !(mesh.name.is_ascii() && mesh.texture.is_ascii() && mesh.lightmap.is_ascii()) {
+            return Err(unsupported(format!("{:?}: a name is not ASCII", mesh.name)));
+        }
+        if (mesh.triangles.iter().flatten()).any(|&at| usize::from(at) >= count) {
+            return Err(unsupported(format!(
+                "{}: a face names no vertex",
+                mesh.name
+            )));
+        }
+    }
+    fn put_u32(data: &mut [u8], at: usize, value: u32) {
+        data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    fn put_u16(data: &mut [u8], at: usize, value: u16) {
+        data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    fn put_f32(data: &mut [u8], at: usize, value: f32) {
+        put_u32(data, at, value.to_bits());
+    }
+    fn put_text(data: &mut [u8], at: usize, len: usize, text: &str) {
+        let bytes = &text.as_bytes()[..text.len().min(len - 1)];
+        data[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    fn bounds<'a>(points: impl Iterator<Item = &'a [f32; 3]>) -> ([f32; 3], [f32; 3]) {
+        let (mut low, mut high) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+        for point in points {
+            for axis in 0..3 {
+                low[axis] = low[axis].min(point[axis]);
+                high[axis] = high[axis].max(point[axis]);
+            }
+        }
+        if low[0].is_finite() {
+            (low, high)
+        } else {
+            ([0.0; 3], [0.0; 3])
+        }
+    }
+
+    let mut data: Vec<u8> = vec![0; GEOMETRY + MODEL];
+    // The name table: the root's name, then each mesh's.
+    let names: Vec<&str> = std::iter::once(name)
+        .chain(meshes.iter().map(|mesh| mesh.name.as_str()))
+        .collect();
+    let table_at = data.len();
+    data.resize(table_at + names.len() * 4, 0);
+    for (index, text) in names.iter().enumerate() {
+        let at = data.len();
+        data.extend_from_slice(text.as_bytes());
+        data.push(0);
+        put_u32(&mut data, table_at + index * 4, at as u32);
+    }
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    let (low, high) = bounds(meshes.iter().flat_map(|mesh| &mesh.positions));
+    let radius = (0..3)
+        .map(|axis| (high[axis] - low[axis]).powi(2))
+        .sum::<f32>()
+        .sqrt()
+        / 2.0;
+
+    // A node's header: its flags, its number and name, the root and its
+    // parent, its place at the origin, facing ahead.
+    let node_header = |data: &mut Vec<u8>, flags: u16, number: u16, parent: u32| -> usize {
+        let at = data.len();
+        data.resize(at + NODE_HEADER, 0);
+        put_u16(data, at, flags);
+        put_u16(data, at + 2, number);
+        put_u16(data, at + 4, number);
+        put_u32(data, at + 8, GEOMETRY as u32);
+        put_u32(data, at + 12, parent);
+        // Orientation (w, x, y, z): none.
+        put_f32(data, at + 28, 1.0);
+        at
+    };
+    let root = node_header(&mut data, FLAG_HEADER, 0, 0);
+    let mut mdx: Vec<u8> = Vec::new();
+    let mut children = Vec::with_capacity(meshes.len());
+    for (index, mesh) in meshes.iter().enumerate() {
+        let number = (index + 1) as u16;
+        let at = node_header(&mut data, FLAG_HEADER | FLAG_MESH, number, root as u32);
+        children.push(at as u32);
+        let header = data.len();
+        data.resize(header + MESH, 0);
+        let (low, high) = bounds(mesh.positions.iter());
+        for axis in 0..3 {
+            put_f32(&mut data, header + 20 + axis * 4, low[axis]);
+            put_f32(&mut data, header + 32 + axis * 4, high[axis]);
+            put_f32(&mut data, header + 60 + axis * 4, 1.0);
+            put_f32(&mut data, header + 72 + axis * 4, 1.0);
+        }
+        put_u32(&mut data, header + 84, mesh.transparency_hint);
+        put_text(&mut data, header + 88, 32, &mesh.texture);
+        put_text(&mut data, header + 120, 32, &mesh.lightmap);
+        put_u32(&mut data, header + 252, STRIDE as u32);
+        // Where each kind of vertex data lies in a vertex: place, normal,
+        // (no colour), texture place and lightmap place; none of the rest.
+        for slot in 0..11 {
+            let offset = match slot {
+                0 => 0,
+                1 => 12,
+                3 => 24,
+                4 => 32,
+                _ => u32::MAX,
+            };
+            put_u32(&mut data, header + 260 + slot * 4, offset);
+        }
+        put_u16(&mut data, header + 304, mesh.positions.len() as u16);
+        put_u16(&mut data, header + 306, 2);
+        // Lightmapped when it names a lightmap, not rotating its texture,
+        // not a background, casting a shadow, not beaming, drawn. A mesh
+        // with no lightmap used to be marked as lightmapped all the same.
+        let lightmapped = u8::from(!mesh.lightmap.is_empty());
+        data[header + 308..header + 314].copy_from_slice(&[lightmapped, 0, 0, 1, 0, 1]);
+        put_u32(&mut data, header + 324, mdx.len() as u32);
+        for at in 0..mesh.positions.len() {
+            for value in (mesh.positions[at].iter())
+                .chain(&mesh.normals[at])
+                .chain(&mesh.uv1[at])
+                .chain(&mesh.uv2[at])
+            {
+                mdx.extend_from_slice(&value.to_bits().to_le_bytes());
+            }
+        }
+        // The faces: each its plane, its material, no neighbours, and its
+        // vertices.
+        let faces_at = data.len();
+        put_u32(&mut data, header + 8, faces_at as u32);
+        put_u32(&mut data, header + 12, mesh.triangles.len() as u32);
+        put_u32(&mut data, header + 16, mesh.triangles.len() as u32);
+        for triangle in &mesh.triangles {
+            let [a, b, c] = triangle.map(|at| mesh.positions[usize::from(at)]);
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let mut normal = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let length = normal.iter().map(|part| part * part).sum::<f32>().sqrt();
+            if length > 0.0 {
+                normal = normal.map(|part| part / length);
+            }
+            let distance = -(normal[0] * a[0] + normal[1] * a[1] + normal[2] * a[2]);
+            let face = data.len();
+            data.resize(face + 32, 0);
+            for (axis, part) in normal.iter().enumerate() {
+                put_f32(&mut data, face + axis * 4, *part);
+            }
+            put_f32(&mut data, face + 12, distance);
+            put_u32(&mut data, face + 16, mesh.material);
+            for (side, corner) in triangle.iter().enumerate() {
+                put_u16(&mut data, face + 20 + side * 2, u16::MAX);
+                put_u16(&mut data, face + 26 + side * 2, *corner);
+            }
+        }
+    }
+    // The root's children.
+    let children_at = data.len();
+    for child in &children {
+        data.extend_from_slice(&child.to_le_bytes());
+    }
+    put_u32(&mut data, root + 44, children_at as u32);
+    put_u32(&mut data, root + 48, children.len() as u32);
+    put_u32(&mut data, root + 52, children.len() as u32);
+
+    // The geometry header: K1's mark, the name, the root and the count of
+    // nodes, and the model type; then the model header.
+    put_u32(&mut data, 0, 4_273_776);
+    put_text(&mut data, 8, 32, name);
+    put_u32(&mut data, 40, root as u32);
+    put_u32(&mut data, 44, names.len() as u32);
+    data[76] = 2;
+    let model = GEOMETRY;
+    data[model + 3] = 1;
+    for axis in 0..3 {
+        put_f32(&mut data, model + 24 + axis * 4, low[axis]);
+        put_f32(&mut data, model + 36 + axis * 4, high[axis]);
+    }
+    put_f32(&mut data, model + 48, radius);
+    put_f32(&mut data, model + 52, 1.0);
+    put_text(&mut data, model + 56, 32, "null");
+    put_u32(&mut data, model + 96, mdx.len() as u32);
+    put_u32(&mut data, model + 104, table_at as u32);
+    put_u32(&mut data, model + 108, names.len() as u32);
+    put_u32(&mut data, model + 112, names.len() as u32);
+
+    let mut file = Vec::with_capacity(DATA + data.len());
+    file.extend_from_slice(&0u32.to_le_bytes());
+    file.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    file.extend_from_slice(&(mdx.len() as u32).to_le_bytes());
+    file.extend_from_slice(&data);
+    Ok((file, mdx))
+}

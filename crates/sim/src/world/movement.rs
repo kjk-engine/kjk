@@ -1238,6 +1238,7 @@ pub(super) fn move_actors(
             };
             if scripted_move
                 && commanded
+                && !walk::crossing_link(&level.0, walker, &player.0)
                 && walker.stalls == 0
                 && walker.waypoint.is_some()
                 && math::flat_distance(before, player.0.origin) <= WALKED

@@ -29,12 +29,19 @@ fn journal_text(value: Option<&GffValue>) -> JournalText {
     }
 }
 
-/// The install's quests; none when it has no journal that reads.
-pub fn quests(source: &dyn Source) -> Quests {
-    let Some(jrl) = source
+/// The install's quests; none when it has no journal that reads. The
+/// quests of `game`'s mods for kjk are added to them
+/// (`level_edit::active::merged_journal`): each mod brings its own quests
+/// in a file of its own, since the games' journal is one file.
+pub fn quests(source: &dyn Source, game: &str) -> Quests {
+    let jrl = source
         .read("global", ResType::JRL)
-        .and_then(|bytes| Gff::parse(&bytes).ok())
-    else {
+        .and_then(|bytes| Gff::parse(&bytes).ok());
+    let jrl = match level_edit::active::merged_journal(game, jrl.clone()) {
+        Some(merged) => Some(merged),
+        None => jrl,
+    };
+    let Some(jrl) = jrl else {
         return Quests::default();
     };
     let mut quests = BTreeMap::new();
@@ -307,7 +314,7 @@ fn journal_bad_field() -> Result<String, String> {
         - 20;
     let size = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
     bytes[at..at + 4].copy_from_slice(&(size + 1).to_le_bytes());
-    let quests = quests(&Files([("global.jrl".to_string(), bytes)].into()));
+    let quests = quests(&Files([("global.jrl".to_string(), bytes)].into()), "k1");
     // A quest's tag, its name and its entries' IDs and texts.
     type Seen = (String, u32, Vec<(u32, u32)>);
     let seen: Vec<Seen> = quests
@@ -382,7 +389,7 @@ fn journal_own_words() -> Result<String, String> {
         },
     };
     let files = Files([("global.jrl".to_string(), jrl.write())].into());
-    let quests = quests(&files);
+    let quests = quests(&files, "k1");
     let talk_table = |strref: u32| Some(format!("line {strref}").into_bytes());
     let seen: Vec<(String, String, String)> = quests
         .0
