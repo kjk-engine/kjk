@@ -23,7 +23,7 @@
 #import bevy_pbr::prepass_bindings::previous_view_uniforms
 #endif
 #ifndef PREPASS_PIPELINE
-#import kjk::lighting::{flash, fog}
+#import kjk::lighting::{decode_22, flash, fog}
 #endif
 
 struct GrassParams {
@@ -250,8 +250,13 @@ fn fragment(in: Varyings) -> @location(0) vec4<f32> {
     // A lightning flash adds its light, as on the scene's surfaces.
     let lit = flash(in.world_position, grass.flash_at, grass.flash_colour.rgb);
     var colour = texel.rgb * min(lightmap + lit, vec3<f32>(1.0));
+    let linear_main = clock.z > 0.5;
+    if linear_main {
+        colour = decode_22(colour);
+    }
     if (flags & FOGGED) != 0u {
-        colour = fog(colour, in.world_position, grass.fog_range, grass.fog_color.rgb);
+        let fog_col = select(grass.fog_color.rgb, decode_22(grass.fog_color.rgb), linear_main);
+        colour = fog(colour, in.world_position, grass.fog_range, fog_col);
     }
     return vec4<f32>(colour, texel.a * in.fade);
 }

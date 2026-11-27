@@ -79,8 +79,7 @@ fn vertex(
     return out;
 }
 
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef VERTEX_UVS_A
     // The view's mip bias, as on the scene's surfaces (`odyssey.wgsl`).
     let texel = textureSampleBias(shell_texture, shell_sampler, in.uv + vec2<f32>(params.push.y, 0.0), view.mip_bias);
@@ -91,3 +90,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // keeps all of what is behind, so the colour is purely added.
     return vec4<f32>(texel.rgb * params.tint.rgb * params.tint.a, 0.0);
 }
+
+#ifdef LEGACY_BLEND
+struct LegacyOut {
+    @location(0) accum: vec4<f32>,
+    @location(1) transmittance: vec4<f32>,
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> LegacyOut {
+    let value = shade(in);
+    return LegacyOut(value, value);
+}
+#else
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade(in);
+}
+#endif

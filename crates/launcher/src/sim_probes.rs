@@ -33,6 +33,8 @@ const GROUPS: &[Group] = &[
     ("camera sizes", kjk_game::display::probes),
     ("sharpening", kjk_game::sharpen::probes),
     ("scene hold", kjk_game::scene_hold_probes),
+    ("legacy blend", kjk_game::legacy_blend_probes),
+    ("tonemapping", kjk_game::rolloff::probes),
     ("gpu load check", kjk_game::load_check_probes),
     ("ui material", kjk_game::ui_material::probes),
     ("cut-out surfaces", kjk_game::material::cutout_probes),

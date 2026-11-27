@@ -534,7 +534,13 @@ fn drawn_extent(
 /// half-size pipeline is still being compiled.
 #[allow(clippy::too_many_arguments)]
 fn hold_back(
-    view: ViewQuery<HeldView, With<HalfSizeParticles>>,
+    view: ViewQuery<
+        HeldView,
+        (
+            With<HalfSizeParticles>,
+            Without<crate::legacy_blend::LinearLegacyBlend>,
+        ),
+    >,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     mut held: ResMut<Held>,
     mut variants: ResMut<Variants>,
@@ -659,7 +665,13 @@ type DrawnView = (
 /// see-through surfaces between this run and the next drawn over it.
 fn draw_half_size(
     world: &World,
-    view: ViewQuery<DrawnView, With<HalfSizeParticles>>,
+    view: ViewQuery<
+        DrawnView,
+        (
+            With<HalfSizeParticles>,
+            Without<crate::legacy_blend::LinearLegacyBlend>,
+        ),
+    >,
     held: Res<Held>,
     cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
@@ -797,7 +809,13 @@ fn draw_half_size(
 /// Puts every held item back into the view's phase, in its order and with
 /// its own pipeline: the phase keeps its items from frame to frame.
 fn give_back(
-    view: ViewQuery<&ExtractedView, With<HalfSizeParticles>>,
+    view: ViewQuery<
+        &ExtractedView,
+        (
+            With<HalfSizeParticles>,
+            Without<crate::legacy_blend::LinearLegacyBlend>,
+        ),
+    >,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     mut held: ResMut<Held>,
     variants: Res<Variants>,

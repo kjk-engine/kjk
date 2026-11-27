@@ -42,7 +42,7 @@ use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
-const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
+pub(crate) const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
 /// `odyssey.wgsl` with `enable wgpu_ray_query;` put in front of it. That
 /// line must be a shader's first, and Bevy's shader composer reads it
 /// before `#ifdef`, so it cannot be left out of one file for a card
@@ -149,6 +149,15 @@ const PUNCH_THROUGH: u32 = 2097152;
 /// Water (`OdysseyMaterial::water`): its env map alone, as its bump map
 /// turns it, at full light. The base texture is the bump map's frame.
 const WATER: u32 = 4194304;
+/// Drawn on an overlay/fade layer (`OdysseyMaterial::on_top`), keeping
+/// stored gamma-encoded values even while the scene camera is linear.
+const ON_TOP: u32 = 1 << 23;
+
+/// Bits of `LightList::enhanced`:
+/// - `ENHANCED_BIT`: Enhanced mode active (HDR lights/glows, AO, bloom, tonemap).
+/// - `LINEAR_MAIN_BIT`: Main pass renders in linear HDR (`enhanced && Msaa::Off`).
+pub const ENHANCED_BIT: u32 = 1;
+pub const LINEAR_MAIN_BIT: u32 = 2;
 
 /// The alpha a punch-through texel must be above to be drawn. Both games'
 /// executables draw a texture whose TXI says `blending punchthrough` with
@@ -1522,6 +1531,13 @@ impl OdysseyMaterial {
         self
     }
 
+    /// Marks this material as an overlay/fade layer drawn over the world,
+    /// keeping stored gamma-encoded values.
+    pub fn set_on_top(&mut self) {
+        self.on_top = true;
+        self.params.flags |= ON_TOP;
+    }
+
     /// Whether its texture's alpha is its coverage: a surface cut out by
     /// its alpha (leaves, a grate, hair), whose alpha is not an env map's
     /// mask and whose texture has alpha at all. Its shadow tile is cut by
@@ -1881,6 +1897,7 @@ pub struct OdysseyKey {
     cut: bool,
     motion_only: bool,
     on_top: bool,
+    glowing: bool,
 }
 
 impl From<&OdysseyMaterial> for OdysseyKey {
@@ -1902,6 +1919,7 @@ impl From<&OdysseyMaterial> for OdysseyKey {
                 ),
             motion_only: material.motion_only,
             on_top: material.on_top,
+            glowing: material.params.glow.x > 1.0,
         }
     }
 }
@@ -2127,6 +2145,9 @@ impl Material for OdysseyMaterial {
             // brawl's 930 particles took 0.75 ms of GPU time against 0.15 ms.
             if crate::fitted_lights::in_shaders() && !key.particles {
                 fragment.shader_defs.push("FITTED_LIGHTS".into());
+            }
+            if key.glowing {
+                fragment.shader_defs.push("HDR_GLOW".into());
             }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly

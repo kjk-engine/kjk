@@ -101,9 +101,11 @@ pub mod lifecycle;
 mod lifecycle_view;
 #[cfg(feature = "probes")]
 pub use lifecycle_view::scene_hold_probes;
+mod legacy_blend;
+#[cfg(feature = "probes")]
+pub use legacy_blend::probes as legacy_blend_probes;
 pub mod light_probes;
 pub mod lighting_bakes;
-pub mod linear_frame;
 pub mod lobby_guest;
 pub mod lobby_host;
 mod lock_view;

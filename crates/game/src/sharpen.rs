@@ -14,11 +14,11 @@
 //! lighting's frame goes above 1. It may also run after bloom and sharpen
 //! the glow.
 //!
-//! This pass runs after the temporal resolve and after the encoding pass of
-//! `linear_frame`, since it expects encoded values. It runs before bloom,
-//! the roll-off, the HUD and the screens, which all draw after it at the
-//! window's size. So neither the interface nor the glow is sharpened. It
-//! reads its range on values brought into 0 to 1.
+//! Under Enhanced lighting this pass runs in `PostProcess` after
+//! `rolloff::RollOffPass` (bloom and filmic tonemapping to sRGB) and before
+//! `video_effect` and the HUD/screens, so it always operates on `[0, 1]`
+//! perceptual values without HDR ringing halos. Under Classic lighting it runs
+//! in the same slot after temporal resolve.
 //!
 //! `KJK_SHARPEN` (0 to 1) overrides the setting for a run, for tuning.
 
@@ -95,9 +95,9 @@ impl Plugin for SharpenPlugin {
             .add_systems(
                 Core3d,
                 sharpen
-                    .after(Core3dSystems::EarlyPostProcess)
-                    .after(crate::linear_frame::Encoded)
-                    .before(Core3dSystems::PostProcess),
+                    .in_set(Core3dSystems::PostProcess)
+                    .after(crate::rolloff::RollOffPass)
+                    .before(crate::video_effect::VideoEffectPass),
             );
     }
 }

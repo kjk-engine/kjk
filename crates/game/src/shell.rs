@@ -22,7 +22,7 @@ use sim::SimId;
 use crate::cast::BodyRoots;
 use crate::material::OdysseyMaterial;
 
-const SHADER: Handle<Shader> = uuid_handle!("8f3c2a71-5d64-4b0e-9e1f-7a2b6c4d9e05");
+pub(crate) const SHADER: Handle<Shader> = uuid_handle!("8f3c2a71-5d64-4b0e-9e1f-7a2b6c4d9e05");
 
 /// How far a shell stands off its model (metres: KOTOR's 0.02).
 pub const PUSH_M: f32 = 0.02;

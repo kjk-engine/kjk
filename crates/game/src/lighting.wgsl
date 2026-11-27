@@ -44,3 +44,14 @@ fn encode(value: vec3<f32>) -> vec3<f32> {
     let high = 1.055 * pow(v, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
     return select(high, low, v <= vec3<f32>(0.0031308));
 }
+
+// Pure power 2.2 decode/encode for Enhanced mode's internal linear pipeline:
+// texture * lightmap products and the Modulate legacy blend remain exact
+// under a pure power (`LIGHTING-PLAN.md` step 9).
+fn decode_22(value: vec3<f32>) -> vec3<f32> {
+    return pow(max(value, vec3<f32>(0.0)), vec3<f32>(2.2));
+}
+
+fn encode_22(value: vec3<f32>) -> vec3<f32> {
+    return pow(max(value, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
+}

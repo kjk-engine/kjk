@@ -373,7 +373,7 @@ impl Plugin for ScenePlugin {
             crate::effects_quality::EffectsQualityPlugin,
             crate::ambient_occlusion::AmbientOcclusionPlugin,
             crate::prepasses::PrepassesPlugin,
-            crate::linear_frame::LinearFramePlugin,
+            crate::legacy_blend::LegacyBlendPlugin,
             crate::fixed_bounds::FixedBoundsPlugin,
         ))
         .add_systems(Startup, spawn_camera)
@@ -2035,13 +2035,20 @@ fn retire_blades(
     retired.0.clear();
 }
 
+/// The current area's sRGB fog colour (black when the area has no fog),
+/// stored so `rolloff` can adjust `ClearColor` between gamma and linear
+/// space when `LightingMode` or `Msaa` changes.
+#[derive(Resource, Default, Clone, Copy, Debug)]
+pub(crate) struct AreaFogColor(pub [f32; 3]);
+
 /// The world is cleared to its area's fog colour, black where it has none,
 /// as KOTOR sets its clear colour with the fog's: what no room draws (a
 /// room the VIS leaves out beyond an open door, a gap in a wall) shows as
 /// the far fog does.
 fn clear_to_fog(scene: Res<SceneContent>, mut commands: Commands) {
-    let [red, green, blue] = scene.0.fog.as_ref().map_or([0.0; 3], |fog| fog.color);
-    commands.insert_resource(ClearColor(Color::srgb(red, green, blue)));
+    let rgb = scene.0.fog.as_ref().map_or([0.0; 3], |fog| fog.color);
+    commands.insert_resource(AreaFogColor(rgb));
+    commands.insert_resource(ClearColor(Color::srgb(rgb[0], rgb[1], rgb[2])));
 }
 
 pub(crate) fn spawn_scene(

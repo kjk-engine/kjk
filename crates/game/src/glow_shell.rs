@@ -41,7 +41,7 @@ use bevy::shader::ShaderRef;
 use crate::material::{self, OdysseyMaterial, Surface};
 use crate::scene;
 
-const SHADER: Handle<Shader> = uuid_handle!("8b2f4c61-0d7e-4a39-b5c8-1e6f3a9d7b24");
+pub(crate) const SHADER: Handle<Shader> = uuid_handle!("8b2f4c61-0d7e-4a39-b5c8-1e6f3a9d7b24");
 
 /// How far a glow's shell stands out of its mesh (metres): the game's
 /// vertex program's `program.env[12].x`.

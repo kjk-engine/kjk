@@ -44,8 +44,7 @@ struct Shell {
 // (`glow_shell::HOLOGRAM_LUMINANCE`).
 const HOLOGRAM_LUMINANCE: vec3<f32> = vec3<f32>(0.30, 0.59, 0.11);
 
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn shade(in: VertexOutput) -> vec4<f32> {
     // A distortion (`push.y` set): the scene behind, displaced by the
     // executable's ring texture alone (`ring_distort.wgsl`).
     if shell.push.y > 0.0 {
@@ -76,6 +75,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0);
 #endif
 }
+
+#ifdef LEGACY_BLEND
+struct LegacyOut {
+    @location(0) accum: vec4<f32>,
+    @location(1) transmittance: vec4<f32>,
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> LegacyOut {
+    let value = shade(in);
+#ifdef LEGACY_MODULATE
+    let doubled = vec4<f32>(2.0 * value.rgb, value.a);
+    return LegacyOut(doubled, doubled);
+#else
+    return LegacyOut(value, value);
+#endif
+}
+#else
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade(in);
+}
+#endif
 
 @vertex
 fn vertex(

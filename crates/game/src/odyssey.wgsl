@@ -10,7 +10,7 @@
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_view_bindings::{view, globals}
 #import bevy_pbr::mesh_functions::{get_world_from_local, get_tag}
-#import kjk::lighting::{flash, fog, decode, encode}
+#import kjk::lighting::{flash, fog, decode, encode, decode_22, encode_22}
 #ifdef AO_DEBUG_NORMALS
 #import bevy_pbr::mesh_view_bindings::normal_prepass_texture
 #endif
@@ -271,6 +271,12 @@ const PUNCH_THROUGH_CUT: f32 = 0.35;
 // Water (`material::OdysseyMaterial::water`): the base texture is its bump
 // map's frame of heights, and the env map alone is drawn.
 const WATER: u32 = 4194304u;
+// Drawn on an overlay/fade layer (`material::ON_TOP`), keeping stored
+// gamma-encoded values.
+const ON_TOP: u32 = 8388608u;
+// Bits of `LightList::enhanced` (`material.rs`).
+const ENHANCED_BIT: u32 = 1u;
+const LINEAR_MAIN_BIT: u32 = 2u;
 // How far a bump of one texel's height step turns water's reflection. The
 // games turn a bump map's heights into normals when they load it, and that
 // step was not read. This number was chosen by eye on Dantooine's river:
@@ -1998,8 +2004,7 @@ fn water_shine(in: VertexOutput, uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(envmap_texture, envmap_sampler, lookup, 0.0);
 }
 
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef RAY_QUERIES
     ray_pixel = floor(in.position.xy);
 #endif
@@ -2115,8 +2120,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Under Enhanced lighting, what a fight's lights give this fragment.
     // It is added to the finished colour as linear light (below). Under
     // Classic lighting it stays at nothing.
-    let enhanced = lights.enhanced != 0u;
+    let enhanced = (lights.enhanced & ENHANCED_BIT) != 0u;
+#ifdef LEGACY_BLEND
+    let linear_output = false;
+#else
+    let linear_output = (lights.enhanced & LINEAR_MAIN_BIT) != 0u && (params.flags & ON_TOP) == 0u;
+#endif
     var fight_added = vec3<f32>(0.0);
+    var baked_over = vec3<f32>(0.0);
     // How much of a room's baked light the characters' and placeables'
     // shadows leave at this surface.
     var unshadowed = 1.0;
@@ -2412,9 +2423,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             if baked_room {
                 // A glowing surface's own glow is not part of it: a lamp's
                 // tube shows as bright as it does under the live lights.
-                let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
-                if max3(over) > 0.0 {
-                    fight_added = encode(decode(fight_added) + over);
+                if linear_output {
+                    baked_over = (decode_22(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                } else {
+                    let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                    if max3(over) > 0.0 {
+                        fight_added = encode(decode(fight_added) + over);
+                    }
                 }
             }
         } else {
@@ -2482,7 +2497,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // light would. A fragment that no fight's light reaches keeps its
         // stored colour bit for bit.
         var extra = vec3<f32>(0.0);
-        if max3(fight_added) > 0.0 {
+        if linear_output {
+            if max3(fight_added) > 0.0 || max3(baked_over) > 0.0 {
+                extra = decode_22(base.rgb) * (decode_22(fight_added) + baked_over);
+            }
+        } else if max3(fight_added) > 0.0 {
             extra = decode(base.rgb) * decode(fight_added);
         }
         // A shiny surface also mirrors the light itself. The texture's
@@ -2493,9 +2512,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let room = mesh_room(in.instance_index);
             extra = extra + fight_highlights(in.world_position.xyz, in.world_normal, room, near) * shiny;
         }
-        if max3(extra) > 0.0 {
+        if linear_output {
+            colour = decode_22(colour) + extra;
+        } else if max3(extra) > 0.0 {
             colour = encode(decode(colour) + extra);
         }
+    } else if linear_output {
+        colour = decode_22(colour);
     }
     // `KJK_PROBES=only`: the probe light alone, no lamps and no texture.
     if probe_only.w > 0.0 {
@@ -2526,7 +2549,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(shown, 1.0);
     }
     if (params.flags & FOG) != 0u {
-        colour = fog(colour, in.world_position.xyz, params.fog_range, params.fog_color.rgb);
+        let fog_col = select(params.fog_color.rgb, decode_22(params.fog_color.rgb), linear_output);
+        colour = fog(colour, in.world_position.xyz, params.fog_range, fog_col);
     }
     // An env-mapped texture's alpha is the shine's mask, not coverage: a
     // see-through mesh takes only its own alpha (reone's OIT model does the
@@ -2540,10 +2564,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // no colour of its surface (`VERTEX_LIGHT`).
     if (params.flags & VERTEX_LIGHT) != 0u {
     } else if (params.flags & VERTEX_ALPHA) != 0u {
-        colour = colour * in.color.rgb;
+        let vcol = select(in.color.rgb, decode_22(in.color.rgb), linear_output);
+        colour = colour * vcol;
         alpha = alpha * in.color.a;
     } else {
-        colour = colour * in.color.rgb * in.color.a;
+        let vcol = select(in.color.rgb, decode_22(in.color.rgb), linear_output);
+        colour = colour * vcol * in.color.a;
     }
 #endif
     // Alpha 0 (the vertex's included: a punch-through particle faded out)
@@ -2562,7 +2588,31 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // An effect that glows is brighter than white under Enhanced lighting,
     // and bloom spreads what is above white (`rolloff.rs`).
     if enhanced {
-        colour = colour * params.glow.x;
+        let glow_scale = select(params.glow.x, pow(max(params.glow.x, 0.0), 2.2), linear_output);
+        colour = colour * glow_scale;
     }
     return vec4<f32>(colour, alpha);
 }
+
+#ifdef LEGACY_BLEND
+struct FragmentOut {
+    @location(0) accum: vec4<f32>,
+    @location(1) trans: vec4<f32>,
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> FragmentOut {
+    let value = shade(in);
+#ifdef LEGACY_MODULATE
+    let modulated = vec4<f32>(value.rgb * 2.0, 1.0);
+    return FragmentOut(modulated, modulated);
+#else
+    return FragmentOut(value, value);
+#endif
+}
+#else
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade(in);
+}
+#endif

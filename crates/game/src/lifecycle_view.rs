@@ -358,7 +358,7 @@ pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMateri
         },
         &AreaLight::ambient([1.0; 3]),
     );
-    material.on_top = true;
+    material.set_on_top();
     material
 }
 

@@ -558,17 +558,24 @@ fn blow(
     patches: Query<(), With<GrassOf>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     (time, held): (Res<Time>, Res<AnimationTime>),
-    mut written: Local<Vec2>,
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
+    cameras: Query<&Msaa, crate::lifecycle_view::SceneCamera>,
+    mut written: Local<Vec3>,
 ) {
     if patches.is_empty() {
         return;
     }
     let seconds = scene::animation_seconds(&time, &held);
-    let clock = Vec2::new(seconds, written.x);
+    let linear = if crate::rolloff::linear_main_active(lighting.as_deref(), &cameras) {
+        1.0
+    } else {
+        0.0
+    };
+    let clock = Vec3::new(seconds, written.x, linear);
     if clock != *written
         && let Some(mut buffer) = buffers.get_mut(&CLOCK)
     {
-        buffer.set_data(clock.extend(0.0).extend(0.0));
+        buffer.set_data(clock.extend(0.0));
         *written = clock;
     }
 }
