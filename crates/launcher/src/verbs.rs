@@ -205,6 +205,16 @@ pub(crate) enum Verb {
         /// the lamps' set. It implies --placeables
         #[arg(long)]
         placeable_light: bool,
+        /// Linear HDR atmospheric bake (`Rgba16Float` `.klm` lightmaps, `WRAP = 0`,
+        /// unclamped linear GI + direct lighting, island-padded mipmaps)
+        #[arg(long)]
+        hdr: bool,
+        /// Direct light multiplier for `--hdr` bakes
+        #[arg(long, default_value_t = 1.0)]
+        exposure: f32,
+        /// Subtle minimum linear ambient shadow floor for `--hdr` bakes (`0` for pure GI)
+        #[arg(long, default_value_t = 0.008)]
+        ambient_floor: f32,
         /// Bake nothing. Print the fingerprint of each of the module's
         /// areas in the game files as they are now: the format, and the
         /// digests of the rooms and of the placeables. The game compares it
@@ -641,6 +651,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skylights,
             placeables,
             placeable_light,
+            hdr,
+            exposure,
+            ambient_floor,
             fingerprint,
             stamp,
             out,
@@ -709,6 +722,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     .collect(),
                 placeables: placeables || placeable_light,
                 placeable_light,
+                hdr,
+                exposure,
+                ambient_floor,
             };
             detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
         }

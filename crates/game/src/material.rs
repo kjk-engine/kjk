@@ -152,6 +152,9 @@ const WATER: u32 = 4194304;
 /// Drawn on an overlay/fade layer (`OdysseyMaterial::on_top`), keeping
 /// stored gamma-encoded values even while the scene camera is linear.
 const ON_TOP: u32 = 1 << 23;
+/// The lightmap is an uncompressed/LZ4 linear `Rgba16Float` HDR texture
+/// (`.klm`), read without `BAKED_GAIN = 2.0` or `decode_22`.
+const LINEAR_LIGHTMAP: u32 = 1 << 24;
 
 /// Bits of `LightList::enhanced`:
 /// - `ENHANCED_BIT`: Enhanced mode active (HDR lights/glows, AO, bloom, tonemap).
@@ -1536,6 +1539,14 @@ impl OdysseyMaterial {
     pub fn set_on_top(&mut self) {
         self.on_top = true;
         self.params.flags |= ON_TOP;
+    }
+
+    /// Marks the mesh's lightmap as linear HDR (`Rgba16Float` `.klm`).
+    pub fn linear_lightmap(mut self, linear: bool) -> OdysseyMaterial {
+        if linear && self.lightmap.is_some() {
+            self.params.flags |= LINEAR_LIGHTMAP;
+        }
+        self
     }
 
     /// Whether its texture's alpha is its coverage: a surface cut out by

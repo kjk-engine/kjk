@@ -875,6 +875,8 @@ struct BakeFolder {
     /// at their stored light, by name in lower case
     /// (`stored_fill::STORED_FILE`). It holds no PNG of them.
     stored: BTreeSet<String>,
+    /// Whether the bake holds any `.klm` (`Rgba16Float`) HDR lightmaps.
+    hdr: bool,
     /// Its fingerprint (`bake_fingerprint::FILE`). `None` for a set baked
     /// before the baker wrote one, which the game shows as it is. The reason
     /// for a file that does not read, and the game then shows none of it.
@@ -891,12 +893,24 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
         };
         let mut lightmaps = BTreeMap::new();
         for file in entries.flatten().map(|entry| entry.path()) {
-            if file.extension().is_some_and(|extension| extension == "png")
-                && let Some(name) = file.file_stem().and_then(|name| name.to_str())
-            {
-                lightmaps.insert(name.to_ascii_lowercase(), file);
+            let Some(ext) = file.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            let Some(name) = file.file_stem().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let key = name.to_ascii_lowercase();
+            if ext.eq_ignore_ascii_case(asset_odyssey::hdr_lightmap::EXTENSION) {
+                lightmaps.insert(key, file);
+            } else if ext.eq_ignore_ascii_case("png") {
+                lightmaps.entry(key).or_insert(file);
             }
         }
+        let hdr = lightmaps.values().any(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case(asset_odyssey::hdr_lightmap::EXTENSION))
+        });
         let stamp = crate::bake_fingerprint::read(&path);
         match &stamp {
             None => warn!(
@@ -916,6 +930,7 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
             floors: baked_numbers(&path, "floor.txt"),
             unlit: path.join("unlit.txt").is_file(),
             stored: crate::stored_fill::stored_names(&path),
+            hdr,
             stamp,
             path,
         });
@@ -1633,6 +1648,8 @@ fn baked_lightmaps(
 /// Where the picture of a lightmap of the area comes from (`lightmap_source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Picture<'a> {
+    /// The `.klm` (`Rgba16Float`) HDR lightmap made by the Phase 2 linear baker.
+    Klm(&'a std::path::Path),
     /// The PNG the bake made of it, with the folder's fill and floor.
     Png(&'a std::path::Path),
     /// The player's stored lightmap at half its light, because the folder
@@ -1671,10 +1688,16 @@ fn lightmap_source<'a>(
             let fits = fit.is_none_or(|fit| fit.matching.contains(key));
             return Some((
                 folder,
-                if fits {
-                    Picture::Png(path)
-                } else {
+                if !fits {
                     Picture::FallBack
+                } else if path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case(asset_odyssey::hdr_lightmap::EXTENSION))
+                {
+                    Picture::Klm(path)
+                } else {
+                    Picture::Png(path)
                 },
             ));
         }
@@ -1705,6 +1728,73 @@ fn detail_baked(
     if texture.cube || texture.frames > 1 {
         return None;
     }
+    let hdr_path = match source {
+        Picture::Klm(path) => Some(Some(path)),
+        Picture::Stored | Picture::FallBack if folder.hdr => Some(None),
+        _ => None,
+    };
+    if let Some(klm_path) = hdr_path {
+        let result: Result<(u32, u32, Vec<Vec<u8>>), String> = match klm_path {
+            Some(path) => std::fs::read(path)
+                .map_err(|error| format!("baked HDR lightmap {} does not read: {error}", path.display()))
+                .and_then(|bytes| asset_odyssey::hdr_lightmap::decode(&bytes)),
+            None => crate::stored_fill::backdrop_hdr(texture)
+                .map(|mips| (texture.width, texture.height, mips))
+                .ok_or_else(|| {
+                    format!(
+                        "stored lightmap {name} does not decode for HDR bake in {}",
+                        folder.path.display()
+                    )
+                }),
+        };
+        match result {
+            Ok((width, height, mut mips)) => {
+                let fill = (source != Picture::FallBack).then(|| folder.fills.get(&key)).flatten();
+                let floor = (source != Picture::FallBack).then(|| folder.floors.get(&key)).flatten();
+                if (fill.is_some() || floor.is_some())
+                    && let Some(mut pixels) =
+                        asset_odyssey::hdr_lightmap::decode_level0_rgba32f(&mips, width, height)
+                {
+                    if let Some(fill) = fill {
+                        crate::stored_fill::add_stored_fill_hdr(
+                            &mut pixels,
+                            width as usize,
+                            height as usize,
+                            texture,
+                            *fill,
+                            false,
+                        );
+                    }
+                    if let Some(share) = floor {
+                        crate::stored_fill::add_stored_fill_hdr(
+                            &mut pixels,
+                            width as usize,
+                            height as usize,
+                            texture,
+                            *share,
+                            true,
+                        );
+                    }
+                    mips = asset_odyssey::hdr_lightmap::encode_rgba32f_mips(
+                        width as usize,
+                        height as usize,
+                        &pixels,
+                    );
+                }
+                return Some(TextureIr {
+                    width,
+                    height,
+                    encoding: asset_odyssey::texture::Encoding::Rgba16Float,
+                    mips,
+                    ..texture.clone()
+                });
+            }
+            Err(why) => {
+                warn!("{why}");
+                return None;
+            }
+        }
+    }
     let picture = match source {
         Picture::Png(path) => image::open(path)
             .map(image::DynamicImage::into_rgba8)
@@ -1717,6 +1807,7 @@ fn detail_baked(
                     folder.path.display()
                 )
             }),
+        Picture::Klm(_) => return None,
     };
     match picture {
         Ok(mut picture) => {

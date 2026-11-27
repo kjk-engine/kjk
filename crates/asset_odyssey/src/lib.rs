@@ -7,6 +7,7 @@ pub mod creature;
 pub mod emitter;
 pub mod font;
 pub mod grass;
+pub mod hdr_lightmap;
 pub mod hooks;
 pub mod item;
 pub mod made;

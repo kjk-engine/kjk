@@ -84,6 +84,7 @@ const CHECKS: &str = "lighting-check-v4";
 pub fn shipped(file: &str) -> bool {
     let file = file.to_ascii_lowercase();
     file.ends_with(".png")
+        || file.ends_with(".klm")
         || matches!(
             file.as_str(),
             "fill.txt"

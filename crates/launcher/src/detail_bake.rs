@@ -329,6 +329,7 @@ fn read_stored(resolver: &Resolver, name: &str) -> Option<Stored> {
     let data = texture.mips.first()?;
     let rgba = match texture.encoding {
         Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Rgba16Float => kjk_game::stored_fill::rgba16f_to_rgba8(data, width, height)?,
         Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };
@@ -366,6 +367,7 @@ fn albedo(resolver: &Resolver, name: &str) -> Option<(Vec3, f32)> {
     let data = &texture.mips[level];
     let rgba = match texture.encoding {
         Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Rgba16Float => kjk_game::stored_fill::rgba16f_to_rgba8(data, width, height)?,
         Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };
@@ -1463,6 +1465,78 @@ fn write_sets(
             picture
                 .save(&path)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes `Rgba16Float` `.klm` linear HDR lightmaps with island-aware padded
+/// mipmaps into `folder/<name>` (`b`), leaving set `a` as `.png` or skipped.
+#[allow(clippy::type_complexity)]
+fn write_sets_hdr(
+    resolver: &Resolver,
+    (maps, points, counts): (&[Stored], &[Point], &[bool]),
+    unwalked: &[String],
+    folder: &Path,
+    sets: &[(&str, &[Vec3])],
+    sunlit: Option<&[f32]>,
+    stored_backdrop: bool,
+) -> Result<(), String> {
+    let mut map_pixels: Vec<Vec<[f32; 4]>> = maps
+        .iter()
+        .map(|map| vec![[0.0, 0.0, 0.0, 1.0]; map.width * map.scale * map.height * map.scale])
+        .collect();
+    let mut map_valid: Vec<Vec<bool>> = maps
+        .iter()
+        .map(|map| vec![false; map.width * map.scale * map.height * map.scale])
+        .collect();
+
+    for &(name, shown) in sets {
+        let out = folder.join(name);
+        std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
+        for valid in &mut map_valid {
+            valid.fill(false);
+        }
+        for px in &mut map_pixels {
+            px.fill([0.0, 0.0, 0.0, 1.0]);
+        }
+        for (index, point) in points.iter().enumerate() {
+            if !counts[index] {
+                continue;
+            }
+            let alpha = sunlit.map_or(1.0, |s| s[index].clamp(0.0, 1.0));
+            let val = shown[index];
+            map_pixels[point.map][point.texel] = [val.x.max(0.0), val.y.max(0.0), val.z.max(0.0), alpha];
+            map_valid[point.map][point.texel] = true;
+        }
+        for (idx, map) in maps.iter().enumerate() {
+            let (w, h) = (map.width * map.scale, map.height * map.scale);
+            let mips = asset_odyssey::hdr_lightmap::build_padded_mips(
+                w,
+                h,
+                &map_pixels[idx],
+                &map_valid[idx],
+            );
+            let encoded = asset_odyssey::hdr_lightmap::encode(w as u32, h as u32, &mips);
+            let klm_path = out.join(format!("{}.klm", map.name));
+            std::fs::write(&klm_path, &encoded)
+                .map_err(|error| format!("{}: {error}", klm_path.display()))?;
+            let _ = std::fs::remove_file(out.join(format!("{}.png", map.name)));
+        }
+
+        let stored_file = out.join(kjk_game::stored_fill::STORED_FILE);
+        let _ = std::fs::remove_file(&stored_file);
+        if stored_backdrop {
+            let named: Vec<&str> = (unwalked.iter())
+                .filter(|name| read_stored(resolver, name).is_some())
+                .map(String::as_str)
+                .collect();
+            for name in &named {
+                let _ = std::fs::remove_file(out.join(format!("{name}.png")));
+                let _ = std::fs::remove_file(out.join(format!("{name}.klm")));
+            }
+            std::fs::write(&stored_file, kjk_game::stored_fill::stored_text(named))
+                .map_err(|error| format!("{}: {error}", stored_file.display()))?;
         }
     }
     Ok(())

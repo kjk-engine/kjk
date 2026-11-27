@@ -31,7 +31,7 @@ use wgpu::util::DeviceExt as _;
 use super::{
     FAR_LIGHT, Field, Fitted, GAIN, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Still, Stored, Texels,
     WALL_RAYS, bounds, direct, directions, field_of, points, still_placeables, stored_level, texels,
-    write_sets,
+    write_sets, write_sets_hdr,
 };
 use crate::light_probes::Level;
 use crate::room_lights::Reader;
@@ -212,6 +212,13 @@ pub(crate) struct GpuOptions {
     /// Each vertex of each such mesh is a place of the passes, lit as a
     /// texel is, and set `b` gets `placeables.txt` (`write_placeables`).
     pub placeable_light: bool,
+    /// Bake Phase 2 linear HDR `.klm` lightmaps (`WRAP = 0.0`, unclamped
+    /// linear light accumulation, island-padded mipmaps).
+    pub hdr: bool,
+    /// Direct light linear multiplier for `--hdr` bakes.
+    pub exposure: f32,
+    /// Subtle minimum linear ambient shadow floor for `--hdr` bakes.
+    pub ambient_floor: f32,
 }
 
 /// An area's sun and sky for set `b`. The games' files hold neither. The
@@ -460,6 +467,7 @@ struct Passes<'g> {
     field_b: wgpu::Buffer,
     tri_light: wgpu::Buffer,
     results: wgpu::Buffer,
+    wrap: f32,
 }
 
 impl Passes<'_> {
@@ -522,8 +530,7 @@ impl Passes<'_> {
                 rays,
                 seed,
             ]);
-            // The shader does not read this value (`Params::unused`).
-            params.extend(0.0f32.to_le_bytes());
+            params.extend(self.wrap.to_le_bytes());
             params.extend(LIFT.to_le_bytes());
             params.extend(four(toward, width).iter().flat_map(|value| value.to_le_bytes()));
             self.gpu.queue.write_buffer(&self.params, 0, &params);
@@ -755,9 +762,14 @@ pub(super) fn bake_lights(
         .collect();
     let light_values: Vec<[f32; 4]> = (lights.iter())
         .flat_map(|light| {
+            let colour = if options.hdr {
+                light.colour.max(Vec3::ZERO).powf(GAMMA)
+            } else {
+                light.colour
+            };
             [
                 four(light.at, light.radius),
-                four(light.colour, light.half),
+                four(colour, light.half),
                 four(light.way, light.cone),
                 four(light.aim, 0.0),
             ]
@@ -1004,6 +1016,7 @@ pub(super) fn bake_lights(
         field_b,
         tri_light,
         results,
+        wrap: if options.hdr { 0.0 } else { 0.3 },
     };
     lap("acceleration structure and buffers".into(), &mut times);
 
@@ -1048,9 +1061,16 @@ pub(super) fn bake_lights(
     }
     smooth_shadows(&maps, &points, &counts, &mut shadowed, &open);
     lap("smoothing the shadows".into(), &mut times);
-    let direct_light: Vec<Vec3> = shadowed[..count].iter().map(|sum| direct(*sum)).collect();
+    let to_direct = |sum: Vec3| {
+        if options.hdr {
+            sum.max(Vec3::ZERO) * options.exposure.max(0.0)
+        } else {
+            direct(sum)
+        }
+    };
+    let direct_light: Vec<Vec3> = shadowed[..count].iter().map(|sum| to_direct(*sum)).collect();
     let probe_direct: Vec<Vec3> = (shadowed[probe_first..probe_first + probe_range.1].iter())
-        .map(|sum| direct(*sum))
+        .map(|sum| to_direct(*sum))
         .collect();
     // Whether each vertex's place counts: a place inside a wall or under the
     // floor takes the light of its neighbours (`fill_vertices`).
@@ -1060,10 +1080,10 @@ pub(super) fn bake_lights(
     let vertex_counts: Vec<bool> = (0..vertices.places.len())
         .map(|k| first_counts[probe_first + 6 * probes.len() + k] && !covered[k])
         .collect();
-    let unshadowed: Vec<Vec3> = open[..count].iter().map(|sum| direct(*sum)).collect();
+    let unshadowed: Vec<Vec3> = open[..count].iter().map(|sum| to_direct(*sum)).collect();
     let tri_direct: Vec<[f32; 4]> = shadowed[count..probe_first]
         .iter()
-        .map(|sum| four(direct(*sum), 1.0))
+        .map(|sum| four(to_direct(*sum), 1.0))
         .collect();
     gpu.queue
         .write_buffer(&passes.tri_light, 0, &float_bytes(&tri_direct));
@@ -1452,7 +1472,60 @@ pub(super) fn bake_lights(
     // takes its fill from the stored light, the files hold its light without
     // that fill, and `probe_stored` names the stored texel the game reads the
     // fill from when it loads the file.
-    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = {
+    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = if options.hdr {
+        let stated = read_levels(options.levels.as_deref())?;
+        let linear_target = |texels: &[usize]| {
+            texels
+                .iter()
+                .map(|&i| luma(sun_light[i] + lamps_alone[i]))
+                .sum::<f32>()
+                / texels.len().max(1) as f32
+        };
+        let mut rooms = room_levels(
+            &maps,
+            &points,
+            (&counted, &even_weights),
+            (&sun_light, &lamps_alone),
+            &linear_target,
+            None,
+            &|v| v,
+        );
+        for room in &mut rooms.rooms {
+            if let Some(&scale) = stated.get(&room.name) {
+                room.scale = scale;
+            }
+        }
+        for (index, map) in maps.iter().enumerate() {
+            if let Some(&scale) = stated.get(&room_name(map)) {
+                rooms.scale[index] = scale;
+            }
+        }
+        let ambient_floor = Vec3::splat(options.ambient_floor.max(0.0));
+        let written: Vec<Vec3> = (0..count)
+            .map(|i| {
+                let scale = rooms.scale[points[i].map];
+                (sun_light[i] + lamps_alone[i] * scale).max(ambient_floor)
+            })
+            .collect();
+        let shown: Vec<Vec3> = written.iter().map(|lin| stored_level(*lin)).collect();
+        let probe_linear: Vec<Vec3> = (0..probe_range.1)
+            .map(|j| {
+                let scale = probe_maps[j].map_or(1.0, |map| rooms.scale[map]);
+                (probe_sky[j] + probe_lamps[j] * scale).max(ambient_floor)
+            })
+            .collect();
+        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| stored_level(*light)).collect();
+        let probe_stored = vec![None; probe_range.1];
+        (
+            rooms,
+            shown,
+            written,
+            std::collections::BTreeMap::new(),
+            probe_light,
+            probe_linear,
+            probe_stored,
+        )
+    } else {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
         // factor for the whole area then raises those targets so that
@@ -1725,15 +1798,36 @@ pub(super) fn bake_lights(
     };
     lap("levels".into(), &mut times);
 
-    write_sets(
-        resolver,
-        (&maps, &points, &counts),
-        &unwalked,
-        folder,
-        &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
-        sunlit.as_deref(),
-        options.stored_backdrop,
-    )?;
+    if options.hdr {
+        write_sets(
+            resolver,
+            (&maps, &points, &counts),
+            &unwalked,
+            folder,
+            &[("a", &shown_a[..], true)],
+            sunlit.as_deref(),
+            options.stored_backdrop,
+        )?;
+        write_sets_hdr(
+            resolver,
+            (&maps, &points, &counts),
+            &unwalked,
+            folder,
+            &[("b", &written_b[..])],
+            sunlit.as_deref(),
+            options.stored_backdrop,
+        )?;
+    } else {
+        write_sets(
+            resolver,
+            (&maps, &points, &counts),
+            &unwalked,
+            folder,
+            &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
+            sunlit.as_deref(),
+            options.stored_backdrop,
+        )?;
+    }
     // A set baked earlier into the same folder may hold a `fill.txt` or a
     // `floor.txt` that this bake does not ask for.
     for name in ["fill.txt", "floor.txt", "probes.txt", PROBES_SUN, kjk_game::placeable_light::FILE] {

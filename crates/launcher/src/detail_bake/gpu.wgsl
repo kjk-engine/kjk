@@ -40,8 +40,8 @@ struct Params {
     samples: u32,
     rays: u32,
     seed: u32,
-    // Not read. It keeps `lift` and `sun` where `gpu.rs` writes them.
-    unused: f32,
+    // Back-face wrap factor (`0.0` for linear HDR bakes, `0.3` for v1 PNG bakes).
+    wrap: f32,
     lift: f32,
     // The way to the sun, for `MODE_SKY`. `w` is half the sun's width where
     // the area gives one, and 0 for `SUN_WIDTH`.
@@ -106,9 +106,6 @@ const BACK_SHARE: f32 = 0.4;
 // How far the back of a surface counts for `counts` (metres).
 const WALL_NEAR: f32 = 1.0;
 const TAU: f32 = 6.2831853;
-// The share of a light a surface facing away from it still takes
-// (`COMBAT_WRAP` in `odyssey.wgsl`).
-const WRAP: f32 = 0.3;
 // Within `NEAR_LAMP_FROM` of a light nothing shadows it, and beyond
 // `NEAR_LAMP_TO` everything does (metres).
 const NEAR_LAMP_FROM: f32 = 0.5;
@@ -153,7 +150,7 @@ fn gives(light: Light, at: vec3<f32>, normal: vec3<f32>, has_normal: bool, least
     let toward = to / max(length(to), 1e-4);
     var facing = 1.0;
     if has_normal {
-        facing = WRAP + (1.0 - WRAP) * max(dot(normal, toward), 0.0);
+        facing = params.wrap + (1.0 - params.wrap) * max(dot(normal, toward), 0.0);
     }
     var cone = 1.0;
     let narrow = light.way.w;

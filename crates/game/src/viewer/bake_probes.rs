@@ -203,6 +203,7 @@ fn folder_of(pngs: &[&str], stored: &[&str]) -> BakeFolder {
         floors: BTreeMap::new(),
         unlit: false,
         stored: stored.iter().map(|name| (*name).to_string()).collect(),
+        hdr: false,
         stamp: None,
         path,
     }

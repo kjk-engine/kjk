@@ -527,6 +527,9 @@ impl Pixels {
         let data = &texture.mips[level];
         let rgba = match texture.encoding {
             Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+            Encoding::Rgba16Float => {
+                crate::stored_fill::rgba16f_to_rgba8(data, width, height)?
+            }
             Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
             Encoding::Bc3 => dxt::decode(data, width, height, true)?,
         };

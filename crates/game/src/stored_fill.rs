@@ -74,6 +74,42 @@ pub fn stored_names(folder: &std::path::Path) -> std::collections::BTreeSet<Stri
 /// wrote as a PNG before `STORED_FILE`, to the last bit, so the picture is
 /// the same. Rows are in the stored order. `None` for a lightmap that does
 /// not decode.
+/// Linear `Rgba16Float` mipmaps of `STORED_FILE` backdrop: decoded with `2.2`
+/// gamma without halving (`GAIN`), alpha `1.0`.
+pub fn backdrop_hdr(stored: &TextureIr) -> Option<Vec<Vec<u8>>> {
+    let texels = StoredTexels::of(stored)?;
+    let pixels: Vec<[f32; 4]> = (texels.rgba.as_chunks::<4>().0.iter())
+        .take(texels.width * texels.height)
+        .map(|[r, g, b, _]| {
+            [
+                (f32::from(*r) / 255.0).powf(GAMMA),
+                (f32::from(*g) / 255.0).powf(GAMMA),
+                (f32::from(*b) / 255.0).powf(GAMMA),
+                1.0,
+            ]
+        })
+        .collect();
+    Some(asset_odyssey::hdr_lightmap::encode_rgba32f_mips(
+        texels.width,
+        texels.height,
+        &pixels,
+    ))
+}
+
+/// Converts `Rgba16Float` bytes to gamma-2.2 `Rgba8` bytes.
+pub fn rgba16f_to_rgba8(data: &[u8], width: usize, height: usize) -> Option<Vec<u8>> {
+    let pixels = asset_odyssey::hdr_lightmap::decode_rgba32f(data, width, height)?;
+    let mut out = Vec::with_capacity(width * height * 4);
+    for px in pixels {
+        for c in px.into_iter().take(3) {
+            let encoded = c.clamp(0.0, 1.0).powf(1.0 / GAMMA);
+            out.push((encoded * 255.0).round() as u8);
+        }
+        out.push((px[3].clamp(0.0, 1.0) * 255.0).round() as u8);
+    }
+    Some(out)
+}
+
 pub fn backdrop(stored: &TextureIr) -> Option<Vec<u8>> {
     let texels = StoredTexels::of(stored)?;
     let byte =
@@ -84,6 +120,41 @@ pub fn backdrop(stored: &TextureIr) -> Option<Vec<u8>> {
             .flat_map(|[r, g, b, _]| [byte(*r), byte(*g), byte(*b), 255])
             .collect(),
     )
+}
+
+/// Applies `fill.txt` (`floor == false`) or `floor.txt` (`floor == true`) directly
+/// onto linear `Rgba32F` HDR pixels using `decode_22` of the player's stored lightmap.
+pub fn add_stored_fill_hdr(
+    pixels: &mut [[f32; 4]],
+    width: usize,
+    height: usize,
+    stored: &TextureIr,
+    fill: f32,
+    floor: bool,
+) {
+    let Some(texels) = StoredTexels::of(stored) else {
+        return;
+    };
+    if width == 0 || height == 0 || pixels.len() < width * height {
+        return;
+    }
+    for y in 0..height {
+        for x in 0..width {
+            let u = (x as f32 + 0.5) / width as f32;
+            let v = (y as f32 + 0.5) / height as f32;
+            let s = texels.at(u, v).powf(GAMMA) * fill;
+            let px = &mut pixels[y * width + x];
+            if floor {
+                px[0] = px[0].max(s.x);
+                px[1] = px[1].max(s.y);
+                px[2] = px[2].max(s.z);
+            } else {
+                px[0] += s.x;
+                px[1] += s.y;
+                px[2] += s.z;
+            }
+        }
+    }
 }
 
 /// The word that names the same stored texel as the vertex before it on a
@@ -163,6 +234,7 @@ impl StoredTexels {
         let data = stored.mips.first()?;
         let rgba = match stored.encoding {
             Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone()),
+            Encoding::Rgba16Float => rgba16f_to_rgba8(data, width, height),
             Encoding::Bc1 | Encoding::Bc1Holes => {
                 fmt_odyssey::dxt::decode(data, width, height, false)
             }

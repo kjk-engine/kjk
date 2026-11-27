@@ -363,7 +363,12 @@ fn bounds(tufts: &[Tuft], quad: f32, wind: f32) -> Aabb {
 
 /// The area's parameters for a patch, its lightmap's flag set when it has
 /// one.
-fn params(grass: &SceneGrass, scene: &LoadedScene, lightmapped: bool) -> GrassParams {
+fn params(
+    grass: &SceneGrass,
+    scene: &LoadedScene,
+    lightmapped: bool,
+    linear_lightmap: bool,
+) -> GrassParams {
     let colour = |rgb: Vec3| rgb.extend(1.0);
     let mut flags = 0;
     if scene.fog.is_some() {
@@ -374,6 +379,9 @@ fn params(grass: &SceneGrass, scene: &LoadedScene, lightmapped: bool) -> GrassPa
     }
     if scene.baked {
         flags |= BAKED;
+    }
+    if linear_lightmap {
+        flags |= 8;
     }
     let wind = Vec2::ONE.normalize() * grass.wind;
     GrassParams {
@@ -418,8 +426,11 @@ fn spawn(
     let art = images.add(scene::image(art));
     let mut lightmaps = std::collections::BTreeMap::new();
     for patch in &grass.patches {
+        let mut linear_lightmap = false;
         let lightmap = patch.lightmap.as_ref().and_then(|name| {
             let texture = loaded.textures.get(name)?;
+            linear_lightmap =
+                texture.encoding == asset_odyssey::texture::Encoding::Rgba16Float;
             Some(
                 lightmaps
                     .entry(name)
@@ -428,7 +439,7 @@ fn spawn(
             )
         });
         let material = materials.add(GrassMaterial {
-            params: params(grass, loaded, lightmap.is_some()),
+            params: params(grass, loaded, lightmap.is_some(), linear_lightmap),
             art: Some(art.clone()),
             lightmap,
             clock: CLOCK,

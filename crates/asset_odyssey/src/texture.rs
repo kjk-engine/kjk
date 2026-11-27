@@ -131,6 +131,7 @@ impl TextureFacts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoding {
     Rgba8,
+    Rgba16Float,
     /// DXT1 blocks as stored (BC1), none using its transparent texel.
     Bc1,
     /// DXT1 blocks as stored, some using their transparent texel: the games
@@ -288,6 +289,27 @@ impl TextureIr {
     pub fn decoded(&self) -> TextureIr {
         let dxt5 = match self.encoding {
             Encoding::Rgba8 => return self.clone(),
+            Encoding::Rgba16Float => {
+                let chain = |mips: &Vec<Vec<u8>>| -> Vec<Vec<u8>> {
+                    mips.iter()
+                        .enumerate()
+                        .map(|(level, data)| {
+                            let width = (self.width as usize >> level).max(1);
+                            let height = (self.height as usize >> level).max(1);
+                            crate::hdr_lightmap::rgba16f_to_rgba8_approx(data, width, height)
+                                .unwrap_or_else(|| vec![0; width * height * 4])
+                        })
+                        .collect()
+                };
+                return TextureIr {
+                    encoding: Encoding::Rgba8,
+                    mips: chain(&self.mips),
+                    frame_mips: self.frame_mips.iter().map(chain).collect(),
+                    faces: self.faces.clone(),
+                    facts: self.facts.clone(),
+                    ..*self
+                };
+            }
             Encoding::Bc1 | Encoding::Bc1Holes => false,
             Encoding::Bc3 => true,
         };
@@ -344,10 +366,15 @@ impl TextureIr {
             fitted.height = (fitted.height >> 1).max(1);
         }
         let whole_blocks = fitted.width.is_multiple_of(4) && fitted.height.is_multiple_of(4);
-        if fitted.encoding != Encoding::Rgba8 && (!fits(&fitted) || !whole_blocks) {
+        if !matches!(fitted.encoding, Encoding::Rgba8 | Encoding::Rgba16Float)
+            && (!fits(&fitted) || !whole_blocks)
+        {
             fitted = fitted.decoded();
         }
         while !fits(&fitted) {
+            if fitted.encoding == Encoding::Rgba16Float {
+                fitted = fitted.decoded();
+            }
             let (width, height) = (fitted.width as usize, fitted.height as usize);
             fitted.each_chain(|chain| {
                 chain.truncate(1);
