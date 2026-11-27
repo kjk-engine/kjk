@@ -210,6 +210,22 @@ fn drawn_path(out: &Path, (game, module, story): (&str, &str, &str), size: Size,
         .join(format!("{}-{}.png", size.name, input.name()))
 }
 
+/// KOTOR's layout `name`, as the text of a kjk layout file on stdout.
+pub fn layout_text(discovery: &Discovery, game: &str, name: &str) -> ExitCode {
+    finish((|| {
+        let game = match game {
+            "k1" => Game::Kotor1,
+            "tsl" => Game::Kotor2,
+            other => return Err(format!("{other}: the game is k1 or tsl")),
+        };
+        let assets = ui::assets::GuiAssets::open(discovery, game)?;
+        let assets = kjk_game::runtime::skinned(assets, discovery)?;
+        let (gui, _) = assets.screen_layout(name)?;
+        print!("{}", ui::layout_files::export(&gui, name));
+        Ok(())
+    })())
+}
+
 /// What the layouts of each install use, counted: how many layouts, the
 /// controls of each kind, the controls that write in each font and in
 /// each colour, and the controls that draw each border texture. It is

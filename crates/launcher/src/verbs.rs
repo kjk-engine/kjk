@@ -807,6 +807,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 }
             },
             GuiVerb::Census { out } => gui_catalogue::census(&discover(), out),
+            GuiVerb::LayoutText { game, name } => {
+                gui_catalogue::layout_text(&discover(), &game, &name)
+            }
             GuiVerb::List { json } => gui_catalogue::list(json),
             GuiVerb::Show { module } => gui_catalogue::show(&module),
             GuiVerb::Story {
@@ -1435,6 +1438,14 @@ pub(crate) enum GuiVerb {
         /// Output file; defaults to the repository's data/ui/census.json
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+    /// Write a KOTOR layout out as the text of a kjk layout file, to copy
+    /// its controls from (docs/UI.md, "Layout files")
+    LayoutText {
+        /// k1 or tsl
+        game: String,
+        /// The layout, without `.gui`, as a screen names it (`optionsmain`)
+        name: String,
     },
     /// Every layout of an install on one contact sheet.
     Sheet {

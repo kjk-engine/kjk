@@ -36,14 +36,15 @@ fn stamp(path: &Path) -> Stamp {
 
 /// The files and folders that the story `module/…` is made from. A story
 /// file, the captures of play and the design tokens are read when the story
-/// is staged. The override layouts of https://github.com/kjk-engine/roadmap/issues/25
-/// join this list, and their change reaches the same reload.
+/// is staged. The layout files in `data/ui/layouts` join them: a change to
+/// one reaches the same reload, and so does a file added or taken away.
 pub fn sources(module: &str) -> Vec<PathBuf> {
     let root = ui::catalogue::root();
     vec![
         ui::catalogue::folder().join(format!("{module}.toml")),
         ui::catalogue::captures(),
         root.join("data/ui/tokens.json"),
+        ui::layout_files::folder(),
     ]
 }
 

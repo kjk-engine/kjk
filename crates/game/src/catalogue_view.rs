@@ -78,19 +78,22 @@ enum Action {
     SaveTryout,
     /// Back to the list of stories.
     List,
+    /// KOTOR's layout or kjk's override of it.
+    Layouts,
     /// The bar of the mode and the keys, hidden or shown.
     HideBar,
 }
 
 /// The catalogue's keys: what they do, the keyboard key and the pad chord.
 /// Later keys of the catalogue join this table.
-const KEYS: [(Action, &str, &str); 7] = [
+const KEYS: [(Action, &str, &str); 8] = [
     (Action::NextSize, "F6", "LB+North"),
     (Action::NextMode, "F7", "LB+West"),
     (Action::List, "F8", "LB+East"),
     (Action::Outlines, "F9", "LB+South"),
     (Action::Backdrop, "F10", "LB+DPadUp"),
     (Action::SaveTryout, "F11", "LB+DPadDown"),
+    (Action::Layouts, "F5", "LB+DPadLeft"),
     (Action::HideBar, "F12", "LB+DPadRight"),
 ];
 
@@ -128,7 +131,10 @@ impl Plugin for CataloguePlugin {
             overridden.unwrap_or(DISPLAY_DENSITY),
             number(DISTANCE_SETTING, OWNER_DISTANCE_CM),
         );
-        match Catalogue::open(&self.start, display, overridden) {
+        let overrides = settings
+            .value(ui::layout_files::OVERRIDES)
+            .is_none_or(|value| value == "true");
+        match Catalogue::open(&self.start, display, overridden, overrides) {
             Ok(catalogue) => {
                 app.insert_resource(catalogue);
             }
@@ -201,6 +207,8 @@ struct Catalogue {
     /// How many times the staged screens were replaced by ones with assets
     /// of their own.
     assets_replaced: u32,
+    /// kjk's overrides of KOTOR's layouts are applied (`ui::layout_files`).
+    overrides: bool,
 }
 
 impl Catalogue {
@@ -208,6 +216,7 @@ impl Catalogue {
         start: &Start,
         display: (f32, f32),
         density_setting: Option<f32>,
+        overrides: bool,
     ) -> Result<Catalogue, String> {
         let discovery = crate::discover();
         let size = SIZES
@@ -251,7 +260,9 @@ impl Catalogue {
             reopen_failed: false,
             listing: start.list,
             assets_replaced: 0,
+            overrides,
         };
+        catalogue.apply_overrides();
         catalogue.placement = catalogue.placed();
         Ok(catalogue)
     }
@@ -276,6 +287,7 @@ impl Catalogue {
     /// from those is forgotten.
     fn replace(&mut self, staged: Staged) {
         self.staged = staged;
+        self.apply_overrides();
         self.assets_replaced += 1;
         self.chrome.forget_font();
         self.rows = Rows::default();
@@ -377,6 +389,10 @@ impl Catalogue {
                 Game::Kotor1 => "KOTOR 1",
                 _ => "KOTOR 2",
             },
+            layouts: ui::layout_files::describe(
+                self.names.iter().map(|(_, layout)| layout.as_str()),
+                self.overrides,
+            ),
             look: self.look(),
         }
     }
@@ -388,6 +404,7 @@ impl Catalogue {
             seen: self.seen(),
             backdrop: self.collab.backdrop_name(),
             outlines: self.collab.outlines(),
+            overrides: self.overrides,
         }
     }
 
@@ -475,6 +492,22 @@ impl Catalogue {
         info!(target: "catalogue", hidden, "bar");
     }
 
+    /// The screens' setting for the overrides made to say what the key
+    /// chose. The stack reads its layouts again when it changes.
+    fn apply_overrides(&mut self) {
+        self.staged.vm.settings.insert(
+            ui::layout_files::OVERRIDES.to_string(),
+            self.overrides.to_string(),
+        );
+    }
+
+    fn set_overrides(&mut self, on: bool) {
+        self.overrides = on;
+        self.apply_overrides();
+        self.recentre = true;
+        info!(target: "catalogue", on, "layout overrides");
+    }
+
     fn set_size(&mut self, size: usize) {
         self.size = size % SIZES.len();
         self.pan = [0.0; 2];
@@ -497,6 +530,7 @@ impl Catalogue {
             Action::Backdrop => collab::act(self, Tool::Backdrop),
             Action::SaveTryout => collab::act(self, Tool::SaveTryout),
             Action::List => self.show_list(),
+            Action::Layouts => self.set_overrides(!self.overrides),
             Action::HideBar => self.hide_bar(!self.chrome.hidden),
         }
     }
@@ -517,6 +551,13 @@ impl Catalogue {
                 Some(mode) => self.set_mode(mode),
                 None => warn!(target: "console", "ui catalogue: {name} is not fit, pixel or seen"),
             },
+            ["catalogue", "overrides", "on" | "off" | "toggle"] => {
+                self.set_overrides(match words[2] {
+                    "on" => true,
+                    "off" => false,
+                    _ => !self.overrides,
+                });
+            }
             ["catalogue", "bar", "show" | "hide" | "toggle"] => {
                 let hidden = match words[2] {
                     "show" => false,
@@ -828,6 +869,7 @@ fn step(
                 "image_scale": cat.placement.scale,
                 "pan": cat.placement.pan,
                 "bar_hidden": cat.chrome.hidden,
+                "layout_overrides": cat.overrides,
                 "framed": cat.framed(),
                 "seen": cat.seen(),
                 "display_density": cat.display.0,

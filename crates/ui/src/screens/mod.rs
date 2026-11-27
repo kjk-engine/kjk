@@ -21,6 +21,7 @@ pub mod hud;
 pub mod join;
 pub mod journal;
 pub mod key_mapping;
+pub mod layout_test;
 pub mod loading;
 pub mod lobby;
 pub mod lost;
@@ -111,6 +112,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "options_resolution" => Box::new(resolution::Resolution::new(vm)),
         "main_menu" => Box::new(main_menu::MainMenu),
         "catalogue_list" => Box::new(catalogue_list::CatalogueList::new("", vm)),
+        "layout_test" => Box::new(layout_test::LayoutTest::new()),
         "join" => Box::new(join::Join::new()),
         "container" => Box::new(container::Container::default()),
         "computer" => Box::new(computer::Computer),

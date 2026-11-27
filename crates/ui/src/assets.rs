@@ -13,6 +13,8 @@ use asset_odyssey::font::Font;
 use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
+
+use crate::layout_files;
 use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
@@ -306,6 +308,9 @@ pub struct GuiAssets {
     scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
     /// How large text and borders are drawn now (`Textures::set_sizing`).
     sizing: Sizing,
+    /// Whether kjk's overrides of KOTOR's layouts are applied
+    /// (`layout_files`).
+    overrides: bool,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
@@ -391,6 +396,7 @@ impl GuiAssets {
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
             sizing: Sizing::default(),
+            overrides: false,
         }
     }
 
@@ -523,11 +529,48 @@ impl GuiAssets {
     /// for one of the campaign's own world (`skin::own`), which a KOTOR 2
     /// campaign names as KOTOR 2 does (`skin::moved`).
     pub fn screen_layout(&self, name: &str) -> Result<(Gui, Source), String> {
+        if let Some(path) = layout_files::standalone_path(name) {
+            return Ok((self.standalone_layout(name, &path)?, Source::Skin));
+        }
         if skin::own(name) {
-            let gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
+            let mut gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
+            self.override_layout(name, &mut gui)?;
             return Ok((gui, Source::Campaign));
         }
-        Ok((self.skin_layout(name)?, Source::Skin))
+        let mut gui = self.skin_layout(name)?;
+        self.override_layout(name, &mut gui)?;
+        Ok((gui, Source::Skin))
+    }
+
+    /// Whether kjk's overrides of KOTOR's layouts are applied from now on.
+    /// Whether that changed anything.
+    pub fn set_overrides(&mut self, on: bool) -> bool {
+        std::mem::replace(&mut self.overrides, on) != on
+    }
+
+    /// `gui`, KOTOR's layout `name`, with kjk's override of it applied, if
+    /// overrides are on and `data/ui/layouts` has one.
+    fn override_layout(&self, name: &str, gui: &mut Gui) -> Result<(), String> {
+        let path = layout_files::override_path(name);
+        if !self.overrides || !path.is_file() {
+            return Ok(());
+        }
+        let tokens = layout_files::Tokens::read()?;
+        let file = layout_files::read(&path, &tokens)?;
+        let label = format!("{name}.toml");
+        layout_files::apply_override(gui, name, &label, &file, &tokens, &mut |part| {
+            self.skin_layout(part)
+        })
+    }
+
+    /// The layout of the standalone file `path`, built from KOTOR 2's parts.
+    fn standalone_layout(&self, name: &str, path: &std::path::Path) -> Result<Gui, String> {
+        let tokens = layout_files::Tokens::read()?;
+        let file = layout_files::read(path, &tokens)?;
+        let label = name.trim_start_matches(layout_files::PREFIX);
+        layout_files::build(&format!("{label}.toml"), &file, &tokens, &mut |part| {
+            self.skin_layout(part)
+        })
     }
 
     /// The name the campaign's own layout for `name` has: `name` where the
@@ -1347,6 +1390,11 @@ pub trait Assets: Textures {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String>;
     /// The layout `name` as `source` has it (one drawn under a screen's).
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String>;
+    /// Whether kjk's overrides of KOTOR's layouts apply from now on
+    /// (`layout_files`). Whether that changed anything.
+    fn set_overrides(&mut self, _on: bool) -> bool {
+        false
+    }
     /// Whether the layout `name` read from `source` (`layout`) is a mod's
     /// (`Resolved::is_mod`), which the stack stretches plainly as KOTOR 2
     /// does, its pictures not kept in shape (`screen::stretch`).
@@ -1375,10 +1423,16 @@ impl Assets for GuiAssets {
     }
 
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String> {
-        match source {
-            Source::Skin => self.skin_layout(name),
-            Source::Campaign => GuiAssets::layout(self, name),
-        }
+        let mut gui = match source {
+            Source::Skin => self.skin_layout(name)?,
+            Source::Campaign => GuiAssets::layout(self, name)?,
+        };
+        self.override_layout(name, &mut gui)?;
+        Ok(gui)
+    }
+
+    fn set_overrides(&mut self, on: bool) -> bool {
+        GuiAssets::set_overrides(self, on)
     }
 }
 

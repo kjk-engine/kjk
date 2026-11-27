@@ -12,6 +12,7 @@ pub mod hud_layer;
 pub mod icons;
 pub mod input;
 pub mod intent;
+pub mod layout_files;
 pub mod over_play;
 pub mod paint;
 #[cfg(feature = "probes")]

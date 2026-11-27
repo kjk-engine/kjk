@@ -53,6 +53,7 @@ pub struct Look {
     pub seen: f32,
     pub backdrop: &'static str,
     pub outlines: bool,
+    pub overrides: bool,
 }
 
 #[derive(Debug, Default)]
@@ -69,6 +70,9 @@ pub struct Chrome {
 pub struct Facts {
     pub story: String,
     pub game: &'static str,
+    /// Which layouts the open screens are drawn from
+    /// (`ui::layout_files::describe`).
+    pub layouts: String,
     pub look: Look,
 }
 
@@ -105,6 +109,19 @@ impl Chrome {
                 self.say(device_title(&look.size), "");
             } else if before.mode != look.mode {
                 self.say(mode_title(&look), mode_detail(look.mode));
+            } else if before.overrides != look.overrides {
+                let (title, detail) = if look.overrides {
+                    (
+                        "kjk's layouts",
+                        "Screens with an override file are drawn from it.",
+                    )
+                } else {
+                    (
+                        "KOTOR's layouts",
+                        "Overrides are off, so KOTOR's own layouts are drawn.",
+                    )
+                };
+                self.say(title, detail);
             } else if before.backdrop != look.backdrop {
                 self.say(
                     format!("Backdrop: {}", look.backdrop),
@@ -403,6 +420,7 @@ fn status(facts: &Facts) -> Vec<Item> {
         item("Size", ui::device_frame::describe(&look.size)),
         item("Mode", mode_title(look)),
         item("Backdrop", look.backdrop.to_string()),
+        item("Layouts", facts.layouts.clone()),
         item(
             "Outlines",
             if look.outlines { "on" } else { "off" }.to_string(),
@@ -444,6 +462,7 @@ fn key_label(action: Action) -> &'static str {
         Action::NextSize => "Size",
         Action::NextMode => "Mode",
         Action::List => "Story list",
+        Action::Layouts => "KOTOR or kjk layout",
         Action::Outlines => "Outlines",
         Action::Backdrop => "Backdrop",
         Action::SaveTryout => "Save tryout as a story",

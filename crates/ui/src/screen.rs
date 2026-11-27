@@ -1420,6 +1420,13 @@ impl Stack {
     /// (`TextScale`) multiplies the size of the words, here and outside the
     /// stack too.
     pub fn step(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
+        let overrides = crate::draw::kjk_option(&vm.settings, crate::layout_files::OVERRIDES);
+        if assets.set_overrides(overrides) {
+            for entry in &mut self.entries {
+                entry.gui = None;
+                entry.stretched = None;
+            }
+        }
         let window = input.window;
         let small = vm
             .settings

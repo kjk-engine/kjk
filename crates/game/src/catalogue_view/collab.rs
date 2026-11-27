@@ -342,6 +342,7 @@ fn reload(cat: &mut Catalogue, changed: &[String]) {
         }
         Err(why) => {
             warn!(target: "catalogue", "not reloaded: {why}");
+            cat.chrome.say("Not reloaded", &why);
             log(
                 cat,
                 "disk",

@@ -87,6 +87,10 @@ impl Staged {
             }
             None => stand_ins(discovery, (game, name), (steps, error), &mut assets)?,
         };
+        let mut vm = vm;
+        vm.settings
+            .entry(ui::layout_files::OVERRIDES.to_string())
+            .or_insert_with(|| "true".to_string());
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         stack.marked = true;
         let play = name == ui::catalogue::PLAY;
@@ -100,7 +104,10 @@ impl Staged {
             dt: 0.016,
             ..ui::input::UiInput::default()
         };
-        stack.step(&mut assets, &vm, &quiet);
+        let first = stack.step(&mut assets, &vm, &quiet);
+        if !play && stack.screens().next().is_none() && !first.refusals.is_empty() {
+            return Err(format!("{name}: {}", first.refusals.join("; ")));
+        }
         Ok(Staged {
             game,
             assets,

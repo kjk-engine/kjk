@@ -1066,12 +1066,12 @@ Running and checking:
     it again at the same size and takes the steps of the tryout once more.
     The window shows the result. A story file that does not parse, or that
     no longer has the story, is reported in the log as `reload refused` and
-    the old screen stays. Saving a tryout does not reload. The files
-    watched are listed in `sources` in `collab/reload.rs`. The override
-    layouts of https://github.com/kjk-engine/roadmap/issues/25 are added to
-    that list, so their change reloads the story the same way. Today the
-    tokens file changes nothing that is drawn, because the screens read their
-    palettes from the code, so a change there only stages the story again.
+    the old screen stays, and a notice says why. Saving a tryout does not
+    reload. The files watched are listed in `sources` in `collab/reload.rs`.
+    They include the folder of the layout files, "Layout files" below. The
+    tokens file changes what a layout file draws where the file names a
+    token. The screens read their palettes from the code, so a change there
+    only stages the story again.
   - **Outlines.** `F9` or LB with A (`LB+South`), or `outlines on|off`,
     draws a frame around every control of the current frame, each with its
     tag in a black box. The frames of each open screen have their own
@@ -1117,6 +1117,219 @@ Running and checking:
   `data/ui/census.json`: the layouts, the controls of each kind, and the
   controls that use each font, text colour and border texture. It is the
   "before" the tokens are measured against.
+- **Layout files** (`ui::layout_files`, `data/ui/layouts`). kjk has layouts
+  of its own, written as TOML text by hand. A file is one of two kinds. An
+  override changes a KOTOR layout. A standalone layout builds a whole screen
+  with no KOTOR layout under it. Both are read into the same `Gui` that a
+  `.gui` is read into, so `ui::paint`, the stack, the headless renders, the
+  GPU path, the control trees and the catalogue draw them without any special
+  case.
+  - **What a file holds.** A file names KOTOR's resources by name only: its
+    textures, its fonts and the parts it copies. It never holds game art or
+    the game's text. A control's words are either kjk's own (`text = "OK"`)
+    or the number of a talk table line (`strref = 1582`), never both.
+  - **An override** is the file `data/ui/layouts/NAME.toml`, where NAME is
+    the KOTOR layout it changes, as a screen names it (`optionsmain`, not
+    `optionsmain_p`). Its first line is `override = "NAME"`. The override is
+    applied right after the `.gui` is read, before the screen's own `shape`.
+    A `[[control]]` table whose `tag` is in the layout changes that control.
+    A table with a tag that is not in the layout adds a control, and it needs
+    a `kind` or a `part`. A table with `remove = true` takes the control
+    away, together with the focus links that led to it. A control that is
+    not named stays as KOTOR has it. This is the example in the repository:
+    it moves the Back button of the options screen to the right end of its
+    bottom line, and draws the title in the base colour of the text.
+
+    ```toml
+    # An override of KOTOR's optionsmain layout, the main options screen. The
+    # Back button moves to the right end of the bottom line, and the title is
+    # drawn in the base colour of the text. docs/UI.md, "Layout files", describes the
+    # format.
+    override = "optionsmain"
+
+    [[control]]
+    tag = "BTN_BACK"
+    left = 605
+    top = 516
+
+    [[control]]
+    tag = "LBL_TITLE"
+    text_color = "color.tsl-layout.base"
+    ```
+
+  - **A standalone layout** is the file `data/ui/layouts/NAME.toml` with
+    `layout = "NAME"` and, usually, `frame = [800, 600]` (the frame of
+    KOTOR 2's full-screen layouts, which it has when `frame` is left out). A
+    screen names it with the prefix `kjk:`, so `fn layout(&self) -> &str`
+    returns `"kjk:layout_test"`. Its controls are all in the file, each in
+    a `[[control]]` table. The `[root]` table gives the frame the screen is
+    drawn in: `like = "optionsmain"` takes the border and the colour of that
+    KOTOR layout's root, and `border` and `color` set them directly. A
+    standalone layout is read from KOTOR 2's art and layouts, like every
+    screen is. On a KOTOR 1 campaign the stack recolours it to KOTOR 1's blue
+    as it does for any screen, so one file serves both skins. The screen
+    module needs a story file in `data/ui/stories`, as every module does. This
+    is the test screen of the repository, `layout_test`, which has a title,
+    a list box, two sliders, a check box and two buttons:
+
+    ```toml
+    # A kjk screen with no KOTOR layout under it, built from KOTOR's parts. The
+    # screen crates/ui/src/screens/layout_test.rs names it as "kjk:layout_test".
+    # docs/UI.md, "Layout files", describes the format.
+    layout = "layout_test"
+    frame = [800, 600]
+
+    # The root takes KOTOR 2's options frame: its border and colour.
+    [root]
+    like = "optionsmain"
+
+    [[control]]
+    tag = "LBL_TITLE"
+    part = "optionsmain:LBL_TITLE"
+    text = "Layout test"
+
+    [[control]]
+    tag = "LBL_BAR1"
+    part = "optionsmain:LBL_BAR1"
+
+    [[control]]
+    tag = "LBL_BAR2"
+    part = "optionsmain:LBL_BAR2"
+
+    [[control]]
+    tag = "LBL_BAR3"
+    part = "optionsmain:LBL_BAR3"
+
+    # The list box, with its rows and its scroll bar, is the save list's.
+    [[control]]
+    tag = "LB_ITEMS"
+    part = "saveload:LB_GAMES"
+    left = 78
+    top = 134
+    width = 340
+    height = 364
+    move_to = { right = "SLI_FIRST", down = "BTN_BACK" }
+
+    [[control]]
+    tag = "LBL_FIRST"
+    part = "optsound:LBL_MUSIC"
+    left = 440
+    top = 138
+    text = "First slider"
+
+    [[control]]
+    tag = "SLI_FIRST"
+    part = "optsound:SLI_MUSIC"
+    left = 440
+    top = 162
+    move_to = { up = "none", down = "SLI_SECOND", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "LBL_SECOND"
+    part = "optsound:LBL_MUSIC"
+    left = 440
+    top = 214
+    text = "Second slider"
+
+    [[control]]
+    tag = "SLI_SECOND"
+    part = "optsound:SLI_MUSIC"
+    left = 440
+    top = 238
+    move_to = { up = "SLI_FIRST", down = "CB_OPTION", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "CB_OPTION"
+    part = "optgameplay:CB_AUTOSAVE"
+    left = 440
+    top = 300
+    text = "A check box"
+    move_to = { up = "SLI_SECOND", down = "BTN_OK", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "BTN_BACK"
+    part = "optionsmain:BTN_BACK"
+    left = 75
+    top = 516
+    move_to = { up = "LB_ITEMS", right = "BTN_OK" }
+
+    [[control]]
+    tag = "BTN_OK"
+    part = "optionsmain:BTN_BACK"
+    left = 205
+    top = 516
+    text = "OK"
+    move_to = { up = "CB_OPTION", left = "BTN_BACK" }
+    ```
+
+  - **The fields of a control.**
+    - `tag` names the control. Two controls of one file never share a tag.
+      Tags are compared without regard to case.
+    - `kind` is one of `panel`, `label`, `button`, `check_box`, `slider`,
+      `scroll_bar`, `progress` and `list_box`.
+    - `part = "LAYOUT:TAG"` starts the control as a copy of that control of
+      a KOTOR layout, with its borders, its font, its rows and its scroll
+      bar. LAYOUT is a name as screens give it (`optsound`), and KOTOR 2's
+      `optsound_p` is read in its place. The fields in the file are applied
+      to the copy. `kjk gui layout-text GAME LAYOUT` writes a KOTOR layout
+      out as the text of a layout file, to see what a part holds. It leaves
+      the game's words out and keeps the numbers of the talk table lines.
+    - `parent = "TAG"` puts a new control inside another, so it is drawn
+      with it. Without it a new control is on the layout's root.
+    - `left`, `top`, `width` and `height` are in layout pixels, counted from
+      the root's top left, as in KOTOR's own layouts. Nothing else anchors a
+      control. The stack scales the whole layout to the window as it scales a
+      KOTOR layout, so a file looks the same at the six sizes of the
+      catalogue. A control that moves with `left` or `top` takes the controls
+      inside it along, such as a list box's rows and its scroll bar. A
+      change of `width` or `height` does not resize them.
+    - `text` and `strref` give the words. `font` is a font token (`font.body`
+      from `data/ui/tokens.json`) or the name of KOTOR's font resource
+      (`dialogfont16x16`). `align` is some of `left`, `centre`, `right`,
+      `top`, `middle` and `bottom`, as `"centre middle"`. `text_color` is the
+      colour of the words.
+    - `border`, `hilight`, `selected` and `hilight_selected` are the four
+      frames of a control: at rest, focused, chosen, and both. Each is a
+      table of `corner`, `edge` and `fill` (texture names), `fill_style`,
+      `dimension`, `inner_offset`, `color` and `pulsing`. A field that is
+      given replaces the one of the frame being changed.
+    - `move_to = { up = "TAG", down = "TAG", left = "TAG", right = "TAG" }`
+      sets where the pad and the arrow keys move the focus from this
+      control. A direction left out keeps what the control had. `"none"`
+      says that there is no control that way. Every tag is checked.
+    - `looping` and `padding` set the same fields of a list box as KOTOR's.
+    - `remove = true` takes the control out (an override only).
+  - **Colours and fonts.** A colour is written as a token of
+    `data/ui/tokens.json` (`color.tsl-layout.base`), as a hex colour
+    (`"#1ab28c"`), or as three numbers from 0 to 1 (`[0.1, 0.7, 0.55]`). The
+    tokens of KOTOR 2's layouts (`color.tsl-layout.*`) are recoloured for a
+    KOTOR 1 campaign with the rest of its art. The file `tokens.json` is
+    read each time a layout file is read, so a change to it shows at once.
+  - **Errors.** A file that cannot be read never panics and never draws
+    half a screen. The error names the file, the control and the cause, and
+    lists the choices: the fields of a control, the tags of the layout, the
+    names of the tokens. An override that fails closes the screen it was
+    meant for, and the log and the catalogue say why. The catalogue keeps the
+    screen it had when a reload fails.
+  - **The switch.** The setting `ui.layout_overrides` (`true` or `false`)
+    turns the overrides on and off. In the game it is off unless it is set,
+    so KOTOR's layouts are drawn. In the catalogue and in `kjk gui screen`
+    it is on unless it is set. The catalogue's key `F5`, or LB with the
+    D-pad's left button, switches between KOTOR's layout and the override
+    while a story is open. The status bar's `Layouts` line says what is
+    drawn: `KOTOR's`, `kjk's override of NAME`, `KOTOR's NAME, override off`
+    or `kjk's NAME` for a standalone layout. A notice says so as well when the
+    key is pressed. `ui catalogue overrides on|off|toggle` does the same from
+    the console, and a story step `set ui.layout_overrides false` turns them
+    off for a headless picture. Standalone layouts are drawn whatever the
+    setting says.
+  - **Hot reload.** The folder `data/ui/layouts` is one of the sources the
+    catalogue watches (`collab/reload.rs`). Saving a file there, adding one or
+    removing one stages the open story again, as a change to the story file
+    does.
+  - **Where the files are read from.** The folder is the one of the checkout
+    the program was built from, as the story files are, so a build that
+    runs away from its checkout has no overrides and no standalone layouts.
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second
