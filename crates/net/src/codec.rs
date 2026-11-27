@@ -132,6 +132,10 @@ const OP_XOR: u64 = 3;
 const OP_NEW: u64 = 4;
 const OP_HOT_BLOB: u64 = 5;
 
+fn hot_eq(a: &Arc<[u8]>, b: &Arc<[u8]>) -> bool {
+    Arc::ptr_eq(a, b) || a == b
+}
+
 fn cold_eq(a: &Arc<[u8]>, b: &Arc<[u8]>) -> bool {
     Arc::ptr_eq(a, b) || a == b
 }
@@ -348,7 +352,7 @@ impl Walk<'_> {
                 }
                 (Some(before), Some(after)) => {
                     let same_cold = cold_eq(&before.cold, &after.cold);
-                    if before.hot == after.hot && same_cold {
+                    if hot_eq(&before.hot, &after.hot) && same_cold {
                         self.add(OP_KEEP, i, j);
                     } else if before.hot.len() == after.hot.len() && same_cold {
                         self.add(OP_HOT_XOR, i, j);
@@ -669,7 +673,7 @@ fn decode_entities(input: &mut Reader, base: &[EntityPart]) -> Result<Vec<Entity
                         at,
                     })?;
                 let len_hot = input.bounded("record length", MAX_RECORD)?;
-                let hot = input.take(len_hot, "record")?.to_vec();
+                let hot = Arc::from(input.take(len_hot, "record")?);
                 let len_cold = input.bounded("record length", MAX_RECORD - len_hot)?;
                 let cold = Arc::from(input.take(len_cold, "record")?);
                 push(
@@ -702,7 +706,7 @@ fn decode_entities(input: &mut Reader, base: &[EntityPart]) -> Result<Vec<Entity
             OP_HOT_XOR => {
                 for part in records {
                     let at = input.at;
-                    let hot = take_masked(input, &part.hot, "record")?;
+                    let hot = Arc::from(take_masked(input, &part.hot, "record")?);
                     push(
                         &mut out,
                         EntityPart {
@@ -717,7 +721,7 @@ fn decode_entities(input: &mut Reader, base: &[EntityPart]) -> Result<Vec<Entity
             OP_XOR => {
                 for part in records {
                     let at = input.at;
-                    let hot = take_masked(input, &part.hot, "record")?;
+                    let hot = Arc::from(take_masked(input, &part.hot, "record")?);
                     let cold = decode_arc_blob(input, Some(&part.cold), "record cold")?;
                     push(
                         &mut out,
@@ -733,7 +737,7 @@ fn decode_entities(input: &mut Reader, base: &[EntityPart]) -> Result<Vec<Entity
             OP_HOT_BLOB => {
                 for part in records {
                     let at = input.at;
-                    let hot = decode_blob(input, Some(&part.hot), "record")?;
+                    let hot = Arc::from(decode_blob(input, Some(&part.hot), "record")?);
                     push(
                         &mut out,
                         EntityPart {

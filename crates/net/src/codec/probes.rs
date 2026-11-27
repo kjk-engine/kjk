@@ -514,7 +514,7 @@ fn made_up(records: &[(u32, usize)], seed: u64) -> Parts {
             .iter()
             .map(|&(id, len)| EntityPart {
                 id: SimId(id),
-                hot: bytes(len),
+                hot: Arc::from(bytes(len)),
                 cold: Arc::from(&[][..]),
             })
             .collect(),
@@ -547,7 +547,9 @@ pub fn synthetic() -> Probes {
     );
 
     let mut now = base.clone();
-    now.entities[0].hot[17] ^= 0x40;
+    let mut hot = now.entities[0].hot.to_vec();
+    hot[17] ^= 0x40;
+    now.entities[0].hot = Arc::from(hot);
     let (delta, same) = round_trip(Some(&base), &now);
     probes.check(
         "one byte",
@@ -611,7 +613,7 @@ pub fn synthetic() -> Probes {
             if let Some(before) = base.entities.iter().find(|other| other.id == part.id)
                 && before.hot.len() == part.hot.len()
             {
-                part.hot.clone_from(&before.hot);
+                part.hot = before.hot.clone();
                 part.cold = before.cold.clone();
             }
         }

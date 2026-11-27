@@ -37,6 +37,9 @@ pub trait Endpoint: Send + 'static {
         None
     }
     fn finish_encode(&mut self, _now: NetTime, _done: EncodedJob) {}
+    fn parallel_encode(&self) -> bool {
+        false
+    }
 }
 
 impl Endpoint for Client {
@@ -135,6 +138,69 @@ impl Drop for KeyframeWorker {
     }
 }
 
+struct EncodePool {
+    jobs: Option<Sender<EncodeJob>>,
+    done: Receiver<EncodedJob>,
+    handles: Vec<JoinHandle<()>>,
+}
+
+impl EncodePool {
+    fn start(workers: usize, waker: net::io::Waker) -> Option<Self> {
+        let (jobs_tx, jobs_rx) = channel::<EncodeJob>();
+        let jobs_rx = Arc::new(Mutex::new(jobs_rx));
+        let (done_tx, done_rx) = channel::<EncodedJob>();
+        let mut handles = Vec::with_capacity(workers);
+        for index in 0..workers {
+            let rx = Arc::clone(&jobs_rx);
+            let tx = done_tx.clone();
+            let worker_waker = waker.clone();
+            let handle = std::thread::Builder::new()
+                .name(format!("kjk-encode-{index}"))
+                .spawn(move || {
+                    loop {
+                        let job = {
+                            let Ok(guard) = rx.lock() else {
+                                break;
+                            };
+                            guard.recv()
+                        };
+                        let Ok(job) = job else {
+                            break;
+                        };
+                        let started = crate::perf::enabled().then(Instant::now);
+                        let done = job.run();
+                        if let Some(started) = started {
+                            crate::perf::counter(
+                                "net.encode",
+                                &[("encode_ms", started.elapsed().as_secs_f64() * 1000.0)],
+                            );
+                        }
+                        if tx.send(done).is_err() {
+                            break;
+                        }
+                        worker_waker.wake();
+                    }
+                })
+                .ok()?;
+            handles.push(handle);
+        }
+        Some(Self {
+            jobs: Some(jobs_tx),
+            done: done_rx,
+            handles,
+        })
+    }
+}
+
+impl Drop for EncodePool {
+    fn drop(&mut self) {
+        self.jobs = None;
+        for handle in self.handles.drain(..) {
+            let _ = handle.join();
+        }
+    }
+}
+
 /// A running net thread.
 pub struct NetThread {
     stop: Arc<AtomicBool>,
@@ -163,6 +229,7 @@ impl NetThread {
                 let mut encode_jobs: Vec<EncodeJob> = Vec::new();
                 let mut done_encoded: Vec<EncodedJob> = Vec::new();
                 let mut keyframe_worker: Option<KeyframeWorker> = None;
+                let mut encode_pool: Option<EncodePool> = None;
                 while !stopping.load(Ordering::Relaxed) {
                     while let Some(datagram) = socket.recv() {
                         arrived.push(datagram);
@@ -172,9 +239,16 @@ impl NetThread {
                             done_encoded.push(done);
                         }
                     }
+                    if let Some(pool) = &encode_pool {
+                        while let Ok(done) = pool.done.try_recv() {
+                            done_encoded.push(done);
+                        }
+                    }
+                    let use_pool;
                     let mut deadline = {
                         let perf_t = crate::perf::enabled().then(Instant::now);
                         let mut session = lock(&shared);
+                        use_pool = session.parallel_encode();
                         for datagram in arrived.drain(..) {
                             session.receive(datagram.at, datagram.from, &datagram.bytes);
                         }
@@ -185,7 +259,7 @@ impl NetThread {
                         while let Some(job) = session.poll_encode_job(now) {
                             encode_jobs.push(job);
                         }
-                        if encode_jobs.is_empty() {
+                        if encode_jobs.is_empty() || use_pool {
                             while let Some(out) = session.poll_transmit(now) {
                                 leaving.push(out);
                             }
@@ -216,6 +290,20 @@ impl NetThread {
                                     },
                                     None => done_encoded.push(job.run()),
                                 }
+                            } else if use_pool {
+                                if encode_pool.is_none() {
+                                    encode_pool = EncodePool::start(4, thread_waker.clone());
+                                }
+                                match encode_pool.as_ref().and_then(|pool| pool.jobs.as_ref()) {
+                                    Some(jobs) => match jobs.send(job) {
+                                        Ok(()) => continue,
+                                        Err(returned) => {
+                                            encode_pool = None;
+                                            done_encoded.push(returned.0.run());
+                                        }
+                                    },
+                                    None => done_encoded.push(job.run()),
+                                }
                             } else {
                                 let started = crate::perf::enabled().then(Instant::now);
                                 let done = job.run();
@@ -228,22 +316,24 @@ impl NetThread {
                                 done_encoded.push(done);
                             }
                         }
-                        let perf_t = crate::perf::enabled().then(Instant::now);
-                        let mut session = lock(&shared);
-                        let now = clock();
-                        for done in done_encoded.drain(..) {
-                            session.finish_encode(now, done);
-                        }
-                        while let Some(out) = session.poll_transmit(now) {
-                            leaving.push(out);
-                        }
-                        deadline = session.next_deadline();
-                        drop(session);
-                        if let Some(t) = perf_t {
-                            crate::perf::counter(
-                                "net.thread",
-                                &[("mutex_hold_us", t.elapsed().as_secs_f64() * 1e6)],
-                            );
+                        if !done_encoded.is_empty() {
+                            let perf_t = crate::perf::enabled().then(Instant::now);
+                            let mut session = lock(&shared);
+                            let now = clock();
+                            for done in done_encoded.drain(..) {
+                                session.finish_encode(now, done);
+                            }
+                            while let Some(out) = session.poll_transmit(now) {
+                                leaving.push(out);
+                            }
+                            deadline = session.next_deadline();
+                            drop(session);
+                            if let Some(t) = perf_t {
+                                crate::perf::counter(
+                                    "net.thread",
+                                    &[("mutex_hold_us", t.elapsed().as_secs_f64() * 1e6)],
+                                );
+                            }
                         }
                     }
                     let now = clock();

@@ -86,8 +86,11 @@ pub const DEFAULT_BUDGET: u64 = 256 * 1024;
 pub const KEEPALIVE_US: u64 = 100_000;
 /// The longest a link waits for a valid packet before it has timed out.
 pub const TIMEOUT_US: u64 = 5_000_000;
-/// The default longest a link holds an ack it owes.
+/// The default longest a link holds an ack for reliable traffic.
 pub const DEFAULT_ACK_DELAY_US: u64 = 5_000;
+/// The default longest a link holds an ack when only unreliable traffic
+/// arrived, allowing ACKs to piggyback on outgoing snapshots or inputs.
+pub const DEFAULT_UNRELIABLE_ACK_DELAY_US: u64 = 50_000;
 /// The least margin over RTT before a packet is declared lost or its
 /// slices are sent again.
 pub const MIN_MARGIN_US: u64 = 5_000;
@@ -113,10 +116,13 @@ const SECOND_US: u64 = 1_000_000;
 pub struct Config {
     /// Bytes per second of reliable slices; `None` is unlimited (loopback).
     pub budget: Option<u64>,
-    /// The longest an owed ack waits for a packet to ride in. Both sides
-    /// should use the same: a sender allows the peer this much before
-    /// resending.
+    /// The longest an owed ack for reliable traffic waits for a packet to
+    /// ride in. Both sides should use the same: a sender allows the peer
+    /// this much before resending.
     pub max_ack_delay_us: u64,
+    /// The longest an owed ack for unreliable-only traffic waits to
+    /// piggyback on an outgoing packet.
+    pub unreliable_ack_delay_us: u64,
 }
 
 impl Default for Config {
@@ -124,6 +130,7 @@ impl Default for Config {
         Config {
             budget: Some(DEFAULT_BUDGET),
             max_ack_delay_us: DEFAULT_ACK_DELAY_US,
+            unreliable_ack_delay_us: DEFAULT_UNRELIABLE_ACK_DELAY_US,
         }
     }
 }
@@ -547,7 +554,7 @@ pub struct Link {
     /// The newest of our packets acked so far.
     newest_acked: Option<u16>,
     received: Received64,
-    ack_owed_since: Option<NetTime>,
+    ack_due_at: Option<NetTime>,
     last_sent: NetTime,
     last_received: NetTime,
     rtt: Rtt,
@@ -604,7 +611,7 @@ impl Link {
                 bits: 0,
                 newest_at: now,
             },
-            ack_owed_since: None,
+            ack_due_at: None,
             last_sent: now,
             last_received: now,
             in_process: false,
@@ -748,9 +755,7 @@ impl Link {
         self.expire(now);
         self.budget.refill(now);
         self.prune_resend();
-        let ack_due = self
-            .ack_owed_since
-            .is_some_and(|since| now.since(since) >= self.config.max_ack_delay_us);
+        let ack_due = self.ack_due_at.is_some_and(|due| now >= due);
         let keepalive_due = now.since(self.last_sent) >= KEEPALIVE_US;
         let due =
             !self.unreliable_lens.is_empty() || self.slices_ready() || ack_due || keepalive_due;
@@ -844,7 +849,7 @@ impl Link {
         self.stats.packets_sent += 1;
         self.stats.bytes_sent += out.len() as u64;
         self.last_sent = now;
-        self.ack_owed_since = None;
+        self.ack_due_at = None;
     }
 
     /// Fills the rest of the packet with slices, within the budget.
@@ -898,32 +903,40 @@ impl Link {
         }
     }
 
-    /// Margins over RTT: (resend, declare lost), each with the peer's ack
-    /// delay.
-    fn timeouts(&self) -> (u64, u64) {
+    /// Margins over RTT: `(resend, lost_reliable, lost_unreliable)`, each
+    /// with the peer's corresponding ack delay.
+    fn timeouts(&self) -> (u64, u64, u64) {
         let srtt = self.rtt.srtt();
         let jitter4 = 4 * self.rtt.jitter();
-        let ack = self.config.max_ack_delay_us;
-        let resend = srtt + (srtt / 4).min(jitter4).max(MIN_MARGIN_US) + ack;
-        let lost = srtt + jitter4.max(MIN_MARGIN_US) + ack;
-        (resend, lost)
+        let rel_ack = self.config.max_ack_delay_us;
+        let unrel_ack = self.config.unreliable_ack_delay_us.max(rel_ack);
+        let resend = srtt + (srtt / 4).min(jitter4).max(MIN_MARGIN_US) + rel_ack;
+        let lost_rel = srtt + jitter4.max(MIN_MARGIN_US) + rel_ack;
+        let lost_unrel = srtt + jitter4.max(MIN_MARGIN_US) + unrel_ack;
+        (resend, lost_rel, lost_unrel)
     }
 
     /// Queues again the slices of packets past their resend time, and
     /// declares lost those past their loss time.
     fn expire(&mut self, now: NetTime) {
         self.rtt.advance(now);
-        let (resend, lost) = self.timeouts();
+        let (resend, lost_rel, lost_unrel) = self.timeouts();
+        let floor = resend.min(lost_rel).min(lost_unrel);
         let mut seq = self.oldest;
         while seq != self.next_seq {
             if let Some(record) = self.in_flight(seq) {
                 let age = now.since(record.at);
-                if age < resend {
+                if age < floor {
                     break;
                 }
+                let lost = if record.slices.is_empty() {
+                    lost_unrel
+                } else {
+                    lost_rel
+                };
                 if age >= lost && self.acked_after(seq) {
                     self.declare_lost(seq);
-                } else if !record.requeued {
+                } else if !record.requeued && !record.slices.is_empty() {
                     self.requeue(seq);
                 }
             }
@@ -1008,27 +1021,37 @@ impl Link {
         if !self.unreliable_lens.is_empty() {
             consider(NetTime(0));
         }
-        if let Some(since) = self.ack_owed_since {
-            consider(since.plus(self.config.max_ack_delay_us));
+        if let Some(due) = self.ack_due_at {
+            consider(due);
         }
         if self.next_slice().is_some() && self.slice_packets < MAX_SLICE_PACKETS {
             consider(self.budget.opens_at());
         }
-        let (resend, lost) = self.timeouts();
+        let (resend, lost_rel, lost_unrel) = self.timeouts();
         let mut seq = self.oldest;
         let mut resend_found = false;
-        let mut lost_found = false;
-        while seq != self.next_seq && !(resend_found && lost_found) {
+        let mut lost_rel_found = false;
+        let mut lost_unrel_found = false;
+        while seq != self.next_seq && !(resend_found && lost_rel_found && lost_unrel_found) {
             if let Some(record) = self.in_flight(seq) {
-                if !lost_found {
-                    if self.acked_after(record.seq) {
-                        consider(record.at.plus(lost));
+                if record.slices.is_empty() {
+                    if !lost_unrel_found {
+                        if self.acked_after(record.seq) {
+                            consider(record.at.plus(lost_unrel));
+                        }
+                        lost_unrel_found = true;
                     }
-                    lost_found = true;
-                }
-                if !resend_found && !record.requeued {
-                    consider(record.at.plus(resend));
-                    resend_found = true;
+                } else {
+                    if !lost_rel_found {
+                        if self.acked_after(record.seq) {
+                            consider(record.at.plus(lost_rel));
+                        }
+                        lost_rel_found = true;
+                    }
+                    if !resend_found && !record.requeued {
+                        consider(record.at.plus(resend));
+                        resend_found = true;
+                    }
                 }
             }
             seq = seq.wrapping_add(1);
@@ -1057,9 +1080,11 @@ impl Link {
                 got: header.session,
             });
         }
+        let mut has_reliable = false;
         for frame in Frames::new(body) {
             let frame = frame?;
             if frame.kind == frame::RELIABLE {
+                has_reliable = true;
                 Slice::decode(frame.payload)?;
             }
         }
@@ -1099,8 +1124,14 @@ impl Link {
         if let Some(ack) = header.ack {
             self.take_acks(now, ack);
         }
-        if !body.is_empty() && self.ack_owed_since.is_none() {
-            self.ack_owed_since = Some(now);
+        if !body.is_empty() {
+            let delay = if has_reliable {
+                self.config.max_ack_delay_us
+            } else {
+                self.config.unreliable_ack_delay_us
+            };
+            let due = now.plus(delay);
+            self.ack_due_at = Some(self.ack_due_at.map_or(due, |old| old.min(due)));
         }
         for frame in Frames::new(body).map_while(Result::ok) {
             if frame.kind != frame::RELIABLE {

@@ -2286,7 +2286,7 @@ impl Snapshot {
         };
         EntityPart {
             id: entity.id,
-            hot: hot.0,
+            hot: Arc::from(hot.0),
             cold,
         }
     }
@@ -3066,7 +3066,7 @@ impl Progress {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityPart {
     pub id: SimId,
-    pub hot: Vec<u8>,
+    pub hot: Arc<[u8]>,
     pub cold: Arc<[u8]>,
 }
 

@@ -2077,6 +2077,40 @@ pub fn link_rules() -> Probes {
         format!("acked {acked:?}"),
     );
 
+    // Unreliable-only ACKs wait longer (`unreliable_ack_delay_us`) to piggyback,
+    // while reliable slice arrivals pull the ACK deadline forward to `max_ack_delay_us`.
+    let mut tx = Link::new(SESSION, NetTime(0));
+    let mut rx = Link::new(SESSION, NetTime(0));
+    let _ = tx.queue_unreliable(frame::SNAPSHOT, &[7; 16]);
+    let unrel_pkt1 = tx.poll_transmit(NetTime(0)).unwrap_or_else(Vec::new);
+    let _ = tx.queue_unreliable(frame::SNAPSHOT, &[8; 16]);
+    let unrel_pkt2 = tx.poll_transmit(NetTime(100_000)).unwrap_or_else(Vec::new);
+    let _ = tx.send_reliable(&[9; 8]);
+    let rel_pkt = tx.poll_transmit(NetTime(102_000)).unwrap_or_else(Vec::new);
+
+    let _ = rx.receive(NetTime(1_000), &unrel_pkt1);
+    let at_5ms = rx.poll_transmit(NetTime(1_000 + link::DEFAULT_ACK_DELAY_US));
+    let at_unrel = rx.poll_transmit(NetTime(1_000 + link::DEFAULT_UNRELIABLE_ACK_DELAY_US));
+    let _ = rx.receive(NetTime(100_000), &unrel_pkt2);
+    let _ = rx.receive(NetTime(102_000), &rel_pkt);
+    let before_rel_5ms = rx.poll_transmit(NetTime(106_000));
+    let at_rel_5ms = rx.poll_transmit(NetTime(102_000 + link::DEFAULT_ACK_DELAY_US));
+    probes.check(
+        "link: unreliable vs reliable ack pacing",
+        "unreliable-only ACKs wait DEFAULT_UNRELIABLE_ACK_DELAY_US while reliable arrivals pull the ACK deadline forward to DEFAULT_ACK_DELAY_US",
+        at_5ms.is_none()
+            && at_unrel.is_some()
+            && before_rel_5ms.is_none()
+            && at_rel_5ms.is_some(),
+        format!(
+            "at_5ms={} at_unrel={} before_rel_5ms={} at_rel_5ms={}",
+            at_5ms.is_some(),
+            at_unrel.is_some(),
+            before_rel_5ms.is_some(),
+            at_rel_5ms.is_some()
+        ),
+    );
+
     probes
 }
 

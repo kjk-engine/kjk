@@ -813,6 +813,11 @@ impl Server {
         self.join_waiting();
     }
 
+    /// The host's configured seat count.
+    pub fn seats(&self) -> u8 {
+        self.config.seats
+    }
+
     /// Why the host's credentials refuse `theirs`, if they do.
     fn refusal(&self, theirs: &Credentials) -> Option<Refusal> {
         check(&self.config.credentials, &self.config.stances, theirs).err()
@@ -2616,7 +2621,9 @@ fn world_content_eq(a: &sim::Parts, b: &sim::Parts) -> bool {
             .zip(&b.tail_cold)
             .all(|(x, y)| Arc::ptr_eq(x, y) || **x == **y)
         && a.entities.iter().zip(&b.entities).all(|(x, y)| {
-            x.id == y.id && x.hot == y.hot && (Arc::ptr_eq(&x.cold, &y.cold) || *x.cold == *y.cold)
+            x.id == y.id
+                && (Arc::ptr_eq(&x.hot, &y.hot) || *x.hot == *y.hot)
+                && (Arc::ptr_eq(&x.cold, &y.cold) || *x.cold == *y.cold)
         })
 }
 
@@ -2643,11 +2650,39 @@ fn record_view(conn: &mut Connection, tick: u64, parts: Arc<Parts>) {
     }
 }
 
+const MTU_ENTITY_BUDGET: usize = 900;
+
+fn bytes_eq(a: &std::sync::Arc<[u8]>, b: &std::sync::Arc<[u8]>) -> bool {
+    Arc::ptr_eq(a, b) || *a == *b
+}
+
+fn est_entity_delta(base: &sim::EntityPart, now: &sim::EntityPart) -> usize {
+    let hot_cost = if bytes_eq(&base.hot, &now.hot) {
+        0
+    } else if base.hot.len() == now.hot.len() {
+        let diff = base
+            .hot
+            .iter()
+            .zip(now.hot.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        now.hot.len().div_ceil(64) + diff + (diff / 3).max(1) + 2
+    } else {
+        now.hot.len() + 4
+    };
+    let cold_cost = if bytes_eq(&base.cold, &now.cold) {
+        0
+    } else {
+        now.cold.len() + 4
+    };
+    hot_cost + cold_cost
+}
+
 /// Builds a seat's interest-filtered `Parts` when `seats > 4`: keeps own
-/// avatar, non-avatar entities, newly spawned entities, and the nearest 8
-/// avatars within 20 m fresh on every sent snapshot; staggers medium-tier avatars
-/// every 4 sent snapshots and far avatars every 8 sent snapshots, reusing
-/// `base_parts` verbatim for skipped entities so `codec::encode` emits `OP_KEEP`.
+/// avatar, newly spawned entities, and high-priority nearby entities within
+/// `MTU_ENTITY_BUDGET` (packing nearest tier-0/1/2/3 updates by priority and
+/// distance so most frames stay inside one UDP MTU), reusing `base_parts`
+/// verbatim for skipped entities so `codec::encode` emits `OP_KEEP`.
 fn filter_parts_for_seat(
     seat: Seat,
     tick: u64,
@@ -2667,78 +2702,130 @@ fn filter_parts_for_seat(
         return now_parts.clone();
     };
 
-    let mut ranked: Vec<(u32, u32)> = positions
-        .iter()
-        .filter(|(_, avatar_seat, _)| avatar_seat.is_some_and(|s| s != seat.0))
-        .map(|(id, _, pos)| {
-            let dx = pos[0] - own_pos[0];
-            let dy = pos[1] - own_pos[1];
-            let dz = pos[2] - own_pos[2];
-            let d2 = dx * dx + dy * dy + dz * dz;
-            (d2.to_bits(), *id)
-        })
-        .collect();
-    ranked.sort_unstable();
+    let n = now_parts.entities.len();
+    let mut base_match = vec![None; n];
+    let mut bi = 0usize;
+    let base_len = base_parts.entities.len();
+    for (ni, entity) in now_parts.entities.iter().enumerate() {
+        while bi < base_len && base_parts.entities[bi].id < entity.id {
+            bi += 1;
+        }
+        if bi < base_len && base_parts.entities[bi].id == entity.id {
+            base_match[ni] = Some(bi);
+        }
+    }
 
-    let mut ranked_other: Vec<(u32, u32)> = positions
-        .iter()
-        .filter(|(_, avatar_seat, _)| avatar_seat.is_none())
-        .map(|(id, _, pos)| {
-            let dx = pos[0] - own_pos[0];
-            let dy = pos[1] - own_pos[1];
-            let dz = pos[2] - own_pos[2];
-            let d2 = dx * dx + dy * dy + dz * dz;
-            (d2.to_bits(), *id)
-        })
-        .collect();
-    ranked_other.sort_unstable();
+    let mut selected = vec![false; n];
+    let mut used = 0usize;
+    let mut avatars: Vec<(u32, u32, usize, usize)> = Vec::new();
+    let mut others: Vec<(u32, u32, usize, usize)> = Vec::new();
+
+    for (i, entity) in now_parts.entities.iter().enumerate() {
+        let pos_entry = positions
+            .get(i)
+            .filter(|p| p.0 == entity.id.0)
+            .copied()
+            .or_else(|| {
+                positions
+                    .binary_search_by_key(&entity.id.0, |(id, _, _)| *id)
+                    .ok()
+                    .map(|idx| positions[idx])
+            });
+        let Some((_, avatar_seat, pos)) = pos_entry else {
+            selected[i] = true;
+            used += base_match[i].map_or(entity.hot.len() + entity.cold.len() + 4, |bi| {
+                est_entity_delta(&base_parts.entities[bi], entity)
+            });
+            continue;
+        };
+        if avatar_seat == Some(seat.0) {
+            selected[i] = true;
+            used += base_match[i].map_or(entity.hot.len() + entity.cold.len() + 4, |bi| {
+                est_entity_delta(&base_parts.entities[bi], entity)
+            });
+            continue;
+        }
+        let Some(base_idx) = base_match[i] else {
+            selected[i] = true;
+            used += entity.hot.len() + entity.cold.len() + 4;
+            continue;
+        };
+        let base_ent = &base_parts.entities[base_idx];
+        if bytes_eq(&base_ent.hot, &entity.hot) && bytes_eq(&base_ent.cold, &entity.cold) {
+            continue;
+        }
+        let dx = pos[0] - own_pos[0];
+        let dy = pos[1] - own_pos[1];
+        let dz = pos[2] - own_pos[2];
+        let d2 = dx * dx + dy * dy + dz * dz;
+        let d2_bits = if d2.is_finite() { d2 } else { f32::MAX }.to_bits();
+        let est = est_entity_delta(base_ent, entity);
+        let item = (d2_bits, entity.id.0, i, est);
+        if avatar_seat.is_some() {
+            avatars.push(item);
+        } else {
+            others.push(item);
+        }
+    }
+
+    avatars.sort_unstable_by_key(|&(d2, id, _, _)| (d2, id));
+    others.sort_unstable_by_key(|&(d2, id, _, _)| (d2, id));
 
     let near_limit = (20.0f32 * 20.0f32).to_bits();
     let mid_limit = (40.0f32 * 40.0f32).to_bits();
     let slot = tick / u64::from(every.max(1));
 
+    let mut eligible: Vec<(u8, u32, usize, usize)> =
+        Vec::with_capacity(avatars.len() + others.len());
+    for (rank, &(d2_bits, id, now_idx, est)) in avatars.iter().enumerate() {
+        let tier = if rank < 4 && d2_bits <= near_limit {
+            Some(0)
+        } else if rank < 8 && d2_bits <= near_limit && (slot + u64::from(id)).is_multiple_of(2) {
+            Some(1)
+        } else if rank < 16 && d2_bits <= mid_limit && (slot + u64::from(id)).is_multiple_of(4) {
+            Some(2)
+        } else if (slot + u64::from(id)).is_multiple_of(12) {
+            Some(3)
+        } else {
+            None
+        };
+        if let Some(tier) = tier {
+            eligible.push((tier, d2_bits, now_idx, est));
+        }
+    }
+    for (rank, &(d2_bits, id, now_idx, est)) in others.iter().enumerate() {
+        let tier = if rank < 4 && d2_bits <= near_limit {
+            Some(0)
+        } else if (slot + u64::from(id)).is_multiple_of(4) {
+            Some(2)
+        } else {
+            None
+        };
+        if let Some(tier) = tier {
+            eligible.push((tier, d2_bits, now_idx, est));
+        }
+    }
+
+    eligible.sort_unstable_by_key(|&(tier, d2, _, _)| (tier, d2));
+    let mut picked_any = false;
+    for (tier, _, now_idx, est) in eligible {
+        if used + est <= MTU_ENTITY_BUDGET || (tier == 0 && !picked_any && used < MTU_ENTITY_BUDGET)
+        {
+            selected[now_idx] = true;
+            used += est;
+            picked_any = true;
+        }
+    }
+
     let entities = now_parts
         .entities
         .iter()
-        .map(|entity| {
-            let fresh = match positions
-                .binary_search_by_key(&entity.id.0, |(id, _, _)| *id)
-                .ok()
-                .map(|idx| positions[idx])
-            {
-                Some((_, Some(avatar_seat), _)) if avatar_seat != seat.0 => {
-                    let rank_pos = ranked
-                        .iter()
-                        .position(|(_, id)| *id == entity.id.0)
-                        .unwrap_or(usize::MAX);
-                    if rank_pos < 4 && ranked[rank_pos].0 <= near_limit {
-                        true
-                    } else if rank_pos < 16 && ranked[rank_pos].0 <= mid_limit {
-                        (slot + u64::from(entity.id.0)).is_multiple_of(4)
-                    } else {
-                        (slot + u64::from(entity.id.0)).is_multiple_of(12)
-                    }
-                }
-                Some((_, None, _)) => {
-                    let rank_pos = ranked_other
-                        .iter()
-                        .position(|(_, id)| *id == entity.id.0)
-                        .unwrap_or(usize::MAX);
-                    if rank_pos < 4 && ranked_other[rank_pos].0 <= near_limit {
-                        true
-                    } else {
-                        (slot + u64::from(entity.id.0)).is_multiple_of(4)
-                    }
-                }
-                _ => true,
-            };
-            if fresh {
+        .enumerate()
+        .map(|(i, entity)| {
+            if selected[i] {
                 entity.clone()
-            } else if let Ok(base_idx) = base_parts
-                .entities
-                .binary_search_by_key(&entity.id, |b| b.id)
-            {
-                base_parts.entities[base_idx].clone()
+            } else if let Some(bi) = base_match[i] {
+                base_parts.entities[bi].clone()
             } else {
                 entity.clone()
             }

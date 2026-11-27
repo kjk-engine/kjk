@@ -162,6 +162,10 @@ impl Endpoint for Hosted {
     fn finish_encode(&mut self, now: NetTime, done: EncodedJob) {
         self.server.finish_encode(now, done);
     }
+
+    fn parallel_encode(&self) -> bool {
+        self.server.seats() > 4
+    }
 }
 
 /// The host's server, its own client, and the loopback between them.
