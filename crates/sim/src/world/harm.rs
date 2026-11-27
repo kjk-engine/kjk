@@ -698,12 +698,9 @@ pub(super) fn hurt(
         // whatever their standing, a faction friend too: KOTOR's attack and
         // its damage ask none (a script's `ActionAttack` on an ally).
         let relation = match attacker {
-            Some(by) => damage::strike_relation(
-                repute,
-                who[by].1,
-                actors[by].5.0.target,
-                target_side,
-            ),
+            Some(by) => {
+                damage::strike_relation(repute, who[by].1, actors[by].5.0.target, target_side)
+            }
             None => Relation::Outsider { aimed: true },
         };
         let delivery = |at: usize| held(&who[at].0, &actors[at].5.0).delivery;

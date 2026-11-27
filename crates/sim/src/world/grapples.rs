@@ -261,12 +261,8 @@ impl Step<'_> {
     /// spared by friendly fire.
     fn may_grab(&self, g: usize, v: usize) -> bool {
         let (grabber, victim) = (&self.men[g], &self.men[v]);
-        let relation = damage::strike_relation(
-            self.standing,
-            grabber.side,
-            grabber.f.target,
-            victim.side,
-        );
+        let relation =
+            damage::strike_relation(self.standing, grabber.side, grabber.f.target, victim.side);
         let source = Source::Weapon {
             weapon: Weapon::UNARMED,
             cadence_ms: ROUND_MS as u32,

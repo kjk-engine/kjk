@@ -494,17 +494,15 @@ fn victim_down_at_end() -> Result<String, String> {
             continue;
         };
         let released = seen.get(end + 1);
-        let down = released.is_some_and(|(_, f)| {
-            f.alive() && f.saber.floored() && f.grapple.is_none()
-        });
+        let down =
+            released.is_some_and(|(_, f)| f.alive() && f.saber.floored() && f.grapple.is_none());
         if !down {
             wrong.push(format!(
                 "finisher {finisher}: not knocked down alive as it ended"
             ));
         }
         if finisher == 2 {
-            let knocked = released
-                .is_some_and(|(ps, _)| ps.legs.anim == Anim::BOTH_KNOCKDOWN2);
+            let knocked = released.is_some_and(|(ps, _)| ps.legs.anim == Anim::BOTH_KNOCKDOWN2);
             let continued = seen[end + 1..]
                 .iter()
                 .any(|(ps, _)| ps.legs.anim == Anim::BOTH_PLAYER_PA_2);
