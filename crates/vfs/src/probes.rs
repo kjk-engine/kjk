@@ -456,6 +456,47 @@ fn workshop_case(
     }
 }
 
+/// The conversations the override folders hold (`Resolver::override_names`):
+/// the game's own `override/`, its subfolder one level down (TSL), and a
+/// Workshop item's `override/`. A module's archives are not override
+/// folders, the game's or an item's. A script may start any of these
+/// conversations by a name it puts together as it runs, so the script
+/// library gathers them all (`session::library`).
+fn override_conversations() -> Result<String, String> {
+    let files = [
+        (
+            "modules/m01.rim",
+            archive(b"RIM V1.0", &[("in_rim", DLG, b"rim")]),
+        ),
+        ("override/train_form.dlg", b"game".to_vec()),
+        ("override/sub/in_sub.dlg", b"game".to_vec()),
+        ("override/m_train.ncs", b"game".to_vec()),
+    ];
+    let items = [(
+        7,
+        vec![
+            ("override/in_item.dlg", b"w7".to_vec()),
+            (
+                "modules/m01.mod",
+                archive(b"MOD V1.0", &[("in_mod", DLG, b"w7")]),
+            ),
+        ],
+    )];
+    let (written, index) = workshop_install("override-talks", &files, &items)?;
+    let resolver = Resolver::open(Game::Kotor2, &index, Some("m01"), TextureQuality::High)
+        .map_err(|error| error.to_string());
+    remove(&written);
+    let got = resolver?.override_names(DLG);
+    let expected = ["in_item", "in_sub", "train_form"];
+    if got == expected {
+        Ok(got.join(", "))
+    } else {
+        Err(format!(
+            "got {got:?}, the override folders hold {expected:?}"
+        ))
+    }
+}
+
 const TPC: ResType = ResType::TPC;
 const TGA: ResType = ResType::TGA;
 
@@ -1251,6 +1292,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             world_fingerprint_reads_world(),
         ),
         ("workshop_override_and_mods", workshop_override_and_mods()),
+        ("override_conversations", override_conversations()),
         ("workshop_module_rims", workshop_module_rims()),
         ("workshop_talk_and_streams", workshop_talk_and_streams()),
         ("workshop_fingerprint", workshop_fingerprint()),

@@ -27,6 +27,10 @@ the mod's powers can be learned and shown, but casting them does nothing.
 - Files the mod put in the Override folder and modules it put in the
   Modules folder. A module that a mod ships as a `.mod` file is read in
   place of the game's own module files.
+- Every conversation and script in the Override folder, in every module.
+  A mod's script may start a conversation by a name it puts together as
+  it runs. For example, Expanded Jedi Training starts its training
+  conversation as "train" followed by "_form", "_spell" or "_feat".
 
 A power or feat that a mod adds at a place in the table where the game
 already has one keeps working. kjk finds the powers and feats its own rules
