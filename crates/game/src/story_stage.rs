@@ -166,7 +166,8 @@ impl Staged {
         }
     }
 
-    /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `hover TAG` the
+    /// One step taken (`press TAG`, `row TAG N` a click on row N of a list,
+    /// from 0, `type TEXT`, `scroll N`; `hover TAG` the
     /// pointer onto the middle of a control; `key MOVE` a
     /// screen move, `Down`, `Activate`; `raw NAME` a key, mouse button or
     /// pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad KIND`
@@ -185,6 +186,13 @@ impl Staged {
         let (game, quiet) = (*game, &*quiet);
         match step.split_once(' ') {
             Some(("press", tag)) => stack.press(tag),
+            Some(("row", at)) => {
+                let (tag, row) = at
+                    .rsplit_once(' ')
+                    .and_then(|(tag, row)| Some((tag, row.parse::<usize>().ok()?)))
+                    .ok_or(format!("{step:?}: `row TAG N`, N the row from 0"))?;
+                stack.click_row(tag, row);
+            }
             Some(("set", setting)) => {
                 let (key, value) = setting
                     .split_once(' ')
@@ -372,7 +380,7 @@ impl Staged {
             }
             _ => {
                 return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `hover TAG`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
+                    "{step:?}: `press TAG`, `row TAG N`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `hover TAG`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
                 ));
             }
         }

@@ -20,7 +20,7 @@ use ui::input::UiInput;
 use ui::virtual_screen::Mode;
 
 use super::{Catalogue, Start};
-pub use backdrop::Backdrop;
+pub use backdrop::{Backdrop, Shown, show};
 use bridge::Bridge;
 use record::Recorder;
 use reload::Watch;
@@ -38,6 +38,7 @@ struct Seen {
     mode: String,
     outlines: bool,
     backdrop: String,
+    still: String,
 }
 
 pub struct Collab {
@@ -47,13 +48,17 @@ pub struct Collab {
     watch: Watch,
     outlines: bool,
     backdrop: Backdrop,
+    stills: backdrop::Stills,
+    /// The still the play backdrop shows now: its key, and what it is
+    /// (`making`, `ready` or the failure).
+    still: Option<(String, String)>,
     /// Where the change this frame comes from, for the log: `keyboard`,
     /// `mouse`, `pad`, `console`, `agent` or `disk`. It is empty when
     /// nothing was asked this frame.
     pub source: &'static str,
     seen: Seen,
     /// The control tree of the frame it was built for, as that frame's
-    /// controls were: their tags, places and focus.
+    /// controls were: their tags, places, focus and words.
     tree: Option<(Vec<String>, Value)>,
     tree_age: f32,
     /// What the state file holds besides its revision and its tree, and the
@@ -76,6 +81,8 @@ impl Collab {
             watch: Watch::of(&start.module),
             outlines: false,
             backdrop: Backdrop::Plain,
+            stills: backdrop::Stills::default(),
+            still: None,
             source: "",
             seen: Seen::default(),
             tree: None,
@@ -143,11 +150,11 @@ pub fn begin(cat: &mut Catalogue, run: Option<&std::path::Path>, dt: f32) {
     }
     if cat.collab.bridge.is_none() && !cat.collab.bridge_failed {
         let folder = run.map_or_else(
-            || crate::runtime::artifacts().join("catalogue"),
+            || (crate::runtime::artifacts().join("catalogue")).join(std::process::id().to_string()),
             |run| run.join("catalogue"),
         );
-        let pointer = crate::runtime::artifacts().join("catalogue-bridge.json");
-        match Bridge::open(&folder, &pointer) {
+        let pointers = crate::runtime::artifacts().join("catalogue-bridges");
+        match Bridge::open(&folder, &pointers) {
             Ok(bridge) => {
                 outln!("catalogue state file: {}", bridge.state.display());
                 outln!("catalogue command file: {}", bridge.commands.display());
@@ -214,11 +221,11 @@ fn command(cat: &mut Catalogue, line: &str) -> Result<(), String> {
             }
             name => Backdrop::named(name)
                 .map(|backdrop| cat.collab.backdrop = backdrop)
-                .ok_or(format!("{name}: not plain or stripes")),
+                .ok_or(format!("{name}: not plain, stripes or play")),
         },
         "save" => save(cat, (!rest.is_empty()).then_some(rest)),
         other => Err(format!(
-            "{other}: `open MODULE/STORY`, `size NAME`, `mode fit|pixel|seen`, `step STEP`, `outlines on|off`, `backdrop plain|stripes` or `save [NAME]`"
+            "{other}: `open MODULE/STORY`, `size NAME`, `mode fit|pixel|seen`, `step STEP`, `outlines on|off`, `backdrop plain|stripes|play` or `save [NAME]`"
         )),
     }
 }
@@ -362,8 +369,11 @@ fn save(cat: &mut Catalogue, name: Option<&str>) -> Result<(), String> {
 /// The recorder before the screens take `input`, which came from `source`.
 pub fn before(cat: &mut Catalogue, input: &UiInput, source: &'static str) {
     cat.collab.focus = cat.staged.stack.focused().map(str::to_string);
-    let wanted =
-        !input.keys.is_empty() || !input.text.is_empty() || input.click || input.wheel != 0.0;
+    let wanted = !input.keys.is_empty()
+        || !input.text.is_empty()
+        || !input.raw.is_empty()
+        || input.click
+        || input.wheel != 0.0;
     if !wanted {
         return;
     }
@@ -373,6 +383,7 @@ pub fn before(cat: &mut Catalogue, input: &UiInput, source: &'static str) {
         links: &links,
         focused: cat.collab.focus.as_deref(),
         window: cat.size().window(),
+        depth: cat.staged.stack.screens().count().saturating_sub(1),
     };
     let made = cat.collab.recorder.before(input, &frame);
     for step in made {
@@ -383,10 +394,24 @@ pub fn before(cat: &mut Catalogue, input: &UiInput, source: &'static str) {
 /// The end of a frame: what changed is logged, and the state file written
 /// when something it holds changed.
 pub fn end(cat: &mut Catalogue, input: &UiInput, dt: f32) {
+    still_tick(cat);
     let now = cat.staged.stack.focused().map(str::to_string);
     cat.collab
         .recorder
         .after(input, cat.collab.focus.as_deref(), now.as_deref());
+    {
+        let stack = &cat.staged.stack;
+        let row = |tag: &str, at: usize| stack.list_at_in(at, tag).map(|(_, row)| row);
+        if let Some(step) = cat.collab.recorder.row_step(row) {
+            let source = cat.collab.source;
+            log(
+                cat,
+                if source.is_empty() { "mouse" } else { source },
+                "step",
+                json!(step),
+            );
+        }
+    }
     cat.collab.tree_age += dt;
     log_changes(cat);
     cat.collab.source = "";
@@ -403,6 +428,11 @@ fn log_changes(cat: &mut Catalogue) {
         mode: cat.mode.name().to_string(),
         outlines: cat.collab.outlines,
         backdrop: cat.collab.backdrop.name().to_string(),
+        still: cat
+            .collab
+            .still
+            .as_ref()
+            .map_or_else(String::new, |(_, state)| state.clone()),
     };
     if seen == cat.collab.seen {
         return;
@@ -421,6 +451,7 @@ fn log_changes(cat: &mut Catalogue) {
         ("size", &before.size, &seen.size),
         ("mode", &before.mode, &seen.mode),
         ("backdrop", &before.backdrop, &seen.backdrop),
+        ("backdrop still", &before.still, &seen.still),
     ];
     for (change, was, is) in changes {
         if was != is {
@@ -498,6 +529,7 @@ fn publish(cat: &mut Catalogue) {
         "screens": cat.staged.stack.screens().map(|screen| screen.0).collect::<Vec<_>>(),
         "outlines": cat.collab.outlines,
         "backdrop": cat.collab.backdrop.name(),
+        "backdrop_still": cat.collab.still.as_ref().map(|(_, state)| state),
         "recording": {
             "steps": cat.collab.recorder.steps,
             "saved": cat.collab.saved,
@@ -543,4 +575,35 @@ pub fn composed(cat: &Catalogue) -> Cow<'_, [DrawList]> {
         lists.push(outline::list(&cat.layers, window, pixel));
     }
     Cow::Owned(lists)
+}
+
+/// The still of the game world that the play backdrop needs, asked for
+/// and looked at once a frame. It is made in the background, so the
+/// screens show the plain backdrop until it is ready.
+fn still_tick(cat: &mut Catalogue) {
+    if cat.collab.backdrop != Backdrop::Play {
+        cat.collab.still = None;
+        return;
+    }
+    let game = cat.start.game;
+    let capture = cat
+        .start
+        .story
+        .capture_for(game.key(), ui::catalogue::Input::Mouse)
+        .flatten();
+    let stage = backdrop::stage_for(game, capture);
+    let cache = crate::runtime::artifacts().join("catalogue-stills");
+    let (key, state) = cat.collab.stills.of(stage, cat.size().pixels, &cache);
+    let state = match state {
+        backdrop::State::Making => "making".to_string(),
+        backdrop::State::Ready => "ready".to_string(),
+        backdrop::State::Failed(why) => format!("failed: {why}"),
+    };
+    cat.collab.still = Some((key, state));
+}
+
+/// The still the play backdrop shows now, with its name, once it is made.
+pub fn still(cat: &Catalogue) -> Option<(&str, &backdrop::Picture)> {
+    let (key, _) = cat.collab.still.as_ref()?;
+    Some((key, cat.collab.stills.ready(key)?))
 }

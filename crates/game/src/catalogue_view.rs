@@ -594,6 +594,9 @@ struct Painting {
     /// it shows the rest of the time.
     fresh: u8,
     made: Option<Made>,
+    /// The still of the world behind the screens, when the backdrop is a
+    /// frame of play and it is made.
+    still: collab::Shown,
 }
 
 struct Made {
@@ -729,6 +732,14 @@ fn paint(
             scale: Vec3::new(placement.size[0], placement.size[1], 1.0),
             ..Transform::IDENTITY
         };
+    }
+    if collab::show(
+        &mut painting.still,
+        collab::still(&cat),
+        (virtual_window, SCREENS_LAYER),
+        (&mut commands, &mut meshes, &mut materials, &mut images),
+    ) {
+        painting.fresh = REDRAWN;
     }
     // The screens' quads, made again when the screens or the size changed.
     let assets = &cat.staged.assets;

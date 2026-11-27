@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use fmt_odyssey::gui::Kind;
 use ui::draw::{DrawList, Mark};
 use ui::input::{Key, UiInput};
 use ui::screen::FocusLink;
@@ -17,6 +18,11 @@ pub struct Recorder {
     pub steps: Vec<String>,
     /// The control the pointer moved the focus to, until a step needs it.
     hovered: Option<String>,
+    /// The list a click this frame landed on, and the place of its screen
+    /// in the stack. The click may open a screen over that one, so the row
+    /// is read from that screen once the click is taken, as the cursor the
+    /// click moved.
+    pub clicked_list: Option<(String, usize)>,
 }
 
 /// What the recorder needs to know of the frame the input lands on.
@@ -26,7 +32,14 @@ pub struct Frame<'a> {
     pub links: &'a [FocusLink],
     pub focused: Option<&'a str>,
     pub window: (f32, f32),
+    /// The place of the top screen in the stack, from the bottom.
+    pub depth: usize,
 }
+
+/// The name `UiInput::raw` gives the main mouse button, and the prefix of a
+/// key let go. Neither is a press to replay.
+const LEFT_CLICK: &str = "MouseLeft";
+use ui::screens::key_mapping::RELEASED_RAW;
 
 /// The key steps and the keys that make them.
 const KEYS: [(Key, &str); 13] = [
@@ -84,13 +97,26 @@ impl Recorder {
         }
         let top = frame.layers.last();
         let point = input.pointer;
+        let mut clicked = false;
         if input.click
             && let (Some(list), Some(point)) = (top, point)
         {
             let linked = |mark: &&Mark| frame.links.iter().any(|(tag, _)| *tag == mark.tag);
             if let Some(mark) = under(list, frame.window, point).find(linked) {
-                made.push(format!("press {}", mark.tag));
+                match mark.kind {
+                    Kind::ListBox => self.clicked_list = Some((mark.tag.clone(), frame.depth)),
+                    _ => made.push(format!("press {}", mark.tag)),
+                }
                 self.hovered = None;
+                clicked = true;
+            }
+        }
+        if input.keys.is_empty() && input.text.is_empty() {
+            for name in &input.raw {
+                let left_click = name == LEFT_CLICK && (input.click || clicked);
+                if !left_click && !name.starts_with(RELEASED_RAW) {
+                    made.push(format!("raw {name}"));
+                }
             }
         }
         if input.wheel != 0.0 {
@@ -106,6 +132,15 @@ impl Recorder {
         }
         self.steps.extend(made.iter().cloned());
         made
+    }
+
+    /// The row of the list the frame's click landed on, as the step that
+    /// replays it: `row TAG N`.
+    pub fn row_step(&mut self, row: impl FnOnce(&str, usize) -> Option<usize>) -> Option<String> {
+        let (tag, at) = self.clicked_list.take()?;
+        let step = format!("row {tag} {}", row(&tag, at)?);
+        self.steps.push(step.clone());
+        Some(step)
     }
 
     /// What the frame left: a focus the pointer moved is remembered, to be
@@ -125,15 +160,19 @@ impl Recorder {
     }
 }
 
-/// What a replay of the recorded steps must show again: the focus, and each
-/// control's tag, place and focus, as the screens drew them.
+/// What a replay of the recorded steps must show again: each control's tag,
+/// place, focus and words, as the screens drew them. The words are in it so
+/// that a change of text alone, a credit count, counts as a change.
 pub fn signature(layers: &[DrawList]) -> Vec<String> {
     let mut lines = Vec::new();
     for list in layers {
         for mark in &list.marks {
             let [left, top, width, height] = mark.rect.map(f32::round);
+            let words: Vec<_> = (mark.words.iter())
+                .map(|words| String::from_utf8_lossy(&words.bytes))
+                .collect();
             lines.push(format!(
-                "{} {left} {top} {width} {height} {} {}",
+                "{} {left} {top} {width} {height} {} {} {words:?}",
                 mark.tag, mark.focused, mark.disabled
             ));
         }

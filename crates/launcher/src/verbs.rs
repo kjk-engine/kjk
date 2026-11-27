@@ -645,7 +645,12 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
         } => {
             if fingerprint || stamp.is_some() {
-                return detail_bake::fingerprint(&discover(), &module, game.as_deref(), stamp.as_deref());
+                return detail_bake::fingerprint(
+                    &discover(),
+                    &module,
+                    game.as_deref(),
+                    stamp.as_deref(),
+                );
             }
             let probe = match probe.as_deref().map(|text| {
                 text.split_whitespace()
@@ -681,7 +686,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     })
                 }
                 Some(_) => {
-                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width");
+                    eprintln!(
+                        "--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width"
+                    );
                     return ExitCode::from(2);
                 }
             };
@@ -709,7 +716,14 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 placeables: placeables || placeable_light,
                 placeable_light,
             };
-            detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
+            detail_bake::run(
+                &discover(),
+                &module,
+                game.as_deref(),
+                &lights,
+                &options,
+                &out,
+            )
         }
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
@@ -1062,9 +1076,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 script,
                 module,
             } => script_verbs::dis(&discover(), &game, &script, module.as_deref()),
-            ScriptVerb::Check { game, unbound } => {
-                script_verbs::check(&discover(), &game, unbound)
-            }
+            ScriptVerb::Check { game, unbound } => script_verbs::check(&discover(), &game, unbound),
             ScriptVerb::Probes => script_verbs::probes(),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
@@ -1191,9 +1203,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 combat_verbs::roster(&discover(), &game, &module)
             }
             CombatVerb::Bodies { game } => combat_verbs::bodies(&discover(), &game),
-            CombatVerb::Feats { game, module } => {
-                feats_verbs::feats(&discover(), &game, &module)
-            }
+            CombatVerb::Feats { game, module } => feats_verbs::feats(&discover(), &game, &module),
             CombatVerb::Fight {
                 game,
                 module,
@@ -1351,7 +1361,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the player's, or a hand card played away) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
+        /// Steps in turn, each `press TAG`, `row TAG N` (a click on row N of a list, from 0), `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the player's, or a hand card played away) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>

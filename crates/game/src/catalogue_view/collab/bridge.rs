@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 const POLL: f32 = 0.1;
 
 pub struct Bridge {
+    /// This catalogue's entry among the pointers, removed when it exits.
+    pointer: PathBuf,
     pub state: PathBuf,
     pub commands: PathBuf,
     pub log: PathBuf,
@@ -29,13 +31,16 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    /// The three files in `folder`, empty, and a pointer to them at
-    /// `pointer`, which the latest run's catalogue overwrites.
-    pub fn open(folder: &Path, pointer: &Path) -> Result<Bridge, String> {
+    /// The three files in `folder`, empty, and a pointer to them in
+    /// `pointers`, a file named for this process. A pointer of a process
+    /// that is gone is removed, as a crash leaves it.
+    pub fn open(folder: &Path, pointers: &Path) -> Result<Bridge, String> {
         let why = |path: &Path, error: std::io::Error| format!("{}: {error}", path.display());
         std::fs::create_dir_all(folder).map_err(|error| why(folder, error))?;
         let folder = std::fs::canonicalize(folder).map_err(|error| why(folder, error))?;
+        let pointer = pointers.join(format!("{}.json", std::process::id()));
         let bridge = Bridge {
+            pointer,
             state: folder.join("state.json"),
             commands: folder.join("commands.txt"),
             log: folder.join("log.jsonl"),
@@ -55,10 +60,10 @@ impl Bridge {
             "log": bridge.log,
             "pid": std::process::id(),
         });
-        if let Some(parent) = pointer.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| why(parent, error))?;
-        }
-        std::fs::write(pointer, paths.to_string() + "\n").map_err(|error| why(pointer, error))?;
+        std::fs::create_dir_all(pointers).map_err(|error| why(pointers, error))?;
+        forget_dead(pointers);
+        std::fs::write(&bridge.pointer, paths.to_string() + "\n")
+            .map_err(|error| why(&bridge.pointer, error))?;
         Ok(bridge)
     }
 
@@ -126,6 +131,36 @@ impl Bridge {
             .and_then(|()| std::fs::rename(&temporary, &self.state));
         if let Err(error) = written {
             bevy::log::warn!(target: "catalogue", "{}: {error}", self.state.display());
+        }
+    }
+}
+
+impl Drop for Bridge {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.pointer);
+    }
+}
+
+/// The pointers in `pointers` whose process is not running any more, taken
+/// away.
+fn forget_dead(pointers: &Path) {
+    use sysinfo::{Pid, ProcessesToUpdate, System};
+    let Ok(entries) = std::fs::read_dir(pointers) else {
+        return;
+    };
+    let mut system = System::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(pid) = (path.file_stem().and_then(|stem| stem.to_str()))
+            .filter(|_| path.extension().is_some_and(|ext| ext == "json"))
+            .and_then(|stem| stem.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let pid = Pid::from_u32(pid);
+        system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+        if system.process(pid).is_none() {
+            let _ = std::fs::remove_file(&path);
         }
     }
 }

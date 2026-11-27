@@ -901,21 +901,32 @@ Running and checking:
 - **Working with the catalogue** (`kjk_game::catalogue_view`, its module
   `collab`). Five things let an agent and the owner work on a story together.
   - **The agent bridge.** When the catalogue starts, it creates three files
-    in the run's folder, under `catalogue/`, and prints their paths. The
-    state file `state.json` is kept up to date while the catalogue runs. The
-    command file `commands.txt` is read by the catalogue about ten times a
-    second. The log `log.jsonl` has one line for each change. The pointer
-    `kjk-artifacts/catalogue-bridge.json` names the three files of the
-    catalogue that started last, so an agent can find a catalogue that the
-    owner opened in a window. The agent never touches that window. It reads
-    the state file and appends lines to the command file.
+    in a folder of its own and prints their paths. The folder is the run's
+    folder, under `catalogue/`, or `kjk-artifacts/catalogue/PID/` when the run
+    has none, with the catalogue's process id, so two catalogues never share
+    a file. The state file `state.json` is kept up to date while the
+    catalogue runs. The command file `commands.txt` is read by the catalogue
+    about ten times a second. The log `log.jsonl` has one line for each
+    change. Each catalogue also writes a pointer, the file
+    `kjk-artifacts/catalogue-bridges/PID.json`, named with its process id. The
+    pointer holds the paths `state`, `commands` and `log` and the `pid`. The
+    catalogue removes its pointer when it exits. When it opens, it also
+    removes the pointers of processes that are not running any more, which a
+    crash leaves behind. An agent that finds one pointer drives that
+    catalogue. An agent that finds several picks the one whose `pid` it
+    started, or whose state file shows the story it wants, and never writes
+    to the others. The agent never touches the window. It reads the state
+    file and appends lines to the command file.
   - **The state file** is one JSON object. The state file is written whole
     and renamed into place, so a reader never sees half of it. It is written
-    again only when something in it changed. Its `revision` counts the
+    again only when something in it changed, and the words of the controls
+    count as something: a credit count that changes alone writes the file
+    again. Its `revision` counts the
     writes. Its fields are `story` (`MODULE/NAME`), `game`, `size`, `device`
     (the size's pixels), `factor`, `mode`, `focus` (the focused control's
     tag), `screens` (the open screens, bottom first), `outlines`,
-    `backdrop`, `recording` (its `steps` so far and the `saved` stories),
+    `backdrop`, `backdrop_still` (`making`, `ready` or `failed: WHY` while the
+    backdrop is `play`, else null), `recording` (its `steps` so far and the `saved` stories),
     `commands_read` (how many command lines the catalogue has read),
     `last_command` (the last line, with `ok` and an `error` when it failed)
     `tree_current` and `tree`. The `tree` is the control tree of a recent
@@ -932,7 +943,7 @@ Running and checking:
     lines that start with `#`. The commands are `open MODULE/STORY`, `size
     NAME`, `mode fit|pixel|seen`, `step STEP` (any step of `Staged::step`, such
     as `step press BTN_GAMEPLAY`), `outlines on|off`, `backdrop
-    plain|stripes` and `save [NAME]`. A command that fails does not stop the
+    plain|stripes|play` and `save [NAME]`. A command that fails does not stop the
     others. The state file's `last_command` and a line of the log with the
     change `refused` say why.
   - **The log** has one JSON object on each line, with `n` (the line's
@@ -952,16 +963,21 @@ Running and checking:
     under the pointer. Typing becomes `type TEXT`. When the pointer moved the
     focus onto a control and a later key depends on it, a `hover TAG` step
     comes first. A step that an agent asked for is recorded too, so the
-    replay matches the screen. Raw key names and pad chords are not
-    recorded, and neither is a click on a row of a list (it is recorded as
-    a press of the whole list). `F11` or LB with the D-pad's down button, or the command `save`,
+    replay matches the screen. A click on a row of a
+    list becomes `row TAG N`, with the tag of the list and the number of
+    the row from 0 that the click moved the list's cursor to, and the step
+    clicks that row again. A raw key, mouse button or pad chord that no
+    key move comes with, such as `MouseBack`, becomes `raw NAME`. A raw name
+    that comes with a key move is not recorded, because the key's own step
+    makes the same move. A click on the main button is never recorded as raw.
+    `F11` or LB with the D-pad's down button, or the command `save`,
     appends the recording to the end of the story file of the open story's
     module, as a new story called `Tryout 2026-11-27 21:04` (UTC). The new story has the open story's screen,
     games, captures and error, and its steps are the open story's steps
     followed by the recorded ones. The owner can rename it in the file
     later. Before it writes the story, the catalogue stages it again from its
-    steps and compares the controls with those on screen (their tags, places
-    and focus). The line of the log for `save` says `replays`. When the replay differs,
+    steps and compares the controls with those on screen (their tags, places,
+    focus and words). The line of the log for `save` says `replays`. When the replay differs,
     nothing is written, and the log's line says the first difference. The recording goes on after a save, and it ends when
     the story opens again. `hover TAG` is a step of `Staged::step` that
     moves the pointer to the middle of a control.
@@ -988,13 +1004,31 @@ Running and checking:
     https://github.com/kjk-engine/roadmap/issues/24 adds the numbers of the
     rules a control breaks.
   - **Backdrops.** `F10` or LB with the D-pad's up button, or `backdrop
-    plain|stripes`, changes the backdrop behind the screens. Plain is black,
-    as the catalogue has always been. Stripes are diagonal bands of two greys,
-    so that the see-through parts of a KOTOR panel show something to judge.
-    A third backdrop, a frame of play, is not there yet. The captures of play
-    hold no pixels, and a picture of a world needs a scene to be loaded, which
-    costs too much for a backdrop. A third entry joins `Backdrop::ALL` in
-    `collab/backdrop.rs` once a still is cheap to get.
+    plain|stripes|play`, changes the backdrop behind the screens. Plain is
+    black, as the catalogue has always been. Stripes are diagonal bands of two
+    greys. Play is a frame of the game world, so that the see-through parts of
+    a KOTOR panel, and a HUD, show what the player sees behind them.
+  - **The still behind the play backdrop** is a picture of the world with
+    the HUD hidden, made by kjk itself. The catalogue runs `kjk play --stage
+    STAGE --headless --size WxH` with `wait world; ui hotkey hide_interface;
+    wait 240f; screenshot still; quit`, where `WxH` is the device's pixels of
+    the chosen size. A thread starts the run, so the catalogue never waits
+    for it. The screens show the plain backdrop until the picture is ready,
+    and the state file's `backdrop_still` says `making`, `ready` or `failed:
+    WHY`. The picture is kept in `kjk-artifacts/catalogue-stills/STAGE-WxH.png`,
+    so each is made once for each stage and size. It is never committed,
+    because it holds the game's art. The stage comes from the start of the
+    name of the story's capture for the game: `endar-spire` is `end_m01aa`,
+    `taris-apartment` is `tar_m02af`, `taris` is `tar_m03ae`, `nar-shaddaa`
+    is `301nar`, `telos` is `202tel` and `floors-stage` is `floors`. A story
+    without a capture of that kind uses `tar_m03ae` on KOTOR 1 and `301nar` on
+    KOTOR 2. The table is `stage_for` in `collab/backdrop.rs`. A still that
+    failed is not tried again until the catalogue starts again. The folder
+    of the failed run stays next to the picture's place, named
+    `making-STAGE-PID`, so that its log can be read. A headless run turns to
+    the play backdrop with the console's `ui raw F10`, pressed twice from
+    plain, and takes its picture with `screenshot` once the state file's
+    `backdrop_still` says `ready`.
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
   2025.10). They hold the screens' palettes, which are the source of the
   colours in the code (the probe `palette_tokens` fails when a palette
