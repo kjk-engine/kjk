@@ -87,6 +87,11 @@ impl Chrome {
         }
     }
 
+    /// The font forgotten: it belongs to assets that were replaced.
+    pub fn forget_font(&mut self) {
+        self.font = None;
+    }
+
     /// Time passed, and what changed since the last frame said in a notice.
     pub fn watch(&mut self, look: Look, dt: f32) {
         if let Some(notice) = &mut self.notice {

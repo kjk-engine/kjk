@@ -277,6 +277,7 @@ impl Catalogue {
     fn replace(&mut self, staged: Staged) {
         self.staged = staged;
         self.assets_replaced += 1;
+        self.chrome.forget_font();
         self.rows = Rows::default();
     }
 
