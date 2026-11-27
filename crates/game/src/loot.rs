@@ -650,12 +650,13 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
     }
 }
 
-/// What became of a console command that changes the game, as the player
-/// reads it.
-const CHEAT_WORDS: [(sim::cheats::Outcome, &str); 7] = {
+/// Why a console command that changes the game was refused, as the player
+/// reads it. The simulation sends no notice for an order carried out
+/// (`Outcome::Done`): the console has already printed what the command
+/// does.
+const CHEAT_WORDS: [(sim::cheats::Outcome, &str); 6] = {
     use sim::cheats::Outcome;
     [
-        (Outcome::Done, "The console command was carried out."),
         (Outcome::Off, "Cheats are off in this game."),
         (
             Outcome::HostOnly,

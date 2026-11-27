@@ -279,9 +279,9 @@ fn arena_words() -> Result<String, String> {
     )
 }
 
-/// Each command that changes the party or the story gives its order. A
-/// command that adds reads the party's amount from the facts and sets the
-/// sum, so an order sent twice does no harm.
+/// Each command that changes the party or the story gives its order.
+/// `givecredits` sends the amount to add. `addexp` reads the party's
+/// experience from the facts and sets the sum.
 fn cheat_orders() -> Result<String, String> {
     let facts = story();
     let cheat = |order: CheatOrder| Ok(vec![Effect::Order(Action::Cheat(order))]);
@@ -305,8 +305,7 @@ fn cheat_orders() -> Result<String, String> {
                 "giveitem nothing",
                 Err("No item has the template \"nothing\".".into()),
             ),
-            ("givecredits 500", cheat(CheatOrder::Credits(600))),
-            ("credits 7", cheat(CheatOrder::Credits(7))),
+            ("givecredits 500", cheat(CheatOrder::Credits(500))),
             ("addexp 100", cheat(CheatOrder::Xp(1100))),
             ("addxp 100", cheat(CheatOrder::Xp(1100))),
             ("addlevel", cheat(CheatOrder::Xp(2500))),

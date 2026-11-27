@@ -7,7 +7,7 @@ use sim::cheats::limits;
 use super::{Ran, order};
 use crate::{Alias, Arg, ArgKind, Facts, Group, Kind, Parsed, Place, Refusal, Spec};
 
-/// An amount of credits or experience that one command adds or sets.
+/// An amount of credits or experience that one command adds.
 const CREDITS: ArgKind = ArgKind::Int {
     min: 0,
     max: limits::CREDITS_MOST as i64,
@@ -44,23 +44,12 @@ pub static SPECS: &[Spec] = &[
         name: "givecredits",
         aliases: &[],
         args: &[Arg::new("AMOUNT", CREDITS)],
-        help: "Adds this many credits to the party's credits.",
+        help: "Adds this many credits to the party's credits, as the original games' givecredits does. The party never has more credits than the console's limit.",
         example: "givecredits 500",
         group: Group::Character,
         place: Place::Game,
         kind: Kind::Cheat,
         run: givecredits,
-    },
-    Spec {
-        name: "credits",
-        aliases: &[],
-        args: &[Arg::new("AMOUNT", CREDITS)],
-        help: "Sets the party's credits to this amount.",
-        example: "credits 10000",
-        group: Group::Character,
-        place: Place::Game,
-        kind: Kind::Cheat,
-        run: credits,
     },
     Spec {
         name: "addexp",
@@ -147,8 +136,7 @@ fn giveitem(parsed: &Parsed, _: &Facts) -> Ran {
     cheat(CheatOrder::Item { template, count }, said)
 }
 
-/// The party's credits or experience, which a command that adds to them
-/// reads.
+/// The party's experience, which a command that adds to it reads.
 fn known(value: Option<i32>, what: &str) -> Result<i64, Refusal> {
     value
         .map(i64::from)
@@ -160,22 +148,11 @@ fn held(amount: i64, most: i32) -> i32 {
     i32::try_from(amount.clamp(0, i64::from(most))).unwrap_or(most)
 }
 
-fn givecredits(parsed: &Parsed, facts: &Facts) -> Ran {
-    let total = held(
-        known(facts.credits, "credits")? + parsed.int(0),
-        limits::CREDITS_MOST,
-    );
+fn givecredits(parsed: &Parsed, _: &Facts) -> Ran {
+    let amount = held(parsed.int(0), limits::CREDITS_MOST);
     cheat(
-        CheatOrder::Credits(total),
-        format!("Setting the party's credits to {total}."),
-    )
-}
-
-fn credits(parsed: &Parsed, _: &Facts) -> Ran {
-    let total = held(parsed.int(0), limits::CREDITS_MOST);
-    cheat(
-        CheatOrder::Credits(total),
-        format!("Setting the party's credits to {total}."),
+        CheatOrder::Credits(amount),
+        format!("Giving the party {amount} credits."),
     )
 }
 

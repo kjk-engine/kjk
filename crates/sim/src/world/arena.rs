@@ -123,9 +123,8 @@ pub(super) fn orders(
             continue;
         };
         if rules.is_none() {
-            let refused = off_arena_refusal(library, view, cheats, *seat, order);
-            super::cheats::tell(out, own, refused.unwrap_or(Outcome::Done));
-            if refused.is_some() {
+            if let Some(refused) = off_arena_refusal(library, view, cheats, *seat, order) {
+                super::cheats::tell(out, own, refused);
                 continue;
             }
             cheats.used = true;

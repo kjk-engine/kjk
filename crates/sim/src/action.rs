@@ -351,15 +351,17 @@ pub enum ArenaOrder {
 }
 
 /// A console order that changes the game (`Action::Cheat`,
-/// `world::cheats`). Each order sets a value and never adds to one, so an
-/// order that arrives twice does no harm.
+/// `world::cheats`). Each order but `Credits` sets a value and never adds
+/// to one, so such an order that arrives twice does no harm. `Credits`
+/// adds, as the original games' `givecredits` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheatOrder {
     /// Who may cheat from now on. Only the first seat may send it.
     Policy(crate::world::cheats::Rule),
     /// `count` of the item of this template added to the party's inventory.
     Item { template: String, count: u16 },
-    /// The party's credits set to this amount.
+    /// This many credits added to the party's credits (taken away when
+    /// negative). The total stays between 0 and the console's limit.
     Credits(i32),
     /// The party's experience set to this total.
     Xp(i32),
