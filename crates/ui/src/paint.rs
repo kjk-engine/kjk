@@ -121,11 +121,17 @@ pub fn bonus_colour(bonus: i32) -> [f32; 3] {
     }
 }
 
+/// KOTOR 2's near-black teal behind a panel's words (`Palette::panel`).
+pub(crate) const TSL_PANEL: [f32; 3] = [0.0, 0.05, 0.045];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
     pub base: [f32; 3],
     pub hilight: [f32; 3],
     pub disabled: [f32; 3],
+    /// The dark fill behind a panel's words: KOTOR 1's navy, KOTOR 2's
+    /// near-black teal.
+    pub panel: [f32; 3],
 }
 
 impl Palette {
@@ -133,11 +139,13 @@ impl Palette {
         base: [0.0, 0.639_216, 0.952_941],
         hilight: [0.980_392, 1.0, 0.0],
         disabled: [0.0, 0.349_02, 0.549_02],
+        panel: [0.0, 0.02, 0.05],
     };
     pub const TSL: Palette = Palette {
         base: [0.192_157, 0.768_627, 0.647_059],
         hilight: [0.768_627, 0.768_627, 0.686_275],
         disabled: [0.513_725, 0.513_725, 0.415_686],
+        panel: TSL_PANEL,
     };
 
     /// The colours of `game`'s own screens.
@@ -835,7 +843,23 @@ impl<'a> Painter<'a> {
         if state.refused {
             return rgba(self.color(Some(RED)), 1.0);
         }
-        rgba(state.tint.unwrap_or_else(|| self.color(base)), 1.0)
+        let color = match state.tint {
+            Some(tint) => self.tint(tint),
+            None => self.color(base),
+        };
+        rgba(color, 1.0)
+    }
+
+    /// A text tint as drawn. A tint that is one of KOTOR 2's interface
+    /// colours (the character screen's plain green, `bonus_colour`) is
+    /// recoloured with the art, as a layout colour is. Any other tint, such
+    /// as a bonus's gold or a penalty's red, is drawn as it is.
+    fn tint(&self, tint: [f32; 3]) -> [f32; 3] {
+        if self.textures.recoloured(self.source) {
+            skin::recolour_palette(tint).unwrap_or(tint)
+        } else {
+            tint
+        }
     }
 
     /// One control as `state` says, without its children.

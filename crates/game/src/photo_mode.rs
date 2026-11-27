@@ -382,6 +382,9 @@ pub struct PhotoMode {
     /// is given none while photo mode is on (`take_keys`).
     keys: Actions,
     shot: Shot,
+    /// The screenshot is taken this frame (`shoots`): the window shows the
+    /// world without the interface for it (`bare_shot`).
+    taking: bool,
     asks: Vec<Ask>,
     /// What a run's commands hold (`ui photo fly`): the move, and the turn
     /// in degrees a second.
@@ -424,11 +427,13 @@ impl PhotoMode {
     /// Whether `report` takes the screenshot now: a screenshot `asked` for
     /// while photo mode is on waits a frame, with the corner line hidden.
     pub(crate) fn shoots(&mut self, asked: bool) -> bool {
+        self.taking = false;
         if self.on.is_none() {
             return asked;
         }
         if self.shot == Shot::Due {
             self.shot = Shot::None;
+            self.taking = true;
             return true;
         }
         if asked {
@@ -960,6 +965,19 @@ pub(crate) fn hide_own(
     *hidden = wanted;
 }
 
+/// The frame a photo mode screenshot is taken of shows the world alone: the
+/// window draws none of the interface over it (`UiComposite::bare`). The
+/// corner line is already hidden for that frame, but the screens' image can
+/// still hold what an earlier frame drew, and a notice or a screen could be
+/// up. Nothing of the interface is in the picture.
+fn bare_shot(photo: Res<PhotoMode>, mut composites: Query<&mut crate::ui_composite::UiComposite>) {
+    for mut composite in &mut composites {
+        if composite.bare != photo.taking {
+            composite.bare = photo.taking;
+        }
+    }
+}
+
 /// Where photo mode reads its controls: after the screens took theirs, and
 /// before the screenshot key is read.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -985,7 +1003,8 @@ impl Plugin for PhotoModePlugin {
                     .run_if(resource_exists::<crate::cast::BodyRoots>)
                     .after(crate::play_view::Drawn)
                     .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
-            );
+            )
+            .add_systems(Update, bare_shot.after(PhotoKeys));
     }
 }
 

@@ -6,7 +6,8 @@
 
 struct CompositeSettings {
     // x: brightness gamma, y: transition progress (< 0.0 when inactive),
-    // z: wipe direction (+1.0 left-to-right, -1.0 right-to-left), w: unused.
+    // z: wipe direction (+1.0 left-to-right, -1.0 right-to-left), w: 1.0
+    // when the screens are left out (a photo mode screenshot), else 0.0.
     params: vec4<f32>,
     // rgb: incoming campaign's accent glow along the wipe edge.
     tint: vec4<f32>,
@@ -46,6 +47,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let envelope = sin(progress * 3.14159265);
         let glow = settings.tint.rgb * band * envelope * 0.38 * max(over.a, 0.25);
         over = vec4(over.rgb + glow, over.a);
+    }
+
+    if settings.params.w > 0.5 {
+        over = vec4(0.0);
     }
 
     let blended = over.rgb + (1.0 - over.a) * below.rgb;
