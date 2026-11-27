@@ -785,9 +785,32 @@ Running and checking:
   out says `"unbraced": true`. The text fields `area` and `name` of a
   save's summary say `"text": true`. A run of bytes is swapped only when
   it has three bytes or more and a letter among them, so pairs of numbers
-  such as a character's health stay as they are. The settings are written
-  as they are. A capture also holds the key bindings of the run. The list
-  of saves on disk is left out, because it names the player's own saves.
+  such as a character's health stay as they are. Three more forms name text
+  that kjk builds from the game's lines.
+  - A line shown from its last " - " on says `"tail": true`. The area
+    transition panel shows "Upper City South" for the line "Taris - Upper
+    City South".
+  - A line that holds a place for a number, such as "Credits Received:
+    <CUSTOM0>", names the line and the digits: `{"$talk": 42437, "custom":
+    "100"}`.
+  - A text made of lines and kjk's own words, such as a line of the
+    messages page's dialog or combat log ("Trask: We've been ambushed"), is
+    written as `{"$parts": [{"$talk": 5549}, ": 7 damage"], "text": true}`.
+    Only the fields `dialog_log` and `combat_log` are written this way, and
+    only a line of four bytes or more, standing as whole words, is named.
+  The writer refuses to write a capture that still holds, in any text, 24
+  bytes of a line of the talk table that it did not name. The settings are
+  written as they are, but for the ones that name the machine
+  (`ui::catalogue::PERSONAL_SETTINGS`: `host.id`, `catalogue.display_density`
+  and `catalogue.distance_cm`). A capture also holds the key bindings of
+  the run. The list of saves on disk is left out, because it names the
+  player's own saves. A field of the view model that holds what an empty
+  view model holds is left out, and a list of numbers or other plain values
+  is written across as few lines as hold it, so that the captures take 2 MB where one line for
+  each number took 15 MB.
+  `kjk gui recapture [NAME…]` writes captures again as the writer writes
+  them now, each read with the talk table of its game. Run it after the
+  writer changes.
   - **Taking one.** The console command `ui capture NAME` writes the view
     model of that moment to `data/ui/captures/NAME.json` in the checkout
     the game was built from. A name is letters, digits, `-` and `_`. It
@@ -1031,12 +1054,15 @@ Running and checking:
     `tree_current` and `tree`. The `tree` is the control tree of a recent
     frame in the format of "Control trees", with one difference: `back` is
     null, because asking what Back does would close a screen. It is built
-    again when the frame's controls change, but at most every 0.4 seconds,
-    because it draws the screens a second time to read the colours behind
-    the words. `tree_current` is true when the tree is of the frame the
-    other fields describe. An agent that needs the tree of a change reads the
-    state file again until `tree_current` is true. The colours of the words
-    can be a moment old while a control's focus pulses.
+    again when the frame's controls have changed and then stayed as they are
+    for 0.3 seconds. It draws the screens a second time to read the colours
+    behind the words, so it is not built while the controls keep changing.
+    The catalogue tells whether the controls changed from a number it works
+    out for each frame, without writing any text for them. `tree_current` is
+    true when the tree is of the frame the other fields describe. An agent
+    that needs the tree of a change reads the state file again until
+    `tree_current` is true. The colours of the words can be a moment old
+    while a control's focus pulses.
   - **The command file** takes one command on each line. The catalogue reads
     a line only when it ends with a newline, and ignores empty lines and
     lines that start with `#`. The commands are `open MODULE/STORY`, `size

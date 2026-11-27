@@ -253,6 +253,16 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
             if stories.iter().any(|story: &Story| story.name == name) {
                 return Err(why(&format!("two stories named {name}")));
             }
+            if let Some(same) = stories
+                .iter()
+                .find(|story: &&Story| slug(&story.name) == slug(&name))
+            {
+                return Err(why(&format!(
+                    "the stories {:?} and {name:?} have the same slug {:?}, so `--story` and the list could not tell them apart",
+                    same.name,
+                    slug(&name)
+                )));
+            }
             stories.push(Story {
                 steps: list(table.get("steps"), "steps")?.unwrap_or_else(Vec::new),
                 error: words(table.get("error"), "error")?,
@@ -310,6 +320,15 @@ pub fn slug(name: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
+/// The settings that tie a capture to the machine it was taken on: the
+/// install's host id, and the display's density and the distance the
+/// owner looks from, which the catalogue keeps for the screen in use.
+pub const PERSONAL_SETTINGS: [&str; 3] = [
+    "host.id",
+    "catalogue.display_density",
+    "catalogue.distance_cm",
+];
+
 /// One moment of play as the UI saw it: its view model, and the window it
 /// was drawn in, in logical pixels. The view model places what follows a
 /// point in the world, such as the floating target block, in shares of the
@@ -349,13 +368,32 @@ impl Capture {
     /// It as a capture file holds it: JSON, laid out for a reader. Each run
     /// of the game's words that `talk` finds in the game's talk table is
     /// written as its line there (`{"$talk": 123}`), so the file holds no
-    /// text of the game's.
+    /// text of the game's. It fails when text is left that holds a stretch
+    /// of a line of the talk table. The settings that name the player's
+    /// machine (`PERSONAL_SETTINGS`) are left out. A field of the view model that holds
+    /// what an empty view model holds is left out.
     pub fn text(&self, talk: &dyn Talk) -> Result<String, String> {
         let mut value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        if let Some(serde_json::Value::Object(settings)) = value.pointer_mut("/view/settings") {
+            settings.retain(|key, _| !PERSONAL_SETTINGS.contains(&key.as_str()));
+        }
         lines_for_words(&mut value, talk);
-        serde_json::to_string_pretty(&value)
-            .map(|text| text + "\n")
-            .map_err(|error| error.to_string())
+        if let Some(text) = quoted(&value, talk, "") {
+            return Err(format!(
+                "the capture holds the game's own words that no line of its talk table names, at {text}"
+            ));
+        }
+        let empty = serde_json::to_value(crate::vm::ViewModel::default())
+            .map_err(|error| error.to_string())?;
+        if let (Some(serde_json::Value::Object(view)), serde_json::Value::Object(empty)) =
+            (value.get_mut("view"), empty)
+        {
+            view.retain(|field, held| empty.get(field) != Some(held));
+        }
+        let mut text = String::new();
+        write_value(&value, 0, &mut text);
+        text.push('\n');
+        Ok(text)
     }
 
     /// A capture file's text, read, each line of the talk table it names
@@ -376,11 +414,14 @@ fn capture_file(folder: &std::path::Path, name: &str) -> std::path::PathBuf {
 /// A line of the game's talk table, as a capture file names it in place of
 /// its words. `unbraced` says that the words are the line's with what it
 /// holds in braces taken out, as the games show it
-/// (`fmt_odyssey::tlk::unbraced`).
+/// (`fmt_odyssey::tlk::unbraced`). `tail` says that the words are what the
+/// line holds after its last " - ", as the area transition panel shows
+/// "Taris - Upper City South" as "Upper City South".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TalkLine {
     pub strref: u32,
     pub unbraced: bool,
+    pub tail: bool,
 }
 
 /// The game's talk table, as captures are written and read with it.
@@ -392,20 +433,58 @@ pub trait Talk {
     /// The code page the words are written in, to read them as text (a
     /// save's area name is held as text).
     fn code_page(&self) -> fmt_odyssey::text::CodePage;
+    /// The line that holds a place for a number (`<CUSTOM0>`) whose words
+    /// are `words` with a number in that place, and the number's digits.
+    fn template_of(&self, _words: &[u8]) -> Option<(TalkLine, Vec<u8>)> {
+        None
+    }
+    /// Whether `words` hold a stretch of a line of the game's own text,
+    /// which a capture file must never keep as it is.
+    fn quotes(&self, _words: &[u8]) -> bool {
+        false
+    }
 }
 
-/// An install's talk table, with its lines looked up by their words.
-pub struct TalkTable<'a> {
-    tlk: &'a fmt_odyssey::tlk::Tlk,
+/// What looking up an install's talk table by words needs, made once from
+/// the table (`TalkTable::with` reuses it, so that a program that stages
+/// many stories does not make it again for each).
+#[derive(Clone)]
+pub struct TalkIndex {
     code_page: fmt_odyssey::text::CodePage,
     lines: std::collections::HashMap<Vec<u8>, TalkLine>,
+    templates: Vec<Template>,
+    /// The first `QUOTED` bytes of each line that long or longer.
+    long: std::collections::HashSet<Vec<u8>>,
 }
 
-impl TalkTable<'_> {
+/// A line with a place for one number (`<CUSTOM0>`): what comes before the
+/// place and what comes after it.
+#[derive(Clone)]
+struct Template {
+    strref: u32,
+    before: Vec<u8>,
+    after: Vec<u8>,
+}
+
+/// The place a line holds for a number that the game fills in.
+const CUSTOM: &[u8] = b"<CUSTOM0>";
+
+/// The most digits a number has in a line with a place for one.
+const MOST_DIGITS: usize = 12;
+
+/// How many bytes of a line's own text a capture may not hold as they are.
+const QUOTED: usize = 24;
+
+/// The separator of an area's place and its name, in the talk table's
+/// names of areas (`Taris - Upper City South`).
+const PLACE_AND_NAME: &[u8] = b" - ";
+
+impl TalkIndex {
     /// `tlk`'s lines by their words. Where two lines have the same words,
     /// the first one is named. A line's own words are found before another
-    /// line's words with braces taken out.
-    pub fn new(tlk: &fmt_odyssey::tlk::Tlk) -> TalkTable<'_> {
+    /// line's words with braces taken out, and those before what a line
+    /// holds after its last " - ".
+    pub fn new(tlk: &fmt_odyssey::tlk::Tlk) -> TalkIndex {
         let entries = (tlk.entries.iter().enumerate())
             .filter_map(|(strref, entry)| Some((u32::try_from(strref).ok()?, entry)))
             .chain(tlk.lent.iter().map(|(strref, entry)| (*strref, entry)));
@@ -414,11 +493,27 @@ impl TalkTable<'_> {
             .map(|(strref, entry)| (strref, entry.text.as_slice()))
             .collect();
         let mut lines = std::collections::HashMap::new();
+        let mut templates = Vec::new();
+        let mut long = std::collections::HashSet::new();
         for &(strref, text) in &texts {
             lines.entry(text.to_vec()).or_insert(TalkLine {
                 strref,
                 unbraced: false,
+                tail: false,
             });
+            if text.len() >= QUOTED {
+                long.insert(text[..QUOTED].to_vec());
+            }
+            if let Some(at) = find(text, CUSTOM)
+                && find(&text[at + CUSTOM.len()..], b"<CUSTOM").is_none()
+                && at >= MIN_WORDS
+            {
+                templates.push(Template {
+                    strref,
+                    before: text[..at].to_vec(),
+                    after: text[at + CUSTOM.len()..].to_vec(),
+                });
+            }
         }
         for &(strref, text) in &texts {
             let shown = fmt_odyssey::tlk::unbraced(text);
@@ -426,33 +521,108 @@ impl TalkTable<'_> {
                 lines.entry(shown).or_insert(TalkLine {
                     strref,
                     unbraced: true,
+                    tail: false,
                 });
             }
         }
-        TalkTable {
-            tlk,
+        for &(strref, text) in &texts {
+            let tail = (0..text.len())
+                .rev()
+                .find(|&at| text[at..].starts_with(PLACE_AND_NAME))
+                .map(|at| &text[at + PLACE_AND_NAME.len()..]);
+            if let Some(tail) = tail.filter(|tail| tail.len() >= MIN_WORDS) {
+                lines.entry(tail.to_vec()).or_insert(TalkLine {
+                    strref,
+                    unbraced: false,
+                    tail: true,
+                });
+            }
+        }
+        TalkIndex {
             code_page: fmt_odyssey::text::CodePage::of(tlk),
             lines,
+            templates,
+            long,
+        }
+    }
+}
+
+/// Where `needle` first is in `hay`.
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// An install's talk table, with its lines looked up by their words.
+pub struct TalkTable<'a> {
+    tlk: &'a fmt_odyssey::tlk::Tlk,
+    index: std::borrow::Cow<'a, TalkIndex>,
+}
+
+impl<'a> TalkTable<'a> {
+    /// `tlk`'s lines by their words (`TalkIndex::new`).
+    pub fn new(tlk: &'a fmt_odyssey::tlk::Tlk) -> TalkTable<'a> {
+        TalkTable {
+            tlk,
+            index: std::borrow::Cow::Owned(TalkIndex::new(tlk)),
+        }
+    }
+
+    /// `tlk` with `index` made from it earlier.
+    pub fn with(tlk: &'a fmt_odyssey::tlk::Tlk, index: &'a TalkIndex) -> TalkTable<'a> {
+        TalkTable {
+            tlk,
+            index: std::borrow::Cow::Borrowed(index),
         }
     }
 }
 
 impl Talk for TalkTable<'_> {
     fn line_of(&self, words: &[u8]) -> Option<TalkLine> {
-        self.lines.get(words).copied()
+        self.index.lines.get(words).copied()
     }
 
     fn words_of(&self, line: TalkLine) -> Option<Vec<u8>> {
         let text = self.tlk.text(line.strref)?;
         Some(if line.unbraced {
             fmt_odyssey::tlk::unbraced(text)
+        } else if line.tail {
+            let at = (0..text.len())
+                .rev()
+                .find(|&at| text[at..].starts_with(PLACE_AND_NAME))?;
+            text[at + PLACE_AND_NAME.len()..].to_vec()
         } else {
             text.to_vec()
         })
     }
 
     fn code_page(&self) -> fmt_odyssey::text::CodePage {
-        self.code_page
+        self.index.code_page
+    }
+
+    fn template_of(&self, words: &[u8]) -> Option<(TalkLine, Vec<u8>)> {
+        self.index.templates.iter().find_map(|template| {
+            let number = words
+                .strip_prefix(template.before.as_slice())?
+                .strip_suffix(template.after.as_slice())?;
+            (!number.is_empty()
+                && number.len() <= MOST_DIGITS
+                && number.iter().all(u8::is_ascii_digit))
+            .then(|| {
+                let line = TalkLine {
+                    strref: template.strref,
+                    unbraced: false,
+                    tail: false,
+                };
+                (line, number.to_vec())
+            })
+        })
+    }
+
+    fn quotes(&self, words: &[u8]) -> bool {
+        words
+            .windows(QUOTED)
+            .any(|window| self.index.long.contains(window))
     }
 }
 
@@ -471,6 +641,7 @@ impl Talk for StandInTalk {
         Some(TalkLine {
             strref: strref.parse().ok()?,
             unbraced,
+            tail: false,
         })
     }
 
@@ -488,19 +659,38 @@ impl Talk for StandInTalk {
 /// Shorter runs, such as a slot's key "1", are left as they are.
 const MIN_WORDS: usize = 3;
 
+/// The fewest bytes of a line that a longer text names (`$parts`), so that
+/// kjk's own short words between them stay as they are.
+const MIN_PART: usize = 4;
+
+/// The fewest bytes of a line that a longer run of bytes names: a line of
+/// the game's with a note of kjk's after it.
+const MIN_LONG_PART: usize = 24;
+
 /// The fields that hold the game's words as text rather than as bytes: a
 /// save's area name and its name. Other text, such as key names, is kjk's.
 const TEXT_FIELDS: [&str; 2] = ["area", "name"];
 
+/// The fields that hold a list of texts that kjk composes from the game's
+/// names and lines with its own words between them ("Trask: We've been
+/// ambushed", "Jedi hit Sith Apprentice: 7 damage"): the messages page's
+/// two logs.
+const COMPOSED_FIELDS: [&str; 2] = ["dialog_log", "combat_log"];
+
 /// The key a capture file names a line of the talk table by.
 const TALK_KEY: &str = "$talk";
+
+/// The key a capture file names a text made of lines of the talk table and
+/// kjk's own words by: the list of them, in order.
+const PARTS_KEY: &str = "$parts";
 
 /// The view model's field written as it is: the game's settings, which
 /// hold no words of the game's and stay readable.
 const PLAIN: &str = "settings";
 
 /// Each run of bytes in `value` (a list of numbers from 0 to 255) whose
-/// words `talk` finds swapped for its line.
+/// words `talk` finds swapped for its line, and each text of a composed
+/// field made of lines.
 fn lines_for_words(value: &mut serde_json::Value, talk: &dyn Talk) {
     use serde_json::Value;
     match value {
@@ -508,11 +698,22 @@ fn lines_for_words(value: &mut serde_json::Value, talk: &dyn Talk) {
             let bytes: Option<Vec<u8>> = (items.iter())
                 .map(|item| item.as_u64().and_then(|byte| u8::try_from(byte).ok()))
                 .collect();
-            let line = bytes
-                .filter(|bytes| words_like(bytes))
-                .and_then(|bytes| talk.line_of(&bytes));
-            match line {
-                Some(line) => *value = named(line, false),
+            let named = bytes.filter(|bytes| words_like(bytes)).and_then(|bytes| {
+                if let Some(line) = talk.line_of(&bytes) {
+                    return Some(named(line, false));
+                }
+                if let Some((line, number)) = talk.template_of(&bytes) {
+                    let mut named = named(line, false);
+                    named["custom"] = Value::String(talk.code_page().readable(&number));
+                    return Some(named);
+                }
+                let parts = parts_of(&bytes, talk, MIN_LONG_PART)?;
+                let mut named = serde_json::Map::new();
+                named.insert(PARTS_KEY.into(), Value::Array(parts));
+                Some(Value::Object(named))
+            });
+            match named {
+                Some(named) => *value = named,
                 None => items
                     .iter_mut()
                     .for_each(|item| lines_for_words(item, talk)),
@@ -531,12 +732,85 @@ fn lines_for_words(value: &mut serde_json::Value, talk: &dyn Talk) {
                             *field = named(line, true);
                         }
                     }
+                    Value::Array(texts) if COMPOSED_FIELDS.contains(&key.as_str()) => {
+                        for text in texts {
+                            if let Some(parts) = composed(text, talk) {
+                                *text = parts;
+                            }
+                        }
+                    }
                     _ => lines_for_words(field, talk),
                 }
             }
         }
         _ => {}
     }
+}
+
+/// The text `value`, when it is a string that holds lines of the talk
+/// table among other words, as the file names it.
+fn composed(value: &serde_json::Value, talk: &dyn Talk) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    let bytes: Vec<u8> = value
+        .as_str()?
+        .chars()
+        .map(|ch| talk.code_page().byte(ch))
+        .collect::<Option<_>>()?;
+    let parts = parts_of(&bytes, talk, MIN_PART)?;
+    let mut named = serde_json::Map::new();
+    named.insert(PARTS_KEY.into(), Value::Array(parts));
+    named.insert("text".into(), true.into());
+    Some(Value::Object(named))
+}
+
+/// `bytes` as the lines of the talk table in it, each at the start of a
+/// word and at the end of one, with the bytes between them. Nothing when
+/// no line is in it.
+fn parts_of(bytes: &[u8], talk: &dyn Talk, least: usize) -> Option<Vec<serde_json::Value>> {
+    use serde_json::Value;
+    let code_page = talk.code_page();
+    let glue_of = |glue: &[u8]| {
+        let readable = glue
+            .iter()
+            .all(|&byte| code_page.byte(code_page.char(byte)) == Some(byte));
+        match readable {
+            true => Value::String(code_page.readable(glue)),
+            false => Value::Array(glue.iter().map(|&byte| byte.into()).collect()),
+        }
+    };
+    let word = |at: usize| bytes.get(at).is_some_and(u8::is_ascii_alphanumeric);
+    let mut parts = Vec::new();
+    let mut glue = Vec::new();
+    let mut named_any = false;
+    let mut at = 0;
+    while at < bytes.len() {
+        let line = (at == 0 || !word(at - 1))
+            .then(|| {
+                (at + least..=bytes.len())
+                    .rev()
+                    .filter(|&end| !word(end))
+                    .find_map(|end| Some((end, talk.line_of(&bytes[at..end])?)))
+            })
+            .flatten();
+        match line {
+            Some((end, line)) => {
+                if !glue.is_empty() {
+                    parts.push(glue_of(&std::mem::take(&mut glue)));
+                }
+                parts.push(named(line, false));
+                named_any = true;
+                at = end;
+            }
+            None => {
+                glue.push(bytes[at]);
+                at += 1;
+            }
+        }
+    }
+    if !glue.is_empty() {
+        parts.push(glue_of(&glue));
+    }
+    named_any.then_some(parts)
 }
 
 /// Whether `bytes` may be words of the game's: at least `MIN_WORDS` of them
@@ -554,43 +828,194 @@ fn named(line: TalkLine, text: bool) -> serde_json::Value {
     if line.unbraced {
         named.insert("unbraced".into(), true.into());
     }
+    if line.tail {
+        named.insert("tail".into(), true.into());
+    }
     if text {
         named.insert("text".into(), true.into());
     }
     serde_json::Value::Object(named)
 }
 
+/// The words that the object `fields`, which names a line of the talk
+/// table, stands for.
+fn words_of_line(
+    fields: &serde_json::Map<String, serde_json::Value>,
+    talk: &dyn Talk,
+) -> Result<Vec<u8>, String> {
+    use serde_json::Value;
+    let strref = fields
+        .get(TALK_KEY)
+        .and_then(Value::as_u64)
+        .ok_or("not a line of the talk table")?;
+    let flag = |name: &str| fields.get(name).and_then(Value::as_bool).unwrap_or(false);
+    let line = TalkLine {
+        strref: u32::try_from(strref).map_err(|_| format!("{strref}: not a line"))?,
+        unbraced: flag("unbraced"),
+        tail: flag("tail"),
+    };
+    let words = talk
+        .words_of(line)
+        .ok_or(format!("line {strref} is not in this install's talk table"))?;
+    let Some(custom) = fields.get("custom").and_then(Value::as_str) else {
+        return Ok(words);
+    };
+    let at = find(&words, CUSTOM).ok_or(format!("line {strref} has no place for a number"))?;
+    let mut filled = words[..at].to_vec();
+    filled.extend(custom.bytes());
+    filled.extend_from_slice(&words[at + CUSTOM.len()..]);
+    Ok(filled)
+}
+
 /// Each line of the talk table `value` names swapped back for its words.
 fn words_for_lines(value: &mut serde_json::Value, talk: &dyn Talk) -> Result<(), String> {
     use serde_json::Value;
     match value {
-        Value::Object(fields) => match fields.get(TALK_KEY).and_then(Value::as_u64) {
-            Some(strref) => {
-                let line = TalkLine {
-                    strref: u32::try_from(strref).map_err(|_| format!("{strref}: not a line"))?,
-                    unbraced: fields
-                        .get("unbraced")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                };
-                let words = talk
-                    .words_of(line)
-                    .ok_or(format!("line {strref} is not in this install's talk table"))?;
-                *value = if fields.get("text").and_then(Value::as_bool).unwrap_or(false) {
-                    Value::String(talk.code_page().readable(&words))
-                } else {
-                    Value::Array(words.into_iter().map(Value::from).collect())
-                };
-                Ok(())
+        Value::Object(fields) => {
+            let words = if let Some(parts) = fields.get(PARTS_KEY) {
+                let parts = parts.as_array().ok_or("$parts is not a list")?;
+                let mut words = Vec::new();
+                for part in parts {
+                    match part {
+                        Value::String(text) => {
+                            for ch in text.chars() {
+                                let byte = talk.code_page().byte(ch);
+                                words.push(byte.ok_or(format!("{ch:?}: not in the code page"))?);
+                            }
+                        }
+                        Value::Array(bytes) => words.extend(
+                            bytes
+                                .iter()
+                                .filter_map(|byte| u8::try_from(byte.as_u64()?).ok()),
+                        ),
+                        Value::Object(line) => words.extend(words_of_line(line, talk)?),
+                        _ => return Err("a part of $parts is not text or a line".into()),
+                    }
+                }
+                Some(words)
+            } else if fields.contains_key(TALK_KEY) {
+                Some(words_of_line(fields, talk)?)
+            } else {
+                None
+            };
+            match words {
+                Some(words) => {
+                    let text = fields.get("text").and_then(Value::as_bool).unwrap_or(false);
+                    *value = if text {
+                        Value::String(talk.code_page().readable(&words))
+                    } else {
+                        Value::Array(words.into_iter().map(Value::from).collect())
+                    };
+                    Ok(())
+                }
+                None => fields
+                    .values_mut()
+                    .try_for_each(|field| words_for_lines(field, talk)),
             }
-            None => fields
-                .values_mut()
-                .try_for_each(|field| words_for_lines(field, talk)),
-        },
+        }
         Value::Array(items) => items
             .iter_mut()
             .try_for_each(|item| words_for_lines(item, talk)),
         _ => Ok(()),
+    }
+}
+
+/// The first text in `value` that holds a stretch of the game's own text
+/// that no line of the talk table names, as `where` says.
+fn quoted(value: &serde_json::Value, talk: &dyn Talk, at: &str) -> Option<String> {
+    use serde_json::Value;
+    let shown = |bytes: &[u8]| talk.code_page().readable(&bytes[..bytes.len().min(60)]);
+    match value {
+        Value::String(text) => {
+            let bytes: Vec<u8> = text
+                .chars()
+                .filter_map(|ch| talk.code_page().byte(ch))
+                .collect();
+            talk.quotes(&bytes)
+                .then(|| format!("{at}: {}", shown(&bytes)))
+        }
+        Value::Array(items) => {
+            let bytes: Option<Vec<u8>> = (items.iter())
+                .map(|item| item.as_u64().and_then(|byte| u8::try_from(byte).ok()))
+                .collect();
+            match bytes {
+                Some(bytes) if !bytes.is_empty() => talk
+                    .quotes(&bytes)
+                    .then(|| format!("{at}: {}", shown(&bytes))),
+                _ => items
+                    .iter()
+                    .enumerate()
+                    .find_map(|(n, item)| quoted(item, talk, &format!("{at}/{n}"))),
+            }
+        }
+        Value::Object(fields) => fields
+            .iter()
+            .filter(|(key, _)| *key != PLAIN)
+            .find_map(|(key, field)| quoted(field, talk, &format!("{at}/{key}"))),
+        _ => None,
+    }
+}
+
+/// `value` written for a reader: an object a line a field, and a list of
+/// numbers or other plain values across as few lines as hold them.
+fn write_value(value: &serde_json::Value, indent: usize, out: &mut String) {
+    use serde_json::Value;
+    const WIDTH: usize = 100;
+    let pad = |depth: usize| "  ".repeat(depth);
+    let plain = |value: &Value| !matches!(value, Value::Array(_) | Value::Object(_));
+    match value {
+        Value::Object(fields) if fields.is_empty() => out.push_str("{}"),
+        Value::Object(fields) => {
+            out.push_str("{\n");
+            for (at, (key, field)) in fields.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                out.push_str(&Value::String(key.clone()).to_string());
+                out.push_str(": ");
+                write_value(field, indent + 1, out);
+                out.push_str(if at + 1 < fields.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&pad(indent));
+            out.push('}');
+        }
+        Value::Array(items) if items.is_empty() => out.push_str("[]"),
+        Value::Array(items) if items.iter().all(plain) => {
+            let shown: Vec<String> = items.iter().map(Value::to_string).collect();
+            let line = format!("[{}]", shown.join(", "));
+            if indent * 2 + line.len() <= WIDTH {
+                out.push_str(&line);
+                return;
+            }
+            out.push_str("[\n");
+            let mut row = pad(indent + 1);
+            for (at, item) in shown.iter().enumerate() {
+                let last = at + 1 == shown.len();
+                let piece = format!("{item}{}", if last { "" } else { "," });
+                if !row.trim().is_empty() && row.len() + piece.len() + 1 > WIDTH {
+                    out.push_str(row.trim_end());
+                    out.push('\n');
+                    row = pad(indent + 1);
+                }
+                if !row.trim().is_empty() {
+                    row.push(' ');
+                }
+                row.push_str(&piece);
+            }
+            out.push_str(&row);
+            out.push('\n');
+            out.push_str(&pad(indent));
+            out.push(']');
+        }
+        Value::Array(items) => {
+            out.push_str("[\n");
+            for (at, item) in items.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                write_value(item, indent + 1, out);
+                out.push_str(if at + 1 < items.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&pad(indent));
+            out.push(']');
+        }
+        other => out.push_str(&other.to_string()),
     }
 }
 

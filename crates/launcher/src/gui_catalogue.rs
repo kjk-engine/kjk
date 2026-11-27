@@ -226,6 +226,64 @@ pub fn layout_text(discovery: &Discovery, game: &str, name: &str) -> ExitCode {
     })())
 }
 
+/// The captures of play named in `names`, or all of them, read and written
+/// again by the writer as it is now (docs/UI.md, "Captures of play"), each
+/// with the talk table of the game it was taken in.
+pub fn recapture(discovery: &Discovery, names: Vec<String>) -> ExitCode {
+    finish((|| {
+        let folder = ui::catalogue::captures();
+        let names = if names.is_empty() {
+            let mut all: Vec<String> = std::fs::read_dir(&folder)
+                .map_err(|error| format!("{}: {error}", folder.display()))?
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    (path.extension()? == "json")
+                        .then(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+                        .flatten()
+                })
+                .collect();
+            all.sort();
+            all
+        } else {
+            names
+        };
+        let mut opened: std::collections::HashMap<String, ui::assets::GuiAssets> =
+            std::collections::HashMap::new();
+        let mut failed = Vec::new();
+        for name in &names {
+            let result = (|| {
+                let path = folder.join(format!("{name}.json"));
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let key = serde_json::from_str::<serde_json::Value>(&text)
+                    .map_err(|error| error.to_string())?["game"]
+                    .as_str()
+                    .ok_or("no game")?
+                    .to_string();
+                if !opened.contains_key(&key) {
+                    let game = Game::from_key(&key).ok_or(format!("{key}: no such game"))?;
+                    opened.insert(key.clone(), ui::assets::GuiAssets::open(discovery, game)?);
+                }
+                let assets = &opened[&key];
+                let tlk = assets.talk().ok_or("no talk table")?;
+                let talk = ui::catalogue::TalkTable::new(tlk);
+                let capture = ui::catalogue::read_capture(&folder, name, &talk)?;
+                ui::catalogue::write_capture(&folder, name, &capture, &talk)?;
+                Ok::<(), String>(())
+            })();
+            match result {
+                Ok(()) => outln!("{name}"),
+                Err(why) => failed.push(format!("{name}: {why}")),
+            }
+        }
+        match failed.is_empty() {
+            true => Ok(()),
+            false => Err(failed.join("\n")),
+        }
+    })())
+}
+
 /// What the layouts of each install use, counted: how many layouts, the
 /// controls of each kind, the controls that write in each font and in
 /// each colour, and the controls that draw each border texture. It is

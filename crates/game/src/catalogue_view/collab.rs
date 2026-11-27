@@ -10,7 +10,6 @@ mod outline;
 mod record;
 mod reload;
 
-use std::borrow::Cow;
 
 use bevy::prelude::*;
 use serde_json::{Value, json};
@@ -25,10 +24,11 @@ use bridge::Bridge;
 use record::Recorder;
 use reload::Watch;
 
-/// The soonest the control tree is built again while the screens change, in
-/// seconds. It draws the screens a second time to read the colours behind
-/// the words.
-const TREE_EVERY: f32 = 0.4;
+/// How long the controls must stay as they are, in seconds, before the
+/// control tree is built for them. The tree draws the screens a second
+/// time to read the colours behind the words, so it is not built while the
+/// controls keep changing.
+const TREE_SETTLE: f32 = 0.3;
 
 /// What the catalogue showed when the log last looked, to log what changed.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -57,10 +57,13 @@ pub struct Collab {
     /// nothing was asked this frame.
     pub source: &'static str,
     seen: Seen,
-    /// The control tree of the frame it was built for, as that frame's
-    /// controls were: their tags, places, focus and words.
-    tree: Option<(Vec<String>, Value)>,
-    tree_age: f32,
+    /// The control tree of the frame it was built for, with the
+    /// fingerprint of that frame's controls (`record::fingerprint`).
+    tree: Option<(u64, Value)>,
+    /// The fingerprint of the controls last frame, and how many seconds
+    /// they have been as they are.
+    tree_print: u64,
+    tree_settled: f32,
     /// What the state file holds besides its revision and its tree, and the
     /// version of the tree it holds.
     written: Option<(Value, u64)>,
@@ -96,7 +99,8 @@ impl Collab {
             source: "",
             seen: Seen::default(),
             tree: None,
-            tree_age: TREE_EVERY,
+            tree_print: 0,
+            tree_settled: 0.0,
             written: None,
             tree_version: 0,
             revision: 0,
@@ -281,7 +285,7 @@ fn open(cat: &mut Catalogue, wanted: &str) -> Result<(), String> {
         story: story.clone(),
         ..cat.start.clone()
     };
-    let staged = Catalogue::stage(&cat.discovery, &start, cat.size())?;
+    let staged = cat.restage(&start, &[], false)?;
     cat.replace(staged);
     cat.start = start;
     cat.reopen_failed = false;
@@ -326,10 +330,8 @@ fn reload(cat: &mut Catalogue, changed: &[String]) {
             story,
             ..cat.start.clone()
         };
-        let mut staged = Catalogue::stage(&cat.discovery, &start, cat.size())?;
-        for step in &cat.collab.recorder.steps {
-            staged.step(&cat.discovery, step)?;
-        }
+        let steps = cat.collab.recorder.steps.clone();
+        let staged = cat.restage(&start, &steps, false)?;
         Ok((start, staged))
     });
     match result {
@@ -438,7 +440,7 @@ pub fn end(cat: &mut Catalogue, input: &UiInput, dt: f32) {
             );
         }
     }
-    cat.collab.tree_age += dt;
+    cat.collab.tree_settled += dt;
     log_changes(cat);
     cat.collab.source = "";
     publish(cat);
@@ -489,17 +491,21 @@ fn log_changes(cat: &mut Catalogue) {
     }
 }
 
-/// The control tree of the frame is built when the frame's controls changed,
-/// and no oftener than `TREE_EVERY`. Whether the tree is of this frame.
+/// The control tree of the frame is built when the frame's controls changed
+/// and have stayed as they are for `TREE_SETTLE` seconds. Whether the tree
+/// is of this frame.
 fn tree(cat: &mut Catalogue) -> bool {
-    let mut signature = record::signature(&cat.layers);
-    signature.push(format!("{} {}", cat.size().name, cat.layers.len()));
+    let print = record::fingerprint(&cat.layers, (cat.size().name, cat.layers.len()));
+    if print != cat.collab.tree_print {
+        cat.collab.tree_print = print;
+        cat.collab.tree_settled = 0.0;
+    }
     let fresh = cat
         .collab
         .tree
         .as_ref()
-        .is_some_and(|(seen, _)| *seen == signature);
-    if !fresh && (cat.collab.tree.is_none() || cat.collab.tree_age >= TREE_EVERY) {
+        .is_some_and(|(seen, _)| *seen == print);
+    if !fresh && (cat.collab.tree.is_none() || cat.collab.tree_settled >= TREE_SETTLE) {
         let size = cat.size();
         let layers: Vec<crate::gui_tree::Layer<'_>> = (cat.names.iter().zip(&cat.layers))
             .map(|((screen, layout), list)| crate::gui_tree::Layer {
@@ -524,8 +530,7 @@ fn tree(cat: &mut Catalogue) -> bool {
             (&links, cat.staged.stack.focused()),
             Value::Null,
         );
-        cat.collab.tree = Some((signature, tree));
-        cat.collab.tree_age = 0.0;
+        cat.collab.tree = Some((print, tree));
         cat.collab.tree_version += 1;
         return true;
     }
@@ -585,22 +590,39 @@ fn publish(cat: &mut Catalogue) {
 }
 
 /// What the screens' image is drawn from: the screens, with the backdrop
-/// under them and the outlines over them when those are on.
-pub fn composed(cat: &Catalogue) -> Cow<'_, [DrawList]> {
-    let collab = &cat.collab;
-    if collab.backdrop == Backdrop::Plain && !collab.outlines {
-        return Cow::Borrowed(&cat.layers);
+/// under them and the outlines over them when those are on. The screens'
+/// own lists are borrowed, not copied, so a frame with the outlines on
+/// copies nothing of them.
+pub struct Composed<'a> {
+    under: Option<DrawList>,
+    layers: &'a [DrawList],
+    over: Option<DrawList>,
+}
+
+impl Composed<'_> {
+    /// The lists, bottom first.
+    pub fn lists(&self) -> Vec<&DrawList> {
+        (self.under.iter())
+            .chain(self.layers)
+            .chain(self.over.iter())
+            .collect()
     }
+}
+
+pub fn composed(cat: &Catalogue) -> Composed<'_> {
+    let collab = &cat.collab;
     let size = cat.size();
     let window = size.window();
-    let mut lists = Vec::new();
-    lists.extend(collab.backdrop.list(window));
-    lists.extend(cat.layers.iter().cloned());
-    if collab.outlines {
+    let under = collab.backdrop.list(window);
+    let over = collab.outlines.then(|| {
         let pixel = 1.0 / (cat.placement.scale * size.factor).max(0.01);
-        lists.push(outline::list(&cat.layers, window, pixel));
+        outline::list(&cat.layers, window, pixel)
+    });
+    Composed {
+        under,
+        layers: &cat.layers,
+        over,
     }
-    Cow::Owned(lists)
 }
 
 /// The still of the game world that the play backdrop needs, asked for

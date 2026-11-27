@@ -180,6 +180,28 @@ pub fn signature(layers: &[DrawList]) -> Vec<String> {
     lines
 }
 
+/// A number that is the same for two frames when `signature` is, which
+/// takes no text made for each control: it is read every frame to know
+/// whether the control tree is out of date. `extra` is anything else the
+/// frame depends on.
+pub fn fingerprint(layers: &[DrawList], extra: (&str, usize)) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    extra.hash(&mut hasher);
+    for list in layers {
+        list.marks.len().hash(&mut hasher);
+        for mark in &list.marks {
+            mark.tag.hash(&mut hasher);
+            mark.rect.map(|edge| edge.round() as i64).hash(&mut hasher);
+            (mark.focused, mark.disabled).hash(&mut hasher);
+            for words in &mark.words {
+                words.bytes.hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
 /// The text of a story that starts as `from` does and then takes `steps`,
 /// to append to the story file.
 pub fn story_text(name: &str, from: &ui::catalogue::Story, steps: &[String]) -> String {
@@ -189,6 +211,12 @@ pub fn story_text(name: &str, from: &ui::catalogue::Story, steps: &[String]) -> 
             match ch {
                 '"' => out.push_str("\\\""),
                 '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                control if control.is_control() => {
+                    out.push_str(&format!("\\u{:04X}", u32::from(control)))
+                }
                 other => out.push(other),
             }
         }

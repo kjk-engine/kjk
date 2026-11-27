@@ -810,6 +810,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             GuiVerb::LayoutText { game, name } => {
                 gui_catalogue::layout_text(&discover(), &game, &name)
             }
+            GuiVerb::Recapture { names } => gui_catalogue::recapture(&discover(), names),
             GuiVerb::List { json } => gui_catalogue::list(json),
             GuiVerb::Show { module } => gui_catalogue::show(&module),
             GuiVerb::Story {
@@ -1454,6 +1455,12 @@ pub(crate) enum GuiVerb {
         /// Output folder; defaults to kjk-artifacts/gui/<game>
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+    /// Write the captures of play in data/ui/captures again, as the writer
+    /// writes them now, each read with its game's talk table
+    Recapture {
+        /// The captures' names; all of them by default
+        names: Vec<String>,
     },
 }
 

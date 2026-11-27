@@ -3,42 +3,11 @@
   "scale_factor": 1.0,
   "view": {
     "antialias": [
-      "1",
-      "2",
-      "4",
-      "taa",
-      "taa_quality",
-      "taa_balanced",
-      "taa_performance",
+      "1", "2", "4", "taa", "taa_quality", "taa_balanced", "taa_performance",
       "taa_ultra_performance"
     ],
-    "arena": null,
-    "arena_panel": null,
-    "baked_lighting": false,
-    "bar_setup": null,
-    "bark": null,
-    "block_reticle": null,
-    "calls": {
-      "banner": null,
-      "button": "Break"
-    },
-    "camera_feed": false,
-    "campaigns": [
-      "k1",
-      "tsl"
-    ],
-    "character": null,
-    "chargen": null,
-    "combat_log": [],
-    "computer": null,
-    "credits": [],
+    "campaigns": ["k1", "tsl"],
     "crosshair": true,
-    "dialog": null,
-    "dialog_log": [],
-    "displays": [],
-    "feedback": [],
-    "floaties": [],
-    "galaxy": null,
     "here": {
       "area": {
         "$talk": 35782,
@@ -53,7 +22,6 @@
       },
       "when": ""
     },
-    "hitmark": null,
     "hud": {
       "bar": [
         {
@@ -63,9 +31,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              49
-            ]
+            "words": [49]
           },
           "kinds": 0,
           "lit": false
@@ -77,9 +43,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              50
-            ]
+            "words": [50]
           },
           "kinds": 0,
           "lit": false
@@ -91,9 +55,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              51
-            ]
+            "words": [51]
           },
           "kinds": 0,
           "lit": false
@@ -105,9 +67,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              52
-            ]
+            "words": [52]
           },
           "kinds": 0,
           "lit": false
@@ -119,9 +79,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              53
-            ]
+            "words": [53]
           },
           "kinds": 0,
           "lit": false
@@ -133,9 +91,7 @@
           "icon": null,
           "key": {
             "badge": null,
-            "words": [
-              54
-            ]
+            "words": [54]
           },
           "kinds": 0,
           "lit": false
@@ -146,338 +102,40 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        12,
-        12
-      ],
+      "fp": [0, 0],
+      "hp": [12, 12],
       "lit": [],
       "minimap": {
-        "at": [
-          0.47621864080429077,
-          0.8329052925109863
-        ],
+        "at": [0.47621864080429077, 0.8329052925109863],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24, 13],
           "explored": [
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
-            true,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
-            true,
-            true,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
-            true,
-            true,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false, false, true, true,
+            true, true, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, true, true, true, true,
+            true, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, true, true, true, true, true,
+            false, false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, true, true, true, false, false,
+            false, false, false, false, false, false, false
           ]
         },
         "picture": "lbl_mapm02aa",
@@ -489,7 +147,6 @@
       "solo": false,
       "stealth": false
     },
-    "journal": [],
     "keys": [
       {
         "action": "forward",
@@ -531,9 +188,7 @@
         "key": "KeyC",
         "label": "Crouch",
         "movement": true,
-        "shares": [
-          "leave_talk"
-        ]
+        "shares": ["leave_talk"]
       },
       {
         "action": "walk",
@@ -554,20 +209,14 @@
         "key": "MouseRight",
         "label": "Alt attack",
         "movement": false,
-        "shares": [
-          "block",
-          "aim"
-        ]
+        "shares": ["block", "aim"]
       },
       {
         "action": "aim",
         "key": "MouseRight",
         "label": "Aim",
         "movement": false,
-        "shares": [
-          "alt_attack",
-          "block"
-        ]
+        "shares": ["alt_attack", "block"]
       },
       {
         "action": "use",
@@ -588,10 +237,7 @@
         "key": "KeyL",
         "label": "Saber style",
         "movement": false,
-        "shares": [
-          "leave_talk",
-          "orbit"
-        ]
+        "shares": ["leave_talk", "orbit"]
       },
       {
         "action": "next_feat",
@@ -696,10 +342,7 @@
         "key": "MouseRight",
         "label": "Block (Advanced rules)",
         "movement": false,
-        "shares": [
-          "alt_attack",
-          "aim"
-        ]
+        "shares": ["alt_attack", "aim"]
       },
       {
         "action": "kick",
@@ -839,9 +482,7 @@
         "key": "KeyN",
         "label": "Follow the next (watching)",
         "movement": false,
-        "shares": [
-          "end_call"
-        ]
+        "shares": ["end_call"]
       },
       {
         "action": "break",
@@ -855,9 +496,7 @@
         "key": "KeyY",
         "label": "Ready to go",
         "movement": false,
-        "shares": [
-          "accept_call"
-        ]
+        "shares": ["accept_call"]
       },
       {
         "action": "view",
@@ -892,9 +531,7 @@
         "key": "AltLeft",
         "label": "Look around (hold)",
         "movement": false,
-        "shares": [
-          "saber_style"
-        ]
+        "shares": ["saber_style"]
       },
       {
         "action": "swap_shoulder",
@@ -915,28 +552,21 @@
         "key": "KeyL",
         "label": "Leave a conversation",
         "movement": false,
-        "shares": [
-          "saber_style",
-          "crouch"
-        ]
+        "shares": ["saber_style", "crouch"]
       },
       {
         "action": "accept_call",
         "key": "KeyY",
         "label": "Accept a join request",
         "movement": false,
-        "shares": [
-          "ready"
-        ]
+        "shares": ["ready"]
       },
       {
         "action": "end_call",
         "key": "KeyN",
         "label": "End a join request",
         "movement": false,
-        "shares": [
-          "follow"
-        ]
+        "shares": ["follow"]
       },
       {
         "action": "report",
@@ -953,15 +583,7 @@
         "shares": []
       }
     ],
-    "levelup": null,
     "load_in_play": true,
-    "lobby": null,
-    "loot": null,
-    "lost": null,
-    "map": null,
-    "melee_out": false,
-    "movie_duels": false,
-    "movie_duels_incomplete": false,
     "new_game": {
       "area": {
         "$talk": 10221,
@@ -973,7 +595,6 @@
       "name": "",
       "when": ""
     },
-    "overhead": [],
     "pad_keys": [
       {
         "action": "jump",
@@ -987,9 +608,7 @@
         "key": "East",
         "label": "Crouch",
         "movement": true,
-        "shares": [
-          "leave_talk"
-        ]
+        "shares": ["leave_talk"]
       },
       {
         "action": "attack",
@@ -1003,20 +622,14 @@
         "key": "LeftTrigger2",
         "label": "Alt attack",
         "movement": false,
-        "shares": [
-          "block",
-          "aim"
-        ]
+        "shares": ["block", "aim"]
       },
       {
         "action": "aim",
         "key": "LeftTrigger2",
         "label": "Aim",
         "movement": false,
-        "shares": [
-          "alt_attack",
-          "block"
-        ]
+        "shares": ["alt_attack", "block"]
       },
       {
         "action": "use",
@@ -1037,10 +650,7 @@
         "key": "RightThumb",
         "label": "Saber style",
         "movement": false,
-        "shares": [
-          "leave_talk",
-          "orbit"
-        ]
+        "shares": ["leave_talk", "orbit"]
       },
       {
         "action": "next_feat",
@@ -1145,10 +755,7 @@
         "key": "LeftTrigger",
         "label": "Block (Advanced rules)",
         "movement": false,
-        "shares": [
-          "alt_attack",
-          "aim"
-        ]
+        "shares": ["alt_attack", "aim"]
       },
       {
         "action": "kick",
@@ -1288,9 +895,7 @@
         "key": "LB+RightThumb",
         "label": "Follow the next (watching)",
         "movement": false,
-        "shares": [
-          "end_call"
-        ]
+        "shares": ["end_call"]
       },
       {
         "action": "break",
@@ -1304,9 +909,7 @@
         "key": "LB+Select",
         "label": "Ready to go",
         "movement": false,
-        "shares": [
-          "accept_call"
-        ]
+        "shares": ["accept_call"]
       },
       {
         "action": "view",
@@ -1341,9 +944,7 @@
         "key": "RightThumb",
         "label": "Look around (hold)",
         "movement": false,
-        "shares": [
-          "saber_style"
-        ]
+        "shares": ["saber_style"]
       },
       {
         "action": "swap_shoulder",
@@ -1364,28 +965,21 @@
         "key": "East",
         "label": "Leave a conversation",
         "movement": false,
-        "shares": [
-          "saber_style",
-          "crouch"
-        ]
+        "shares": ["saber_style", "crouch"]
       },
       {
         "action": "accept_call",
         "key": "LB+Select",
         "label": "Accept a join request",
         "movement": false,
-        "shares": [
-          "ready"
-        ]
+        "shares": ["ready"]
       },
       {
         "action": "end_call",
         "key": "LB+RightThumb",
         "label": "End a join request",
         "movement": false,
-        "shares": [
-          "follow"
-        ]
+        "shares": ["follow"]
       },
       {
         "action": "report",
@@ -1404,78 +998,24 @@
     ],
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South", "A"],
+      ["East", "B"],
+      ["West", "X"],
+      ["North", "Y"],
+      ["LeftTrigger", "LB"],
+      ["RightTrigger", "RB"],
+      ["LeftTrigger2", "LT"],
+      ["RightTrigger2", "RT"],
+      ["Select", "View"],
+      ["Start", "Menu"],
+      ["LeftThumb", "LS"],
+      ["RightThumb", "RS"],
+      ["DPadUp", "Up"],
+      ["DPadDown", "Down"],
+      ["DPadLeft", "Left"],
+      ["DPadRight", "Right"],
+      ["Mode", "Guide"]
     ],
-    "pad_playing": false,
-    "pages": [],
-    "pages_datapad": false,
     "party": [
       {
         "busy": null,
@@ -1483,14 +1023,8 @@
         "debilitated": false,
         "dresses": true,
         "effects": [],
-        "fp": [
-          120,
-          120
-        ],
-        "hp": [
-          12,
-          12
-        ],
+        "fp": [120, 120],
+        "hp": [12, 12],
         "id": 0,
         "level": 1,
         "may_level": false,
@@ -1500,13 +1034,6 @@
         "portrait": "po_pmha1"
       }
     ],
-    "party_selection": null,
-    "pazaak": null,
-    "perfect_mark": false,
-    "players": [],
-    "requests": null,
-    "reticle": null,
-    "saves": [],
     "session": {
       "campaign": null,
       "error": null,
@@ -1567,7 +1094,6 @@
       "game.saber_rules": "ja",
       "game.show_replies": "true",
       "game.stance_sets": "true",
-      "host.id": "e48d10752e710558",
       "key.abilities": "KeyK",
       "key.accept_call": "KeyY",
       "key.aim": "MouseRight",
@@ -1700,9 +1226,6 @@
       "sound.music": "1.00",
       "sound.voice": "1.00"
     },
-    "stances": [],
-    "store": null,
-    "summaries": [],
     "target": {
       "actions": [
         {
@@ -1720,42 +1243,17 @@
         "$talk": 35834
       },
       "point": {
-        "at": [
-          0.3662740886211395,
-          0.6495876908302307
-        ],
+        "at": [0.3662740886211395, 0.6495876908302307],
         "behind": false
       },
       "poisoned": false,
       "progress": null,
       "selected": 0
     },
-    "transition": [
-      85,
-      112,
-      112,
-      101,
-      114,
-      32,
-      67,
-      105,
-      116,
-      121,
-      32,
-      83,
-      111,
-      117,
-      116,
-      104
-    ],
-    "ultra_shadows": false,
-    "upgrades": [],
-    "viewed": 0,
-    "wheel": null,
-    "workbench": null
+    "transition": {
+      "$talk": 35838,
+      "tail": true
+    }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0, 1080.0]
 }

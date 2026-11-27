@@ -38,7 +38,7 @@ mod collab;
 use crate::lifecycle_view::OverlayCamera;
 use crate::scene::FrameSize;
 use crate::sound::{Added, Now};
-use crate::story_stage::{Staged, stage};
+use crate::story_stage::{Kept, Staged, stage_with};
 use crate::ui_input::{Held, gather};
 use crate::ui_material::{UiMaterial, UiMaterialPlugin, UiParams};
 use crate::ui_sounds::Rows;
@@ -212,11 +212,13 @@ struct Catalogue {
     reopen_failed: bool,
     /// The screen is the list of stories, not a story.
     listing: bool,
-    /// How many times the staged screens were replaced by ones with assets
-    /// of their own.
+    /// How many times the staged screens were replaced by ones with other
+    /// assets than the ones before.
     assets_replaced: u32,
     /// kjk's overrides of KOTOR's layouts are applied (`ui::layout_files`).
     overrides: bool,
+    /// The assets of each game shown, kept for the next story of the game.
+    kept: Kept,
 }
 
 impl Catalogue {
@@ -232,9 +234,9 @@ impl Catalogue {
             .position(|size| size.name == start.size)
             .ok_or(format!("{}: no such size", start.size))?;
         let staged = if start.list {
-            Catalogue::stage_list(&discovery, start, SIZES[size])?
+            Catalogue::stage_list(None, &discovery, start, SIZES[size])?
         } else {
-            Catalogue::stage(&discovery, start, SIZES[size])?
+            Catalogue::stage(None, &discovery, start, SIZES[size])?
         };
         let window = SIZES[size].window();
         let mut catalogue = Catalogue {
@@ -269,6 +271,7 @@ impl Catalogue {
             listing: start.list,
             assets_replaced: 0,
             overrides,
+            kept: Kept::default(),
         };
         catalogue.apply_overrides();
         catalogue.placement = catalogue.placed();
@@ -276,13 +279,19 @@ impl Catalogue {
     }
 
     /// The story opened with its steps taken, in the window of `size`.
-    fn stage(discovery: &vfs::Discovery, start: &Start, size: Size) -> Result<Staged, String> {
+    fn stage(
+        kept: Option<&mut Kept>,
+        discovery: &vfs::Discovery,
+        start: &Start,
+        size: Size,
+    ) -> Result<Staged, String> {
         let story = &start.story;
         let key = start.game.key();
         let capture = story
             .capture_for(key, Input::Mouse)
             .ok_or(format!("{}: no capture on {key} for the mouse", story.name))?;
-        let mut staged = stage(
+        let mut staged = stage_with(
+            kept,
             discovery,
             (start.game, &story.screen),
             (&story.steps, story.error.clone(), capture),
@@ -292,21 +301,56 @@ impl Catalogue {
         Ok(staged)
     }
 
-    /// `staged` shown in place of the screens so far. Their textures and
-    /// sounds belong to the assets they were loaded with, so what was made
-    /// from those is forgotten.
+    /// The story of `start` opened as `stage` does, with `more` steps taken
+    /// after its own, or the list of stories when `list`. It uses the
+    /// assets of the screens shown now and of the games shown before, so
+    /// that the install's files are not read again. When it fails, the
+    /// screens shown draw as they did.
+    fn restage(&mut self, start: &Start, more: &[String], list: bool) -> Result<Staged, String> {
+        let size = self.size();
+        let reclaimed = self.kept.reclaim(&self.discovery, &mut self.staged).is_ok();
+        let kept = Some(&mut self.kept);
+        let result = if list {
+            Catalogue::stage_list(kept, &self.discovery, start, size)
+        } else {
+            Catalogue::stage(kept, &self.discovery, start, size)
+        };
+        let result = result.and_then(|mut staged| {
+            more.iter()
+                .try_for_each(|step| staged.step(&self.discovery, step))?;
+            Ok(staged)
+        });
+        if result.is_err() && reclaimed {
+            self.kept.restore(&mut self.staged);
+        }
+        result
+    }
+
+    /// `staged` shown in place of the screens so far. A change of game
+    /// is a change of assets, and the textures and sounds made from the
+    /// old ones belong to them (the new assets use the same texture
+    /// numbers), so what was made from those is forgotten.
     fn replace(&mut self, staged: Staged) {
+        let other_assets = self.staged.game != staged.game;
         self.staged = staged;
         self.apply_overrides();
-        self.assets_replaced += 1;
-        self.chrome.forget_font();
+        if other_assets {
+            self.assets_replaced += 1;
+            self.chrome.forget_font();
+        }
         self.rows = Rows::default();
     }
 
     /// The list of stories, with its cursor on the story of `start`.
-    fn stage_list(discovery: &vfs::Discovery, start: &Start, size: Size) -> Result<Staged, String> {
+    fn stage_list(
+        kept: Option<&mut Kept>,
+        discovery: &vfs::Discovery,
+        start: &Start,
+        size: Size,
+    ) -> Result<Staged, String> {
         let at = format!("{}/{}", start.module, start.story.name);
-        stage(
+        stage_with(
+            kept,
             discovery,
             (start.game, &format!("catalogue_list:{at}")),
             (&[], None, None),
@@ -316,7 +360,7 @@ impl Catalogue {
 
     /// The list of stories shown, its cursor on the story that was open.
     fn show_list(&mut self) {
-        match Catalogue::stage_list(&self.discovery, &self.start, self.size()) {
+        match self.restage(&self.start.clone(), &[], true) {
             Ok(staged) => {
                 info!(target: "catalogue", "the list of stories");
                 self.replace(staged);
@@ -363,7 +407,7 @@ impl Catalogue {
             size: self.start.size,
             list: false,
         };
-        match Catalogue::stage(&self.discovery, &start, self.size()) {
+        match self.restage(&start, &[], false) {
             Ok(staged) => {
                 info!(target: "catalogue", story = start.story.name, "opened from the list");
                 self.start = start;
@@ -505,10 +549,8 @@ impl Catalogue {
     /// The screens' setting for the overrides made to say what the key
     /// chose. The stack reads its layouts again when it changes.
     fn apply_overrides(&mut self) {
-        self.staged.vm.settings.insert(
-            ui::layout_files::OVERRIDES.to_string(),
-            self.overrides.to_string(),
-        );
+        self.staged
+            .set_setting(ui::layout_files::OVERRIDES, self.overrides.to_string());
     }
 
     fn set_overrides(&mut self, on: bool) {
@@ -987,11 +1029,10 @@ fn views(
     }
     let size = cat.size();
     let window = size.window();
-    let layers = collab::composed(&cat);
     crate::gui_scene::want_staged(
         &mut commands,
         &mut scenes,
-        (&layers, &cat.staged.assets, &cat.staged.vm),
+        (&cat.layers, &cat.staged.assets, &cat.staged.vm),
         (Vec2::new(window.0, window.1), size.factor),
         (&mut cameras, &mut visibilities, &mut assets),
     );
@@ -1124,7 +1165,8 @@ fn paint(
     }
     // The screens' quads, made again when the screens or the size changed.
     let assets = &cat.staged.assets;
-    let composed = collab::composed(&cat);
+    let screens = collab::composed(&cat);
+    let composed = screens.lists();
     if painting.assets != cat.assets_replaced {
         painting.assets = cat.assets_replaced;
         painting.drawn.forget_all();

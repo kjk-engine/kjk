@@ -1876,11 +1876,17 @@ impl Drawn {
 
     /// Whether `layers` in a window of `size` are not what the meshes were
     /// made from. They are taken as what the meshes are made from next.
-    pub(crate) fn remake(&mut self, layers: &[DrawList], size: Vec2) -> bool {
-        if self.layers == layers && self.size == size {
+    pub(crate) fn remake<L: std::borrow::Borrow<DrawList>>(
+        &mut self,
+        layers: &[L],
+        size: Vec2,
+    ) -> bool {
+        let same = self.layers.len() == layers.len()
+            && self.layers.iter().zip(layers).all(|(a, b)| a == b.borrow());
+        if same && self.size == size {
             return false;
         }
-        self.layers = layers.to_vec();
+        self.layers = layers.iter().map(|layer| layer.borrow().clone()).collect();
         self.size = size;
         true
     }
@@ -1891,10 +1897,10 @@ impl Drawn {
     /// before are kept when unchanged. Without `scenes`, a 3D view is
     /// drawn as nothing.
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-    pub(crate) fn paint_runs(
+    pub(crate) fn paint_runs<L: std::borrow::Borrow<DrawList>>(
         &mut self,
         commands: &mut Commands,
-        layers: &[DrawList],
+        layers: &[L],
         (size, assets): (Vec2, &GuiAssets),
         (meshes, materials, images): (
             &mut Assets<Mesh>,
@@ -1907,7 +1913,7 @@ impl Drawn {
     ) {
         let drawn = self;
         let mut runs: Vec<Run> = Vec::new();
-        for placed in layers {
+        for placed in layers.iter().map(std::borrow::Borrow::borrow) {
             for quad in &placed.quads {
                 if scenes.is_none() && assets.scene_of(quad.texture).is_some() {
                     continue;

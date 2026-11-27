@@ -18,6 +18,10 @@ pub struct Staged {
     pub quiet: ui::input::UiInput,
     /// Where the pointer is: the window's middle until `point` moves it.
     pointer: [f32; 2],
+    /// How many times a step changed `vm.settings`. What is drawn over
+    /// play keeps its pictures until this changes
+    /// (`ui::hud_layer::Frame::settings`).
+    settings: u32,
     /// What is drawn over play, for the story screen `play`
     /// (`ui::catalogue::PLAY`).
     pub over: Option<ui::over_play::OverPlay>,
@@ -51,7 +55,26 @@ pub fn stage(
     (steps, error, capture): (&[String], Option<String>, Option<&str>),
     (size, factor): ((u32, u32), f32),
 ) -> Result<Staged, String> {
-    let mut staged = Staged::open(
+    stage_with(
+        None,
+        discovery,
+        (game, name),
+        (steps, error, capture),
+        (size, factor),
+    )
+}
+
+/// `stage`, with the assets of the games in `kept` used again, when it
+/// has them for `game`.
+pub fn stage_with(
+    kept: Option<&mut Kept>,
+    discovery: &Discovery,
+    (game, name): (Game, &str),
+    (steps, error, capture): (&[String], Option<String>, Option<&str>),
+    (size, factor): ((u32, u32), f32),
+) -> Result<Staged, String> {
+    let mut staged = Staged::open_with(
+        kept,
         discovery,
         (game, name),
         (steps, error, capture),
@@ -61,6 +84,54 @@ pub fn stage(
         staged.step(discovery, step)?;
     }
     Ok(staged)
+}
+
+/// The assets of each game that a program staging many stories keeps
+/// between them, so that a story of a game it has shown before does not
+/// load them again: their textures, fonts, tables and the items looked up.
+/// The staged screen in use owns its assets. `Kept::reclaim` takes them
+/// back from it, before the next story is staged.
+#[derive(Default)]
+pub struct Kept {
+    spare: std::collections::HashMap<Game, GuiAssets>,
+}
+
+impl Kept {
+    /// The assets of `staged` taken into the keep, for the next staging to
+    /// use. Until `staged` is replaced, or `restore`d, it draws with empty
+    /// assets of its game.
+    pub fn reclaim(&mut self, discovery: &Discovery, staged: &mut Staged) -> Result<(), String> {
+        let install = crate::installs::open(discovery, staged.game)?;
+        let empty = GuiAssets::with(staged.game, install.index.clone(), install.base()?.clone());
+        let assets = std::mem::replace(&mut staged.assets, empty);
+        self.spare.insert(staged.game, assets);
+        Ok(())
+    }
+
+    /// The assets `reclaim` took from `staged` given back to it, when
+    /// staging the next story failed.
+    pub fn restore(&mut self, staged: &mut Staged) {
+        if let Some(assets) = self.spare.remove(&staged.game) {
+            staged.assets = assets;
+        }
+    }
+}
+
+/// The index of `game`'s talk table (`ui::catalogue::TalkIndex`), made once
+/// for the program: it takes about as long as a story's whole staging.
+fn talk_index(game: Game, tlk: &fmt_odyssey::tlk::Tlk) -> std::sync::Arc<ui::catalogue::TalkIndex> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static INDEXES: OnceLock<
+        Mutex<std::collections::HashMap<Game, Arc<ui::catalogue::TalkIndex>>>,
+    > = OnceLock::new();
+    let mut indexes = INDEXES
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    indexes
+        .entry(game)
+        .or_insert_with(|| Arc::new(ui::catalogue::TalkIndex::new(tlk)))
+        .clone()
 }
 
 impl Staged {
@@ -92,17 +163,41 @@ impl Staged {
         (steps, error, capture): (&[String], Option<String>, Option<&str>),
         (size, factor): ((u32, u32), f32),
     ) -> Result<Staged, String> {
+        Staged::open_with(
+            None,
+            discovery,
+            (game, name),
+            (steps, error, capture),
+            (size, factor),
+        )
+    }
+
+    /// `open`, with the assets of `game` that `kept` holds used again.
+    pub fn open_with(
+        kept: Option<&mut Kept>,
+        discovery: &Discovery,
+        (game, name): (Game, &str),
+        (steps, error, capture): (&[String], Option<String>, Option<&str>),
+        (size, factor): ((u32, u32), f32),
+    ) -> Result<Staged, String> {
         // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
         // feats lent.
-        let install = crate::installs::open(discovery, game)?;
-        let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
-        let mut assets = crate::runtime::skinned(assets, discovery)?;
+        let kept_assets = kept.and_then(|kept| kept.spare.remove(&game));
+        let mut assets = match kept_assets {
+            Some(assets) => assets,
+            None => {
+                let install = crate::installs::open(discovery, game)?;
+                let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
+                crate::runtime::skinned(assets, discovery)?
+            }
+        };
         let vm = match capture {
             Some(name) => {
                 let tlk = assets
                     .talk()
                     .ok_or("no talk table to read a capture's words from")?;
-                let talk = ui::catalogue::TalkTable::new(tlk);
+                let index = talk_index(game, tlk);
+                let talk = ui::catalogue::TalkTable::with(tlk, &index);
                 ui::catalogue::read_capture(&ui::catalogue::captures(), name, &talk)?.view
             }
             None => stand_ins(discovery, (game, name), (steps, error), &mut assets)?,
@@ -135,8 +230,16 @@ impl Staged {
             stack,
             quiet,
             pointer: [window.0 / 2.0, window.1 / 2.0],
+            settings: 0,
             over: play.then(ui::over_play::OverPlay::default),
         })
+    }
+
+    /// The setting `key` set to `value` in the view model, which draws
+    /// what stands over play again.
+    pub fn set_setting(&mut self, key: &str, value: String) {
+        self.vm.settings.insert(key.to_string(), value);
+        self.settings += 1;
     }
 
     /// The frame as it stands, bottom layer first: what is drawn over play,
@@ -163,7 +266,7 @@ impl Staged {
                 palette: self.stack.palette,
                 pulse: self.stack.pulsing(),
                 scale_factor: input.scale_factor,
-                settings: 0,
+                settings: self.settings,
                 marked: self.stack.marked,
             };
             let corner = ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES);
@@ -208,6 +311,7 @@ impl Staged {
             stack,
             quiet,
             pointer,
+            settings,
             ..
         } = self;
         let (game, quiet) = (*game, &*quiet);
@@ -225,6 +329,7 @@ impl Staged {
                     .split_once(' ')
                     .ok_or(format!("{step}: set KEY VALUE"))?;
                 vm.settings.insert(key.to_string(), value.to_string());
+                *settings += 1;
                 stack.step(assets, vm, quiet);
             }
             Some(("session", rules)) => {
