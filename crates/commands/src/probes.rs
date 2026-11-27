@@ -51,6 +51,15 @@ fn story() -> Facts {
     }
 }
 
+/// The facts of a player at the main menu.
+fn at_menu() -> Facts {
+    Facts {
+        menu: true,
+        version: "test".into(),
+        ..Facts::default()
+    }
+}
+
 fn line(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_string).collect()
 }
@@ -95,6 +104,7 @@ pub fn probes() -> Checks {
         ("completion", completion()),
         ("did you mean", did_you_mean()),
         ("where a command may run", places()),
+        ("session commands", session()),
         ("help", help_lines()),
         ("random lines never panic", random_lines()),
     ]
@@ -429,7 +439,7 @@ fn did_you_mean() -> Result<String, String> {
 
 /// A command refuses where it may not run, and says why.
 fn places() -> Result<String, String> {
-    let menu = Facts::default();
+    let menu = at_menu();
     let off = Facts {
         cheats: Rule::Off,
         ..story()
@@ -470,10 +480,73 @@ fn places() -> Result<String, String> {
     .map(|done| format!("{done}, {script_only} script verbs"))
 }
 
+/// The session's commands: at the main menu they start, load, host or
+/// join a game. In a game `warp` and `load` are the host's alone under
+/// every rule, and the menu's own commands are refused. The lobby and an
+/// area still loading refuse them with the reason.
+fn session() -> Result<String, String> {
+    use crate::Start;
+    let menu = at_menu();
+    let lobby = Facts {
+        lobby: true,
+        ..Facts::default()
+    };
+    let loading = Facts::default();
+    let guest = Facts {
+        host: false,
+        cheats: Rule::All,
+        ..story()
+    };
+    let off = Facts {
+        cheats: Rule::Off,
+        ..story()
+    };
+    let started = |start: Start| Ok(vec![Effect::Start(start)]);
+    let warp = |arrival: Option<&str>| {
+        started(Start::Warp {
+            module: "tar_m02aa".into(),
+            arrival: arrival.map(str::to_string),
+        })
+    };
+    let refused = |text: &str| Err(text.to_string());
+    let host_only = refused("Only the host can use this command.");
+    let leave = refused("Leave the lobby before using this command.");
+    cases(
+        &[
+            (("warp TAR_M02AA", &menu), warp(None)),
+            (("warp tar_m02aa from_m02ab", &story()), warp(Some("from_m02ab"))),
+            (("warp tar_m02aa", &guest), host_only.clone()),
+            (("warp tar_m02aa", &off), refused("Cheats are off in this game.")),
+            (("warp tar_m02aa", &lobby), leave.clone()),
+            (("warp tar_m02aa", &loading), refused("Wait for the area to finish loading.")),
+            (("sandbox", &menu), started(Start::Sandbox)),
+            (("sandbox", &story()), refused("Quit to the main menu before using this command.")),
+            (("sandbox", &lobby), leave.clone()),
+            (("load 0003", &menu), started(Start::Load("0003".into()))),
+            (("load 0003", &story()), started(Start::Load("0003".into()))),
+            (("load 0003", &guest), host_only),
+            (("load 0003", &lobby), leave),
+            (("host", &menu), started(Start::Host(None))),
+            (("host 0003", &menu), started(Start::Host(Some("0003".into())))),
+            (
+                ("join 10.0.0.2:29170 Mia", &menu),
+                started(Start::Join {
+                    address: "10.0.0.2:29170".into(),
+                    name: Some("Mia".into()),
+                }),
+            ),
+            (("join 10.0.0.2", &guest), refused("Quit to the main menu before using this command.")),
+            (("saves", &lobby), Ok(vec![Effect::Saves])),
+            (("mods", &guest), Ok(vec![Effect::Mods])),
+        ],
+        |(text, facts)| orders(text, facts),
+    )
+}
+
 /// `help` lists only what can run, `help all` says why the rest cannot,
 /// and `help NAME` describes one command.
 fn help_lines() -> Result<String, String> {
-    let menu = Facts::default();
+    let menu = at_menu();
     let listed = help::list(&menu, false);
     let all = help::list(&menu, true);
     let one = help::describe(crate::find("attribute").ok_or("no attribute command")?);

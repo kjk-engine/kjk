@@ -15,13 +15,19 @@ A command that changes the game sends an order to the simulation, as
 the keys of the Debug Mode map do. These commands are marked "Changes
 the game". On the Debug Mode map and the other combat test levels
 they always work. Elsewhere they work only when the session's cheat
-rule allows them. The rule is Off by default. Under the rule Host only,
-only the host can use them. A run with a command script (`--cmds`), or
-with the console setting turned on, plays under the rule Host only.
+rule allows them. A game played alone plays under the rule Off, or
+under the rule Host only when it has a command script (`--cmds`) or
+the console setting is turned on. A co-op game plays under the rule
+that the host chose on the lobby's Cheats row: Off, Host only (the
+default) or All players. Under the rule Host only, only the host can
+use them. `warp` and `load` are for the host alone under every rule.
 The first such command outside the combat test levels marks the game
 as "Cheats used", and a save keeps the mark. A player
 can change only their own character, the companion they lead, or a
 companion that no other player controls.
+
+The console also opens at the main menu and in the co-op lobby. A
+command that works at the main menu does not work in the lobby.
 
 An argument in brackets may be left out. WHO is a party member: `me`, or
 a party member's number, where 1 is the player's own character. Without
@@ -192,6 +198,50 @@ Removes every creature that is not in the party.
 Also accepted: `arena clear`.
 
 It works on the Debug Mode map and the other combat test levels. Changes the game. Example: `clearfoes`
+
+## Session
+
+### `warp MODULE [ARRIVAL]`
+
+Loads a module, arriving at a door or a waypoint when one is given. At the main menu it starts a new game there with a quick character. The game is marked as Cheats used.
+
+It works at any time. Changes the game. Example: `warp tar_m02aa`
+
+### `sandbox`
+
+Opens the Debug Mode map.
+
+It works at the main menu. Example: `sandbox`
+
+### `saves`
+
+Lists the saves with their numbers, the latest first.
+
+It works at any time. Example: `saves`
+
+### `load NUMBER`
+
+Loads the save with this number. Type saves to see the numbers.
+
+It works at any time. Example: `load 0003`
+
+### `mods`
+
+Lists the override folders and the Steam Workshop items the game reads, in the order they apply.
+
+It works at any time. Example: `mods`
+
+### `host [NUMBER]`
+
+Opens a co-op lobby for a new game, or for the save with this number.
+
+It works at the main menu. Example: `host 0003`
+
+### `join ADDRESS [NAME]`
+
+Joins the co-op game hosted at this address, with your player name when one is given.
+
+It works at the main menu. Example: `join 192.168.1.20`
 
 ## Command scripts
 

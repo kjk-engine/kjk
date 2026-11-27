@@ -4,6 +4,7 @@ mod character;
 mod cheats;
 mod general;
 mod script;
+mod session;
 mod world;
 
 use std::sync::LazyLock;
@@ -16,6 +17,7 @@ pub static TABLE: LazyLock<Vec<&'static Spec>> = LazyLock::new(|| {
         .chain(character::SPECS)
         .chain(cheats::SPECS)
         .chain(world::SPECS)
+        .chain(session::SPECS)
         .chain(script::SPECS)
         .collect()
 });

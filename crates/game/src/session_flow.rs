@@ -251,7 +251,7 @@ fn show_loading(ui: &mut Ui, image: Option<String>) {
 }
 
 /// `kjk play`'s options on `stage`, the new game's module, alone.
-fn solo_options(stage: &'static str) -> Result<play::Options<'static>, String> {
+fn solo_options(stage: &str) -> Result<play::Options<'_>, String> {
     Ok(play::Options {
         aim: None,
         stage,
@@ -416,6 +416,16 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                 solo_options(crate::arena::SANDBOX).and_then(|options| {
                     let options = play::Options {
                         sheet: crate::arena::sheet(),
+                        ..options
+                    };
+                    play::load(&discovery, &options)
+                })
+            }
+            SessionIntent::Warp { module, arrival } => {
+                status(format!("Loading {module}"));
+                solo_options(&module).and_then(|options| {
+                    let options = play::Options {
+                        arrive: arrival.as_deref(),
                         ..options
                     };
                     play::load(&discovery, &options)
@@ -599,6 +609,7 @@ fn start(
                     SessionIntent::Sandbox => {
                         Some(format!("load_{}", crate::arena::SANDBOX_MODULE))
                     }
+                    SessionIntent::Warp { module, .. } => Some(format!("load_{module}")),
                     SessionIntent::Solo { save, campaign, .. }
                     | SessionIntent::Host { save, campaign, .. } => {
                         let module = save.as_ref().and_then(|id| {

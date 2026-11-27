@@ -378,6 +378,10 @@ pub enum CheatOrder {
         resref: String,
         who: Option<crate::snapshot::SimId>,
     },
+    /// Changes nothing but the mark that the game was cheated. The console's
+    /// `warp` sends it, because a warp skips parts of the story outside the
+    /// simulation.
+    Warped,
 }
 
 /// An object a cheat order names: by its id, or by its tag (the nearest
@@ -667,6 +671,7 @@ impl CheatOrder {
                 out.string(resref);
                 encode_someone(out, *who);
             }
+            CheatOrder::Warped => out.u8(9),
         }
     }
 
@@ -703,6 +708,7 @@ impl CheatOrder {
                 resref: input.string()?,
                 who: decode_someone(input)?,
             },
+            9 => CheatOrder::Warped,
             _ => return Err(input.invalid("cheat order", at)),
         })
     }

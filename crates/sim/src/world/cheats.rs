@@ -204,7 +204,7 @@ fn carry(
     let party = crate::inventory::PARTY;
     match order {
         // Set before the step's other orders (`policy`).
-        CheatOrder::Policy(_) => Outcome::Done,
+        CheatOrder::Policy(_) | CheatOrder::Warped => Outcome::Done,
         CheatOrder::Item { template, count } => {
             let catalog = library.items();
             if state.item_facts(catalog, template).is_none() {

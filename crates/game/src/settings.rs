@@ -1002,7 +1002,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 44] = [
+const DEFAULTS: [(&str, &str); 45] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -1035,6 +1035,10 @@ const DEFAULTS: [(&str, &str); 44] = [
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
     (ui::screens::options::CONSOLE, "false"),
+    (
+        ui::screens::options::CHEATS,
+        ui::screens::options::CHEATS_DEFAULT,
+    ),
     (COLLISION, "limited"),
     (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
     (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),

@@ -134,6 +134,11 @@ pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a n
 pub const CONSOLE: &str = "Console";
 pub const CONSOLE_HELP: &str = "Enables the console. Press {console} to open it.";
 pub const CONSOLE_TITLE: &str = "CONSOLE";
+pub const CHEATS: &str = "Cheats";
+pub const CHEATS_OFF: &str = "Off";
+pub const CHEATS_HOST: &str = "Host only";
+pub const CHEATS_ALL: &str = "All players";
+pub const CHEATS_HELP: &str = "Choose who can use console commands that change the game: no player, only the host, or all players. A player can only change their own character and the companions no other player controls.";
 /// A save made after a console command changed the game, on the save
 /// screens.
 pub const CHEATS_USED: &str = "Cheats used";
@@ -330,7 +335,7 @@ pub const LOBBY_START: &str = "Start Game";
 pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
 pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
 pub const LOBBY_SETTINGS_GUEST: &str =
-    "The host chooses the saber rules, the collision and whether chosen replies are shown.";
+    "The host chooses the saber rules, the collision, whether chosen replies are shown and who can use cheats.";
 pub const LOBBY_OTHER_GAME: &str =
     "Choose a save of the same game. To host the other game, leave the lobby and host again.";
 /// The word before a character's level in a lobby slot ("Soldier, level 4").

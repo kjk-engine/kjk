@@ -26,13 +26,19 @@ pub fn markdown() -> String {
          the keys of the Debug Mode map do. These commands are marked \"Changes\n\
          the game\". On the Debug Mode map and the other combat test levels\n\
          they always work. Elsewhere they work only when the session's cheat\n\
-         rule allows them. The rule is Off by default. Under the rule Host only,\n\
-         only the host can use them. A run with a command script (`--cmds`), or\n\
-         with the console setting turned on, plays under the rule Host only.\n\
+         rule allows them. A game played alone plays under the rule Off, or\n\
+         under the rule Host only when it has a command script (`--cmds`) or\n\
+         the console setting is turned on. A co-op game plays under the rule\n\
+         that the host chose on the lobby's Cheats row: Off, Host only (the\n\
+         default) or All players. Under the rule Host only, only the host can\n\
+         use them. `warp` and `load` are for the host alone under every rule.\n\
          The first such command outside the combat test levels marks the game\n\
          as \"Cheats used\", and a save keeps the mark. A player\n\
          can change only their own character, the companion they lead, or a\n\
          companion that no other player controls.\n\
+         \n\
+         The console also opens at the main menu and in the co-op lobby. A\n\
+         command that works at the main menu does not work in the lobby.\n\
          \n\
          An argument in brackets may be left out. WHO is a party member: `me`, or\n\
          a party member's number, where 1 is the player's own character. Without\n\

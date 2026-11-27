@@ -26,9 +26,17 @@
 //! (`Overlay::script`).
 //!
 //! The host's game also keeps the simulation's cheat rule
-//! (`sim::cheats::Rule`) as the player chose it (`send_rule`). A run with a
-//! command script, or with the Console option on, plays under the rule
-//! Host only. Any other run plays under the rule Off.
+//! (`sim::cheats::Rule`) as the player chose it (`send_rule`). A game played
+//! alone with a command script, or with the Console option on, plays under
+//! the rule Host only. Any other game played alone plays under the rule
+//! Off. A hosted game plays under the lobby's Cheats row (the setting
+//! `game.cheats`, Host only until the host changes it).
+//!
+//! The overlay opens at the main menu and in the co-op lobby too. There the
+//! table's `warp`, `sandbox`, `load`, `host` and `join` start a game through
+//! the menu's own session intents (`ui::intent::SessionIntent`). A game
+//! that `warp` started at the main menu is marked as cheated once it is up
+//! (`WarpMark`).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -42,6 +50,7 @@ use commands::{Effect, Facts};
 use sim::action::{Action, ArenaOrder, CheatOrder};
 use sim::cheats::Rule;
 use ui::edit::EditBox;
+use ui::intent::SessionIntent;
 
 use crate::sim_host::{Loading, OwnSeat, PresentedSnapshot, SceneSwap};
 
@@ -67,6 +76,8 @@ pub struct ConsoleViewPlugin;
 impl Plugin for ConsoleViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ConsoleLog>()
+            .init_resource::<WarpMark>()
+            .init_resource::<WarpLater>()
             .init_resource::<Scripted>()
             .init_resource::<Overlay>()
             .add_systems(
@@ -80,6 +91,8 @@ impl Plugin for ConsoleViewPlugin {
                 Update,
                 (
                     send_rule,
+                    dump_cheats,
+                    warp_later,
                     (run_lines, show)
                         .chain()
                         .after(console::ConsoleQueue)
@@ -145,11 +158,79 @@ fn enabled(scripted: bool, settings: Option<&crate::settings::Settings>) -> bool
         || std::env::var_os("KJK_CONSOLE").is_some_and(|value| value == "1")
 }
 
-/// The cheat rule this run plays under (see the module documentation).
-fn wanted_rule(scripted: bool, settings: Option<&crate::settings::Settings>) -> Rule {
-    match enabled(scripted, settings) {
-        true => Rule::Host,
-        false => Rule::Off,
+/// The cheat rule a game plays under, `alone` or hosted (see the module
+/// documentation).
+fn wanted_rule(scripted: bool, settings: Option<&crate::settings::Settings>, alone: bool) -> Rule {
+    match (alone, enabled(scripted, settings)) {
+        (false, _) => coop_rule(settings),
+        (true, true) => Rule::Host,
+        (true, false) => Rule::Off,
+    }
+}
+
+/// The settings values of the lobby's Cheats row
+/// (`ui::screens::options::CHEAT_RULES`), by rule.
+const RULE_KEYS: [(Rule, &str); 3] = [
+    (Rule::Off, "off"),
+    (Rule::Host, "host"),
+    (Rule::All, "all"),
+];
+
+/// The rule a value of the Cheats row names. Any other value is Host only,
+/// the row's default.
+pub(crate) fn rule_named(key: &str) -> Rule {
+    (RULE_KEYS.iter())
+        .find(|(_, of)| *of == key)
+        .map_or(Rule::Host, |(rule, _)| *rule)
+}
+
+/// The Cheats row's value for `rule`.
+pub(crate) fn rule_key(rule: Rule) -> &'static str {
+    (RULE_KEYS.iter())
+        .find(|(of, _)| *of == rule)
+        .map_or(ui::screens::options::CHEATS_DEFAULT, |(_, key)| key)
+}
+
+/// The rule a hosted game plays under: the lobby's Cheats row.
+pub(crate) fn coop_rule(settings: Option<&crate::settings::Settings>) -> Rule {
+    rule_named(
+        settings
+            .and_then(|settings| settings.value(ui::screens::options::CHEATS))
+            .unwrap_or(ui::screens::options::CHEATS_DEFAULT),
+    )
+}
+
+/// A game `warp` started at the main menu, not yet marked as cheated: once
+/// the game is up and plays under its rule, the host's game sends the
+/// order that marks it (`CheatOrder::Warped`).
+#[derive(Resource, Default, Debug)]
+pub struct WarpMark(pub bool);
+
+/// The most frames a `warp` in a game waits for its mark to show before
+/// its module loads anyway (an arena level is never marked).
+const WARP_WAIT_FRAMES: u32 = 30;
+
+/// A `warp` in a game: the module and arrival it loads, and the frames
+/// left to wait. The order that marks the game goes first. An install that
+/// starts in the same frame would drop it, so the module loads once the
+/// mark shows, or after `WARP_WAIT_FRAMES` frames.
+#[derive(Resource, Default, Debug)]
+pub struct WarpLater(Option<(String, Option<String>, u32)>);
+
+fn warp_later(
+    mut later: ResMut<WarpLater>,
+    presented: Option<Res<PresentedSnapshot>>,
+    mut module: ResMut<console::ModuleRequest>,
+) {
+    let Some((_, _, frames)) = later.0.as_mut() else {
+        return;
+    };
+    let marked = presented.is_some_and(|presented| presented.0.current().cheats.used);
+    *frames = frames.saturating_sub(1);
+    if (marked || *frames == 0)
+        && let Some((name, arrival, _)) = later.0.take()
+    {
+        module.pending = Some((name, arrival));
     }
 }
 
@@ -171,17 +252,24 @@ fn send_rule(
     settings: Option<Res<crate::settings::Settings>>,
     (presented, own, here): Seated,
     mut outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    mut mark: ResMut<WarpMark>,
     mut waiting: Local<u32>,
 ) {
-    let (Some(presented), Some(own), Some(outgoing)) = (presented, own, outgoing.as_mut()) else {
+    let (Some(presented), Some(own), Some(outgoing), Some(here)) =
+        (presented, own, outgoing.as_mut(), here)
+    else {
         return;
     };
-    if here.is_none() || own.0 != sim::Seat(0) {
+    if own.0 != sim::Seat(0) {
         return;
     }
-    let wanted = wanted_rule(scripted.0, settings.as_deref());
+    let wanted = wanted_rule(scripted.0, settings.as_deref(), here.alone);
     if presented.0.current().cheats.rule == wanted {
         *waiting = 0;
+        // The rule is in force, so the warp's mark is carried out.
+        if std::mem::take(&mut mark.0) {
+            outgoing.0.push(Action::Cheat(CheatOrder::Warped));
+        }
         return;
     }
     if *waiting > 0 {
@@ -191,6 +279,26 @@ fn send_rule(
     info!(target: "console", "cheat rule: {wanted:?}");
     outgoing.0.push(Action::Cheat(CheatOrder::Policy(wanted)));
     *waiting = RULE_RESEND_FRAMES;
+}
+
+/// The shown game's cheat rule and mark, for a run's dumps (`cheats`).
+fn dump_cheats(
+    presented: Option<Res<PresentedSnapshot>>,
+    mut dump: ResMut<console::DumpFacts>,
+    mut shown: Local<Option<sim::cheats::Cheats>>,
+) {
+    let Some(presented) = presented else {
+        return;
+    };
+    let cheats = presented.0.current().cheats;
+    if *shown == Some(cheats) {
+        return;
+    }
+    *shown = Some(cheats);
+    dump.0.insert(
+        "cheats".into(),
+        serde_json::json!({ "rule": rule_key(cheats.rule), "used": cheats.used }),
+    );
 }
 
 /// A key the overlay takes, already read from the keyboard.
@@ -834,11 +942,20 @@ type Sinks<'w> = (
     ResMut<'w, console::DumpFacts>,
 );
 
+/// Where a session command's effects go: the menu's intents, a warp in a
+/// game, and the mark of a warp at the main menu.
+type Starts<'w> = (
+    Option<ResMut<'w, crate::ui_view::UiIntents>>,
+    ResMut<'w, WarpLater>,
+    ResMut<'w, WarpMark>,
+);
+
 fn run_lines(
     (mut requests, mut overlay): (ResMut<console::LineRequests>, ResMut<Overlay>),
     (swap, loading, presented, own, targeted): Shown,
     mut ui: Option<ResMut<crate::ui_view::Ui>>,
     (mut outgoing, mut screens, mut visuals, mut dump): Sinks,
+    (mut intents, mut later, mut mark): Starts,
     mut log: ResMut<ConsoleLog>,
 ) {
     if requests.0.is_empty() && !overlay.asking {
@@ -849,13 +966,18 @@ fn run_lines(
         !loaded && (commands::words::split(line).iter()).any(|words| commands::needs_game(words))
     };
     let ready = requests.0.iter().take_while(|line| !waiting(line)).count();
+    // The lobby is open, or a game is starting behind the loading screen.
+    let lobby = ui.as_ref().is_some_and(|ui| ui.vm.lobby.is_some());
+    let starting = ui.as_ref().is_some_and(|ui| ui.stack.has("loading"));
     let assets = ui.as_mut().and_then(|ui| ui.assets.as_mut());
-    let facts = facts(
+    let mut facts = facts(
         swap.as_deref().filter(|_| loaded),
         (presented.as_deref(), own.as_deref()),
         targeted.as_deref().and_then(|targeted| targeted.object),
         assets,
     );
+    facts.lobby = lobby;
+    facts.menu = swap.is_none() && own.is_none() && !lobby && !starting;
     if overlay.asking {
         overlay.complete(&facts);
     }
@@ -899,12 +1021,141 @@ fn run_lines(
                     Effect::ClearLog => log.0.clear(),
                     Effect::Ui(words) => screens.0.push(words),
                     Effect::Vfx(words) => visuals.0.push(words),
+                    Effect::Saves => {
+                        for text in saves_listed() {
+                            info!(target: "console", "{text}");
+                            log.push(text, false);
+                        }
+                    }
+                    Effect::Mods => {
+                        for text in mods_listed() {
+                            info!(target: "console", "{text}");
+                            log.push(text, false);
+                        }
+                    }
+                    Effect::Start(start) => {
+                        let at_menu = facts.menu;
+                        let session = match start {
+                            commands::Start::Warp { module: name, arrival } if !at_menu => {
+                                later.0 = Some((name, arrival, WARP_WAIT_FRAMES));
+                                if let Some(outgoing) = outgoing.as_mut() {
+                                    outgoing.0.push(Action::Cheat(CheatOrder::Warped));
+                                }
+                                continue;
+                            }
+                            commands::Start::Warp { module, arrival } => {
+                                mark.0 = true;
+                                SessionIntent::Warp { module, arrival }
+                            }
+                            commands::Start::Sandbox => SessionIntent::Sandbox,
+                            commands::Start::Load(id) => {
+                                if !save_exists(&id) {
+                                    let text = format!(
+                                        "No save has the number \"{id}\". Type saves to see the numbers."
+                                    );
+                                    warn!(target: "console", "{text}");
+                                    log.push(text, true);
+                                    continue;
+                                }
+                                SessionIntent::Solo {
+                                    save: Some(id),
+                                    character: None,
+                                    campaign: None,
+                                }
+                            }
+                            commands::Start::Host(save) => SessionIntent::Host {
+                                save,
+                                seats: ui::screens::main_menu::SEATS,
+                                port: ui::intent::DEFAULT_PORT,
+                                character: None,
+                                campaign: None,
+                            },
+                            commands::Start::Join { address, name } => SessionIntent::Join {
+                                address,
+                                name: name.unwrap_or_else(|| ui::strings::DEFAULT_NAME.into()),
+                            },
+                        };
+                        if let Some(intents) = intents.as_mut() {
+                            intents.0.push(ui::intent::Intent::Session(session));
+                        }
+                    }
                 }
             }
         }
     }
     dump.0
         .insert("console".into(), serde_json::Value::from(log.lines()));
+}
+
+/// The saves in the saves' folder, the latest first, with their metas.
+fn saves_found() -> Vec<(String, saves::Meta)> {
+    crate::save_view::folder().map_or_else(Vec::new, |root| saves::list(&root).saves)
+}
+
+/// Whether a save has the number `id`.
+fn save_exists(id: &str) -> bool {
+    saves_found().iter().any(|(of, _)| of == id)
+}
+
+/// The `saves` command's lines: one for each save, the latest first, with
+/// its number, its name, its area, when it was saved and whether cheats
+/// were used.
+fn saves_listed() -> Vec<String> {
+    let found = saves_found();
+    if found.is_empty() {
+        return vec!["There are no saves.".into()];
+    }
+    found
+        .iter()
+        .map(|(id, meta)| {
+            let cheats = if meta.cheats { ", Cheats used" } else { "" };
+            format!(
+                "{id}  {}  {}  {}{cheats}",
+                meta.name,
+                meta.area,
+                crate::save_view::date(meta.saved)
+            )
+        })
+        .collect()
+}
+
+/// The `mods` command's lines: for each KOTOR game installed, its
+/// override folder and how many files it holds, then the Steam Workshop
+/// items the game reads, in the order they apply (the last one wins).
+fn mods_listed() -> Vec<String> {
+    let discovery = crate::discover();
+    let mut lines = Vec::new();
+    for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
+        let Some(install) = discovery.get(game) else {
+            continue;
+        };
+        let name = match game {
+            vfs::Game::Kotor2 => "KOTOR 2",
+            _ => "KOTOR",
+        };
+        let folder = install.data_root.join("override");
+        let files = std::fs::read_dir(&folder).map_or(0, |entries| entries.flatten().count());
+        lines.push(format!(
+            "{name}: the override folder {} holds {files} files.",
+            folder.display()
+        ));
+        let items = install.workshop_items().items;
+        if items.is_empty() {
+            lines.push(format!("{name}: no Steam Workshop items are read."));
+        }
+        for (at, item) in items.iter().enumerate() {
+            lines.push(format!(
+                "{name}: Steam Workshop item {} ({} of {}).",
+                item.id,
+                at + 1,
+                items.len()
+            ));
+        }
+    }
+    if lines.is_empty() {
+        lines.push("No KOTOR game is installed.".into());
+    }
+    lines
 }
 
 /// The table's facts of this moment: the level when one is up, what the

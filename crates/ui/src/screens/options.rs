@@ -1025,6 +1025,18 @@ pub const JOIN_TALKS: &str = "game.join_talks";
 /// (`kjk_game::console_view`). It is off until the player turns it on.
 pub const CONSOLE: &str = "game.console";
 
+/// The key of the lobby's Cheats row: who may use the console's commands
+/// that change the game in co-op (`sim::cheats::Rule`), and its default.
+pub const CHEATS: &str = "game.cheats";
+pub const CHEATS_DEFAULT: &str = "host";
+
+/// The Cheats row's values, as the settings file names them.
+pub const CHEAT_RULES: &[(&str, &str)] = &[
+    ("off", strings::CHEATS_OFF),
+    ("host", strings::CHEATS_HOST),
+    ("all", strings::CHEATS_ALL),
+];
+
 /// The key of the host's "Show chosen replies" (`game::lobby_host`): `true`
 /// or `false`, true while unset.
 pub const SHOW_REPLIES: &str = "game.show_replies";

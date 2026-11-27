@@ -3,7 +3,7 @@ sim = "the world keeps the cheat rule and whether a cheat was used (`Snapshot::c
 
 [formats]
 snapshot = "the world keeps the session's cheat rule and whether a cheat was ever carried out outside an arena level (`Snapshot::cheats`)."
-replay = "a player may send a console order that changes the game (`Action::Cheat`, action code 74, cheat order codes 0 to 8)."
+replay = "a player may send a console order that changes the game (`Action::Cheat`, action code 74, cheat order codes 0 to 9)."
 
 [migrations]
 snapshot = "old saves read the cheat rule Off and no cheat used: the host's game sends its rule when the session starts"

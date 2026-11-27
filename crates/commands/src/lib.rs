@@ -146,6 +146,8 @@ pub enum Place {
     Anywhere,
     /// Only while a module is loaded.
     Game,
+    /// Only at the main menu, outside the co-op lobby.
+    Menu,
     /// Only on a level with arena rules: the Debug Mode map and the other
     /// combat test levels. The simulation carries out the arena's orders
     /// only there.
@@ -171,14 +173,16 @@ pub enum Group {
     General,
     Character,
     World,
+    Session,
     Script,
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [
+    pub const ALL: [Group; 5] = [
         Group::General,
         Group::Character,
         Group::World,
+        Group::Session,
         Group::Script,
     ];
 
@@ -187,6 +191,7 @@ impl Group {
             Group::General => "General",
             Group::Character => "Character",
             Group::World => "World",
+            Group::Session => "Session",
             Group::Script => "Command scripts",
         }
     }
@@ -275,6 +280,11 @@ impl Parsed {
 pub struct Facts {
     /// A module is loaded and its world is up.
     pub loaded: bool,
+    /// The player is at the main menu: no game is loaded or loading, and
+    /// the co-op lobby is not open.
+    pub menu: bool,
+    /// The co-op lobby is open.
+    pub lobby: bool,
     /// The level has arena rules.
     pub arena: bool,
     /// The module's name.
@@ -323,6 +333,35 @@ pub enum Effect {
     Ui(Vec<String>),
     /// Words for the view's visual effects, as a script's `vfx` words.
     Vfx(Vec<String>),
+    /// A game started, loaded or joined, or a module loaded in the game.
+    Start(Start),
+    /// The saves listed in the console's log.
+    Saves,
+    /// The mods the game reads listed in the console's log.
+    Mods,
+}
+
+/// What `Effect::Start` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Start {
+    /// At the main menu, a new solo game in `module` with a quick
+    /// character. In a game, `module` loaded for everyone. Either way the
+    /// game is marked as cheated (`sim::action::CheatOrder::Warped`).
+    Warp {
+        module: String,
+        arrival: Option<String>,
+    },
+    /// The Debug Mode map, played alone.
+    Sandbox,
+    /// The save with this number loaded.
+    Load(String),
+    /// A co-op lobby for a new game, or for the save with this number.
+    Host(Option<String>),
+    /// The game hosted at this address joined, as `name` when one is given.
+    Join {
+        address: String,
+        name: Option<String>,
+    },
 }
 
 /// Why a command did not run, as one plain sentence for the player.
@@ -537,6 +576,16 @@ pub fn place_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
         Place::ScriptOnly => Some(Refusal::new(
             "This command works only in a command script (--cmds).",
         )),
+        Place::Menu if facts.lobby => Some(Refusal::new(
+            "Leave the lobby before using this command.",
+        )),
+        Place::Menu if !facts.menu => Some(Refusal::new(
+            "Quit to the main menu before using this command.",
+        )),
+        Place::Menu => None,
+        Place::Game | Place::Arena if !facts.loaded && !facts.menu && !facts.lobby => {
+            Some(Refusal::new("Wait for the area to finish loading."))
+        }
         Place::Game | Place::Arena if !facts.loaded => {
             Some(Refusal::new("Load a game before using this command."))
         }
@@ -549,9 +598,11 @@ pub fn place_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
 
 /// Why a command that changes the game cannot run under the session's
 /// cheat rule, if it cannot. A level with arena rules takes every such
-/// command. The simulation checks the rule again for every order.
+/// command. Outside a game the rule is not checked: there such a command
+/// (`warp`) starts a game that the player hosts, or says why it cannot.
+/// The simulation checks the rule again for every order.
 pub fn cheat_refusal(spec: &Spec, facts: &Facts) -> Option<Refusal> {
-    if spec.kind != Kind::Cheat || facts.arena {
+    if spec.kind != Kind::Cheat || facts.arena || !facts.loaded {
         return None;
     }
     match facts.cheats {

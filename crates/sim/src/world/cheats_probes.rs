@@ -134,6 +134,7 @@ pub fn probes() -> crate::probe::Checks {
         ("cheats_host_only", host_only()),
         ("cheats_never_another_player", never_another()),
         ("cheats_mark", mark()),
+        ("cheats_warp_marks", warp_marks()),
         ("cheats_off_arena_orders", off_arena_orders()),
         ("cheats_bad_orders", bad_orders()),
         ("cheats_round_trip", round_trip()),
@@ -242,6 +243,35 @@ fn kill() -> Result<String, String> {
             "foe alive {}, plot creature alive {}, player alive {me_alive}, told {outcomes:?}",
             alive(&after, foe),
             alive(&after, plot)
+        ),
+    )
+}
+
+/// The console's `warp` order changes nothing but the mark. The host's
+/// marks the game. Under Host only a guest's is refused and leaves the game
+/// unmarked.
+fn warp_marks() -> Result<String, String> {
+    let (mut guest_first, _) = ground(2, false)?;
+    let (_, guest_told) = under(
+        &mut guest_first,
+        2,
+        Rule::Host,
+        &[cheat(1, CheatOrder::Warped)],
+        2,
+    );
+    let guest_marked = guest_first.cheats().used;
+    let (mut world, _) = ground(1, false)?;
+    let before = world.snapshot().goods.gold;
+    let (after, told) = under(&mut world, 1, Rule::Host, &[cheat(0, CheatOrder::Warped)], 2);
+    let marked = world.cheats().used;
+    check(
+        marked
+            && after.goods.gold == before
+            && told == [(Seat(0), Outcome::Done)]
+            && !guest_marked
+            && guest_told == [(Seat(1), Outcome::HostOnly)],
+        format!(
+            "the host's warp marked {marked}, told {told:?}; a guest's marked {guest_marked}, told {guest_told:?}"
         ),
     )
 }
@@ -524,6 +554,7 @@ fn round_trip() -> Result<String, String> {
             resref: SCRIPT.into(),
             who: None,
         },
+        CheatOrder::Warped,
     ]);
     for order in orders {
         let action = Action::Cheat(order);

@@ -1057,6 +1057,9 @@ pub struct LobbyView {
     /// Whether a reply a player takes is shown to the other players in a
     /// conversation before it runs ("Show chosen replies").
     pub show_replies: bool,
+    /// Who may use console commands that change the game, by its settings
+    /// value (`screens::options::CHEAT_RULES`).
+    pub cheats: String,
     /// The story's character and who plays it; `None` while the host
     /// chooses a save.
     pub hero: Option<LobbyHeroView>,

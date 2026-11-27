@@ -70,6 +70,7 @@ pub fn place(spec: &Spec) -> &'static str {
     match spec.place {
         Place::Anywhere => "It works at any time.",
         Place::Game => "It works while a game is loaded.",
+        Place::Menu => "It works at the main menu.",
         Place::Arena => "It works on the Debug Mode map and the other combat test levels.",
         Place::ScriptOnly => "It works only in a command script (--cmds).",
     }
