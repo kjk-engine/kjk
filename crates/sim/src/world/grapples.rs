@@ -8,10 +8,13 @@
 //! punch's reach (`strikes::punch_reach`), standing on the ground at the
 //! grabber's height (on a slope, as much higher or lower as the slope
 //! rises between them: `level_within`), not a beast or a droid, not knocked down, not in a
-//! saber lock and not in a grab already; with friendly fire off, the party
-//! never grabs the party. The grabber's target comes first, else the
-//! nearest. The grab's roll (`grab_roll`) decides. A miss, or no one to
-//! grab, plays `BOTH_KYLE_MISS`, and the grabber cannot act until it ends.
+//! saber lock, not in a grab already, and one the grabber may harm
+//! (`damage::strike_relation` and `damage::share`: no plot NPCs, no neutral
+//! outsiders the player or companion cannot harm, and with friendly fire off
+//! no party members or faction friends). The grabber's target comes first,
+//! else the nearest. The grab's roll (`grab_roll`) decides. A miss, or no
+//! one to grab, plays `BOTH_KYLE_MISS`, and the grabber cannot act until it
+//! ends.
 //!
 //! A grab that holds picks the finisher from the grabber's movement keys:
 //! forward the first, left or right the second, back the third. The key
@@ -39,9 +42,10 @@
 //! the same way into `BOTH_PLAYER_PA_3_FLY`, and a last blow lands as the
 //! flight ends, when it is knocked down. A victim that a blow already marked
 //! to die dies as the third finisher throws it, and flies limp as a ragdoll. The second lets go
-//! `grab::LET_GO_MS` in, when the grabber's hands leave the victim's foot. It
-//! always kills the victim, which falls limp from the pose it is in, and the
-//! rest of the victim's clip (its stand-up) never plays. The grabber stands
+//! `grab::LET_GO_MS` in, when the grabber's hands leave the victim's foot.
+//! If a blow marked the victim to die, it dies then and falls limp from the
+//! pose it is in; otherwise it is let go into `BOTH_KNOCKDOWN2` and knocked
+//! down, never playing the rest of its clip. The grabber stands
 //! when its own clip ends, or when the second finisher lets go.
 //!
 //! A finisher holds its pair until it lets them go. No one else knocks
@@ -62,9 +66,9 @@ use collision::{Contents, Extents, UNIT};
 
 use super::{
     Avatar, Clock, Fighting, Hit, Hits, Id, Object, Player, PlayerSheet, Static, StepReason,
-    Streams, door_states, held, in_party, object_bulk, sheet_of, strikes,
+    Streams, door_states, held, in_party, object_bulk, sheet_of, side_of, strikes,
 };
-use crate::combat::damage::{FriendlyFire, ROUND_MS, Source};
+use crate::combat::damage::{self, ROUND_MS, Source};
 use crate::combat::grab::{Grapple, grab_roll};
 use crate::combat::saber::{Move, blades, kick, sweep};
 use crate::combat::sheet::{Delivery, Sheet, flags};
@@ -123,7 +127,7 @@ pub fn gap_units(finisher: u8) -> f32 {
 /// back at its end.
 struct Man {
     id: SimId,
-    party: bool,
+    side: crate::module::Side,
     /// A beast's own strike or a model JA does not pose (`module::Bulk`):
     /// not a humanoid, never grabbed.
     beast: bool,
@@ -135,6 +139,7 @@ struct Man {
 
 struct Step<'a> {
     level: &'a crate::Level,
+    standing: Option<crate::module::Standing<'a>>,
     states: Option<Vec<u8>>,
     men: Vec<Man>,
     now: u64,
@@ -179,20 +184,29 @@ pub(super) fn grapples(
         .iter()
         .map(|(id, avatar, object, sheet, player, fighting)| {
             let facts = object.and_then(|object| object.facts.as_ref());
+            let sheet = effects::sheet_now(sheet_of(*sheet, *object), &fighting.0, now);
+            let mut side = side_of(id.0, *avatar, &fighting.0, &sheet);
+            side.party = in_party(*avatar, &fighting.0) || lent == Some(id.0);
             Man {
                 id: id.0,
-                party: in_party(*avatar, &fighting.0) || lent == Some(id.0),
+                side,
                 beast: facts.is_some_and(|facts| facts.strike.is_some())
                     || object_bulk(*object).is_some(),
                 personal_space: facts.map_or(0.0, |facts| facts.personal_space),
-                sheet: effects::sheet_now(sheet_of(*sheet, *object), &fighting.0, now),
+                sheet,
                 ps: player.0,
                 f: fighting.0,
             }
         })
         .collect();
+    let standing = level
+        .0
+        .module
+        .as_ref()
+        .map(|module| module.repute.with(&scripts.state.reputation));
     let mut step = Step {
         level: &level.0,
+        standing,
         states: door_states(&level.0, &objects),
         men,
         now,
@@ -242,13 +256,34 @@ impl Step<'_> {
         }
     }
 
+    /// Whether `g` may harm `v` with an unarmed grab (`damage::strike_relation`
+    /// and `damage::share`): refuses plot NPCs, neutral outsiders, and friends
+    /// spared by friendly fire.
+    fn may_grab(&self, g: usize, v: usize) -> bool {
+        let (grabber, victim) = (&self.men[g], &self.men[v]);
+        let relation = damage::strike_relation(
+            self.standing,
+            grabber.side,
+            grabber.f.target,
+            victim.side,
+        );
+        let source = Source::Weapon {
+            weapon: Weapon::UNARMED,
+            cadence_ms: ROUND_MS as u32,
+            share: 1000,
+            area: false,
+            second: None,
+            sure: true,
+        };
+        damage::share(relation, &source, &victim.sheet, self.level.friendly_fire) > 0
+    }
+
     /// Whom `g`'s grab takes, if anyone (see the module documentation).
     fn victim(&self, g: usize) -> Option<usize> {
         let grabber = &self.men[g];
         let ps = &grabber.ps;
         let reach = strikes::punch_reach(grabber.personal_space);
         let (forward, ..) = math::angle_vectors([0.0, ps.view[1], 0.0]);
-        let apart = self.level.friendly_fire == FriendlyFire::Off && grabber.party;
         let flat = |man: &Man| math::sub(man.ps.origin, ps.origin);
         let takes = |man: &Man| {
             let mut way = flat(man);
@@ -263,14 +298,13 @@ impl Step<'_> {
                 && !f.saber.floored()
                 && f.saber.lock.is_none()
                 && man.ps.ground.is_some()
-                && !(apart && man.party)
                 && distance <= reach
                 && (man.ps.origin[2] - ps.origin[2]).abs() <= level_within(distance)
                 && (distance == 0.0 || math::dot(way, forward) >= rules::creatures::fists::FRONT)
         };
         let near = |at: &usize| math::flat_length(flat(&self.men[*at]));
         let found: Vec<usize> = (0..self.men.len())
-            .filter(|&at| takes(&self.men[at]))
+            .filter(|&at| takes(&self.men[at]) && self.may_grab(g, at))
             .collect();
         let target = grabber.f.target.and_then(|target| self.find(target));
         found
@@ -409,8 +443,7 @@ impl Step<'_> {
                 self.blow(v, &mut held);
             }
             let thrown = length - grab::END_MS;
-            // The second lets go as the grabber's hands leave the foot, and
-            // kills.
+            // The second lets go as the grabber's hands leave the foot.
             if held.finisher == 2 && t >= grab::LET_GO_MS.min(thrown) {
                 self.let_go(v, partner, held);
                 continue;
@@ -580,13 +613,22 @@ impl Step<'_> {
         }
     }
 
-    /// The second finisher lets `v` go: it dies, and falls limp from the
-    /// pose it is in (`Fighter::blasted_ms`: the view's ragdoll, the rest of
-    /// its clip never played), whatever its health. Its grabber (at
-    /// `partner`) stands free, its clip let go too.
+    /// The second finisher lets `v` go when the grabber's hands leave the
+    /// foot: if a blow marked `v` to die (`held.dead`), it dies and falls limp
+    /// (`Fighter::blasted_ms`); otherwise it enters knockdown
+    /// (`Anim::BOTH_KNOCKDOWN2`) rather than continuing its stand-up clip. Its
+    /// grabber (at `partner`) stands free, its clip let go too.
     fn let_go(&mut self, v: usize, partner: Option<usize>, held: Grapple) {
         let id = self.men[v].id;
-        self.limp(v, held);
+        if held.dead {
+            self.limp(v, held);
+        } else {
+            let anims = &self.level.anims;
+            let victim = &mut self.men[v];
+            motion::react_anew(&mut victim.ps, anims, Anim::BOTH_KNOCKDOWN2);
+            victim.f.weapon_wait_ms = 0;
+            self.release(v, held);
+        }
         if let Some(p) = partner {
             let grabber = &mut self.men[p];
             if grabber
@@ -602,7 +644,7 @@ impl Step<'_> {
         }
     }
 
-    /// The victim at `v` is let go and dies now, whatever its health. It
+    /// The victim at `v`, marked to die by a blow while held, is let go and
     /// falls limp from the pose it is in (`Fighter::blasted_ms`: the view's
     /// ragdoll), the rest of its clip never played.
     fn limp(&mut self, v: usize, held: Grapple) {
@@ -616,11 +658,12 @@ impl Step<'_> {
         self.finish(v, held);
     }
 
-    /// The victim at `v`, marked to die by a blow while held, dies: what it
-    /// has left (1 HP, `damage::apply`) is taken by the grabber's finisher.
+    /// The victim at `v`, marked to die by a blow while held (`held.dead`),
+    /// dies: what it has left (1 HP, `damage::apply`) is taken by the
+    /// grabber's finisher.
     fn finish(&mut self, v: usize, held: Grapple) {
         let victim = &self.men[v];
-        if !victim.f.alive() {
+        if !held.dead || !victim.f.alive() {
             return;
         }
         {
