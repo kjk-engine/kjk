@@ -645,12 +645,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
         } => {
             if fingerprint || stamp.is_some() {
-                return detail_bake::fingerprint(
-                    &discover(),
-                    &module,
-                    game.as_deref(),
-                    stamp.as_deref(),
-                );
+                return detail_bake::fingerprint(&discover(), &module, game.as_deref(), stamp.as_deref());
             }
             let probe = match probe.as_deref().map(|text| {
                 text.split_whitespace()
@@ -686,9 +681,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     })
                 }
                 Some(_) => {
-                    eprintln!(
-                        "--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width"
-                    );
+                    eprintln!("--sun: give nine numbers, the way to the sun, its colour and the sky's, six more for a second sun, and one last for half the suns' width");
                     return ExitCode::from(2);
                 }
             };
@@ -716,14 +709,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 placeables: placeables || placeable_light,
                 placeable_light,
             };
-            detail_bake::run(
-                &discover(),
-                &module,
-                game.as_deref(),
-                &lights,
-                &options,
-                &out,
-            )
+            detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
         }
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
@@ -1076,7 +1062,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 script,
                 module,
             } => script_verbs::dis(&discover(), &game, &script, module.as_deref()),
-            ScriptVerb::Check { game, unbound } => script_verbs::check(&discover(), &game, unbound),
+            ScriptVerb::Check { game, unbound } => {
+                script_verbs::check(&discover(), &game, unbound)
+            }
             ScriptVerb::Probes => script_verbs::probes(),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
@@ -1203,7 +1191,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 combat_verbs::roster(&discover(), &game, &module)
             }
             CombatVerb::Bodies { game } => combat_verbs::bodies(&discover(), &game),
-            CombatVerb::Feats { game, module } => feats_verbs::feats(&discover(), &game, &module),
+            CombatVerb::Feats { game, module } => {
+                feats_verbs::feats(&discover(), &game, &module)
+            }
             CombatVerb::Fight {
                 game,
                 module,

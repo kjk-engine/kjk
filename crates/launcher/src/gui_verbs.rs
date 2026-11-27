@@ -102,16 +102,9 @@ pub fn screen(
     let result = Game::from_key(game)
         .ok_or(format!("{game}: use k1 or tsl"))
         .and_then(|game| {
-            let file =
-                file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
+            let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
             let path = output(game, out)?.join(file);
-            render_screen(
-                discovery,
-                (game, name),
-                (steps, error, None),
-                (size, 1.0),
-                &path,
-            )
+            render_screen(discovery, (game, name), (steps, error, None), (size, 1.0), &path)
         });
     match result {
         Ok(path) => {
@@ -152,18 +145,11 @@ pub(crate) fn render_screen(
     } = &mut staged;
     let mut image = vec![0u8; (size.0 * size.1 * 4) as usize];
     for layer in &shown_layers {
-        let drawn = raster(
-            &layer.list,
-            &|id| assets.pixels(id),
-            size.0,
-            size.1,
-            [0, 0, 0, 0],
-        );
+        let drawn = raster(&layer.list, &|id| assets.pixels(id), size.0, size.1, [0, 0, 0, 0]);
         over(&mut image, &drawn);
     }
     if let Some(folder) = path.parent() {
-        std::fs::create_dir_all(folder)
-            .map_err(|error| format!("{}: {error}", folder.display()))?;
+        std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
     }
     save(path, &image, size.0, size.1)?;
     let links = stack.focus_links(vm);
@@ -185,14 +171,7 @@ pub(crate) fn render_screen(
     if let Some(capture) = capture {
         shown["capture"] = capture.into();
     }
-    let tree = kjk_game::gui_tree::tree(
-        assets,
-        shown,
-        &layers,
-        size,
-        (&links, focus.as_deref()),
-        back,
-    );
+    let tree = kjk_game::gui_tree::tree(assets, shown, &layers, size, (&links, focus.as_deref()), back);
     write_tree(path, &tree)?;
     Ok(path.to_path_buf())
 }
@@ -211,11 +190,7 @@ fn back(
         ..quiet.clone()
     };
     let frame = stack.step(assets, vm, &pressed);
-    let intents: Vec<String> = frame
-        .intents
-        .iter()
-        .map(|intent| format!("{intent:?}"))
-        .collect();
+    let intents: Vec<String> = frame.intents.iter().map(|intent| format!("{intent:?}")).collect();
     let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
     serde_json::json!({ "screens": screens, "intents": intents })
 }

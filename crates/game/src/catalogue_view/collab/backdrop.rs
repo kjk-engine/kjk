@@ -208,6 +208,9 @@ fn make(stage: &str, pixels: (u32, u32), file: &Path) -> Result<Picture, String>
         render(stage, pixels, file)?;
     }
     let decoded = image::open(file)
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(file);
+        })
         .map_err(|error| format!("{}: {error}", file.display()))?
         .to_rgba8();
     Ok(Picture {
@@ -276,6 +279,7 @@ fn render(stage: &str, pixels: (u32, u32), file: &Path) -> Result<(), String> {
 #[derive(Default)]
 pub struct Shown {
     key: String,
+    window: Vec2,
     entity: Option<Entity>,
 }
 
@@ -301,7 +305,7 @@ pub fn show(
         }
         return had.is_some();
     };
-    if shown.entity.is_some() && shown.key == key {
+    if shown.entity.is_some() && shown.key == key && shown.window == window {
         return false;
     }
     if let Some(entity) = shown.entity.take() {
@@ -342,6 +346,7 @@ pub fn show(
         ))
         .id();
     shown.key = key.to_string();
+    shown.window = window;
     shown.entity = Some(entity);
     true
 }
