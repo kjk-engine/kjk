@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8d45161626a6359e`.
+Edition `62bc71330a055b33`.
 
 ## Contents
 
@@ -10053,15 +10053,15 @@ The character on the Debug Mode map starts with 10 of each grenade, mine, medica
 
 ### <a id="world-console"></a>Console Limits
 
-The console's commands set the party's credits, the party's experience and
-the number of items added within limits. The party can have at most
+The console's commands change the party's credits, the party's experience
+and the number of items added within limits. The party can have at most
 9999999 credits and
 9999999 experience points from the console. One
 command adds at most 100 of an item.
 
 <a id="world-console-credits-most"></a>**Most Console Credits** = **9999999** · `world.console.credits_most`
 
-The console sets the party's credits to at most 9999999.
+After a console command, the party has at most 9999999 credits.
 
 <sub>Source: ours. Code: `sim::world::cheats`.</sub>
 

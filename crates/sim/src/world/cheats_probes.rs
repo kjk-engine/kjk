@@ -128,6 +128,7 @@ fn hp(snapshot: &Snapshot, seat: Seat) -> Option<(i32, i32)> {
 pub fn probes() -> crate::probe::Checks {
     vec![
         ("cheats_orders_change_the_game", orders_change()),
+        ("cheats_credits_add", credits_add()),
         ("cheats_heal", heal()),
         ("cheats_kill", kill()),
         ("cheats_off_refuses", off_refuses()),
@@ -143,7 +144,8 @@ pub fn probes() -> crate::probe::Checks {
 }
 
 /// Under the rule Host, the host's item, credits, experience, global and
-/// script orders change what they should.
+/// script orders change what they should. An order carried out sends no
+/// notice.
 fn orders_change() -> Result<String, String> {
     let (mut world, _) = ground(1, false)?;
     let orders = [
@@ -174,18 +176,39 @@ fn orders_change() -> Result<String, String> {
     let (after, told) = under(&mut world, 1, Rule::Host, &orders, 3);
     let items = carried(&after);
     let global = world.script_state().numbers.get(GLOBAL).copied();
-    let done = told.iter().filter(|(_, outcome)| *outcome == Outcome::Done);
     check(
         items == 3
             && after.goods.gold == 1234
             && after.progress.xp == 5000
             && global == Some(7)
-            && done.count() == orders.len(),
+            && told.is_empty(),
         format!(
             "items {items}, credits {}, experience {}, global {global:?}, told {told:?}",
             after.goods.gold, after.progress.xp
         ),
     )
+}
+
+/// Credits orders add to the party's credits. A total below 0 stays at 0,
+/// and a total past the limit stays at the limit.
+fn credits_add() -> Result<String, String> {
+    let (mut world, _) = ground(1, false)?;
+    let mut seen = Vec::new();
+    for (amount, want) in [
+        (300, 300),
+        (200, 500),
+        (-9_999, 0),
+        (limits::CREDITS_MOST, limits::CREDITS_MOST),
+        (1, limits::CREDITS_MOST),
+    ] {
+        let orders = [cheat(0, CheatOrder::Credits(amount))];
+        let (after, _) = under(&mut world, 1, Rule::Host, &orders, 2);
+        seen.push(format!("{amount:+} to {}", after.goods.gold));
+        if after.goods.gold != want {
+            return Err(format!("{}; wanted {want}", seen.join(", ")));
+        }
+    }
+    Ok(seen.join(", "))
 }
 
 /// A heal with no one named fills the player's hit points.
@@ -237,7 +260,7 @@ fn kill() -> Result<String, String> {
         !alive(&after, foe)
             && alive(&after, plot)
             && me_alive
-            && outcomes == [Outcome::Done, Outcome::Protected, Outcome::Protected],
+            && outcomes == [Outcome::Protected, Outcome::Protected],
         format!(
             "foe alive {}, plot creature alive {}, player alive {me_alive}, told {outcomes:?}",
             alive(&after, foe),
@@ -336,12 +359,7 @@ fn never_another() -> Result<String, String> {
     let (_, host_after) = mine(&after, Seat(0))?;
     let (_, guest_after) = mine(&after, Seat(1))?;
     let outcomes: Vec<Outcome> = told.iter().map(|(_, outcome)| *outcome).collect();
-    let expected = [
-        Outcome::HostOnly,
-        Outcome::NotYours,
-        Outcome::Done,
-        Outcome::NotYours,
-    ];
+    let expected = [Outcome::HostOnly, Outcome::NotYours, Outcome::NotYours];
     check(
         host_after == host_sheet
             && guest_after.abilities[0] == 30
@@ -417,13 +435,7 @@ fn off_arena_orders() -> Result<String, String> {
         sheet.flags & flags::IMMORTAL != 0
             && sheet.good_evil == 10
             && alive(&after, foe)
-            && outcomes
-                == [
-                    Outcome::Done,
-                    Outcome::Done,
-                    Outcome::ArenaOnly,
-                    Outcome::ArenaOnly,
-                ],
+            && outcomes == [Outcome::ArenaOnly, Outcome::ArenaOnly],
         format!(
             "god {}, alignment {}, foe alive {}, told {outcomes:?}",
             sheet.flags & flags::IMMORTAL != 0,

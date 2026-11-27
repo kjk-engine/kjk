@@ -649,7 +649,9 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
 fn cheat_words(outcome: sim::cheats::Outcome) -> &'static str {
     use sim::cheats::Outcome;
     match outcome {
-        Outcome::Done => "The console command was carried out.",
+        // The simulation sends no notice for an order carried out: the
+        // console has already printed what the command does.
+        Outcome::Done => "",
         Outcome::Off => "Cheats are off in this game.",
         Outcome::HostOnly => "Only the host can use this command in this game.",
         Outcome::NotYours => "That character belongs to another player.",
