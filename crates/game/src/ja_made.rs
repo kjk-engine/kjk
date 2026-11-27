@@ -13,7 +13,7 @@
 //!
 //! - Its model and the model's MDX (`fmt_odyssey::mdl::written`). The model
 //!   holds the room's part of the level as the converter draws it
-//!   (`asset_ja::level`, `Paint::Room`), with each surface's own shader and
+//!   (`asset_ja::level::rooms`), with each surface's own shader and
 //!   the level's light, in the level's own coordinates. A map's copy of
 //!   it is moved so that the place the map keeps for the room (its
 //!   `from`) is its origin (`level_edit::map::room_copy`). A room offered
@@ -61,7 +61,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use asset_ja::level::Paint;
 use asset_ja::level_rooms::{Cut, RoomCuts, Shape};
 use asset_odyssey::model::ModelIr;
 use asset_odyssey::texture::{Encoding, TextureIr};
@@ -151,8 +150,8 @@ pub struct Sky {
 /// The sky box each new map shows, by module (`set_sky`).
 static SKIES: std::sync::Mutex<BTreeMap<String, String>> = std::sync::Mutex::new(BTreeMap::new());
 
-/// The sky boxes built so far, by box and module; `None` for one whose
-/// pictures did not read.
+/// The sky boxes built so far, by box and module; `None` for one that did
+/// not build when it was last asked for, which is tried again (`sky_of`).
 type BuiltSkies = BTreeMap<(String, String), Option<std::sync::Arc<Sky>>>;
 static BUILT_SKIES: std::sync::Mutex<BuiltSkies> = std::sync::Mutex::new(BTreeMap::new());
 
@@ -170,8 +169,10 @@ pub fn set_sky(module: &str, sky: Option<&str>) {
 
 /// The Jedi Academy sky box drawn round the new map `module`, built from
 /// the player's Jedi Academy install the first time it is asked for. A box
-/// asked for (`set_sky`) whose pictures do not read is drawn as no sky,
-/// and said once.
+/// asked for (`set_sky`) that does not build is drawn as no sky, and said
+/// once. It is tried again each time it is asked for. Kept as no sky, a
+/// box asked for before Jedi Academy's folder was set stayed missing until
+/// kjk was started again.
 pub fn sky_of(module: &str) -> Option<std::sync::Arc<Sky>> {
     let module = module.to_ascii_lowercase();
     let farbox = (SKIES.lock())
@@ -181,16 +182,23 @@ pub fn sky_of(module: &str) -> Option<std::sync::Arc<Sky>> {
     let mut built = BUILT_SKIES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    built
-        .entry((farbox.clone(), module.clone()))
-        .or_insert_with(|| match build_sky(&crate::discover(), &module, &farbox) {
-            Ok(sky) => Some(std::sync::Arc::new(sky)),
-            Err(why) => {
+    let key = (farbox.clone(), module.clone());
+    let said = match built.get(&key) {
+        Some(Some(sky)) => return Some(sky.clone()),
+        Some(None) => true,
+        None => false,
+    };
+    let sky = match build_sky(&crate::discover(), &module, &farbox) {
+        Ok(sky) => Some(std::sync::Arc::new(sky)),
+        Err(why) => {
+            if !said {
                 bevy::log::warn!("the sky {farbox} of {module} is not drawn: {why}");
-                None
             }
-        })
-        .clone()
+            None
+        }
+    };
+    built.insert(key, sky.clone());
+    sky
 }
 
 /// The sky box `farbox` built for the new map `module`: its model, named
@@ -233,9 +241,25 @@ struct Placement {
 }
 
 /// Each placed Jedi Academy room by the name of its copy in the map's
-/// layout (`set_placements`).
-static PLACEMENTS: std::sync::Mutex<BTreeMap<String, Placement>> =
-    std::sync::Mutex::new(BTreeMap::new());
+/// layout, for each map by its module (`placed`). A map's rooms are kept
+/// together, so that placing them again takes the place of what the map
+/// had before.
+type Placements = BTreeMap<String, BTreeMap<String, Placement>>;
+static PLACEMENTS: std::sync::Mutex<Placements> = std::sync::Mutex::new(BTreeMap::new());
+
+/// Makes `rooms` (each a copy's name and its placement) all the Jedi
+/// Academy rooms the map of `module` places. A room the map placed before
+/// and no longer does is forgotten. It used to stay: a KOTOR room put in a
+/// deleted Jedi Academy room's slot took its name, and a prop in it was lit
+/// by the Jedi Academy level's light grid (`grid_light`).
+fn placed(module: &str, rooms: impl IntoIterator<Item = (String, Placement)>) {
+    let rooms: BTreeMap<String, Placement> = (rooms.into_iter())
+        .map(|(copy, placement)| (copy.to_ascii_lowercase(), placement))
+        .collect();
+    (PLACEMENTS.lock())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(module.to_ascii_lowercase(), rooms);
+}
 
 /// Each built level's light grid, by the level's path (`build_level`).
 type Grids = BTreeMap<String, std::sync::Arc<fmt_ja::bsp::LightGrid>>;
@@ -245,22 +269,19 @@ static GRIDS: std::sync::Mutex<Grids> = std::sync::Mutex::new(BTreeMap::new());
 /// cut from a Jedi Academy level, by its copy's name, for its props' light
 /// (`grid_light`).
 pub fn set_placements(module: &str, map: &NewMap) {
-    let mut placements = PLACEMENTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    for (index, room) in map.rooms.iter().enumerate() {
-        if let Some(ja) = &room.ja {
-            placements.insert(
-                level_edit::map::room_name(module, index),
-                Placement {
-                    level: ja.level.clone(),
-                    from: room.from,
-                    position: room.position,
-                    yaw: room.yaw,
-                },
-            );
-        }
-    }
+    let rooms = map.rooms.iter().enumerate().filter_map(|(index, room)| {
+        let ja = room.ja.as_ref()?;
+        Some((
+            level_edit::map::room_name(module, index),
+            Placement {
+                level: ja.level.clone(),
+                from: room.from,
+                position: room.position,
+                yaw: room.yaw,
+            },
+        ))
+    });
+    placed(module, rooms);
 }
 
 /// The light Jedi Academy's renderer gives a model standing at `at` (game
@@ -271,9 +292,11 @@ pub fn set_placements(module: &str, map: &NewMap) {
 /// light. Also gives the room's yaw (degrees), which turns a direction of
 /// the map into one of the level.
 pub fn grid_light(copy: &str, at: [f32; 3]) -> Option<(asset_ja::light_grid::ModelLight, f32)> {
+    let copy = copy.to_ascii_lowercase();
     let placement = (PLACEMENTS.lock())
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&copy.to_ascii_lowercase())?
+        .values()
+        .find_map(|rooms| rooms.get(&copy))?
         .clone();
     let grid = (GRIDS.lock())
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -434,18 +457,22 @@ pub fn build_level(
     }
 
     // Each room's model and floor first, then the textures they all need.
-    let mut rooms = Vec::new();
-    for (index, name) in cuts.names.iter().enumerate() {
-        if wanted.is_some_and(|wanted| !wanted.contains(name)) {
-            continue;
-        }
-        let drawn = asset_ja::level::level(&path, &bsp, &md3, &Paint::Room(&cutter, index));
+    // The level is gone through once for all the rooms wanted
+    // (`asset_ja::level::rooms`).
+    let numbers: Vec<usize> = (0..cuts.names.len())
+        .filter(|index| wanted.is_none_or(|wanted| wanted.contains(&cuts.names[*index])))
+        .collect();
+    if !numbers.is_empty() {
         (GRIDS.lock())
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entry(path.clone())
             .or_insert_with(|| std::sync::Arc::new(bsp.light_grid.clone()));
-        let room_floor = cutter.room_part(&collision.floor, &collision.floor_ground, index);
-        rooms.push((name.clone(), drawn, room_floor));
+    }
+    let mut rooms = Vec::new();
+    for drawn in asset_ja::level::rooms(&path, &bsp, &md3, &cutter, &numbers) {
+        let name = cuts.names[drawn.room].clone();
+        let room_floor = cutter.room_part(&collision.floor, &collision.floor_ground, drawn.room);
+        rooms.push((name, drawn, room_floor));
     }
     let shaders: Vec<String> = (rooms.iter())
         .flat_map(|(_, drawn, _)| &drawn.model.meshes)
@@ -639,24 +666,19 @@ pub fn make_mods(discovery: &Discovery, active: &level_edit::active::Active) -> 
     let mut notes = Vec::new();
     for map in &active.ja_maps {
         set_sky(&map.module, map.sky.as_deref());
-        {
-            let mut placements = PLACEMENTS
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for (copy, room) in &map.rooms {
-                if let Some(ja) = &room.ja {
-                    placements.insert(
-                        copy.clone(),
-                        Placement {
-                            level: ja.level.clone(),
-                            from: room.from,
-                            position: room.position,
-                            yaw: room.yaw,
-                        },
-                    );
-                }
-            }
-        }
+        let rooms = map.rooms.iter().filter_map(|(copy, room)| {
+            let ja = room.ja.as_ref()?;
+            Some((
+                copy.clone(),
+                Placement {
+                    level: ja.level.clone(),
+                    from: room.from,
+                    position: room.position,
+                    yaw: room.yaw,
+                },
+            ))
+        });
+        placed(&map.module, rooms);
         // The levels whose rooms were not built: their rooms get no copy.
         let mut failed = BTreeSet::new();
         for kept in &map.cuts {

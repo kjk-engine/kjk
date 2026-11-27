@@ -42,8 +42,8 @@
 //! joined no waypoint more, and made the floor up to 17 times larger.
 //!
 //! A level's terrain is often drawn as triangles of any shape too: Hoth's
-//! snow is a shader the compiler turns into such triangles
-//! (`q3map_forcemeta`), and its collision is the brushes it was made from.
+//! snow is a shader the level's compiler is told to turn into such
+//! triangles, and its collision is the brushes it was made from.
 //! So a triangle of that kind is floor where a solid brush lies right under
 //! it (`ON_SOLID`). A model the compiler put into the level stands on the
 //! floor, and its top is not over a brush, so it stays out.
@@ -61,7 +61,7 @@
 //! (`NavMesh::bridge`).
 
 use collision::{CollisionWorld, Contents, Extents, Ground, Level, LevelBuilder, Tag, UNIT};
-use fmt_ja::bsp::{Bsp, CONTENTS_PLAYER_CLIP, CONTENTS_SOLID, SURFACE_SKY, SurfaceKind};
+use fmt_ja::bsp::{Bsp, SHOWS_SKY, STOPS_ALL, STOPS_BODIES, SurfaceKind};
 
 /// The widest gap between two floors (metres) that the navigation mesh
 /// joins across, where a body steps over it.
@@ -72,8 +72,8 @@ pub const BRIDGE: f32 = 0.3;
 const ON_SOLID: f32 = 0.1;
 
 /// The ground that a surface whose shader has the surface flags `flags`
-/// looks like underfoot. The compiler keeps the shader's material
-/// (`q3map_material`) as a number in the flags' lowest five bits: 14 for
+/// looks like underfoot. The level's compiler keeps the material that the
+/// shader names as a number in the flags' lowest five bits: 14 for
 /// Hoth's snow, 23 for its rock, 3 and 4 for solid and hollow metal. A
 /// shader with no material, as most are, steps as stone. Glass, concrete,
 /// marble, rock, tiles, plaster, rubber and plastic step as stone too.
@@ -221,9 +221,9 @@ pub fn stops(flags: u32) -> bool {
 }
 
 fn contents(flags: u32) -> Option<Contents> {
-    if flags & CONTENTS_SOLID != 0 {
+    if flags & STOPS_ALL != 0 {
         Some(Contents::SOLID)
-    } else if flags & CONTENTS_PLAYER_CLIP != 0 {
+    } else if flags & STOPS_BODIES != 0 {
         Some(Contents::PLAYER_CLIP)
     } else {
         None
@@ -366,7 +366,7 @@ pub fn collision(bsp: &Bsp) -> LevelCollision {
         if !matches!(
             surface.kind,
             SurfaceKind::Planar | SurfaceKind::Patch | SurfaceKind::Triangles
-        ) || shader.surface_flags & SURFACE_SKY != 0
+        ) || shader.surface_flags & SHOWS_SKY != 0
         {
             continue;
         }

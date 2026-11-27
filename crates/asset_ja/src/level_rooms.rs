@@ -183,17 +183,53 @@ impl Shape {
             }
         }
         let margin = f64::from(self.margin.max(0.0));
-        let reach = |pick: fn(f64, f64) -> f64, start: f64, out: f64| -> [f32; 3] {
-            std::array::from_fn(|axis| {
-                (points.iter().map(|point| point[axis]).fold(start, pick) + out) as f32
-            })
-        };
+        let planes: Vec<(V, f64)> = (planes.into_iter())
+            .map(|(normal, dist)| (normal, dist + margin))
+            .collect();
+        // The box round the solid as the margin leaves it: round its own
+        // corners, each where three of its faces meet. The box round the
+        // points, widened by the margin, is too small where two faces meet
+        // at a sharp angle. Moved out by the margin, they meet further out
+        // than the margin. A triangle there lay inside the solid and
+        // outside its box, and `Cutter::pieces` left it to the rest of the
+        // level while `Cutter::room_at` gave it to the room.
+        let mut min = [f64::INFINITY; 3];
+        let mut max = [f64::NEG_INFINITY; 3];
+        for (first, a) in planes.iter().enumerate() {
+            for (second, b) in planes.iter().enumerate().skip(first + 1) {
+                for c in planes.iter().skip(second + 1) {
+                    let (bc, ca, ab) = (cross(b.0, c.0), cross(c.0, a.0), cross(a.0, b.0));
+                    let turn = dot(a.0, bc);
+                    if turn.abs() < 1e-9 {
+                        continue;
+                    }
+                    let corner: V = std::array::from_fn(|axis| {
+                        (a.1 * bc[axis] + b.1 * ca[axis] + c.1 * ab[axis]) / turn
+                    });
+                    // A corner of the solid lies behind every face of it.
+                    if planes
+                        .iter()
+                        .all(|(normal, dist)| dot(*normal, corner) - dist <= ON_PLANE)
+                    {
+                        for axis in 0..3 {
+                            min[axis] = min[axis].min(corner[axis]);
+                            max[axis] = max[axis].max(corner[axis]);
+                        }
+                    }
+                }
+            }
+        }
+        // Never smaller than the box round the points with the margin.
+        for point in &points {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(point[axis] - margin);
+                max[axis] = max[axis].max(point[axis] + margin);
+            }
+        }
         Some(Solid {
-            planes: (planes.into_iter())
-                .map(|(normal, dist)| (normal, dist + margin))
-                .collect(),
-            min: reach(f64::min, f64::INFINITY, -margin),
-            max: reach(f64::max, f64::NEG_INFINITY, margin),
+            planes,
+            min: min.map(|part| part as f32),
+            max: max.map(|part| part as f32),
             corners: (corners.iter())
                 .map(|(corner, ..)| corner.map(|part| part as f32))
                 .collect(),

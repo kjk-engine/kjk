@@ -20,8 +20,8 @@
 
 use fmt_ja::bsp::{LightGrid, STYLE_NONE};
 
-/// The share of the grid's ambient light a model takes (the renderer's
-/// `r_ambientScale`).
+/// The share of the grid's ambient light a model takes, as the game's
+/// renderer is set up.
 pub const AMBIENT_SHARE: f32 = 0.5;
 /// The ambient light, of 255, that every model has beside the grid's.
 pub const AMBIENT_FLOOR: f32 = 32.0;

@@ -65,15 +65,15 @@ pub const GRID_SIZE: [f32; 3] = [64.0, 64.0, 128.0];
 
 /// A shader's surface flag: the sky. Its surfaces are where the sky shows,
 /// not walls.
-pub const SURFACE_SKY: u32 = 0x2000;
+pub const SHOWS_SKY: u32 = 0x2000;
 /// A shader's surface flag: never drawn (clips, triggers, caulk).
-pub const SURFACE_NODRAW: u32 = 0x20_0000;
+pub const NEVER_DRAWN: u32 = 0x20_0000;
 /// A shader's content flag: solid to everything.
-pub const CONTENTS_SOLID: u32 = 0x1;
+pub const STOPS_ALL: u32 = 0x1;
 /// A shader's content flag: blocks players and creatures, and nothing else.
-pub const CONTENTS_PLAYER_CLIP: u32 = 0x10;
+pub const STOPS_BODIES: u32 = 0x10;
 /// A shader's content flag: a volume of fog.
-pub const CONTENTS_FOG: u32 = 0x8;
+pub const HOLDS_FOG: u32 = 0x8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BspError {
@@ -214,6 +214,12 @@ impl Visibility {
     pub fn sees(&self, from: usize, to: usize) -> bool {
         if self.rows.is_empty() {
             return true;
+        }
+        // A cluster the table has no row or no bit for sees nothing and is
+        // seen from nowhere. Without this, a `to` past the row's end read a
+        // bit of the next cluster's row.
+        if from >= self.clusters || to >= self.clusters || to / 8 >= self.row_bytes {
+            return false;
         }
         self.rows
             .get(from * self.row_bytes + to / 8)
@@ -576,7 +582,25 @@ pub fn parse(bytes: &[u8]) -> Result<Bsp, BspError> {
 }
 
 /// The light grid over the world: its cells start at the first multiple of
-/// their size inside the world's bounds and end at the last. The size is the
+/// their size inside the world's bounds and end at the last.
+///
+/// Gives the grid's first point and how many cells it has along each axis,
+/// for cells of `size` in a world from `min` to `max`. The last point less
+/// the first, in cells, is a whole number, but not always when it is worked
+/// out: with cells 33.3 wide, 71 comes out as 70.99999. It is rounded to
+/// the nearest whole number. Cut off, the count was one short, it no longer
+/// matched the level's cells, and the level lost its whole grid.
+pub fn grid_layout(size: [f32; 3], min: [f32; 3], max: [f32; 3]) -> ([f32; 3], [usize; 3]) {
+    let origin: [f32; 3] = std::array::from_fn(|axis| size[axis] * (min[axis] / size[axis]).ceil());
+    let bounds: [usize; 3] = std::array::from_fn(|axis| {
+        let last = size[axis] * (max[axis] / size[axis]).floor();
+        (((last - origin[axis]) / size[axis]).round() as i64 + 1).max(0) as usize
+    });
+    (origin, bounds)
+}
+
+/// The level's light grid, from its cells and its points, laid out by
+/// `grid_layout`. The size is the
 /// `worldspawn` entity's `gridsize`, else `GRID_SIZE`. A grid whose cells
 /// are not as many as that asks for, or which names a point it lacks, is
 /// left empty.
@@ -592,14 +616,10 @@ fn light_grid(
     let size = (entities.iter())
         .find(|entity| entity.class() == "worldspawn")
         .and_then(|entity| entity.vector("gridsize"))
-        .filter(|size| size.iter().all(|side| *side > 0.0))
+        // A size that is no number, or without end, is none.
+        .filter(|size| size.iter().all(|side| side.is_finite() && *side > 0.0))
         .unwrap_or(GRID_SIZE);
-    let origin: [f32; 3] =
-        std::array::from_fn(|axis| size[axis] * (world.min[axis] / size[axis]).ceil());
-    let bounds: [usize; 3] = std::array::from_fn(|axis| {
-        let last = size[axis] * (world.max[axis] / size[axis]).floor();
-        (((last - origin[axis]) / size[axis]) as i64 + 1).max(0) as usize
-    });
+    let (origin, bounds) = grid_layout(size, world.min, world.max);
     let wanted = bounds
         .iter()
         .try_fold(1usize, |all, side| all.checked_mul(*side));
@@ -617,8 +637,9 @@ fn light_grid(
 
 impl Bsp {
     /// Refuses a level whose records point outside its arrays, so what
-    /// reads a parsed level may index without checking.
-    fn checked(&self) -> Result<(), BspError> {
+    /// reads a parsed level may index without checking. `parse` gives only
+    /// levels that pass.
+    pub fn checked(&self) -> Result<(), BspError> {
         let bad = |what: String| Err(BspError::Bad(what));
         for (at, surface) in self.surfaces.iter().enumerate() {
             if surface.shader as usize >= self.shaders.len() {
@@ -674,9 +695,17 @@ impl Bsp {
             if !within(brush.sides, self.brush_sides.len()) {
                 return bad(format!("brush {at} reaches past the brush sides"));
             }
+            // A brush's shader and a side's, as a surface's above. They
+            // were the two the check left out.
+            if brush.shader as usize >= self.shaders.len() {
+                return bad(format!("brush {at} names shader {}", brush.shader));
+            }
         }
         if (self.brush_sides.iter()).any(|side| side.plane as usize >= self.planes.len()) {
             return bad("a brush side names a plane the level lacks".into());
+        }
+        if (self.brush_sides.iter()).any(|side| side.shader as usize >= self.shaders.len()) {
+            return bad("a brush side names a shader the level lacks".into());
         }
         for (at, node) in self.nodes.iter().enumerate() {
             let child_ok = |child: i32| match usize::try_from(child) {

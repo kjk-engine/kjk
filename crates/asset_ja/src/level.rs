@@ -46,8 +46,7 @@ use asset_odyssey::anim::{AnimationIr, NodeTrack};
 use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
 use fmt_ja::bsp::{
-    Bsp, CONTENTS_FOG, Entity, LIGHTMAP_SIDE, SURFACE_NODRAW, SURFACE_SKY, Surface, SurfaceKind,
-    Vertex,
+    Bsp, Entity, HOLDS_FOG, LIGHTMAP_SIDE, NEVER_DRAWN, SHOWS_SKY, Surface, SurfaceKind, Vertex,
 };
 use fmt_ja::md3::Md3;
 
@@ -58,7 +57,7 @@ pub const PAGES_ACROSS: usize = 8;
 
 /// How far a curved surface's flat strips may lie from the curve, in units.
 /// Jedi Academy's renderer cuts a curve by its distance from the viewer, down
-/// to 4 units (`r_subdivisions`). A model that is cut once is cut finer.
+/// to 4 units as the game is set up. A model that is cut once is cut finer.
 pub const PATCH_TOLERANCE: f32 = 2.0;
 
 /// The most strips one patch is cut into along a side.
@@ -543,8 +542,9 @@ impl Stand {
     }
 }
 
-/// A triangle as the pieces a paint makes of it.
-type Pieces<'a> = dyn Fn([Corner; 3]) -> Vec<[Corner; 3]> + 'a;
+/// A triangle as the pieces a paint makes of it, each with the model it
+/// is drawn in (`Gathered`).
+type Pieces<'a> = dyn Fn([Corner; 3]) -> Vec<(usize, [Corner; 3])> + 'a;
 
 /// One static model's triangles, lit by `light`, added to the batches of
 /// its shaders (or to the batch `paint` names, when it names one), as the
@@ -555,8 +555,7 @@ fn place(
     stand: &Stand,
     light: &ModelLight,
     paint: Option<(Option<&str>, &Pieces)>,
-    batches: &mut BTreeMap<Key, Batch>,
-    blocks: &mut Blocks,
+    gathered: &mut BTreeMap<usize, Gathered>,
 ) -> usize {
     let mut added = 0;
     for surface in &md3.surfaces {
@@ -568,7 +567,6 @@ fn place(
         }
         let key = (paint.and_then(|(name, _)| name))
             .map_or_else(|| fmt_ja::game_path(shader), str::to_string);
-        let batch = batches.entry((None, key, None)).or_default();
         let corner = |index: u32| {
             let at = index as usize;
             let position = stand.turned(surface.positions[at]);
@@ -588,13 +586,16 @@ fn place(
         // The file winds a triangle clockwise seen from its front.
         for &[a, b, c] in &surface.triangles {
             let corners = [corner(a), corner(c), corner(b)];
-            match paint {
-                Some((_, pieces)) => {
-                    for piece in pieces(corners) {
-                        blocks.triangle(batch, piece);
-                    }
-                }
-                None => blocks.triangle(batch, corners),
+            let pieces = match paint {
+                Some((_, pieces)) => pieces(corners),
+                None => vec![(0, corners)],
+            };
+            for (group, piece) in pieces {
+                let Some(own) = gathered.get_mut(&group) else {
+                    continue;
+                };
+                let batch = own.batches.entry((None, key.clone(), None)).or_default();
+                own.blocks.triangle(batch, piece);
             }
             added += 1;
         }
@@ -616,9 +617,9 @@ fn left_out(bsp: &Bsp, surface: &Surface) -> Option<LeftOut> {
     match surface.kind {
         SurfaceKind::Flare => Some(LeftOut::Flare),
         SurfaceKind::Other(_) => Some(LeftOut::Unknown),
-        _ if shader.surface_flags & SURFACE_SKY != 0 => Some(LeftOut::Sky),
-        _ if shader.surface_flags & SURFACE_NODRAW != 0 => Some(LeftOut::NotDrawn),
-        _ if shader.content_flags & CONTENTS_FOG != 0 => Some(LeftOut::Fog),
+        _ if shader.surface_flags & SHOWS_SKY != 0 => Some(LeftOut::Sky),
+        _ if shader.surface_flags & NEVER_DRAWN != 0 => Some(LeftOut::NotDrawn),
+        _ if shader.content_flags & HOLDS_FOG != 0 => Some(LeftOut::Fog),
         _ => None,
     }
 }
@@ -666,11 +667,64 @@ pub enum Paint<'a> {
     /// (`level_rooms::Cutter::pieces`), and each piece takes its room's
     /// texel.
     Rooms(&'a crate::level_rooms::Cutter, &'a Palette),
-    /// One room alone (its number among the rooms), with each surface's
-    /// own shader: what the room is drawn as in a map (`room`). Every
-    /// triangle is cut as for `Rooms`, and only the pieces in the room are
-    /// kept. Its doors are kept where they rest.
-    Room(&'a crate::level_rooms::Cutter, usize),
+}
+
+/// What is gathered for one model: the level's own, or one room's. Its
+/// meshes by their shader, the blocks its vertex-lit triangles have in its
+/// light atlas, and the lightmaps kept beside the level that its meshes
+/// name.
+struct Gathered {
+    batches: BTreeMap<Key, Batch>,
+    blocks: Blocks,
+    beside: std::collections::BTreeSet<u32>,
+}
+
+/// One room of a level drawn by its rooms (`rooms`).
+pub struct RoomDrawn {
+    /// Its number among the level's rooms (`level_rooms::RoomCuts::names`).
+    pub room: usize,
+    /// Its model, with each surface's own shader. Its doors are kept in it
+    /// where they rest.
+    pub model: ModelIr,
+    /// Its light atlas: the level's lightmaps, and under them the blocks
+    /// of this room's own vertex-lit triangles.
+    pub light: TextureIr,
+    /// The lightmaps kept beside the level that its meshes name
+    /// (`Level::beside`).
+    pub beside: Vec<u32>,
+}
+
+/// What `draw` gives: each model's meshes, light atlas and lightmaps kept
+/// beside the level, and what the level has once.
+struct Drawn {
+    models: BTreeMap<usize, (Vec<MeshIr>, TextureIr, Vec<u32>)>,
+    sky: Vec<String>,
+    doors: Vec<DoorModel>,
+    tally: Tally,
+}
+
+/// The model named `name` that `meshes` make.
+fn model_of(name: &str, meshes: Vec<MeshIr>) -> ModelIr {
+    ModelIr {
+        name: name.to_string(),
+        supermodel: None,
+        nodes: vec![NodeIr {
+            name: name.to_string(),
+            parent: None,
+            translation: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            world: IDENTITY,
+            animated: false,
+        }],
+        meshes,
+        lights: Vec::new(),
+        emitters: Vec::new(),
+        animations: Vec::new(),
+        animation_scale: 1.0,
+        affected_by_fog: true,
+        refusals: Vec::new(),
+        folded: Vec::new(),
+    }
 }
 
 /// The corner at `share` of a triangle's three corners.
@@ -699,29 +753,88 @@ fn blend(corners: &[Corner; 3], share: [f32; 3]) -> Corner {
 /// `bsp` as a model named `name`, with its light atlas. `md3` reads a
 /// static model by its path in the game's files.
 pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &Paint) -> Level {
+    let (cutter, palette) = match paint {
+        Paint::Shaders => (None, None),
+        Paint::Rooms(cutter, palette) => (Some(*cutter), Some(*palette)),
+    };
+    let mut drawn = draw(name, bsp, md3, cutter, palette, None);
+    let (meshes, light, beside) = (drawn.models.remove(&0)).expect("the level's own model");
+    Level {
+        model: model_of(name, meshes),
+        light,
+        start: start(bsp),
+        beside,
+        sky: drawn.sky,
+        doors: drawn.doors,
+        tally: drawn.tally,
+    }
+}
+
+/// The rooms `rooms` of `bsp` (their numbers among the rooms `cutter`
+/// cuts), each a model named `name` with a light atlas of its own: what a
+/// room is drawn as in a map. Every triangle, a static model's too, is cut
+/// where a room's shape crosses it (`level_rooms::Cutter::pieces`), and
+/// each piece goes to its room. A room's doors are kept in it where they
+/// rest.
+///
+/// The level is gone through once for all of them. Each room used to be
+/// drawn by a pass of its own over the whole level, which read every
+/// static model, cut every curve into strips and cut every triangle again
+/// for each room. A room comes out as it did then.
+pub fn rooms(
+    name: &str,
+    bsp: &Bsp,
+    md3: &dyn Fn(&str) -> Option<Md3>,
+    cutter: &crate::level_rooms::Cutter,
+    rooms: &[usize],
+) -> Vec<RoomDrawn> {
+    let drawn = draw(name, bsp, md3, Some(cutter), None, Some(rooms));
+    (drawn.models.into_iter())
+        .map(|(room, (meshes, light, beside))| RoomDrawn {
+            room,
+            model: model_of(name, meshes),
+            light,
+            beside,
+        })
+        .collect()
+}
+
+/// `bsp` drawn as one model, or as one for each of `rooms`. With `cutter`,
+/// every triangle is cut by the rooms' shapes. With `palette`, each piece
+/// is coloured by its room, in one model. With `rooms`, each piece goes to
+/// its room's model, and the pieces of other rooms are left out.
+fn draw(
+    name: &str,
+    bsp: &Bsp,
+    md3: &dyn Fn(&str) -> Option<Md3>,
+    cutter: Option<&crate::level_rooms::Cutter>,
+    palette: Option<&Palette>,
+    rooms: Option<&[usize]>,
+) -> Drawn {
     let mut tally = Tally::default();
-    // The cuts, the palette the rooms are coloured through, and the one
-    // room kept.
-    let (cutter, palette, only) = match paint {
-        Paint::Shaders => (None, None, None),
-        Paint::Rooms(cutter, palette) => (Some(*cutter), Some(*palette), None),
-        Paint::Room(cutter, room) => (Some(*cutter), None, Some(*room)),
+    // The model a room's pieces are drawn in: its own, where each room has
+    // one, and else the level's one model, numbered 0.
+    let model_of_room = |room: usize| -> Option<usize> {
+        match rooms {
+            Some(rooms) => rooms.contains(&room).then_some(room),
+            None => Some(0),
+        }
     };
     // The triangles drawn in each room.
     let room_triangles = std::cell::RefCell::new(Vec::<usize>::new());
-    // A triangle as its rooms have it: the pieces the cuts make of it
-    // (only the one room's, when one is kept), each with its room's texel
-    // for its texture coordinates when the rooms are coloured, and with
-    // the places on the light atlas of its corners when it has them.
-    type Piece = ([Corner; 3], Option<[[f32; 2]; 3]>);
+    // A triangle as its rooms have it: the pieces the cuts make of it, each
+    // with the model it is drawn in, with its room's texel for its texture
+    // coordinates when the rooms are coloured, and with the places on the
+    // light atlas of its corners when it has them.
+    type Piece = (usize, [Corner; 3], Option<[[f32; 2]; 3]>);
     let cut = |corners: [Corner; 3], texels: Option<[[f32; 2]; 3]>| -> Vec<Piece> {
         let Some(cutter) = cutter else {
-            return vec![(corners, texels)];
+            return vec![(0, corners, texels)];
         };
         let metres = [0, 1, 2].map(|at| corners[at].position.map(|part| part * collision::UNIT));
         (cutter.pieces(metres).into_iter())
-            .filter(|(room, _)| only.is_none_or(|only| *room == only))
-            .map(|(room, shares)| {
+            .filter_map(|(room, shares)| {
+                let model = model_of_room(room)?;
                 let mut counts = room_triangles.borrow_mut();
                 if counts.len() <= room {
                     counts.resize(room + 1, 0);
@@ -743,21 +856,29 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                         })
                     })
                 });
-                (piece, places)
+                Some((model, piece, places))
             })
             .collect()
     };
     let pages = bsp.lightmaps.len();
     let width = PAGES_ACROSS * LIGHTMAP_SIDE;
-    let mut blocks = Blocks {
-        top: pages.div_ceil(PAGES_ACROSS) * LIGHTMAP_SIDE,
-        width,
-        x: 0,
-        y: 0,
-        row: 0,
-        placed: Vec::new(),
+    let fresh = || Gathered {
+        batches: BTreeMap::new(),
+        blocks: Blocks {
+            top: pages.div_ceil(PAGES_ACROSS) * LIGHTMAP_SIDE,
+            width,
+            x: 0,
+            y: 0,
+            row: 0,
+            placed: Vec::new(),
+        },
+        beside: std::collections::BTreeSet::new(),
     };
-    let mut batches: BTreeMap<Key, Batch> = BTreeMap::new();
+    // Each model's own batches, blocks and lightmaps beside the level.
+    let mut gathered: BTreeMap<usize, Gathered> = match rooms {
+        Some(rooms) => rooms.iter().map(|room| (*room, fresh())).collect(),
+        None => BTreeMap::from([(0, fresh())]),
+    };
     // The doors, and the door and part of each of the level's models that
     // is part of one. A level drawn by its rooms keeps them in its own
     // model.
@@ -767,7 +888,6 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
         Some(_) => BTreeMap::new(),
         None => crate::movers::door_parts(&movers),
     };
-    let mut beside = std::collections::BTreeSet::new();
     let mut sky = std::collections::BTreeSet::new();
     let rests = rests(bsp);
 
@@ -810,23 +930,28 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                 .filter(|page| (*page as usize) >= pages && palette.is_none());
             if let Some(page) = kept {
                 tally.kept_beside += 1;
-                let batch = batches.entry((owner, key, Some(page))).or_default();
                 if cutter.is_some() {
                     for triangle in &triangles {
                         let own = triangle.map(|index| &vertices[index as usize]);
                         let corners = own.map(|vertex| Corner::of(vertex, offset));
                         let places = own.map(|vertex| vertex.lightmap_st[0]);
-                        for (piece, places) in cut(corners, Some(places)) {
+                        for (model, piece, places) in cut(corners, Some(places)) {
                             let places = places.expect("a lightmapped piece has places");
-                            beside.insert(page);
+                            let Some(into) = gathered.get_mut(&model) else {
+                                continue;
+                            };
+                            into.beside.insert(page);
+                            let batch =
+                                (into.batches.entry((owner, key.clone(), Some(page)))).or_default();
                             for (corner, place) in piece.iter().zip(places) {
                                 let index = batch.push(corner, place);
                                 batch.indices.push(index);
                             }
                         }
                     }
-                } else {
-                    beside.insert(page);
+                } else if let Some(into) = gathered.get_mut(&0) {
+                    into.beside.insert(page);
+                    let batch = into.batches.entry((owner, key, Some(page))).or_default();
                     let base = batch.positions.len() as u32;
                     for vertex in &vertices {
                         batch.push(&Corner::of(vertex, offset), vertex.lightmap_st[0]);
@@ -835,7 +960,6 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                 }
                 continue;
             }
-            let batch = batches.entry((owner, key, None)).or_default();
             match stored {
                 Some(page) => {
                     tally.lightmapped += 1;
@@ -853,15 +977,21 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                         for triangle in &triangles {
                             let own = triangle.map(|index| &vertices[index as usize]);
                             let corners = own.map(|vertex| Corner::of(vertex, offset));
-                            for (piece, places) in cut(corners, Some(own.map(texel))) {
+                            for (model, piece, places) in cut(corners, Some(own.map(texel))) {
                                 let places = places.expect("a lightmapped piece has places");
+                                let Some(into) = gathered.get_mut(&model) else {
+                                    continue;
+                                };
+                                let batch =
+                                    (into.batches.entry((owner, key.clone(), None))).or_default();
                                 for (corner, place) in piece.iter().zip(places) {
                                     let index = batch.push(corner, place);
                                     batch.indices.push(index);
                                 }
                             }
                         }
-                    } else {
+                    } else if let Some(into) = gathered.get_mut(&0) {
+                        let batch = into.batches.entry((owner, key, None)).or_default();
                         let base = batch.positions.len() as u32;
                         for vertex in &vertices {
                             batch.push(&Corner::of(vertex, offset), texel(vertex));
@@ -875,8 +1005,13 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                     for triangle in &triangles {
                         let corners = triangle.map(|index| &vertices[index as usize]);
                         let corners = corners.map(|vertex| Corner::of(vertex, offset));
-                        for (piece, _) in cut(corners, None) {
-                            blocks.triangle(batch, piece);
+                        for (model, piece, _) in cut(corners, None) {
+                            let Some(into) = gathered.get_mut(&model) else {
+                                continue;
+                            };
+                            let batch =
+                                (into.batches.entry((owner, key.clone(), None))).or_default();
+                            into.blocks.triangle(batch, piece);
                         }
                     }
                 }
@@ -901,9 +1036,9 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
             continue;
         };
         let light = light_at(&bsp.light_grid, stand.light_at);
-        let pieces = |corners: [Corner; 3]| -> Vec<[Corner; 3]> {
+        let pieces = |corners: [Corner; 3]| -> Vec<(usize, [Corner; 3])> {
             (cut(corners, None).into_iter())
-                .map(|(piece, _)| piece)
+                .map(|(model, piece, _)| (model, piece))
                 .collect()
         };
         let paint = cutter.map(|_| {
@@ -912,74 +1047,91 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                 &pieces as &Pieces,
             )
         });
-        let added = place(model, &stand, &light, paint, &mut batches, &mut blocks);
+        let added = place(model, &stand, &light, paint, &mut gathered);
         tally.static_models += 1;
         tally.static_triangles += added;
         tally.triangles += added;
     }
 
-    let height = blocks.bottom().max(1);
-    let mut rgba = vec![255u8; width * height * 4];
-    for (page, texels) in bsp.lightmaps.iter().enumerate() {
-        let (left, top) = (
-            page % PAGES_ACROSS * LIGHTMAP_SIDE,
-            page / PAGES_ACROSS * LIGHTMAP_SIDE,
-        );
-        for (row, line) in texels
-            .as_chunks::<{ LIGHTMAP_SIDE * 3 }>()
-            .0
-            .iter()
-            .enumerate()
-        {
-            let at = ((top + row) * width + left) * 4;
-            for (texel, rgb) in line.as_chunks::<3>().0.iter().enumerate() {
-                rgba[at + texel * 4..at + texel * 4 + 3].copy_from_slice(rgb);
-            }
-        }
-    }
-    for block in &blocks.placed {
-        for y in 0..block.side {
-            for x in 0..block.side {
-                let at = ((block.top + y) * width + block.left + x) * 4;
-                rgba[at..at + 3].copy_from_slice(&block.texel(x, y));
-            }
-        }
-    }
-
     let lightmap = light_name(name);
-    let mut meshes = Vec::new();
     let mut door_meshes: Vec<Vec<MeshIr>> = vec![Vec::new(); doors.len()];
-    for ((owner, shader, page), batch) in batches {
-        let mesh = MeshIr {
-            node: owner.map_or(0, |(_, part)| part + 1),
-            positions: batch.positions,
-            normals: batch.normals,
-            uv1: batch.uv1,
-            uv2: match page {
-                Some(_) => batch.uv2,
-                None => (batch.uv2.into_iter())
-                    .map(|[x, y]| [x / width as f32, y / height as f32])
-                    .collect(),
-            },
-            indices: batch.indices,
-            texture: Some(shader),
-            lightmap: Some(page.map_or_else(|| lightmap.clone(), |page| beside_name(name, page))),
-            transparency_hint: 0,
-            skinned: false,
-            shadow: true,
-            self_illum: [0.0; 3],
-            alpha: 1.0,
-            ambient: [1.0; 3],
-            diffuse: [1.0; 3],
-            uv_scroll: None,
-            skin: None,
-            dangly: None,
-            referenced: false,
-        };
-        match owner {
-            Some((door, _)) => door_meshes[door].push(mesh),
-            None => meshes.push(mesh),
+    let mut models = BTreeMap::new();
+    for (number, own) in gathered {
+        let height = own.blocks.bottom().max(1);
+        let mut rgba = vec![255u8; width * height * 4];
+        for (page, texels) in bsp.lightmaps.iter().enumerate() {
+            let (left, top) = (
+                page % PAGES_ACROSS * LIGHTMAP_SIDE,
+                page / PAGES_ACROSS * LIGHTMAP_SIDE,
+            );
+            for (row, line) in texels
+                .as_chunks::<{ LIGHTMAP_SIDE * 3 }>()
+                .0
+                .iter()
+                .enumerate()
+            {
+                let at = ((top + row) * width + left) * 4;
+                for (texel, rgb) in line.as_chunks::<3>().0.iter().enumerate() {
+                    rgba[at + texel * 4..at + texel * 4 + 3].copy_from_slice(rgb);
+                }
+            }
         }
+        for block in &own.blocks.placed {
+            for y in 0..block.side {
+                for x in 0..block.side {
+                    let at = ((block.top + y) * width + block.left + x) * 4;
+                    rgba[at..at + 3].copy_from_slice(&block.texel(x, y));
+                }
+            }
+        }
+
+        let mut meshes = Vec::new();
+        for ((owner, shader, page), batch) in own.batches {
+            let mesh = MeshIr {
+                node: owner.map_or(0, |(_, part)| part + 1),
+                positions: batch.positions,
+                normals: batch.normals,
+                uv1: batch.uv1,
+                uv2: match page {
+                    Some(_) => batch.uv2,
+                    None => (batch.uv2.into_iter())
+                        .map(|[x, y]| [x / width as f32, y / height as f32])
+                        .collect(),
+                },
+                indices: batch.indices,
+                texture: Some(shader),
+                lightmap: Some(
+                    page.map_or_else(|| lightmap.clone(), |page| beside_name(name, page)),
+                ),
+                transparency_hint: 0,
+                skinned: false,
+                shadow: true,
+                self_illum: [0.0; 3],
+                alpha: 1.0,
+                ambient: [1.0; 3],
+                diffuse: [1.0; 3],
+                uv_scroll: None,
+                skin: None,
+                dangly: None,
+                referenced: false,
+            };
+            match owner {
+                Some((door, _)) => door_meshes[door].push(mesh),
+                None => meshes.push(mesh),
+            }
+        }
+        let light = TextureIr {
+            width: width as u32,
+            height: height as u32,
+            encoding: Encoding::Rgba8,
+            mips: vec![rgba],
+            cube: false,
+            frames: 1,
+            facts: TextureFacts::default(),
+            faces: Vec::new(),
+            frame_mips: Vec::new(),
+        };
+        models.insert(number, (meshes, light, own.beside.into_iter().collect()));
     }
     let node = |name: String, parent: Option<usize>| NodeIr {
         name,
@@ -1016,40 +1168,8 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
             }
         })
         .collect();
-    Level {
-        model: ModelIr {
-            name: name.to_string(),
-            supermodel: None,
-            nodes: vec![NodeIr {
-                name: name.to_string(),
-                parent: None,
-                translation: [0.0; 3],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                world: IDENTITY,
-                animated: false,
-            }],
-            meshes,
-            lights: Vec::new(),
-            emitters: Vec::new(),
-            animations: Vec::new(),
-            animation_scale: 1.0,
-            affected_by_fog: true,
-            refusals: Vec::new(),
-            folded: Vec::new(),
-        },
-        light: TextureIr {
-            width: width as u32,
-            height: height as u32,
-            encoding: Encoding::Rgba8,
-            mips: vec![rgba],
-            cube: false,
-            frames: 1,
-            facts: TextureFacts::default(),
-            faces: Vec::new(),
-            frame_mips: Vec::new(),
-        },
-        start: start(bsp),
-        beside: beside.into_iter().collect(),
+    Drawn {
+        models,
         sky: sky.into_iter().collect(),
         doors: door_models,
         tally: Tally {

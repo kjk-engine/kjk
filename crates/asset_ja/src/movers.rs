@@ -155,6 +155,13 @@ pub fn movers(bsp: &Bsp) -> Vec<Mover> {
                 let mover = &mut movers[at];
                 mover.parts.push((index, moves));
                 mover.seconds = mover.seconds.max(distance / speed);
+                // A team's name is the first any of its parts has, and it
+                // starts open when any of them does. Both used to come
+                // from the first part alone.
+                if mover.name.is_empty() {
+                    mover.name = entity.get("targetname").unwrap_or("").to_string();
+                }
+                mover.starts_open |= flags & START_OPEN != 0;
             }
             None => {
                 movers.push(Mover {
@@ -171,14 +178,20 @@ pub fn movers(bsp: &Bsp) -> Vec<Mover> {
             }
         }
     }
+    // A part built round an origin keeps its model relative to it, and the
+    // level draws it and makes it solid at the origin (`level::rests`). Its
+    // box is taken there too. Without the origin, such a door was drawn in
+    // its place while the door to use stood near the level's zero point.
+    let rests = crate::level::rests(bsp);
     for mover in &mut movers {
-        let models = mover.parts.iter().map(|(index, _)| &bsp.models[*index]);
-        let (min, max) = models.fold(
+        let (min, max) = mover.parts.iter().fold(
             ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]),
-            |(min, max), model| {
+            |(min, max), (index, _)| {
+                let model = &bsp.models[*index];
+                let rest = rests.get(index).copied().unwrap_or([0.0; 3]);
                 (
-                    std::array::from_fn(|axis| min[axis].min(model.min[axis])),
-                    std::array::from_fn(|axis| max[axis].max(model.max[axis])),
+                    std::array::from_fn(|axis| min[axis].min(model.min[axis] + rest[axis])),
+                    std::array::from_fn(|axis| max[axis].max(model.max[axis] + rest[axis])),
                 )
             },
         );
