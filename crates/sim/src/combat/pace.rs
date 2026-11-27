@@ -344,14 +344,12 @@ pub enum Escape {
     Cartwheel,
 }
 
-/// The escape a pace is currently pressing the keys for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[repr(u8)]
-pub enum EscapeKind {
-    #[default]
-    None = 0,
-    Roll = 1,
-    Cartwheel = 2,
+/// An escape a pace is currently pressing the keys for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveEscape {
+    pub kind: Escape,
+    pub side: i8,
+    pub since: u64,
 }
 
 /// What a think started, for the choice log. Taken on the same step
@@ -1151,11 +1149,9 @@ pub struct Pace {
     pub look_at: u64,
     /// It switched to its ranged weapon because its target is out of reach.
     pub swapped: bool,
-    /// The escape it presses the keys of, its side (1 right, -1 left), since
-    /// when, and when it may start its next escape.
-    pub escape: EscapeKind,
-    pub escape_side: i8,
-    pub escape_since: u64,
+    /// The escape it presses the keys of, if any, and when it may start its
+    /// next escape.
+    pub escape: Option<ActiveEscape>,
     pub escape_after: u64,
     /// What this think started, for the choice log (`take_told`), never
     /// saved.
@@ -1247,6 +1243,12 @@ impl Dice {
 
 impl Pace {
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, true);
+    }
+
+    /// Its bytes, with escape, drift and special start fields only when
+    /// `with_choices`, as a build from before them wrote it.
+    pub(crate) fn encode_as(&self, out: &mut Writer, with_choices: bool) {
         let keys = self.keys;
         out.u8(keys.forward as u8);
         out.u8(keys.right as u8);
@@ -1312,6 +1314,26 @@ impl Pace {
             | u8::from(self.hide_at.is_some()) << 2);
         for axis in self.hide_at.unwrap_or([0.0; 3]) {
             out.f32(axis);
+        }
+        if with_choices {
+            let (kind, side, since) = match self.escape {
+                None => (0u8, false, 0u64),
+                Some(active) => (
+                    match active.kind {
+                        Escape::Roll => 1,
+                        Escape::Cartwheel => 2,
+                    },
+                    active.side > 0,
+                    active.since,
+                ),
+            };
+            out.u8(kind | u8::from(side) << 2);
+            out.u64(since);
+            out.u64(self.escape_after);
+            for speed in self.drift {
+                out.f32(speed);
+            }
+            out.u64(self.special_began);
         }
     }
 
@@ -1479,48 +1501,33 @@ impl Pace {
             let hide = [input.f32()?, input.f32()?, input.f32()?];
             pace.hide_at = (flags & 4 != 0).then_some(hide);
         }
+        if input.since(crate::since::snapshot::AI_CHOICES) {
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 7 {
+                return Err(input.invalid("pace escape", at));
+            }
+            let side = if flags & 4 != 0 { 1 } else { -1 };
+            let since = input.u64()?;
+            pace.escape = match flags & 3 {
+                0 => None,
+                1 => Some(ActiveEscape {
+                    kind: Escape::Roll,
+                    side,
+                    since,
+                }),
+                2 => Some(ActiveEscape {
+                    kind: Escape::Cartwheel,
+                    side,
+                    since,
+                }),
+                _ => return Err(input.invalid("pace escape", at)),
+            };
+            pace.escape_after = input.u64()?;
+            pace.drift = [input.f32()?, input.f32()?];
+            pace.special_began = input.u64()?;
+        }
         Ok(pace)
-    }
-
-    /// Writes its escape (`Mind::encode` writes it last): the kind and the
-    /// side in one byte, then when it began and when the next may begin.
-    /// Then what it keeps of its special moves: its average of its target's
-    /// speed (`drift`) and when its special move began (`special_began`).
-    pub(crate) fn encode_escape(&self, out: &mut Writer) {
-        out.u8((self.escape as u8) | u8::from(self.escape_side > 0) << 2);
-        out.u64(self.escape_since);
-        out.u64(self.escape_after);
-        for speed in self.drift {
-            out.f32(speed);
-        }
-        out.u64(self.special_began);
-    }
-
-    /// Reads what `encode_escape` wrote.
-    pub(crate) fn decode_escape(&mut self, input: &mut Reader) -> Result<(), DecodeError> {
-        let at = input.at();
-        let flags = input.u8()?;
-        if flags > 7 {
-            return Err(input.invalid("pace escape", at));
-        }
-        self.escape = match flags & 3 {
-            0 => EscapeKind::None,
-            1 => EscapeKind::Roll,
-            2 => EscapeKind::Cartwheel,
-            _ => return Err(input.invalid("pace escape", at)),
-        };
-        self.escape_side = if self.escape == EscapeKind::None {
-            0
-        } else if flags & 4 != 0 {
-            1
-        } else {
-            -1
-        };
-        self.escape_since = input.u64()?;
-        self.escape_after = input.u64()?;
-        self.drift = [input.f32()?, input.f32()?];
-        self.special_began = input.u64()?;
-        Ok(())
     }
 }
 
@@ -1780,7 +1787,7 @@ impl Pace {
         (now, dice, clear): (u64, &mut Dice, &dyn Fn(i8, i8) -> bool),
         crouched: i8,
     ) -> Option<Keys> {
-        if self.special != 0 || self.escape != EscapeKind::None {
+        if self.special != 0 || self.escape.is_some() {
             return None;
         }
         let one_in = special_one_in(sight.tier, sight.veteran, sight.restrained, sight.duel)?;
@@ -1866,12 +1873,12 @@ impl Pace {
         (dice, clear): (&mut Dice, &dyn Fn(i8, i8) -> bool),
     ) -> bool {
         self.note_escape(sight, now);
-        if self.escape == EscapeKind::None
+        if self.escape.is_none()
             && let Some((danger, side)) = self.escape_reason(sight, tired, now)
         {
             self.begin_escape(sight, danger, side, (dice, clear), now);
         }
-        self.escape != EscapeKind::None
+        self.escape.is_some()
     }
 
     /// The danger a fighter escapes from now, and the side it prefers, if it
@@ -1936,13 +1943,11 @@ impl Pace {
         } else {
             Escape::Roll
         };
-        self.escape = if cartwheel {
-            EscapeKind::Cartwheel
-        } else {
-            EscapeKind::Roll
-        };
-        self.escape_side = side;
-        self.escape_since = now;
+        self.escape = Some(ActiveEscape {
+            kind: escape,
+            side,
+            since: now,
+        });
         self.told = Some(Told::Escape(escape, side, danger));
     }
 
@@ -1951,14 +1956,14 @@ impl Pace {
     /// speed shortly after `run_ms`, when a saber lock holds it, or when it
     /// has not begun within `ai.choices.escapes.give_up_ms`.
     fn note_escape(&mut self, sight: &Sight, now: u64) {
-        if self.escape == EscapeKind::None {
+        let Some(active) = self.escape else {
             return;
-        }
+        };
         let begun = sight.own_rolling;
-        let slow_roll = self.escape == EscapeKind::Roll
-            && now >= self.escape_since + rules::ai::choices::escapes::RUN_MS + THINK_MS * 2
+        let slow_roll = active.kind == Escape::Roll
+            && now >= active.since + rules::ai::choices::escapes::RUN_MS + THINK_MS * 2
             && !sight.own_running;
-        let given_up = now >= self.escape_since + rules::ai::choices::escapes::GIVE_UP_MS;
+        let given_up = now >= active.since + rules::ai::choices::escapes::GIVE_UP_MS;
         if begun || slow_roll || given_up || sight.own_lock {
             self.end_escape(now);
         }
@@ -1967,9 +1972,7 @@ impl Pace {
     /// Ends the escape it pressed the keys of, and starts the wait before its
     /// next one (`ai.choices.escapes.wait_ms`).
     fn end_escape(&mut self, now: u64) {
-        self.escape = EscapeKind::None;
-        self.escape_side = 0;
-        self.escape_since = 0;
+        self.escape = None;
         self.escape_after = now + rules::ai::choices::escapes::WAIT_MS;
     }
 
@@ -1978,24 +1981,23 @@ impl Pace {
     /// enough (`Sight::own_running`), as the player rolls. A cartwheel presses jump, its side and attack together
     /// once the weapon is ready, as the player's does.
     fn escape_keys(&self, sight: &Sight, now: u64) -> Option<Keys> {
-        let right = FULL * self.escape_side;
-        let crouch =
-            sight.own_running && now >= self.escape_since + rules::ai::choices::escapes::RUN_MS;
-        match self.escape {
-            EscapeKind::None => None,
-            EscapeKind::Roll => Some(Keys {
+        let active = self.escape?;
+        let right = FULL * active.side;
+        let crouch = sight.own_running && now >= active.since + rules::ai::choices::escapes::RUN_MS;
+        Some(match active.kind {
+            Escape::Roll => Keys {
                 right,
                 up: if crouch { -1 } else { 0 },
                 ..Keys::default()
-            }),
-            EscapeKind::Cartwheel if sight.own_ready => Some(Keys {
+            },
+            Escape::Cartwheel if sight.own_ready => Keys {
                 right,
                 up: 1,
                 attack: true,
                 ..Keys::default()
-            }),
-            EscapeKind::Cartwheel => Some(Keys::default()),
-        }
+            },
+            Escape::Cartwheel => Keys::default(),
+        })
     }
 
     /// A charge's next step on a think: it ends, goes on to its next part or
@@ -2651,6 +2653,9 @@ impl Pace {
         }
         self.weighed = key;
         self.drift = [0.0; 2];
+        self.special = 0;
+        self.special_since = 0;
+        self.special_began = 0;
         if sight.duel {
             self.forget_fight();
         }

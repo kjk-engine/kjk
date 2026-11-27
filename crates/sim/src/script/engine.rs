@@ -1910,23 +1910,23 @@ impl Engine<'_> {
     /// A feat is left to the chooser only when it belongs to one of the six
     /// feat lines the chooser picks (`FeatLine`), such as Flurry or Rapid
     /// Shot. A creature its scripts set to attack with its weapon only
-    /// (`NPC_AISTYLE_MELEE_ATTACK`) keeps its feats, because it chooses
-    /// nothing.
+    /// (`NPC_AISTYLE_MELEE_ATTACK`) keeps all of its scripted talents because
+    /// it chooses nothing.
     fn leaves_talent_to_chooser(&self, who: ObjectId, talent: Use) -> bool {
         use crate::combat::bar::FeatLine;
         use crate::combat::{items, spells};
         if self.event.ai != Some(who) {
             return false;
         }
+        let attacks_only =
+            self.state.party.ai_styles.get(&who.0) == Some(&super::party::NPC_AISTYLE_MELEE_ATTACK);
+        if attacks_only {
+            return false;
+        }
         let party = self.character(who).is_some_and(|c| c.party);
         let generic = || (self.event.ai_script.as_deref()).is_some_and(generic_combat_script);
         match talent {
-            Use::Feat(row) => {
-                let line = FeatLine::of(row).is_some();
-                let attacks_only = self.state.party.ai_styles.get(&who.0)
-                    == Some(&super::party::NPC_AISTYLE_MELEE_ATTACK);
-                line && !attacks_only && (party || generic())
-            }
+            Use::Feat(row) => FeatLine::of(row).is_some() && (party || generic()),
             Use::Power(row) if spells::droid_weapon(row) => false,
             Use::Power(row) if party => !matches!(
                 items::use_of(row),

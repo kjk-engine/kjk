@@ -1,0 +1,11 @@
+# The sim's hash moves on purpose: companions and enemies choose their own
+# Force powers, items, grenades, feat lines, special saber moves, and escapes.
+sim = "companions and enemies choose powers, items, grenades, feats, special moves, and escapes"
+
+[formats]
+snapshot = "a mind keeps intense fight timing, side waits, feat change timing, and escape/drift/special state (`Mind::intense_until`, `Mind::used_at`, `Mind::feat_at`, `Pace::escape`, `Pace::escape_after`, `Pace::drift`, `Pace::special_began`), and `Picks::player` marks lines the player picked."
+save = "a companion kept outside the party keeps the marks of the feat lines the player picked (`Picks::player`)."
+
+[migrations]
+snapshot = "old saves read `intense_until = 0`, `used_at` all zero, `feat_at = 0`, no player feat marks, no escape under way, `escape_after = 0`, zero drift, and `special_began = 0`"
+save = "old saves read no player feat marks: no line of a companion kept outside the party counts as the player's pick until the player picks again"

@@ -5904,7 +5904,10 @@ fn choice_kinds() {
 /// expects a score of exactly 0, or a score that passes the threshold.
 #[test]
 fn choice_scores() {
-    use sim::combat::choose::{Choice, Foes, Kind, Option_, Scene, Target, choose, kind_of, score};
+    use sim::combat::choose::{
+        Choice, ChoiceWhy, Foes, Kind, Option_, Scene, Target, choose, kind_of, score,
+        score_with_why,
+    };
     const STUN: u16 = 46;
     const DROID_STUN: u16 = 47;
     const LIGHTNING: u16 = 35;
@@ -6577,6 +6580,42 @@ fn choice_scores() {
         Some(Choice::Power(RESIST_ENERGY)),
         "counter-buff Energy Resistance outranks generic Force Aura"
     );
+    assert_eq!(
+        score_with_why(
+            &offer(Choice::Item(MEDPAC)),
+            &Scene {
+                own_health: 0.2,
+                ..enemy
+            },
+        )
+        .map(|(_, why)| why),
+        Some(ChoiceWhy::OwnHealth),
+        "medpac reports own health reason"
+    );
+    assert_eq!(
+        score_with_why(&offer(Choice::Power(REVITALIZE)), &enemy).map(|(_, why)| why),
+        Some(ChoiceWhy::FallenAlly),
+        "revitalize reports fallen ally reason"
+    );
+    assert_eq!(
+        score_with_why(&heal, &hurt(0.2)).map(|(_, why)| why),
+        Some(ChoiceWhy::AllyHealth),
+        "heal power reports ally health reason"
+    );
+    assert_eq!(
+        score_with_why(
+            &offer(Choice::Power(LIGHTNING)),
+            &at(Target {
+                staggered: true,
+                ..foe
+            }),
+        ),
+        Some((
+            rules::ai::choices::scores::STAGGER_DAMAGE,
+            ChoiceWhy::Staggered
+        )),
+        "staggered target out of reach scores stagger damage with staggered reason"
+    );
     let kinds = [
         (
             "a listed row wins over the flag",
@@ -7080,7 +7119,7 @@ fn feat_choices() {
 /// approval)
 #[test]
 fn special_choices() {
-    probed("special choices", &sim::special_choice_probes::probes(), 14);
+    probed("special choices", &sim::special_choice_probes::probes(), 15);
 }
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how

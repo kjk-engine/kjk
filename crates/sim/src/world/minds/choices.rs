@@ -13,7 +13,7 @@ use crate::combat::Fighter;
 use crate::combat::ai::{self, Cast};
 use crate::combat::bar::FeatLine;
 use crate::combat::choose::{
-    self, Choice, FeatSight, FeatWhy, Foes, Kind, Member, Option_, Reason, Scene, Target,
+    self, Choice, ChoiceWhy, FeatSight, FeatWhy, Foes, Kind, Member, Option_, Reason, Scene, Target,
 };
 use crate::combat::force::{self, Power};
 use crate::combat::gear;
@@ -454,15 +454,20 @@ pub(super) fn log_told(tag: &str, now: u64, told: Option<pace::Told>) {
 /// line has the time, the chooser's tag, the choice, its score and the
 /// reason for the score.
 pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
-    if !choose::logging() {
+    let Some((score, why)) = choose::score_with_why(option, scene).filter(|_| choose::logging())
+    else {
         return;
-    }
-    let reason = match option.kind {
-        Kind::Heal => format!(
+    };
+    let reason = match why {
+        ChoiceWhy::FallenAlly => "a member of the party has fallen".to_string(),
+        ChoiceWhy::OwnHealth => {
+            format!("it has {:.0}% of its hit points", scene.own_health * 100.0)
+        }
+        ChoiceWhy::AllyHealth => format!(
             "the most hurt ally has {:.0}% of its hit points",
             scene.lowest_ally_health * 100.0
         ),
-        Kind::Buff => match choose::reason_of(option.choice) {
+        ChoiceWhy::Buff(reason) => match reason {
             Reason::Energy => "an enemy holds an energy weapon or knows lightning",
             Reason::Physical => "an enemy is a beast or fights with a physical weapon",
             Reason::ForceUsers => "an enemy knows Force powers it uses on its foes",
@@ -471,31 +476,16 @@ pub(super) fn log(tag: &str, option: &Option_, scene: &Scene) {
             Reason::Always => "the fight has just begun",
         }
         .to_string(),
-        Kind::Disable => "the target is not disabled".to_string(),
-        Kind::Damage if scene.target.is_some_and(|target| !target.in_reach) => {
-            "the target is out of reach".to_string()
-        }
-        Kind::Damage => "the target is staggered".to_string(),
-        Kind::AreaDamage
-            if scene.target.is_some_and(|target| {
-                u32::from(target.hostiles_near) + 1 >= rules::ai::choices::CLUSTER_TARGETS
-            }) =>
-        {
-            format!(
-                "{} enemies stand in the blast",
-                scene.target.map_or(0, |target| target.hostiles_near + 1)
-            )
-        }
-        Kind::AreaDamage if scene.target.is_some_and(|target| target.staggered) => {
-            "the target is staggered".to_string()
-        }
-        Kind::AreaDamage => "the target is out of reach".to_string(),
+        ChoiceWhy::Disable => "the target is not disabled".to_string(),
+        ChoiceWhy::Cluster => format!(
+            "{} enemies stand in the blast",
+            scene.target.map_or(0, |target| target.hostiles_near + 1)
+        ),
+        ChoiceWhy::Staggered => "the target is staggered".to_string(),
+        ChoiceWhy::OutOfReach => "the target is out of reach".to_string(),
     };
     eprintln!(
-        "choice {} ms {tag} {:?} {:?} score {:.2}: {reason}",
-        scene.now,
-        option.kind,
-        option.choice,
-        choose::score(option, scene)
+        "choice {} ms {tag} {:?} {:?} score {score:.2}: {reason}",
+        scene.now, option.kind, option.choice
     );
 }

@@ -158,6 +158,13 @@ impl Mind {
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, true);
+    }
+
+    /// Its bytes, with `intense_until`, `used_at`, `feat_at` and pace escape/
+    /// drift/special fields only when `with_choices`, as a build from before
+    /// them wrote it.
+    pub(crate) fn encode_as(&self, out: &mut Writer, with_choices: bool) {
         out.u8(self.task as u8);
         for seat in [self.leader, self.driver] {
             write_fixed(out, seat.as_ref(), &Seat(0), |seat, out| out.u8(seat.0));
@@ -181,14 +188,15 @@ impl Mind {
         out.u64(self.hold_until);
         out.u8(self.selected);
         out.u64(self.aware_at);
-        self.pace.encode(out);
+        self.pace.encode_as(out, with_choices);
         self.troop.encode(out);
-        out.u64(self.intense_until);
-        for at in self.used_at {
-            out.u64(at);
+        if with_choices {
+            out.u64(self.intense_until);
+            for at in self.used_at {
+                out.u64(at);
+            }
+            out.u64(self.feat_at);
         }
-        out.u64(self.feat_at);
-        self.pace.encode_escape(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Mind, DecodeError> {
@@ -207,8 +215,8 @@ impl Mind {
             return Err(input.invalid("mind flags", at));
         }
         let (steered, queued, moving) = (flags & 1 != 0, flags & 2 != 0, flags & 4 != 0);
-        let choices = input.since(crate::since::snapshot::AI_CHOICES_COMPANIONS);
-        let mut mind = Mind {
+        let choices = input.since(crate::since::snapshot::AI_CHOICES);
+        Ok(Mind {
             task,
             leader,
             driver,
@@ -229,8 +237,8 @@ impl Mind {
             aware_at: input.u64()?,
             pace: Pace::decode(input)?,
             troop: Troop::decode(input)?,
-            // A snapshot from before the fields reads a calm fight, in
-            // which nobody has used anything yet.
+            // A snapshot from before AI choices reads a calm fight, in which
+            // nobody has used anything yet or changed its feat line.
             intense_until: if choices { input.u64()? } else { 0 },
             used_at: if choices {
                 [
@@ -243,20 +251,8 @@ impl Mind {
             } else {
                 [0; 5]
             },
-            // A snapshot from before the field reads a mind that never
-            // changed its feat line.
-            feat_at: if input.since(crate::since::snapshot::AI_CHOICES_FEATS) {
-                input.u64()?
-            } else {
-                0
-            },
-        };
-        // A snapshot from before the escape reads a mind with no escape under
-        // way, which may start one at once.
-        if input.since(crate::since::snapshot::AI_CHOICES_KATAS) {
-            mind.pace.decode_escape(input)?;
-        }
-        Ok(mind)
+            feat_at: if choices { input.u64()? } else { 0 },
+        })
     }
 }
 
@@ -267,12 +263,11 @@ pub fn probes() -> crate::probe::Checks {
 }
 
 /// A mind written now reads back with `intense_until`, `used_at`, `feat_at`
-/// and its escape kept. A mind written before the escape came in reads no
-/// escape under way. A mind written before `feat_at` came in reads
-/// `feat_at == 0`. A mind written before `intense_until` and `used_at` came
-/// in reads them as zero too, as a default mind has.
+/// and its pace choices fields kept. A mind written before `AI_CHOICES`
+/// reads them as zero / `None`, as a default mind has.
 #[cfg(feature = "probes")]
 fn intense_until_kept() -> Result<String, String> {
+    use crate::combat::pace::{ActiveEscape, Escape};
     use crate::wire::Versions;
     let mut mind = Mind {
         cast_after: 3_000,
@@ -281,68 +276,43 @@ fn intense_until_kept() -> Result<String, String> {
         feat_at: 4_000,
         ..Mind::default()
     };
-    mind.pace.escape = crate::combat::pace::EscapeKind::Cartwheel;
-    mind.pace.escape_side = 1;
-    mind.pace.escape_since = 5_000;
+    mind.pace.escape = Some(ActiveEscape {
+        kind: Escape::Cartwheel,
+        side: 1,
+        since: 5_000,
+    });
     mind.pace.escape_after = 6_000;
     mind.pace.drift = [40.0, -2.5];
     mind.pace.special_began = 7_000;
     let mut out = Writer::default();
     mind.encode(&mut out);
-    let bytes = out.0;
-    let again = Mind::decode(&mut Reader::new("mind", &bytes)).map_err(|e| e.to_string())?;
+    let mut current = Reader::new("mind", &out.0);
+    let again = Mind::decode(&mut current).map_err(|e| e.to_string())?;
+    current.finish().map_err(|e| e.to_string())?;
     let mut wrong = Vec::new();
     if again != mind {
         wrong.push(format!("read back {again:?}"));
     }
-    // Each version gate, with the bytes that came in with it and after it.
-    // The bytes before them are the old layout. The escape is one byte, two
-    // times of eight bytes each, two speeds of four bytes and one more time.
-    let escape =
-        std::mem::size_of::<u8>() + 3 * std::mem::size_of::<u64>() + 2 * std::mem::size_of::<f32>();
-    let older = |since: crate::wire::Since, cut: usize| -> Result<Mind, String> {
-        let versions = Versions {
-            snapshot: since.1 - 1,
-            ..Versions::THIS_BUILD
-        };
-        let old = &bytes[..bytes.len() - cut];
-        let mut input = Reader::new("mind", old).with_versions(versions);
-        let read = Mind::decode(&mut input).map_err(|e| e.to_string())?;
-        input.finish().map_err(|e| e.to_string())?;
-        Ok(read)
+    let mut old_out = Writer::default();
+    mind.encode_as(&mut old_out, false);
+    let versions = Versions {
+        snapshot: crate::since::snapshot::AI_CHOICES.1 - 1,
+        ..Versions::THIS_BUILD
     };
-    let mut still = mind;
-    still.pace.escape = crate::combat::pace::EscapeKind::None;
-    still.pace.escape_side = 0;
-    still.pace.escape_since = 0;
-    still.pace.escape_after = 0;
-    still.pace.drift = [0.0; 2];
-    still.pace.special_began = 0;
-    let before_escape = older(crate::since::snapshot::AI_CHOICES_KATAS, escape)?;
-    if before_escape != still {
-        wrong.push(format!("before the escape {before_escape:?}"));
-    }
-    let before_feats = older(crate::since::snapshot::AI_CHOICES_FEATS, escape + 8)?;
-    if before_feats
-        != (Mind {
-            feat_at: 0,
-            ..still
-        })
-    {
-        wrong.push(format!("before feat_at {before_feats:?}"));
-    }
-    let before_choices = older(
-        crate::since::snapshot::AI_CHOICES_COMPANIONS,
-        escape + 7 * 8,
-    )?;
-    let calm = Mind {
-        intense_until: 0,
-        used_at: [0; 5],
-        feat_at: 0,
-        ..still
+    let mut old_in = Reader::new("mind", &old_out.0).with_versions(versions);
+    let before = Mind::decode(&mut old_in).map_err(|e| e.to_string())?;
+    old_in.finish().map_err(|e| e.to_string())?;
+    let mut plain = Mind {
+        cast_after: 3_000,
+        ..Mind::default()
     };
-    if before_choices != calm {
-        wrong.push(format!("before intense_until {before_choices:?}"));
+    plain.pace = mind.pace;
+    plain.pace.escape = None;
+    plain.pace.escape_after = 0;
+    plain.pace.drift = [0.0; 2];
+    plain.pace.special_began = 0;
+    if before != plain {
+        wrong.push(format!("before AI_CHOICES {before:?}"));
     }
     crate::probe::check(wrong.is_empty(), format!("wrong: {wrong:?}"))
 }

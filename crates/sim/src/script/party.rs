@@ -529,7 +529,7 @@ impl Party {
                                 input,
                                 items,
                                 input.since(crate::since::save::FIX_FORCE_CYCLE),
-                                input.since(crate::since::save::AI_CHOICES_FEATS),
+                                input.since(crate::since::save::AI_CHOICES),
                             )?;
                         }
                         if input.since(crate::since::save::FEAT_ACTION_BAR) {

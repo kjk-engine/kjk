@@ -190,48 +190,71 @@ pub fn kind_of(row: u16, hostile: Option<bool>) -> Option<(Kind, bool)> {
     })
 }
 
-/// How good `option` is now, from 0 to 1. A score of 0 means the character
-/// has no reason to use it.
+/// Why a choice scored above zero (`score_with_why`), as the choice log
+/// writes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChoiceWhy {
+    FallenAlly,
+    OwnHealth,
+    AllyHealth,
+    Buff(Reason),
+    Disable,
+    Cluster,
+    Staggered,
+    OutOfReach,
+}
+
+/// How good `option` is now, from 0 to 1, and why. A score of 0 means the
+/// character has no reason to use it.
 pub fn score(option: &Option_, scene: &Scene) -> f32 {
+    score_with_why(option, scene).map_or(0.0, |(score, _)| score)
+}
+
+/// How good `option` is now (above 0), and why. `None` when the character
+/// has no reason to use it.
+pub fn score_with_why(option: &Option_, scene: &Scene) -> Option<(f32, ChoiceWhy)> {
     let item = matches!(option.choice, Choice::Item(_));
     // A companion uses no medpac, stim or shield of its own choice. It uses
     // a medpac only when its own combat script picks one.
     if item && scene.companion {
-        return 0.0;
+        return None;
     }
     match option.kind {
-        Kind::Heal | Kind::Buff if !fits_own_body(option, scene) => 0.0,
+        Kind::Heal | Kind::Buff if !fits_own_body(option, scene) => None,
         // Revitalize is offered only when a party member has fallen. A
         // fallen character has no hit points left.
-        Kind::Heal if raises_the_fallen(option.choice) => heal_score(0.0),
+        Kind::Heal if raises_the_fallen(option.choice) => {
+            let score = heal_score(0.0);
+            (score > 0.0).then_some((score, ChoiceWhy::FallenAlly))
+        }
         Kind::Heal => {
             // An item heals its user, and a power heals the most hurt ally.
-            let health = if item {
-                scene.own_health
+            let (health, why) = if item {
+                (scene.own_health, ChoiceWhy::OwnHealth)
             } else {
-                scene.lowest_ally_health
+                (scene.lowest_ally_health, ChoiceWhy::AllyHealth)
             };
-            heal_score(health)
+            let score = heal_score(health);
+            (score > 0.0).then_some((score, why))
         }
         Kind::Buff => {
             let reason = reason_of(option.choice);
             if in_time(reason, scene) && fits(reason, scene) && !option.running {
-                if reason == Reason::Always {
+                let score = if reason == Reason::Always {
                     scores::PLAIN_BUFF
                 } else {
                     scores::COUNTER_BUFF
-                }
+                };
+                Some((score, ChoiceWhy::Buff(reason)))
             } else {
-                0.0
+                None
             }
         }
         Kind::Disable | Kind::Damage | Kind::AreaDamage => {
-            let Some(target) = &scene.target else {
-                return 0.0;
-            };
+            let target = scene.target.as_ref()?;
             // A choice that works only on droids is wasted on a living target.
             if option.droids_only && !target.droid {
-                return 0.0;
+                return None;
             }
             let enemies = u32::from(target.hostiles_near) + 1;
             let cluster_score = if enemies > choices::CLUSTER_TARGETS {
@@ -241,44 +264,38 @@ pub fn score(option: &Option_, scene: &Scene) -> f32 {
             };
             let single_damage = || {
                 if target.staggered {
-                    scores::STAGGER_DAMAGE
+                    Some((scores::STAGGER_DAMAGE, ChoiceWhy::Staggered))
                 } else if !target.in_reach {
-                    scores::FAR_DAMAGE
+                    Some((scores::FAR_DAMAGE, ChoiceWhy::OutOfReach))
                 } else {
-                    0.0
+                    None
                 }
             };
             // A disable that is not made for droids does not work on a droid.
             let disable_allowed = !target.disabled && (option.droids_only || !target.droid);
             if matches!(option.choice, Choice::Grenade(_)) {
                 if !worth_a_grenade(scene, target) {
-                    return 0.0;
+                    return None;
                 }
                 return match option.kind {
-                    Kind::Disable if !disable_allowed => 0.0,
-                    _ => cluster_score,
+                    Kind::Disable if !disable_allowed => None,
+                    _ => Some((cluster_score, ChoiceWhy::Cluster)),
                 };
             }
             match option.kind {
-                Kind::Disable => {
-                    if disable_allowed {
-                        scores::DISABLE
-                    } else {
-                        0.0
-                    }
-                }
+                Kind::Disable => disable_allowed.then_some((scores::DISABLE, ChoiceWhy::Disable)),
                 Kind::Damage => single_damage(),
                 // Area Force powers (Force Storm, Death Field, Force Scream,
                 // Destroy Droid) have no friendly fire, so they do not avoid
                 // allies and also hit a single out-of-reach or staggered target.
                 Kind::AreaDamage => {
                     if enemies >= choices::CLUSTER_TARGETS {
-                        cluster_score
+                        Some((cluster_score, ChoiceWhy::Cluster))
                     } else {
                         single_damage()
                     }
                 }
-                Kind::Heal | Kind::Buff => 0.0,
+                Kind::Heal | Kind::Buff => None,
             }
         }
     }

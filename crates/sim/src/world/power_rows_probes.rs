@@ -457,7 +457,7 @@ fn force_routines_bound() -> Result<String, String> {
 fn sheet_bytes(sheet: &Sheet, versions: crate::wire::Versions) -> Result<Sheet, String> {
     let mut out = crate::wire::Writer::default();
     sheet.encode_as(&mut out, versions);
-    let player = versions.snapshot >= crate::since::snapshot::AI_CHOICES_FEATS.1;
+    let player = versions.snapshot >= crate::since::snapshot::AI_CHOICES.1;
     sheet.picks.encode_as(&mut out, player);
     sheet.bar.encode_as(&mut out, versions);
     let mut input = crate::wire::Reader::new("probe", &out.0).with_versions(versions);

@@ -1,9 +1,0 @@
-# The sim's hash moves on purpose: companions and enemies choose their own
-# Force powers, items and grenades.
-sim = "companions and enemies choose their own powers, items and grenades"
-
-[formats]
-snapshot = "a mind keeps the time until which its fight is intense (`Mind::intense_until`), and when it last used each kind of use that its side waits for (`Mind::used_at`)."
-
-[migrations]
-snapshot = "old saves read `intense_until = 0` and `used_at` all zero: no fight in a save is intense when it loads, until a look finds it intense, and nobody in it has used anything that its side waits for"

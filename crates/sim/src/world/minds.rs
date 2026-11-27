@@ -689,8 +689,9 @@ pub(super) fn think(
         let in_hand = held(&me, fighter);
         let gun_target = rules.0.duel()
             && target.is_some_and(|entry| matches!(entry.arms, pace::Arms::Gun { .. }));
-        // A companion nobody drives or leads (`companion` below).
-        let free_companion = in_party && avatar.is_none() && lent != Some(id.0);
+        // A companion nobody drives or leads (`companion`).
+        let leading = lent == Some(id.0);
+        let companion = in_party && avatar.is_none() && !leading;
         // A creature its scripts set to attack with its weapon only
         // (`NPC_AISTYLE_MELEE_ATTACK`) chooses nothing, as its own combat
         // script gives it no talent. The Dark Jedi and Jedi staged on the
@@ -736,7 +737,7 @@ pub(super) fn think(
                 ),
                 fighter.mind.pace.forced,
                 pace::elite(melee_in_hand, second_rank, tag),
-                free_companion,
+                companion,
             ),
             kata_cost: (fighter.saber.style != Some(crate::combat::saber::Style::Dual)
                 || me.max_fp > 0)
@@ -783,7 +784,7 @@ pub(super) fn think(
                     entry.target == Some(id.0)
                         || pace::aimed_at(entry.ps.origin, forward, ps.origin)
                 }),
-            veteran: pace::veteran(free_companion, me.level),
+            veteran: pace::veteran(companion, me.level),
             restrained: attacks_only || world_held,
             older: fighter.fp,
             pool: kit_now.pool,
@@ -1251,51 +1252,15 @@ pub(super) fn think(
         // without AI scripts every creature chooses. The button of a
         // channel, a throw or a special is held down for its time.
         //
-        // The character the player leads (`lent`) takes the first seat's
-        // commands. It never chooses, so that its choice cannot queue a
-        // grenade that the player's next throw would take.
-        let leading = lent == Some(id.0);
-        let companion = in_party && avatar.is_none() && !leading;
-        // Each look of a companion finds whether the party's fight is
-        // intense. The fight's hostiles are those that aim at one of the
-        // party or that one of the party aims at.
-        //
-        // A creature outside the party finds it the same way with the
-        // sides swapped. Its own side is itself and the creatures of its
-        // faction that fight beside it, which aim at someone. The hostile
-        // side is the hostiles that its side aims at or that aim at its
-        // side. For such a creature the answer only decides its
-        // intense-fight buffs.
         if (companion || !in_party) && looking {
-            let living = |entry: &&Seen| entry.alive;
-            let own_side = |entry: &Seen| {
-                if in_party {
-                    entry.party
-                } else {
-                    !entry.party
-                        && entry.faction == mine
-                        && (entry.id == id.0 || entry.target.is_some())
-                }
-            };
-            let side: Vec<&Seen> = (seen.iter().filter(living))
-                .filter(|entry| own_side(entry))
-                .collect();
-            let in_its_fight = |entry: &Seen| {
-                if in_party {
-                    in_fight(entry)
-                } else {
-                    side.iter()
-                        .any(|own| own.target == Some(entry.id) || entry.target == Some(own.id))
-                }
-            };
-            let hostiles: Vec<_> = (seen.iter().filter(living))
-                .filter(|entry| hostile(entry) && in_its_fight(entry))
-                .map(choices::member)
-                .collect();
-            let side: Vec<_> = side.into_iter().map(choices::member).collect();
-            if choose::intense_now(&side, &hostiles) {
-                fighter.mind.intense_until = choose::held_until(now);
-            }
+            update_intense(
+                &mut fighter.mind,
+                (id.0, in_party, mine),
+                now,
+                &seen,
+                &hostile,
+                &in_fight,
+            );
         }
         let mind = &fighter.mind;
         let ready = mind.aware_at <= now && mind.cast_after <= now && mind.hold_until <= now;
@@ -1445,177 +1410,31 @@ pub(super) fn think(
             && fighter.pack.using.is_none()
             && fighter.pack.queued.is_none()
         {
-            let fighter_now = *fighter;
-            let hostile_row = |row: u16| library.and_then(|library| library.hostile(row));
-            // Its side. A party member's side is the party. Any other
-            // creature's side is its own faction outside the party.
-            let side =
-                |entry: &Seen| entry.party == in_party && (in_party || entry.faction == mine);
-            let chooser = choices::Chooser {
+            let ctx = ChoiceStep {
                 sheet: &me,
-                fighter: &fighter_now,
-                companion,
+                own: &own,
+                ps,
+                tag,
+                target: target.as_ref(),
+                seen: &seen,
+                library,
                 now,
-                target: target.map(|entry| {
-                    let mark = choose::Mark {
-                        deaf: entry.deaf,
-                        buff: entry.buff,
-                        beast: entry.beast,
-                    };
-                    (distance(&entry.ps), mark)
-                }),
-                untaken: &|row| {
-                    let others = seen.iter().filter(|entry| entry.party && entry.id != id.0);
-                    let before: u32 = others
-                        .map(|entry| u32::from(entry.pack.not_yet_taken(&entry.sheet, row, now)))
-                        .sum();
-                    let queued = thrown_now.iter().filter(|(_, of)| *of == row).count();
-                    let queued = u32::try_from(queued).unwrap_or(u32::MAX);
-                    u8::try_from(before.saturating_add(queued)).unwrap_or(u8::MAX)
-                },
+                dice,
+                companion,
+                in_party,
+                mine,
+                own_choice,
+                spaced,
+                out_of_reach,
+                duel: saber_rules.duel(),
+                gun_special,
                 cost: &cost,
                 scripted: &scripted_row,
-                hostile: &hostile_row,
-                prerequisites: library.map(|library| &library.classes().prerequisites),
-                fallen: seen
-                    .iter()
-                    .filter(|entry| entry.downed && side(entry))
-                    .map(|entry| distance(&entry.ps))
-                    .reduce(f32::min),
+                hostile: &hostile,
+                in_fight: &in_fight,
+                faces: &faces,
             };
-            let options = chooser.options();
-            let ally = |entry: &Seen| entry.alive && side(entry) && !hostile(entry);
-            let own_health = choices::health(&fighter_now, &me);
-            let scene = choose::Scene {
-                now,
-                fight_ms: now.saturating_sub(fighter_now.mind.aware_at),
-                intense: choose::intense(now, fighter_now.mind.intense_until),
-                companion,
-                own_health,
-                lowest_ally_health: choices::lowest_ally_health(
-                    &me,
-                    (ps.origin, own_health),
-                    &seen,
-                    &ally,
-                ),
-                own_droid: me.flags & crate::combat::sheet::flags::DROID != 0,
-                // A lightsaber, a sword, a vibroblade, a stun baton and empty
-                // hands all fight in melee. Only a gun does not.
-                own_blade: !held(&me, &fighter_now).delivery.ranged(),
-                intense_buff: chooser.intense_buff(),
-                // The hostiles in the party's fight, as the test for an
-                // intense fight counts them. A creature outside the party
-                // also counts the hostiles that aim at it and its target.
-                foes: choices::foes(&seen, &|entry| {
-                    hostile(entry)
-                        && (in_fight(entry)
-                            || entry.target == Some(id.0)
-                            || target.is_some_and(|aimed| aimed.id == entry.id))
-                }),
-                target: target.map(|entry| {
-                    let in_reach = pace::within_reach(&sight_of(ps, &own, &entry));
-                    choices::target(&entry, in_reach, &seen, id.0, &hostile, &ally)
-                }),
-            };
-            let tie = pick(now / LOOK_EVERY_MS, id.0, CHOICE_SALT);
-            let plain: Vec<choose::Option_> = options.iter().map(|(option, _)| *option).collect();
-            // The latest use of `kind` by its side: by itself or by an ally
-            // it sees. Its own use counts too, because its own wait after a
-            // choice can be shorter than the kind's wait. A use an ally
-            // chose earlier in this step counts as made now.
-            let allies_used = |kind: choose::SideKind| {
-                let others = seen.iter().filter(|entry| entry.id == id.0 || ally(entry));
-                let earlier = others.clone().map(|entry| entry.used_at[kind as usize]);
-                let this_step = (used_now.iter())
-                    .filter(|(by, used)| {
-                        *used == kind && others.clone().any(|entry| entry.id == *by)
-                    })
-                    .map(|_| now);
-                earlier.chain(this_step).filter(|at| *at > 0).max()
-            };
-            // Whether a choice can be carried out this look. No ally it sees
-            // may have used the same kind within that kind's wait. Under the
-            // Advanced rules a power waits for a gap between exchanges. A
-            // grenade is thrown only once the thrower faces its target. An
-            // item's button can always be pressed.
-            let doable = |option: &choose::Option_| {
-                let side_waited = choose::side_kind(option.choice)
-                    .is_none_or(|kind| choose::side_allows(kind, now, allies_used(kind)));
-                side_waited
-                    && match option.choice {
-                        choose::Choice::Power(_) => waited_for(
-                            (spaced, out_of_reach),
-                            (ps, &own, target.as_ref()),
-                            (now, fighter.mind.pace.power_at),
-                        ),
-                        choose::Choice::Grenade(_) => target.as_ref().is_some_and(faces),
-                        choose::Choice::Item(_) => true,
-                    }
-            };
-            // The most preferred choice it can carry out now. When the best
-            // must wait, the next one in the chooser's order is tried.
-            let used = choose::ranked(&plain, &scene, tie)
-                .into_iter()
-                .filter_map(|choice| options.iter().find(|(option, _)| option.choice == choice))
-                .find(|(option, _)| doable(option));
-            let tag = facts.map_or("", |facts| facts.tag.as_str());
-            if let Some((option, cast)) = used {
-                match option.choice {
-                    // Where scripts run, an item is used as a script's item
-                    // talent is used. The row chosen is the one used, and it
-                    // leaves the goods as its use lands. A script's
-                    // `ClearAllActions` breaks the use off before then, so a
-                    // script that ends the fight on this step also stops a
-                    // medpac chosen on it.
-                    choose::Choice::Item(row) if !own_choice => fighter.pack.queued = Some(row),
-                    _ => {
-                        if cast_into(&mut fighter.mind, &mut command, Some(*cast), now, dice)
-                            && matches!(option.choice, choose::Choice::Power(_))
-                        {
-                            note_power(spaced, &mut fighter.mind, (id.0, &own), now);
-                        }
-                    }
-                }
-                // A grenade's row is queued for the throw.
-                if let choose::Choice::Grenade(row) = option.choice {
-                    fighter.pack.queued = Some(row);
-                    thrown_now.push((id.0, row));
-                }
-                // Its allies wait for this kind now. Zero means never, so a
-                // use at the very start counts as made at 1 ms.
-                if let Some(kind) = choose::side_kind(option.choice) {
-                    fighter.mind.used_at[kind as usize] = now.max(1);
-                    used_now.push((id.0, kind));
-                }
-            }
-            match used {
-                // The next choice waits by its tier, after a held power or
-                // throw is let go.
-                Some((option, cast)) => {
-                    let held_ms = match cast {
-                        Cast::Hold(_, ms) => *ms,
-                        Cast::Press(_) => 0,
-                    };
-                    // A veteran companion waits as a Boss does.
-                    let tier = if own.veteran {
-                        pace::Tier::Boss
-                    } else {
-                        own.tier
-                    };
-                    fighter.mind.cast_after = now + held_ms + choose::wait_ms(tier, dice);
-                    choices::log(tag, option, &scene);
-                }
-                // On a stage without scripts, a gunner's feat special when
-                // nothing else is used.
-                None if own_choice => {
-                    let special = ai::choose_special(
-                        gun_special,
-                        specials::Bar::of(&me, &fighter_now, saber_rules.duel()),
-                    );
-                    cast_into(&mut fighter.mind, &mut command, special, now, dice);
-                }
-                None => {}
-            }
+            run_chooser(&ctx, fighter, &mut command, &mut thrown_now, &mut used_now);
         }
         // Its feat line of its own choice, where scripts run
         // (`ai.choices.feats`). A feat that its script's talent used this
@@ -1628,44 +1447,16 @@ pub(super) fn think(
         if chooses
             && !own_choice
             && !script_feat
-            && let Some(entry) = target
+            && let Some(entry) = target.as_ref()
         {
-            let tag = facts.map_or("", |facts| facts.tag.as_str());
-            let sight = choices::feat_sight(&entry, id.0, distance(&entry.ps) * UNIT);
-            let change = choices::feat_change(&me, fighter, &sight)
-                .filter(|_| !choose::feat_kept(now, fighter.mind.feat_at));
-            if let Some((line, why, change)) = change {
-                match change {
-                    choices::FeatChange::Style(style) => fighter.saber.queued = Some(style),
-                    choices::FeatChange::Line(row) => {
-                        feat_talents.0.push((id.0, fighter.hand, row, true));
-                    }
-                }
-                fighter.mind.feat_at = now.max(1);
-                choices::log_feat(tag, now, "takes", line, why);
-            }
-            // A gunner fires the special of the line in use when the line's
-            // reason holds, or when it is the line it falls back on. It fires
-            // only when it used nothing else on this look, and when no talent
-            // of its script holds this step. It then waits a round, as after
-            // a script's feat talent.
-            let line = gun_special.and_then(|special| FeatLine::of(special.row()));
-            let knows = |line: FeatLine| line.known(&me).is_some();
-            let why = line.and_then(|line| choose::fire_reason(line, &sight, knows));
-            if let (Some(line), Some(why)) = (line, why)
-                && ready
-                && !talent_ends_step
-                && fighter.mind.cast_after <= now
-            {
-                let fighter_now = *fighter;
-                let bar = specials::Bar::of(&me, &fighter_now, saber_rules.duel());
-                let special = ai::choose_special(gun_special, bar);
-                if cast_into(&mut fighter.mind, &mut command, special, now, dice) {
-                    let mind = &mut fighter.mind;
-                    mind.cast_after = mind.cast_after.max(now + ROUND_MS);
-                    choices::log_feat(tag, now, "fires", line, why);
-                }
-            }
+            run_feat_choice(
+                fighter,
+                &mut command,
+                &mut feat_talents.0,
+                (id.0, &me, ps, entry, tag),
+                (now, dice, ready, talent_ends_step, saber_rules.duel()),
+                gun_special,
+            );
         }
         // A Force Push its mind starts itself (`Pace::request_push`, or to push
         // a target off its perch, `perch::push`), when
@@ -1938,10 +1729,272 @@ fn crowds(me: SimId, at: Vec3, leader: Vec3, followers: &[(SimId, Vec3)]) -> boo
             .any(|(_, other)| near(*other))
 }
 
-/// Whether a Force power may start now. Under the Advanced rules (`spaced`)
-/// a paced fighter starts one only between exchanges (`pace::power_allowed`):
-/// none of its own swings is playing and its target is outside the reach of
-/// its weapon, unless the target is out of reach altogether (`out_of_reach`).
+/// Updates whether this character's fight is intense until `choose::held_until(now)`.
+fn update_intense(
+    mind: &mut Mind,
+    (me, in_party, mine): (SimId, bool, u8),
+    now: u64,
+    seen: &[Seen],
+    hostile: &dyn Fn(&Seen) -> bool,
+    in_fight: &dyn Fn(&Seen) -> bool,
+) {
+    let living = |entry: &&Seen| entry.alive;
+    let own_side = |entry: &Seen| {
+        if in_party {
+            entry.party
+        } else {
+            !entry.party && entry.faction == mine && (entry.id == me || entry.target.is_some())
+        }
+    };
+    let side: Vec<&Seen> = (seen.iter().filter(living))
+        .filter(|entry| own_side(entry))
+        .collect();
+    let in_its_fight = |entry: &Seen| {
+        if in_party {
+            in_fight(entry)
+        } else {
+            side.iter()
+                .any(|own| own.target == Some(entry.id) || entry.target == Some(own.id))
+        }
+    };
+    let hostiles: Vec<_> = (seen.iter().filter(living))
+        .filter(|entry| hostile(entry) && in_its_fight(entry))
+        .map(choices::member)
+        .collect();
+    let side: Vec<_> = side.into_iter().map(choices::member).collect();
+    if choose::intense_now(&side, &hostiles) {
+        mind.intense_until = choose::held_until(now);
+    }
+}
+
+/// Inputs gathered for one chooser look (`run_chooser`).
+struct ChoiceStep<'a> {
+    sheet: &'a crate::combat::Sheet,
+    own: &'a Own,
+    ps: &'a MotionState,
+    tag: &'a str,
+    target: Option<&'a Seen>,
+    seen: &'a [Seen],
+    library: Option<&'a crate::script::Library>,
+    now: u64,
+    dice: f32,
+    companion: bool,
+    in_party: bool,
+    mine: u8,
+    own_choice: bool,
+    spaced: bool,
+    out_of_reach: bool,
+    duel: bool,
+    gun_special: Option<Special>,
+    cost: &'a dyn Fn(u16) -> Option<i32>,
+    scripted: &'a dyn Fn(u16) -> Option<crate::script::Talent>,
+    hostile: &'a dyn Fn(&Seen) -> bool,
+    in_fight: &'a dyn Fn(&Seen) -> bool,
+    faces: &'a dyn Fn(&Seen) -> bool,
+}
+
+/// Scores and applies a Force power, item or grenade of the character's own
+/// choice on a look tick, or falls back to a gunner special without scripts.
+fn run_chooser(
+    ctx: &ChoiceStep<'_>,
+    fighter: &mut crate::combat::Fighter,
+    command: &mut Command,
+    thrown_now: &mut Vec<(SimId, u16)>,
+    used_now: &mut Vec<(SimId, choose::SideKind)>,
+) {
+    let fighter_now = *fighter;
+    let me_id = ctx.own.id;
+    let distance = |other: &MotionState| math::length(math::sub(other.origin, ctx.ps.origin));
+    let hostile_row = |row: u16| ctx.library.and_then(|library| library.hostile(row));
+    // Its side: the party for a party member, else its faction outside the party.
+    let side =
+        |entry: &Seen| entry.party == ctx.in_party && (ctx.in_party || entry.faction == ctx.mine);
+    let chooser = choices::Chooser {
+        sheet: ctx.sheet,
+        fighter: &fighter_now,
+        companion: ctx.companion,
+        now: ctx.now,
+        target: ctx.target.map(|entry| {
+            let mark = choose::Mark {
+                deaf: entry.deaf,
+                buff: entry.buff,
+                beast: entry.beast,
+            };
+            (distance(&entry.ps), mark)
+        }),
+        untaken: &|row| {
+            let others = ctx
+                .seen
+                .iter()
+                .filter(|entry| entry.party && entry.id != me_id);
+            let before: u32 = others
+                .map(|entry| u32::from(entry.pack.not_yet_taken(&entry.sheet, row, ctx.now)))
+                .sum();
+            let queued = thrown_now.iter().filter(|(_, of)| *of == row).count();
+            let queued = u32::try_from(queued).unwrap_or(u32::MAX);
+            u8::try_from(before.saturating_add(queued)).unwrap_or(u8::MAX)
+        },
+        cost: ctx.cost,
+        scripted: ctx.scripted,
+        hostile: &hostile_row,
+        prerequisites: ctx.library.map(|library| &library.classes().prerequisites),
+        fallen: ctx
+            .seen
+            .iter()
+            .filter(|entry| entry.downed && side(entry))
+            .map(|entry| distance(&entry.ps))
+            .reduce(f32::min),
+    };
+    let options = chooser.options();
+    let ally = |entry: &Seen| entry.alive && side(entry) && !(ctx.hostile)(entry);
+    let own_health = choices::health(&fighter_now, ctx.sheet);
+    let scene = choose::Scene {
+        now: ctx.now,
+        fight_ms: ctx.now.saturating_sub(fighter_now.mind.aware_at),
+        intense: choose::intense(ctx.now, fighter_now.mind.intense_until),
+        companion: ctx.companion,
+        own_health,
+        lowest_ally_health: choices::lowest_ally_health(
+            ctx.sheet,
+            (ctx.ps.origin, own_health),
+            ctx.seen,
+            &ally,
+        ),
+        own_droid: ctx.sheet.flags & crate::combat::sheet::flags::DROID != 0,
+        own_blade: !held(ctx.sheet, &fighter_now).delivery.ranged(),
+        intense_buff: chooser.intense_buff(),
+        foes: choices::foes(ctx.seen, &|entry| {
+            (ctx.hostile)(entry)
+                && ((ctx.in_fight)(entry)
+                    || entry.target == Some(me_id)
+                    || ctx.target.is_some_and(|aimed| aimed.id == entry.id))
+        }),
+        target: ctx.target.map(|entry| {
+            let in_reach = pace::within_reach(&sight_of(ctx.ps, ctx.own, entry));
+            choices::target(entry, in_reach, ctx.seen, me_id, ctx.hostile, &ally)
+        }),
+    };
+    let tie = pick(ctx.now / LOOK_EVERY_MS, me_id, CHOICE_SALT);
+    let plain: Vec<choose::Option_> = options.iter().map(|(option, _)| *option).collect();
+    let allies_used = |kind: choose::SideKind| {
+        let others = ctx
+            .seen
+            .iter()
+            .filter(|entry| entry.id == me_id || ally(entry));
+        let earlier = others.clone().map(|entry| entry.used_at[kind as usize]);
+        let this_step = (used_now.iter())
+            .filter(|(by, used)| *used == kind && others.clone().any(|entry| entry.id == *by))
+            .map(|_| ctx.now);
+        earlier.chain(this_step).filter(|at| *at > 0).max()
+    };
+    let doable = |option: &choose::Option_| {
+        let side_waited = choose::side_kind(option.choice)
+            .is_none_or(|kind| choose::side_allows(kind, ctx.now, allies_used(kind)));
+        side_waited
+            && match option.choice {
+                choose::Choice::Power(_) => waited_for(
+                    (ctx.spaced, ctx.out_of_reach),
+                    (ctx.ps, ctx.own, ctx.target),
+                    (ctx.now, fighter.mind.pace.power_at),
+                ),
+                choose::Choice::Grenade(_) => ctx.target.is_some_and(ctx.faces),
+                choose::Choice::Item(_) => true,
+            }
+    };
+    let used = choose::ranked(&plain, &scene, tie)
+        .into_iter()
+        .filter_map(|choice| options.iter().find(|(option, _)| option.choice == choice))
+        .find(|(option, _)| doable(option));
+    if let Some((option, cast)) = used {
+        let (applied, held_ms) = match option.choice {
+            choose::Choice::Item(row) if !ctx.own_choice => {
+                fighter.pack.queued = Some(row);
+                (true, 0)
+            }
+            _ => {
+                let applied = cast_into(&mut fighter.mind, command, Some(*cast), ctx.now, ctx.dice);
+                if applied && matches!(option.choice, choose::Choice::Power(_)) {
+                    note_power(ctx.spaced, &mut fighter.mind, (me_id, ctx.own), ctx.now);
+                }
+                let held_ms = match cast {
+                    Cast::Hold(_, ms) => *ms,
+                    Cast::Press(_) => 0,
+                };
+                (applied, held_ms)
+            }
+        };
+        if applied {
+            if let choose::Choice::Grenade(row) = option.choice {
+                fighter.pack.queued = Some(row);
+                thrown_now.push((me_id, row));
+            }
+            if let Some(kind) = choose::side_kind(option.choice) {
+                fighter.mind.used_at[kind as usize] = ctx.now.max(1);
+                used_now.push((me_id, kind));
+            }
+            let tier = if ctx.own.veteran {
+                pace::Tier::Boss
+            } else {
+                ctx.own.tier
+            };
+            fighter.mind.cast_after = ctx.now + held_ms + choose::wait_ms(tier, ctx.dice);
+            choices::log(ctx.tag, option, &scene);
+        }
+    } else if ctx.own_choice {
+        let special = ai::choose_special(
+            ctx.gun_special,
+            specials::Bar::of(ctx.sheet, &fighter_now, ctx.duel),
+        );
+        cast_into(&mut fighter.mind, command, special, ctx.now, ctx.dice);
+    }
+}
+
+/// Switches feat lines or single-blade saber styles of the mind's own choice,
+/// and fires a gunner's feat special when its reason holds.
+fn run_feat_choice(
+    fighter: &mut crate::combat::Fighter,
+    command: &mut Command,
+    feat_talents: &mut Vec<(SimId, u8, u16, bool)>,
+    (me, sheet, ps, target, tag): (SimId, &crate::combat::Sheet, &MotionState, &Seen, &str),
+    (now, dice, ready, talent_ends_step, duel): (u64, f32, bool, bool, bool),
+    gun_special: Option<Special>,
+) {
+    let distance_m = math::length(math::sub(target.ps.origin, ps.origin)) * UNIT;
+    let sight = choices::feat_sight(target, me, distance_m);
+    let change = choices::feat_change(sheet, fighter, &sight)
+        .filter(|_| !choose::feat_kept(now, fighter.mind.feat_at));
+    if let Some((line, why, change)) = change {
+        match change {
+            choices::FeatChange::Style(style) => fighter.saber.queued = Some(style),
+            choices::FeatChange::Line(row) => {
+                feat_talents.push((me, fighter.hand, row, true));
+            }
+        }
+        fighter.mind.feat_at = now.max(1);
+        choices::log_feat(tag, now, "takes", line, why);
+    }
+    let line = gun_special.and_then(|special| FeatLine::of(special.row()));
+    let knows = |line: FeatLine| line.known(sheet).is_some();
+    let why = line.and_then(|line| choose::fire_reason(line, &sight, knows));
+    if let (Some(line), Some(why)) = (line, why)
+        && ready
+        && !talent_ends_step
+        && fighter.mind.cast_after <= now
+    {
+        let fighter_now = *fighter;
+        let bar = specials::Bar::of(sheet, &fighter_now, duel);
+        let special = ai::choose_special(gun_special, bar);
+        if cast_into(&mut fighter.mind, command, special, now, dice) {
+            let mind = &mut fighter.mind;
+            mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+            choices::log_feat(tag, now, "fires", line, why);
+        }
+    }
+}
+
+/// Whether a Force power its script or chooser picked may start now: under
+/// the Advanced rules (`spaced`) while the target is out of reach, or once
+/// any swing has ended and the wait since the last power is over.
 fn waited_for(
     (spaced, out_of_reach): (bool, bool),
     (ps, own, target): (&MotionState, &Own, Option<&Seen>),

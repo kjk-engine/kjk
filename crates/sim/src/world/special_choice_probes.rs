@@ -639,6 +639,34 @@ fn boss_breaks_block_on_slow_drift() -> Result<String, String> {
     )
 }
 
+/// Switching targets mid-special resets the special move tracker so the new
+/// target's unhit timestamp does not trigger a false 15-second miss cooldown.
+fn target_switch_clears_special_miss() -> Result<String, String> {
+    use crate::combat::pace::{Dice, Pace, Tier};
+    let mut pace = Pace::default();
+    let mut sight = crate::trace::duelling_probes::duel_sight(60.0);
+    sight.tier = Tier::Boss;
+    sight.duel = true;
+    sight.style = Some(crate::combat::saber::Style::Medium);
+    let clear = |_: i8, _: i8| true;
+    let mut dice = Dice::new(1000, SimId(1));
+    sight.foe = SimId(2);
+    sight.saber_move = Move::A3_SPECIAL as u8;
+    pace.decide(&sight, 1000, &mut dice, &clear);
+    let began = pace.special_began;
+    sight.foe = SimId(3);
+    sight.saber_move = Move::READY as u8;
+    sight.foe_hit_at = 0;
+    pace.decide(&sight, 1500, &mut dice, &clear);
+    check(
+        began != 0 && pace.special_began == 0 && pace.special_after == 0,
+        format!(
+            "began {began}, after switch special_began {} special_after {}",
+            pace.special_began, pace.special_after
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     let mut checks: Checks = CASES
         .iter()
@@ -654,6 +682,10 @@ pub fn probes() -> Checks {
     checks.push((
         "boss_breaks_block_on_slow_drift",
         boss_breaks_block_on_slow_drift(),
+    ));
+    checks.push((
+        "target_switch_clears_special_miss",
+        target_switch_clears_special_miss(),
     ));
     checks
 }
