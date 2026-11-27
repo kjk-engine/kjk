@@ -84,13 +84,6 @@ fn of_game(game: &str) -> Option<&'static Active> {
         .find(|active| active.project.game.eq_ignore_ascii_case(game))
 }
 
-/// The active project that has the level `module`.
-fn of_module(module: &str) -> Option<&'static Active> {
-    all()
-        .iter()
-        .find(|active| active.project.kjk_of(module).is_some())
-}
-
 /// The kjk-only content the active project of `game` holds for its level
 /// `module`.
 pub fn kjk_of(game: &str, module: &str) -> Option<&'static crate::area::KjkArea> {
@@ -324,6 +317,12 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
             Some((module, bake))
         })
         .collect();
+    // Asked before the resolvers are told of the folder. A second call
+    // used to tell them of its folder and was refused only after that,
+    // which left them with one project's folder and the run with another's.
+    if ACTIVE.get().is_some() {
+        return Err("a project is already active".to_string());
+    }
     vfs::project::activate(game, folder)?;
     let mut active = made(discovery, project, lighting, bakes, notes);
     active.world = Some(active.digest);
@@ -387,8 +386,9 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
         files.sort();
         let mut found = crate::mods::read(&files);
         // What the mods were built on: a file of the override folder, or
-        // a mod file of the game's `modules/` folder.
-        if found.mods.iter().any(|manifest| !manifest.needs.is_empty()) {
+        // a mod file of the game's `modules/` folder. A mod's own module
+        // file, a new map's, is looked for there too.
+        if !found.mods.is_empty() {
             let modules: Vec<(String, std::path::PathBuf)> = std::fs::read_dir(&install.data_root)
                 .into_iter()
                 .flatten()
@@ -409,6 +409,9 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
                 .collect();
             let notes = crate::mods::needs_notes(&found.mods, &files, &modules);
             found.notes.extend(notes);
+            found
+                .notes
+                .extend(crate::mods::module_notes(&found.mods, &modules));
         }
         if found.is_empty() && found.notes.is_empty() {
             continue;
@@ -514,13 +517,18 @@ pub fn nav_links(game: &str, module: &str) -> Vec<(collision::nav::LinkKind, [f3
         })
 }
 
-/// The folder of the bake the active project keeps of its level `module`,
-/// when it keeps one: the game draws the level's rooms with it
-/// (`game::fitted_lights::for_module`, `game::viewer`).
-pub fn bake_of(module: &str) -> Option<&'static Path> {
-    all()
-        .iter()
-        .find_map(|active| active.bakes.get(&module.to_ascii_lowercase()))
+/// The folder of the bake that the active project of `game` (`k1` or
+/// `tsl`) keeps of its level `module`, when it keeps one: the game draws
+/// the level's rooms with it (`game::fitted_lights::for_module`,
+/// `game::viewer`).
+///
+/// The game is asked for with the level, here and in `map_lights` and
+/// `map_lamps`. With mods in both games' folders the run has a project for
+/// each, and a level of one name in both, as two new maps can be, used to
+/// get the first game's bake, lights and lamps in either game.
+pub fn bake_of(game: &str, module: &str) -> Option<&'static Path> {
+    (of_game(game)?.bakes)
+        .get(&module.to_ascii_lowercase())
         .map(std::path::PathBuf::as_path)
 }
 
@@ -544,8 +552,9 @@ pub fn lights_any() -> bool {
             || (std::iter::once(project.module.as_str()))
                 .chain(project.parked.keys().map(String::as_str))
                 .any(|module| {
-                    map_lights(module).is_some_and(|lights| !lights.is_empty())
-                        || map_lamps(module).is_some_and(|lamps| !lamps.is_empty())
+                    let game = project.game.as_str();
+                    map_lights(game, module).is_some_and(|lights| !lights.is_empty())
+                        || map_lamps(game, module).is_some_and(|lamps| !lamps.is_empty())
                 })
     })
 }
@@ -559,22 +568,22 @@ pub fn own_kinds(game: &str) -> Option<String> {
     (!active.lighting.kinds.is_empty()).then(|| active.lighting.kinds_text())
 }
 
-/// The lights placed by hand that the active project keeps for its level
-/// `module`: a new map's, or an installed level's once they are the
+/// The lights placed by hand that the active project of `game` keeps for
+/// its level `module`: a new map's, or an installed level's once they are the
 /// project's own (`KjkArea::own_lights`). The game reads them in place of
 /// `fittings.toml`'s (`game::fitted_lights`). `None` for a level whose
 /// lights are the light data's.
-pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
-    let active = of_module(module)?;
+pub fn map_lights(game: &str, module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
+    let active = of_game(game)?;
     let kjk = active.project.kjk_of(module)?;
     (active.project.is_map(module) || kjk.own_lights).then_some(kjk.lights.as_slice())
 }
 
-/// The lamps placed by hand that the active project keeps for its level
-/// `module`, as `map_lights` gives its lights: the game draws them in
+/// The lamps placed by hand that the active project of `game` keeps for
+/// its level `module`, as `map_lights` gives its lights: the game draws them in
 /// place of `fittings.toml`'s (`game::lamps`).
-pub fn map_lamps(module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
-    let active = of_module(module)?;
+pub fn map_lamps(game: &str, module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
+    let active = of_game(game)?;
     let kjk = active.project.kjk_of(module)?;
     (active.project.is_map(module) || kjk.own_lights).then_some(kjk.lamps.as_slice())
 }

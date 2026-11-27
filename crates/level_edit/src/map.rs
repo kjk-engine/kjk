@@ -82,6 +82,12 @@ pub struct Room {
     /// Jedi Academy level. Its model is then `ja_rooms::room_resref`'s
     /// name, and `from` is where the built room's origin lies in the level.
     pub ja: Option<JaRoom>,
+    /// Whether the room keeps the weather out (the ARE's `DisableWeather`
+    /// of the room, `rooms_into_are`). The mark is the room's own, so it
+    /// goes with the room when another is deleted or the room is copied.
+    /// It was kept in the ARE by the room's name, which is its number in
+    /// the map: a room deleted before it gave the mark to the next room.
+    pub dry: bool,
 }
 
 /// A room the project cut from a Jedi Academy level.
@@ -219,15 +225,25 @@ impl NewMap {
                     model,
                     from: triple(table.get("from"), "a room's from")?,
                     position: triple(table.get("position"), "a room's position")?,
-                    yaw: table
-                        .get("yaw")
-                        .and_then(|item| {
-                            item.as_float()
-                                .or_else(|| item.as_integer().map(|whole| whole as f64))
-                        })
-                        .map_or(0.0, |degrees| degrees as f32),
+                    yaw: match table.get("yaw") {
+                        Some(turn) => number(Some(turn), "a room's yaw")?,
+                        None => 0.0,
+                    },
                     ja,
+                    dry: (table.get("dry").and_then(toml_edit::Item::as_bool))
+                        .is_some_and(|dry| dry),
                 });
+            }
+            // A map written before the rooms kept their own mark has it in
+            // its ARE, a room after the other. It is read from there when
+            // no room of the file says anything and the ARE lists as many
+            // rooms as the map has.
+            let said = tables.iter().any(|table| table.get("dry").is_some());
+            let listed = are.root.list("Rooms");
+            if !said && listed.len() == rooms.len() {
+                for (room, entry) in rooms.iter_mut().zip(listed) {
+                    room.dry = entry.uint("DisableWeather").is_some_and(|on| on != 0);
+                }
             }
         }
         Ok(NewMap {
@@ -263,15 +279,16 @@ impl NewMap {
             "# A new map made by kjk's level editor (docs/LEVEL-EDIT.md): its rooms\n\
              # and where the player starts. The area's light, fog and sound are in\n\
              # its .are file.\n\
-             title = {:?}\nbase = {:?}\nentry = {}\nentry_facing = {:?}\n",
-            self.title,
-            self.base,
+             title = {}\nbase = {}\nentry = {}\nentry_facing = {:?}\n",
+            crate::quoted(&self.title),
+            crate::quoted(&self.base),
             triple(self.entry),
             self.entry_facing
         );
         if let Some(sky) = &self.ja_sky {
             out.push_str(&format!(
-                "# The Jedi Academy sky box drawn round the map.\nja_sky = {sky:?}\n"
+                "# The Jedi Academy sky box drawn round the map.\nja_sky = {}\n",
+                crate::quoted(sky)
             ));
         }
         let scripts: Vec<_> = self
@@ -282,23 +299,33 @@ impl NewMap {
         if !scripts.is_empty() {
             out.push_str("\n# The module's scripts (module.ifo).\n[module_scripts]\n");
             for (label, script) in scripts {
-                out.push_str(&format!("{label} = {script:?}\n"));
+                // The label is quoted too: it is a key, and a quoted key
+                // reads whatever the label holds.
+                out.push_str(&format!(
+                    "{} = {}\n",
+                    crate::quoted(label),
+                    crate::quoted(script)
+                ));
             }
         }
         for room in &self.rooms {
             out.push_str(&format!(
-                "\n[[room]]\nmodel = {:?}\nfrom = {}\nposition = {}\n",
-                room.model,
+                "\n[[room]]\nmodel = {}\nfrom = {}\nposition = {}\n",
+                crate::quoted(&room.model),
                 triple(room.from),
                 triple(room.position)
             ));
             if room.yaw != 0.0 {
                 out.push_str(&format!("yaw = {:?}\n", f64::from(room.yaw)));
             }
+            if room.dry {
+                out.push_str("dry = true\n");
+            }
             if let Some(ja) = &room.ja {
                 out.push_str(&format!(
-                    "ja_level = {:?}\nja_room = {:?}\n",
-                    ja.level, ja.room
+                    "ja_level = {}\nja_room = {}\n",
+                    crate::quoted(&ja.level),
+                    crate::quoted(&ja.room)
                 ));
             }
         }
@@ -311,10 +338,6 @@ impl NewMap {
     /// A room that keeps the weather out (`DisableWeather`) still does.
     pub fn rooms_into_are(&mut self, module: &str) {
         let first = self.are.root.list("Rooms").first().cloned();
-        let dry: Vec<String> = (crate::settings::dry_rooms(&self.are).into_iter())
-            .filter(|(_, dry)| *dry)
-            .map(|(name, _)| name.to_ascii_lowercase())
-            .collect();
         let rooms = (0..self.rooms.len())
             .map(|index| {
                 let mut entry = first.clone().unwrap_or(GffStruct {
@@ -332,7 +355,7 @@ impl NewMap {
                 if entry.get("ForceRating").is_some() {
                     set(&mut entry, "ForceRating", GffValue::Int(0));
                 }
-                let kept_dry = dry.contains(&room_name(module, index).to_ascii_lowercase());
+                let kept_dry = self.rooms[index].dry;
                 if kept_dry || entry.get("DisableWeather").is_some() {
                     set(
                         &mut entry,
@@ -344,6 +367,24 @@ impl NewMap {
             })
             .collect();
         set(&mut self.are.root, "Rooms", GffValue::List(rooms));
+    }
+
+    /// The map's rooms by the names of their copies (`room_name`), in
+    /// their order, each with whether it keeps the weather out.
+    pub fn dry_rooms(&self, module: &str) -> Vec<(String, bool)> {
+        (self.rooms.iter().enumerate())
+            .map(|(index, room)| (room_name(module, index), room.dry))
+            .collect()
+    }
+
+    /// Sets whether the map's room whose copy is named `room` (any case)
+    /// keeps the weather out.
+    pub fn set_dry_room(&mut self, module: &str, room: &str, dry: bool) -> Result<(), String> {
+        let index = (0..self.rooms.len())
+            .find(|index| room_name(module, *index).eq_ignore_ascii_case(room))
+            .ok_or(format!("the map has no room {room}"))?;
+        self.rooms[index].dry = dry;
+        Ok(())
     }
 
     /// Whether the map's room `index` is not the first of the map to place
@@ -594,7 +635,7 @@ fn field(label: &str, value: GffValue) -> GffField {
 fn localized(text: &str) -> GffValue {
     GffValue::LocString(LocString {
         strref: u32::MAX,
-        strings: vec![(0, text.as_bytes().to_vec())],
+        strings: vec![(0, crate::game_bytes(text))],
     })
 }
 

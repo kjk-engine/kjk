@@ -126,20 +126,22 @@ impl JaMap {
             "# The rooms of the new map {} that kjk builds from Jedi Academy's levels\n\
              # (docs/LEVEL-EDIT.md, \"Sharing a level\"). Each is built from the\n\
              # player's own install, with the cuts beside this file.\n\
-             module = {:?}\n",
-            self.module, self.module
+             module = {}\n",
+            self.module,
+            crate::quoted(&self.module)
         );
         if let Some(sky) = &self.sky {
-            out.push_str(&format!("sky = {sky:?}\n"));
+            out.push_str(&format!("sky = {}\n", crate::quoted(sky)));
         }
         for (copy, room) in &self.rooms {
             let Some(ja) = &room.ja else {
                 continue;
             };
             out.push_str(&format!(
-                "\n[[room]]\ncopy = {copy:?}\nja_level = {:?}\nja_room = {:?}\nfrom = {}\nposition = {}\nyaw = {:?}\n",
-                ja.level,
-                ja.room,
+                "\n[[room]]\ncopy = {}\nja_level = {}\nja_room = {}\nfrom = {}\nposition = {}\nyaw = {:?}\n",
+                crate::quoted(copy),
+                crate::quoted(&ja.level),
+                crate::quoted(&ja.room),
                 triple(room.from),
                 triple(room.position),
                 f64::from(room.yaw)
@@ -192,6 +194,8 @@ impl JaMap {
                     .and_then(number)
                     .unwrap_or(0.0),
                 ja: Some(ja),
+                // The map's ARE holds it in a mod (`rooms_into_are`).
+                dry: false,
             };
             let copy = words(table.get("copy"), "a room's copy")?.to_ascii_lowercase();
             rooms.push((copy, room));
@@ -233,22 +237,24 @@ pub struct Manifest {
 impl Manifest {
     fn write(&self) -> String {
         let list = |names: &[String]| {
-            let quoted: Vec<String> = names.iter().map(|name| format!("{name:?}")).collect();
+            let quoted: Vec<String> = names.iter().map(|name| crate::quoted(name)).collect();
             quoted.join(", ")
         };
         let mut text = format!(
             "# The mod {}, made with kjk's level editor (docs/LEVEL-EDIT.md, \"Sharing a level\").\n\
              # To remove the mod, delete the files listed here, then this file.\n\
-             name = {:?}\nversion = {:?}\nlevels = [{}]\nquests = [{}]\n",
+             name = {}\nversion = {}\nlevels = [{}]\nquests = [{}]\n",
             self.name,
-            self.name,
-            self.version,
+            crate::quoted(&self.name),
+            crate::quoted(&self.version),
             list(&self.levels),
             list(&self.quests)
         );
         for (path, size, hash) in &self.files {
             text.push_str(&format!(
-                "\n[[file]]\npath = {path:?}\nsize = {size}\nhash = {hash:?}\n"
+                "\n[[file]]\npath = {}\nsize = {size}\nhash = {}\n",
+                crate::quoted(path),
+                crate::quoted(hash)
             ));
         }
         if !self.needs.is_empty() {
@@ -259,7 +265,9 @@ impl Manifest {
         }
         for (path, size, hash) in &self.needs {
             text.push_str(&format!(
-                "\n[[needs]]\npath = {path:?}\nsize = {size}\nhash = {hash:?}\n"
+                "\n[[needs]]\npath = {}\nsize = {size}\nhash = {}\n",
+                crate::quoted(path),
+                crate::quoted(hash)
             ));
         }
         text
@@ -543,43 +551,16 @@ pub fn needs_notes(
     notes
 }
 
-/// What the mods found both change, and what of a mod is missing or was
-/// replaced, as notes for the person: the games read one file of a name,
-/// so the mod copied last wins without a word.
-fn clashes(found: &Found, files: &[(String, PathBuf)]) -> Vec<String> {
+/// What of the mods' own files (`Manifest::files`) under `prefix`
+/// (`override/` or `modules/`) is missing, or is not the file the mod
+/// brought, as notes for the person. `files` is every file of that folder
+/// by its lowercase path inside it.
+fn own_files_notes(mods: &[Manifest], prefix: &str, files: &[(String, PathBuf)]) -> Vec<String> {
     let mut notes = Vec::new();
-    // A file two mods list.
-    let mut owner: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut shared: BTreeMap<(&str, &str), Vec<&str>> = BTreeMap::new();
-    for manifest in &found.mods {
-        for (path, ..) in &manifest.files {
-            match owner.get(path.as_str()) {
-                Some(first) if *first != manifest.name => {
-                    (shared.entry((first, &manifest.name)).or_default()).push(path);
-                }
-                Some(_) => {}
-                None => {
-                    owner.insert(path, &manifest.name);
-                }
-            }
-        }
-    }
-    for ((first, second), paths) in shared {
-        let shown: Vec<&str> = paths.iter().take(6).copied().collect();
-        let more = match paths.len().saturating_sub(shown.len()) {
-            0 => String::new(),
-            more => format!(" and {more} more"),
-        };
-        notes.push(format!(
-            "the mods {first} and {second} both bring {}{more}: the game reads the copy that was installed last, so one of the two mods is not whole",
-            shown.join(", ")
-        ));
-    }
-    // A file of a mod that is not there, or is not the one the mod brought.
-    for manifest in &found.mods {
+    for manifest in mods {
         let (mut missing, mut replaced) = (Vec::new(), Vec::new());
         for (path, size, hash) in &manifest.files {
-            let Some(inside) = path.strip_prefix("override/") else {
+            let Some(inside) = path.strip_prefix(prefix) else {
                 continue;
             };
             let Some((_, on_disk)) = files.iter().find(|(had, _)| had == inside) else {
@@ -613,6 +594,64 @@ fn clashes(found: &Found, files: &[(String, PathBuf)]) -> Vec<String> {
                 manifest.name,
                 manifest.version,
                 shown.join(", ")
+            ));
+        }
+    }
+    notes
+}
+
+/// What of the mods' own module files (`modules/<map>.mod`, a new map's)
+/// is missing or was replaced, as notes for the person. `modules` is every
+/// file of the game's `modules/` folder by its lowercase name. The mods'
+/// files in `override/` are checked as they are read (`read`). The module
+/// files were not checked at all, so a new map's missing or overwritten
+/// module was never told.
+pub fn module_notes(mods: &[Manifest], modules: &[(String, PathBuf)]) -> Vec<String> {
+    own_files_notes(mods, "modules/", modules)
+}
+
+/// What the mods found both change, and what of a mod is missing or was
+/// replaced, as notes for the person: the games read one file of a name,
+/// so the mod copied last wins without a word.
+fn clashes(found: &Found, files: &[(String, PathBuf)]) -> Vec<String> {
+    let mut notes = Vec::new();
+    // A file two mods list.
+    let mut owner: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut shared: BTreeMap<(&str, &str), Vec<&str>> = BTreeMap::new();
+    for manifest in &found.mods {
+        for (path, ..) in &manifest.files {
+            match owner.get(path.as_str()) {
+                Some(first) if *first != manifest.name => {
+                    (shared.entry((first, &manifest.name)).or_default()).push(path);
+                }
+                Some(_) => {}
+                None => {
+                    owner.insert(path, &manifest.name);
+                }
+            }
+        }
+    }
+    for ((first, second), paths) in shared {
+        let shown: Vec<&str> = paths.iter().take(6).copied().collect();
+        let more = match paths.len().saturating_sub(shown.len()) {
+            0 => String::new(),
+            more => format!(" and {more} more"),
+        };
+        notes.push(format!(
+            "the mods {first} and {second} both bring {}{more}: the game reads the copy that was installed last, so one of the two mods is not whole",
+            shown.join(", ")
+        ));
+    }
+    // A file of a mod that is not there, or is not the one the mod brought.
+    notes.extend(own_files_notes(&found.mods, "override/", files));
+    // A level two mods bring kjk's content for. The first one read is the
+    // level's (`Project::of_mods`). The other's was dropped without a word.
+    let mut levels = std::collections::BTreeSet::new();
+    let mut twice = std::collections::BTreeSet::new();
+    for (module, ..) in &found.levels {
+        if !levels.insert(module.as_str()) && twice.insert(module.as_str()) {
+            notes.push(format!(
+                "two mods bring kjk's content for the level {module}: the first one read is kept, and the other's boxes, props, lights and lamps are left out"
             ));
         }
     }
@@ -753,6 +792,11 @@ pub fn export(
     to: &Path,
     needs: &[(String, PathBuf)],
 ) -> Result<Exported, String> {
+    // The levels' and areas' names become files' and folders' names in
+    // the mod.
+    if let Some(why) = project.unsafe_name() {
+        return Err(why);
+    }
     let empty = std::fs::read_dir(to).map_or(true, |mut entries| entries.next().is_none());
     if !empty && !to.join(README).is_file() {
         return Err(format!(
@@ -844,19 +888,26 @@ pub fn export(
             kjk.lights.clear();
             kjk.lamps.clear();
         }
-        if kjk == KjkArea::default() {
-            continue;
+        // A level with no content of kjk's own gets no file of it.
+        if kjk != KjkArea::default() {
+            let text = format!(
+                "# A level of the mod {}, for kjk (docs/LEVEL-EDIT.md, \"Sharing a level\").\n\
+                 module = {}\narea = {}\n\n{}",
+                project.name,
+                crate::quoted(&module),
+                crate::quoted(&area),
+                kjk.write()
+            );
+            let target = overrides.join(area_file(&area));
+            std::fs::write(&target, text).map_err(failed(&target))?;
+            exported.kjk_files += 1;
+            written.push(target);
         }
-        let text = format!(
-            "# A level of the mod {}, for kjk (docs/LEVEL-EDIT.md, \"Sharing a level\").\n\
-             module = {module:?}\narea = {area:?}\n\n{}",
-            project.name,
-            kjk.write()
-        );
-        let target = overrides.join(area_file(&area));
-        std::fs::write(&target, text).map_err(failed(&target))?;
-        exported.kjk_files += 1;
-        written.push(target);
+        // Its bake goes into the mod all the same, and a mod's reader finds
+        // a bake without that file (`read`). A level whose project changed
+        // the rules of its light alone, and kept a bake, used to lose the
+        // bake here: the bake was copied only after the level's file was
+        // written.
         if let Some(bake) = crate::lighting::kept_bake(&project.folder, &module) {
             let folder = overrides.join(crate::lighting::BAKES).join(&module);
             std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
@@ -892,7 +943,7 @@ pub fn export(
         exported.kjk_files += 1;
         written.push(target);
         for kept in &ja.cuts {
-            let name = crate::ja_rooms::short(&kept.level).replace('/', "-");
+            let name = crate::ja_rooms::file_stem(&kept.level);
             let target = folder.join(format!("{name}.toml"));
             std::fs::write(&target, kept.write()).map_err(failed(&target))?;
             exported.kjk_files += 1;

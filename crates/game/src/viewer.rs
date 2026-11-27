@@ -223,6 +223,10 @@ impl Plays {
 #[derive(Default)]
 pub struct LoadedScene {
     pub name: String,
+    /// The game the scene's module is of. `None` for a scene that is no
+    /// module of KOTOR or The Sith Lords. A level editor project's lights
+    /// and bake are asked for by it (`level_edit::active`).
+    pub game: Option<Game>,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
     /// The images `textures` were uploaded as, which the characters and
@@ -1014,8 +1018,8 @@ static PROJECT_FOLDERS: std::sync::LazyLock<Vec<Arc<BakeFolder>>> =
 /// The folders of the bakes the game takes for the module `module`
 /// (`used_folders`): the lightmaps, the props' baked lightmaps
 /// (`project_props`) and the rest.
-pub(crate) fn bake_folders(module: &str) -> Vec<std::path::PathBuf> {
-    (used_folders(module).into_iter())
+pub(crate) fn bake_folders(game: Game, module: &str) -> Vec<std::path::PathBuf> {
+    (used_folders(game, module).into_iter())
         .map(|used| used.folder.path.clone())
         .collect()
 }
@@ -1071,7 +1075,7 @@ struct Used {
 /// project's bake in the list one map showed the other's. Both kinds are
 /// taken whole, unless their fingerprint does not read: they are the
 /// author's own bakes of the project's levels.
-fn used_folders(module: &str) -> Vec<Used> {
+fn used_folders(game: Game, module: &str) -> Vec<Used> {
     let whole = |folders: &[Arc<BakeFolder>]| -> Vec<Used> {
         (folders.iter())
             .filter(|folder| !matches!(folder.stamp, Some(Err(_))))
@@ -1111,7 +1115,7 @@ fn used_folders(module: &str) -> Vec<Used> {
         })
         .collect();
     if crate::fitted_lights::baked() {
-        let level = level_edit::active::bake_of(module);
+        let level = level_edit::active::bake_of(game.key(), module);
         used.extend(
             (whole(&PROJECT_FOLDERS).into_iter())
                 .filter(|used| Some(used.folder.path.as_path()) == level),
@@ -2336,14 +2340,14 @@ pub fn module_scene(
 ) -> Result<LoadedScene, String> {
     let module = ir.name.as_str();
     // A level whose project keeps a bake of it is lit with that bake.
-    crate::fitted_lights::for_module(module);
+    crate::fitted_lights::for_module(game, module);
     let area = &ir.areas[area];
     let mut laps = crate::launch_times::Laps::new("kotor stage/scene");
     // Which bake of this area, if any, was made from the files the game
     // reads, before its lightmaps load (`detail_baked`).
     crate::lighting_bakes::note_played(game);
     choose_bakes(resolver, area, module);
-    let used = used_folders(module);
+    let used = used_folders(game, module);
     // Under Enhanced Lightmaps an area with no accepted bake is drawn as
     // under Enhanced (`fitted_lights::baked_area`).
     let area_baked = crate::fitted_lights::baked_area(takes_bake(&used, &area.resref));
@@ -2606,6 +2610,7 @@ pub fn module_scene(
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        game: Some(game),
         sun: crate::sun::of_area(game, module),
         probes: Arc::new(probes),
         baked: area_baked,

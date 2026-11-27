@@ -803,7 +803,7 @@ fn template_entry(
     let line = |strref: u32| {
         talk?
             .text(strref)
-            .map(|text| String::from_utf8_lossy(text).trim().to_string())
+            .map(|text| level_edit::game_text(text).trim().to_string())
     };
     let mut entry = serde_json::Map::new();
     entry.insert("name".into(), serde_json::json!(name));
@@ -835,12 +835,7 @@ fn template_entry(
 fn conversation_json(gff: &fmt_odyssey::gff::Gff) -> serde_json::Value {
     let dlg = fmt_odyssey::dlg::Dlg::read(&gff.root);
     let own = |text: &fmt_odyssey::gff::LocString| {
-        (text.strings.first()).map_or_else(String::new, |(_, bytes)| {
-            bytes
-                .iter()
-                .map(|&byte| char::from(byte))
-                .collect::<String>()
-        })
+        (text.strings.first()).map_or_else(String::new, |(_, bytes)| level_edit::game_text(bytes))
     };
     let links = |links: &[fmt_odyssey::dlg::Link]| -> Vec<serde_json::Value> {
         links

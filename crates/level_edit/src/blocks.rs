@@ -269,7 +269,7 @@ pub fn read(source: &str) -> Option<Vec<Block>> {
         };
         let (key, mut rest) = rest.split_once(' ').unwrap_or((rest, ""));
         let mut values = Vec::new();
-        // Each value quoted, `\"` and `\\` escaped in it.
+        // Each value quoted, as `escaped` writes it.
         while let Some(start) = rest.find('"') {
             let mut value = String::new();
             let mut chars = rest[start + 1..].char_indices();
@@ -278,7 +278,12 @@ pub fn read(source: &str) -> Option<Vec<Block>> {
                 match c {
                     '\\' => {
                         if let Some((_, escaped)) = chars.next() {
-                            value.push(escaped);
+                            value.push(match escaped {
+                                'n' => '\n',
+                                'r' => '\r',
+                                't' => '\t',
+                                other => other,
+                            });
                         }
                     }
                     '"' => {
@@ -302,9 +307,25 @@ pub fn read(source: &str) -> Option<Vec<Block>> {
     Some(blocks)
 }
 
-/// `value` as an NWScript string's contents: `"` and `\` escaped.
+/// `value` as an NWScript string's contents: `"` and `\` escaped, and a
+/// line break, a carriage return and a tab written as `\n`, `\r` and
+/// `\t`, which the compiler reads as those. A value is written on one line
+/// of the header and into a string of the code. A line break left in it
+/// ended the header's line, so the rest of the value stood in the script as
+/// code, and ended the string, which the compiler refuses.
 fn escaped(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// What is wrong with `blocks`: a kind not known, a value not given, a

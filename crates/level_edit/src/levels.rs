@@ -125,6 +125,7 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
         item.as_float()
             .or_else(|| item.as_integer().map(|value| value as f64))
             .map(|value| value as f32)
+            .filter(|value| value.is_finite())
     };
     let text = |key: &str| table?.get(key)?.as_str().map(str::to_string);
     let flag = |key: &str| {
@@ -207,7 +208,8 @@ fn sun_args(sun: &Item) -> Option<String> {
             for value in array.iter() {
                 let number = value
                     .as_float()
-                    .or_else(|| value.as_integer().map(|value| value as f64))?;
+                    .or_else(|| value.as_integer().map(|value| value as f64))
+                    .filter(|number| number.is_finite())?;
                 words.push(number.to_string());
             }
         }
@@ -215,7 +217,8 @@ fn sun_args(sun: &Item) -> Option<String> {
     if let Some(width) = sun.get("width") {
         let width = width
             .as_float()
-            .or_else(|| width.as_integer().map(|value| value as f64))?;
+            .or_else(|| width.as_integer().map(|value| value as f64))
+            .filter(|width| width.is_finite())?;
         words.push(width.to_string());
     }
     (!words.is_empty()).then(|| words.join(" "))
@@ -300,7 +303,12 @@ pub fn with_levels_file(text: &str, module: &str, file: &str) -> Result<String, 
             if !end.is_empty() && !end.ends_with("\n\n") {
                 end.push('\n');
             }
-            parts.push(format!("{header}\nlevels = \"{file}\"\nof = \"lit\"\n"));
+            // The file's name is quoted as any text is. Written between
+            // bare quotes, a `\\` or a `"` in it broke the file.
+            parts.push(format!(
+                "{header}\nlevels = {}\nof = \"lit\"\n",
+                crate::quoted(file)
+            ));
         }
     }
     let out = parts.concat();

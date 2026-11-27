@@ -67,22 +67,16 @@ fn list<'a>(item: &'a mut GffStruct, label: &str) -> &'a mut Vec<GffStruct> {
 
 /// A text of the project's own, with no line of the talk table.
 fn own_text(text: &str) -> GffValue {
-    let bytes: Vec<u8> = text
-        .chars()
-        .map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?'))
-        .collect();
     GffValue::LocString(LocString {
         strref: u32::MAX,
-        strings: vec![(0, bytes)],
+        strings: vec![(0, crate::game_bytes(text))],
     })
 }
 
 fn text_of(item: &GffStruct, label: &str) -> String {
     (item.locstring(label))
         .and_then(|text| text.strings.first())
-        .map_or_else(String::new, |(_, bytes)| {
-            bytes.iter().map(|&byte| char::from(byte)).collect()
-        })
+        .map_or_else(String::new, |(_, bytes)| crate::game_text(bytes))
 }
 
 fn tag_of(category: &GffStruct) -> String {

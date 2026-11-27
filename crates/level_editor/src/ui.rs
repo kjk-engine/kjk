@@ -2578,7 +2578,7 @@ fn template_fields(
     let said = |strref: u32| {
         talk.as_deref()
             .and_then(|talk| talk.text(strref))
-            .map(|text| String::from_utf8_lossy(text).into_owned())
+            .map(level_edit::game_text)
     };
     for (label, shown) in fields::names(restype) {
         let now = fields::name_of(gff, label, &said);
@@ -3014,6 +3014,7 @@ fn sound_rows(state: &EditorState, table: &str) -> Vec<(u32, String)> {
 fn weather_settings(
     ui: &mut egui::Ui,
     are: &fmt_odyssey::gff::Gff,
+    rooms: Vec<(String, bool)>,
     asked: &mut Vec<level_edit::settings::AreaChange>,
 ) {
     use fmt_odyssey::gff::GffValue;
@@ -3063,7 +3064,6 @@ fn weather_settings(
             ui.end_row();
         }
     });
-    let rooms = level_edit::settings::dry_rooms(are);
     if flags & INDOORS == 0 && !rooms.is_empty() {
         egui::CollapsingHeader::new(format!(
             "Rooms that keep the weather out ({})",
@@ -3196,7 +3196,13 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
                 ui.end_row();
             }
         });
-        weather_settings(ui, &are, &mut asked);
+        // A new map's rooms are its own, each with its own mark. An
+        // installed level's are its ARE's.
+        let rooms = match &state.editor.project.map {
+            Some(map) => map.dry_rooms(&state.editor.project.module),
+            None => level_edit::settings::dry_rooms(&are),
+        };
+        weather_settings(ui, &are, rooms, &mut asked);
         ui.label(egui::RichText::new("The level's scripts").small());
         egui::Grid::new("area scripts")
             .num_columns(2)
@@ -4255,9 +4261,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
     let talk = state.setup.talk.clone();
     let line_text = |node: &fmt_odyssey::dlg::Node| {
         text_of(node, &|strref| {
-            talk.as_ref()?
-                .text(strref)
-                .map(|bytes| bytes.iter().map(|&b| char::from(b)).collect())
+            talk.as_ref()?.text(strref).map(level_edit::game_text)
         })
     };
     let (openings, lost) = talk_tree(&dlg);

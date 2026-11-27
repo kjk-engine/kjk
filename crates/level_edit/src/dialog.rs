@@ -291,7 +291,7 @@ pub fn apply(gff: &mut Gff, edit: &Edit) -> Result<Option<(Side, usize)>, String
                     strings: if text.is_empty() {
                         Vec::new()
                     } else {
-                        vec![(0, text.bytes().collect())]
+                        vec![(0, crate::game_bytes(text))]
                     },
                 }),
             );
@@ -424,7 +424,7 @@ pub fn read(gff: &Gff) -> Dlg {
 /// nothing.
 pub fn text_of(node: &fmt_odyssey::dlg::Node, talk: &dyn Fn(u32) -> Option<String>) -> String {
     match node.text.strings.first() {
-        Some((_, own)) if !own.is_empty() => own.iter().map(|&byte| char::from(byte)).collect(),
+        Some((_, own)) if !own.is_empty() => crate::game_text(own),
         _ if node.text.strref != u32::MAX => talk(node.text.strref).unwrap_or_else(String::new),
         _ => String::new(),
     }

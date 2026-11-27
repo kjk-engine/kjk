@@ -6,10 +6,17 @@
 //! project as a save would write it, the edited level's kjk-only content
 //! whole (`FULL_KJK`, with an installed level's lights and lamps placed by
 //! hand, which a save leaves out while they are the ones kjk's light data
-//! holds), and each script changed in the viewer. A save removes the copy, and so does leaving the level by
-//! choice. A copy that is there when the editor opens the project was left
-//! by an editor that did not close: the window offers to take it
-//! (`take`), as one edit that undo takes back, or to discard it.
+//! holds), the project's own lighting rules (`level_edit::lighting`: the
+//! kinds of fitting it changed and the edited level's room levels), and
+//! each script changed in the viewer. A save removes the copy, and so does
+//! leaving the level by choice. A copy that is there when the editor opens
+//! the project was left by an editor that did not close: the window offers
+//! to take it (`take`), as one edit that undo takes back, or to discard
+//! it.
+//!
+//! A copy is of one level: the one that was being edited, which is the
+//! only one with work that was not saved. It is taken with that level
+//! open. With another level open it is refused, and stays.
 
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -108,6 +115,19 @@ pub(crate) fn write(state: &EditorState) -> Result<PathBuf, String> {
     };
     file(FULL_KJK, project.kjk.write().as_bytes())?;
     file(LEVEL, project.module.as_bytes())?;
+    // The project's own lighting rules, as a save would write them
+    // (`state::save_own_rules`). A project's save does not write them, so
+    // the copy held none, and kinds or room levels changed since the last
+    // save were lost with the editor. The file is written even when it
+    // holds nothing: it then says the project has no rules of its own.
+    let mut own = level_edit::lighting::OwnLighting::read(&project.folder)?;
+    own.kinds = crate::state::kinds_own(state);
+    if crate::state::levels_own(state) {
+        (own.levels).insert(project.module.clone(), project.levels.clone());
+    } else {
+        own.levels.remove(&project.module);
+    }
+    file(level_edit::lighting::FILE, own.write().as_bytes())?;
     for (name, draft) in &state.drafts {
         if draft.changed() {
             let mut held = draft.clone();
@@ -150,28 +170,60 @@ pub(crate) fn describe(folder: &Path) -> String {
     }
 }
 
+/// Why the copy made of the level `made_of` is not taken while the level
+/// `open` is edited, if it is not: it is of another level. Taken there, it
+/// gave that level nothing of the work that was not saved, which is all in
+/// the level the copy is of, and was then removed. A copy that does not
+/// say what it is of (none does not) is taken.
+fn of_another_level(made_of: &str, open: &str) -> Option<String> {
+    let made_of = made_of.trim();
+    (!made_of.is_empty() && !made_of.eq_ignore_ascii_case(open)).then(|| {
+        format!(
+            "the recovery copy is of the level {made_of}: open that level to take it, or discard it"
+        )
+    })
+}
+
 /// Takes the copy an editor left into the project being edited, as one
-/// edit: the level's objects, kjk-only content, templates, conversations
-/// and area settings, and the scripts that were being written. The
-/// project's folder is not touched until the next save.
+/// edit: the level's objects, kjk-only content, templates, conversations,
+/// area settings, changed kinds of fitting and room levels, and the scripts
+/// that were being written. The project's folder is not touched until the
+/// next save. A copy of another level than the one edited is refused
+/// (`of_another_level`), and stays.
 pub(crate) fn take(state: &mut EditorState) -> Result<(), String> {
     let folder = state
         .recovery
         .clone()
         .ok_or("there is no recovery copy to take")?;
-    let mut copy = level_edit::Project::open(&folder)?;
     let module = state.editor.project.module.clone();
+    let made_of = std::fs::read_to_string(folder.join(LEVEL)).unwrap_or_else(|_| String::new());
+    if let Some(why) = of_another_level(&made_of, &module) {
+        return Err(why);
+    }
+    let mut copy = level_edit::Project::open(&folder)?;
     copy.switch_to(&module, || {
         Err(format!("the recovery copy has no level {module}"))
     })?;
     // The whole kjk-only content, when the copy was made of this level.
-    let made_of = std::fs::read_to_string(folder.join(LEVEL)).unwrap_or_else(|_| String::new());
     if made_of.trim() == module
         && let Ok(text) = std::fs::read_to_string(folder.join(FULL_KJK))
     {
         copy.kjk = level_edit::KjkArea::parse(&text)?;
     }
-    state.editor.replace_content(copy);
+    // The project's own lighting rules, as the editor reads them when it
+    // opens a project: the kinds it changed, and this level's room levels,
+    // which are the light data's when the copy has none for the level. A
+    // copy written before it held the rules has no file of them, and the
+    // editor's own stay.
+    let lighting = if folder.join(level_edit::lighting::FILE).is_file() {
+        let own = level_edit::lighting::OwnLighting::read(&folder)?;
+        let levels =
+            (own.levels.get(&module).cloned()).unwrap_or_else(|| state.levels_original.clone());
+        Some((own.kinds, levels))
+    } else {
+        None
+    };
+    state.editor.replace_content(copy, lighting);
     state.quiet = 0;
     // The scripts that were being written: each `NAME.nss` of the copy.
     let mut scripts = 0;

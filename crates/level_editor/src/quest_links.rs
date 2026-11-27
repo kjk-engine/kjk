@@ -138,7 +138,7 @@ fn runners(state: &EditorState) -> BTreeMap<String, BTreeSet<String>> {
 /// The text of a conversation's line: its own text, else the talk table's.
 fn line_text(state: &EditorState, text: &fmt_odyssey::gff::LocString) -> String {
     if let Some((_, bytes)) = text.strings.first() {
-        let own: String = bytes.iter().map(|&b| char::from(b)).collect();
+        let own = level_edit::game_text(bytes);
         if !own.trim().is_empty() {
             return own.trim().to_string();
         }

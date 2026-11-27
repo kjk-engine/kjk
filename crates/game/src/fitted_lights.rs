@@ -143,11 +143,12 @@ pub fn set_mode(mode: Mode) {
 /// light probes and the light above 1 that both modes are made for. With
 /// one of them forced, the rooms showed half of their light or the bake's
 /// lightmaps with nothing to make up the rest.
-pub fn for_module(module: &str) {
-    let bake = level_edit::active::bake_of(module);
+pub fn for_module(game: vfs::Game, module: &str) {
+    let bake = level_edit::active::bake_of(game.key(), module);
     let lights = || {
-        level_edit::active::map_lights(module).is_some_and(|lights| !lights.is_empty())
-            || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty())
+        level_edit::active::map_lights(game.key(), module).is_some_and(|lights| !lights.is_empty())
+            || level_edit::active::map_lamps(game.key(), module)
+                .is_some_and(|lamps| !lamps.is_empty())
     };
     if (bake.is_some() || lights()) && classic() {
         bevy::log::info!(
@@ -873,9 +874,9 @@ fn module_of(scene: &str) -> &str {
     scene.rsplit(" in ").next().unwrap_or(scene)
 }
 
-/// The lights placed by hand in the area `area` (`[[placed]]` in
-/// `fittings.toml`).
-fn placed(area: &str) -> Vec<Light> {
+/// The lights placed by hand in the area `area` of `game` (`[[placed]]` in
+/// `fittings.toml`). A scene of no game has no project's lights.
+fn placed(game: Option<vfs::Game>, area: &str) -> Vec<Light> {
     if let Some(set) = PLACED
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -885,7 +886,8 @@ fn placed(area: &str) -> Vec<Light> {
     }
     // A level editor project keeps its own for a new map, and for an
     // installed level whose lights it changed (`level_edit`).
-    if let Some(lights) = level_edit::active::map_lights(area) {
+    let own = game.and_then(|game| level_edit::active::map_lights(game.key(), area));
+    if let Some(lights) = own {
         return lights.iter().map(Light::of_placed).collect();
     }
     (fittings().placed.get(&area.to_ascii_lowercase())).map_or_else(Vec::new, Vec::clone)
@@ -1305,7 +1307,7 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
         on_placeable.resize(found.len(), on);
         rooms.resize(found.len(), room);
     }
-    found.extend(placed(module_of(&loaded.name)));
+    found.extend(placed(loaded.game, module_of(&loaded.name)));
     sources.resize(found.len(), "placed".to_string());
     let fittings = found.len();
     found.extend(fill(loaded, &lit_rooms));

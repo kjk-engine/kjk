@@ -205,7 +205,8 @@ pub fn problem(lamp: &PlacedLamp) -> Result<(), String> {
     if lamp.model.is_empty() || lamp.model.len() > crate::git::RESREF_LEN {
         return Err(format!("{:?} is not a model's name", lamp.model));
     }
-    if !lamp.at.iter().chain([&lamp.yaw]).all(|v| v.is_finite()) {
+    let turns = [&lamp.yaw, &lamp.pitch, &lamp.roll];
+    if !lamp.at.iter().chain(turns).all(|v| v.is_finite()) {
         return Err("a lamp's numbers must be finite".into());
     }
     Ok(())

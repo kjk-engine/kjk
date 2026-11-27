@@ -62,7 +62,7 @@ pub fn of_area(game: Game, area: &str) -> Vec<PlacedLamp> {
     {
         return set.clone();
     }
-    if let Some(lamps) = level_edit::active::map_lamps(area) {
+    if let Some(lamps) = level_edit::active::map_lamps(game.key(), area) {
         return lamps.to_vec();
     }
     // The light data's lamps belong to Enhanced lighting. Under Classic

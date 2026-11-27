@@ -73,7 +73,13 @@ const fn row(
         shown,
         store,
         min: 0.0,
-        max: 65535.0,
+        // A table's row is as high as its field holds. A row kept in one
+        // byte (a creature's race) was let up to 65535, and one over 255
+        // was stored as 255.
+        max: match store {
+            Store::Byte => 255.0,
+            _ => 65535.0,
+        },
         table: Some(table),
         switch: false,
         hint,
@@ -404,7 +410,9 @@ pub fn apply_door(item: &mut GffStruct, change: &FieldChange) -> Result<(), Stri
             number.shown, number.min, number.max
         ));
     }
-    let value = stored(item.get(label), number.store, *value);
+    let made = stored(item.get(label), number.store, *value);
+    held(number, &made, *value)?;
+    let value = made;
     set(item, label, value);
     Ok(())
 }
@@ -539,7 +547,7 @@ pub fn name_of(gff: &Gff, label: &str, talk: &dyn Fn(u32) -> Option<String>) -> 
         Some(GffValue::LocString(loc)) => loc
             .strings
             .first()
-            .map(|(_, text)| String::from_utf8_lossy(text).into_owned())
+            .map(|(_, text)| crate::game_text(text))
             .unwrap_or_else(String::new),
         _ => String::new(),
     }
@@ -689,6 +697,33 @@ fn stored(was: Option<&GffValue>, store: Store, value: f64) -> GffValue {
     }
 }
 
+/// Refuses the number `value` of `asked` when the kind of field `made`
+/// (what `stored` wrote of it) does not hold it. `stored` keeps the kind
+/// the template stores the field as, which may hold less than the editor's
+/// own range for it (a faction kept in one byte). The number was then cut
+/// to the nearest the field holds, and nothing said so.
+fn held(asked: &Number, made: &GffValue, value: f64) -> Result<(), String> {
+    let (least, most) = match made {
+        GffValue::Byte(_) => (0.0, 255.0),
+        GffValue::Char(_) => (-128.0, 127.0),
+        GffValue::Word(_) => (0.0, 65535.0),
+        GffValue::Short(_) => (-32768.0, 32767.0),
+        GffValue::Dword(_) => (0.0, f64::from(u32::MAX)),
+        GffValue::Int(_) => (f64::from(i32::MIN), f64::from(i32::MAX)),
+        _ => return Ok(()),
+    };
+    if (least..=most).contains(&value.round()) {
+        return Ok(());
+    }
+    Err(format!(
+        "{} is stored in this template as a number from {least} to {most}",
+        asked.shown
+    ))
+}
+
+/// The most levels a class has: what its field (`ClassLevel`) holds.
+pub const MOST_LEVELS: u16 = 32767;
+
 fn template_name(name: &str, what: &str) -> Result<String, String> {
     if name.is_empty() || name.len() > RESREF_LEN {
         return Err(format!("{name:?} is not {what}'s name"));
@@ -719,7 +754,9 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &FieldChange) -> Result<()
                     number.shown, number.min, number.max
                 ));
             }
-            let value = stored(root.get(label), number.store, *value);
+            let made = stored(root.get(label), number.store, *value);
+            held(number, &made, *value)?;
+            let value = made;
             set(root, label, value);
         }
         FieldChange::Name(label, text) => {
@@ -729,7 +766,7 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &FieldChange) -> Result<()
             let strings = if text.is_empty() {
                 Vec::new()
             } else {
-                vec![(0, text.as_bytes().to_vec())]
+                vec![(0, crate::game_bytes(text))]
             };
             set(
                 root,
@@ -742,6 +779,13 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &FieldChange) -> Result<()
         }
         FieldChange::Class(at, class) => {
             only_creature()?;
+            // The levels are kept as a signed number of 16 bits. One over
+            // 32767 was written as a negative number, and 0 was taken.
+            if let Some((_, levels)) = class
+                && !(1..=MOST_LEVELS).contains(levels)
+            {
+                return Err(format!("a class has 1 to {MOST_LEVELS} levels"));
+            }
             let classes = list(root, "ClassList");
             match (class, *at) {
                 (None, at) if at < classes.len() => {
@@ -878,6 +922,9 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &FieldChange) -> Result<()
                     creatures.remove(at);
                 }
                 (Some(spawn), at) if at <= creatures.len() => {
+                    if !spawn.cr.is_finite() || spawn.cr < 0.0 {
+                        return Err("a challenge rating is a number of 0 or more".into());
+                    }
                     let template = template_name(&spawn.template, "a creature template")?;
                     let made = GffStruct {
                         id: 0,

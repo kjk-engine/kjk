@@ -149,10 +149,10 @@ fn read_names(
         if let Some((_, own)) = loc.strings.first()
             && !own.is_empty()
         {
-            return Some(fmt_odyssey::code_page(own));
+            return Some(level_edit::game_text(own));
         }
         let line = talk.as_ref()?.text(loc.strref)?;
-        (!line.is_empty()).then(|| fmt_odyssey::code_page(line))
+        (!line.is_empty()).then(|| level_edit::game_text(line))
     };
     for resref in vfs::resolver::Resolver::modules(index) {
         let Ok(resolver) = base.with_module(index, &resref) else {

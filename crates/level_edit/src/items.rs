@@ -59,12 +59,7 @@ fn own_text(text: &str) -> GffValue {
     let strings = if text.is_empty() {
         Vec::new()
     } else {
-        // The games' code page: a byte a character.
-        let bytes = text
-            .chars()
-            .map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?'))
-            .collect();
-        vec![(0, bytes)]
+        vec![(0, crate::game_bytes(text))]
     };
     GffValue::LocString(LocString {
         strref: u32::MAX,
@@ -175,9 +170,7 @@ pub fn shown(gff: &Gff) -> (String, String) {
     let own = |label: &str| {
         (gff.root.locstring(label))
             .and_then(|text| text.strings.first())
-            .map_or_else(String::new, |(_, bytes)| {
-                bytes.iter().map(|&byte| char::from(byte)).collect()
-            })
+            .map_or_else(String::new, |(_, bytes)| crate::game_text(bytes))
     };
     (own("LocalizedName"), own("DescIdentified"))
 }

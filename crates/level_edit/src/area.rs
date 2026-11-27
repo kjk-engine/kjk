@@ -458,7 +458,7 @@ impl KjkArea {
             "# What only kjk understands in this area: Jedi Academy props and\n\
              # collision boxes. Written by kjk's level editor (docs/LEVEL-EDIT.md).\n",
         );
-        let quote = |text: &str| format!("{text:?}");
+        let quote = |text: &str| crate::quoted(text);
         let triple = |v: [f32; 3]| format!("[{:?}, {:?}, {:?}]", v[0], v[1], v[2]);
         if self.own_lights {
             out.push_str(

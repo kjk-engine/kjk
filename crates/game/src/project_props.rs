@@ -365,8 +365,8 @@ struct BakedProps {
 /// once for all the props of a level. The last folder comes first, as the
 /// rooms' lightmaps are taken (`viewer::detail_baked`): a project's bake
 /// wins over an earlier one.
-fn baked_props(module: &str) -> Vec<BakedProps> {
-    (crate::viewer::bake_folders(module).into_iter().rev())
+fn baked_props(game: vfs::Game, module: &str) -> Vec<BakedProps> {
+    (crate::viewer::bake_folders(game, module).into_iter().rev())
         .filter_map(|folder| {
             let text = std::fs::read_to_string(folder.join(BAKED_PROPS)).ok()?;
             Some(BakedProps { folder, text })
@@ -564,10 +564,9 @@ pub fn add(
     let under_bake =
         crate::fitted_lights::mode_of_area(scene.baked) == crate::fitted_lights::Mode::Baked;
     // The bakes' lists of props, read once here and not once for each prop.
-    let bakes = if under_bake && !props.is_empty() {
-        baked_props(module)
-    } else {
-        Vec::new()
+    let bakes = match scene.game {
+        Some(game) if under_bake && !props.is_empty() => baked_props(game, module),
+        _ => Vec::new(),
     };
     for prop in props {
         if !cache.contains_key(&prop.model) {

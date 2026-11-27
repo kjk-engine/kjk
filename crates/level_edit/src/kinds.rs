@@ -79,6 +79,7 @@ fn number(table: &Table, key: &str) -> Option<f32> {
     item.as_float()
         .or_else(|| item.as_integer().map(|value| value as f64))
         .map(|value| value as f32)
+        .filter(|value| value.is_finite())
 }
 
 /// The kind `texture` (on placeables or rooms) as a `<game>.toml` text
@@ -101,21 +102,7 @@ pub fn read_kind(text: &str, texture: &str, placeable: bool) -> Option<KindEdit>
         .as_array_of_tables()?
         .iter()
         .find(|table| probe.names(table))?;
-    let colour = table
-        .get("colour")
-        .and_then(Item::as_array)
-        .and_then(|array| {
-            let values: Vec<f32> = array
-                .iter()
-                .filter_map(|value| {
-                    value
-                        .as_float()
-                        .or_else(|| value.as_integer().map(|value| value as f64))
-                        .map(|value| value as f32)
-                })
-                .collect();
-            <[f32; 3]>::try_from(values).ok()
-        });
+    let colour = crate::lights::triple(table.get("colour"));
     Some(KindEdit {
         lamp: table.get("lamp").and_then(Item::as_bool).unwrap_or(true),
         form: table

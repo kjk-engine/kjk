@@ -388,8 +388,14 @@ impl Project {
         project.name = "mods".to_string();
         project.kjk = kjk;
         for (module, area, kjk) in levels {
+            // Of two mods' content for one level the first read is kept,
+            // and `mods::read` tells the person of the other.
+            let module = module.to_ascii_lowercase();
+            if module == project.module || project.parked.contains_key(&module) {
+                continue;
+            }
             project.parked.insert(
-                module.to_ascii_lowercase(),
+                module,
                 Level {
                     area: area.to_ascii_lowercase(),
                     git: empty(),
@@ -417,6 +423,20 @@ impl Project {
         let game = field(&document, "game")?;
         let module = field(&document, "module")?;
         let area = field(&document, "area")?;
+        // Every name the file gives is checked before any becomes part of
+        // a path. One with `..` or a separator named a file outside the
+        // folder, which was read here, and deleted by a save or a bake.
+        let named = [(module.clone(), area.clone())]
+            .into_iter()
+            .chain(levels_of(&document))
+            .chain(others_of(&document));
+        for (level, its_area) in named {
+            for name in [level, its_area] {
+                if let Some(why) = crate::file_name_problem(&name) {
+                    return Err(format!("{PROJECT_FILE}: {why}"));
+                }
+            }
+        }
         let git_path = folder.join(format!("{area}.git"));
         let bytes =
             std::fs::read(&git_path).map_err(|error| format!("{}: {error}", git_path.display()))?;
@@ -515,22 +535,25 @@ impl Project {
     pub fn problems(&self) -> Vec<Problem> {
         let mut problems = Vec::new();
         let mut block = |what: String| problems.push(Problem { blocks: true, what });
-        for entry in git::entries(&self.git) {
-            let named = format!("{:?} {} of the GIT", entry.kind, entry.index);
-            if matches!(entry.kind, Kind::Creature | Kind::Placeable) && entry.template.is_empty() {
-                block(format!("{named} has no template"));
-            }
-            if entry.template.len() > RESREF_LEN {
-                block(format!(
-                    "{named}'s template {} is longer than {RESREF_LEN} characters",
-                    entry.template
-                ));
-            }
-            if entry.tag.len() > TAG_LEN {
-                block(format!(
-                    "{named}'s tag {} is longer than {TAG_LEN} characters",
-                    entry.tag
-                ));
+        // Every level is checked alike: the one being edited, and each
+        // parked one, whose problems name it. Only the level being edited
+        // was, so a parked level with a fault was saved without a word.
+        let edited = (
+            self.module.as_str(),
+            &self.git,
+            &self.kjk,
+            self.map.as_ref(),
+        );
+        let parked = (self.parked.iter())
+            .map(|(module, level)| (module.as_str(), &level.git, &level.kjk, level.map.as_ref()));
+        for (module, git, kjk, map) in std::iter::once(edited).chain(parked) {
+            let of_level = if module == self.module {
+                String::new()
+            } else {
+                format!("the level {module}: ")
+            };
+            for what in level_problems(module, git, kjk, map) {
+                block(format!("{of_level}{what}"));
             }
         }
         if self.others.contains_key(&self.area) {
@@ -547,49 +570,6 @@ impl Project {
                 ));
             }
         }
-        let mut names: Vec<&str> = Vec::new();
-        for prop in &self.kjk.props {
-            if prop.model.is_empty() {
-                block(format!("prop {} has no model", prop.name));
-            }
-            if !(SCALES.0..=SCALES.1).contains(&prop.scale) {
-                block(format!(
-                    "prop {} is drawn at scale {}, outside {} to {}",
-                    prop.name, prop.scale, SCALES.0, SCALES.1
-                ));
-            }
-            names.push(&prop.name);
-        }
-        for shape in &self.kjk.boxes {
-            if shape.size.iter().any(|side| *side < SMALLEST_SIDE) {
-                block(format!(
-                    "box {} has a side under {SMALLEST_SIDE} m",
-                    shape.name
-                ));
-            }
-            names.push(&shape.name);
-        }
-        names.sort_unstable();
-        for pair in names.windows(2) {
-            if pair[0] == pair[1] {
-                block(format!("two props or boxes are named {}", pair[0]));
-            }
-        }
-        if let Some(map) = &self.map {
-            if let Some(problem) = crate::map::name_problem(&self.module) {
-                block(problem);
-            }
-            if map.rooms.len() > 999 {
-                block("a map has 999 rooms at most".into());
-            }
-        }
-        for (module, level) in &self.parked {
-            if level.map.is_some()
-                && let Some(problem) = crate::map::name_problem(module)
-            {
-                block(problem);
-            }
-        }
         for (name, conversation) in &self.conversations {
             for problem in crate::dialog::problems(conversation) {
                 problems.push(Problem {
@@ -601,11 +581,25 @@ impl Project {
         problems
     }
 
+    /// What is wrong with a name of the project that becomes part of a
+    /// path, if any is (`file_name_problem`): its levels' and their areas',
+    /// and the other areas it changes with their modules.
+    pub fn unsafe_name(&self) -> Option<String> {
+        let levels = self.level_list();
+        let others = (self.others.iter()).map(|(area, other)| (other.module.clone(), area.clone()));
+        (levels.into_iter().chain(others))
+            .flat_map(|(module, area)| [module, area])
+            .find_map(|name| crate::file_name_problem(&name))
+    }
+
     /// Writes the folder: `project.toml`, the area's `.git`, and
     /// `kjk-area.toml`. Refused, with nothing written, while a problem
     /// blocks it. `made_by` names the kjk that wrote it (its commit).
     /// Returns the files written.
     pub fn save(&self, made_by: &str) -> Result<Vec<PathBuf>, String> {
+        if let Some(why) = self.unsafe_name() {
+            return Err(format!("not saved: {why}"));
+        }
         let blocking: Vec<String> = self
             .problems()
             .into_iter()
@@ -619,8 +613,12 @@ impl Project {
             .map_err(|error| format!("{}: {error}", self.folder.display()))?;
         let mut project = format!(
             "# A kjk level editor project (docs/LEVEL-EDIT.md).\n\
-             game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\nversion = {:?}\n",
-            self.game, self.home.0, self.home.1, made_by, self.version
+             game = {}\nmodule = {}\narea = {}\nmade_by = {}\nversion = {}\n",
+            crate::quoted(&self.game),
+            crate::quoted(&self.home.0),
+            crate::quoted(&self.home.1),
+            crate::quoted(made_by),
+            crate::quoted(&self.version)
         );
         let further: Vec<(String, String)> = self
             .level_list()
@@ -630,7 +628,9 @@ impl Project {
         if !further.is_empty() {
             let listed: Vec<String> = further
                 .iter()
-                .map(|(module, area)| format!("[{module:?}, {area:?}]"))
+                .map(|(module, area)| {
+                    format!("[{}, {}]", crate::quoted(module), crate::quoted(area))
+                })
                 .collect();
             project.push_str(&format!(
                 "# Further levels it edits: [module, area].\nlevels = [{}]\n",
@@ -641,7 +641,13 @@ impl Project {
             let listed: Vec<String> = self
                 .others
                 .iter()
-                .map(|(area, other)| format!("[{:?}, {:?}]", other.module, area))
+                .map(|(area, other)| {
+                    format!(
+                        "[{}, {}]",
+                        crate::quoted(&other.module),
+                        crate::quoted(area)
+                    )
+                })
                 .collect();
             project.push_str(&format!(
                 "# Other modules' areas whose doors and triggers it changes: [module, area].\n\
@@ -655,6 +661,11 @@ impl Project {
             .and_then(|text| text.parse::<toml_edit::DocumentMut>().ok())
             .map_or_else(Vec::new, |document| others_of(&document));
         for (_, area) in before {
+            // The list is the file's on disk, which may not be this
+            // program's own. A name that is no file's name deletes nothing.
+            if crate::file_name_problem(&area).is_some() {
+                continue;
+            }
             let path = self.folder.join(format!("{area}.git"));
             if area != self.area && !self.others.contains_key(&area) && path.is_file() {
                 std::fs::remove_file(&path)
@@ -715,8 +726,18 @@ impl Project {
         }
         // A template no object uses any more (an edit undone) leaves the
         // folder.
+        // So does a file of a template's name and another kind: an item
+        // taken out, and an object's template then brought in under its
+        // name, left the item's file beside the new one.
         for (resref, path) in template_files(&self.folder) {
-            if !self.templates.contains_key(&resref) {
+            let ending = path
+                .extension()
+                .map(|ending| ending.to_string_lossy().to_ascii_lowercase());
+            let kept = self
+                .templates
+                .get(&resref)
+                .is_some_and(|made| ending.as_deref() == Some(template::extension(made.restype)));
+            if !kept {
                 std::fs::remove_file(&path)
                     .map_err(|error| format!("{}: {error}", path.display()))?;
             }
@@ -735,71 +756,106 @@ impl Project {
         Ok(written)
     }
 
-    /// A digest of what the project changes: its GIT and its kjk-only
-    /// content, as they are written. Play keys the area's baked collision
-    /// by it.
+    /// A digest of what the project changes: its levels' GITs and kjk-only
+    /// content, as they are written, its templates, its conversations, the
+    /// other areas it changes, and the cuts of its Jedi Academy rooms as
+    /// its folder holds them. Play keys the area's baked collision by it,
+    /// and machines that play a project together compare it.
+    ///
+    /// Every level goes in alike, by its module's name, so the digest does
+    /// not tell which level is being edited. The level being edited used
+    /// to go in apart from the parked ones, and going to another level
+    /// changed the digest with nothing changed. Every part has its length
+    /// before it. The cuts were left out, so a room cut again kept the
+    /// digest, and with it the collision baked for the room as it was.
     pub fn digest(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
-        for part in [
-            self.game.as_bytes(),
-            self.module.as_bytes(),
-            self.area.as_bytes(),
-        ] {
-            hasher.update(&(part.len() as u64).to_le_bytes());
-            hasher.update(part);
-        }
-        let git = self.git.write();
-        hasher.update(&(git.len() as u64).to_le_bytes());
-        hasher.update(&git);
-        hasher.update(self.own_kjk().write().as_bytes());
-        for (resref, made) in &self.templates {
-            let bytes = made.gff.write();
-            for part in [resref.as_bytes(), &bytes] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(part);
-            }
-        }
-        for (name, conversation) in &self.conversations {
-            for part in [name.as_bytes(), &conversation.write()] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(part);
-            }
-        }
-        for (area, other) in &self.others {
-            for part in [area.as_bytes(), other.module.as_bytes(), &other.git.write()] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(part);
-            }
-        }
-        if let Some(are) = self.are.as_ref().filter(|_| self.map.is_none()) {
-            let bytes = are.write();
+        let mut part = |bytes: &[u8]| {
             hasher.update(&(bytes.len() as u64).to_le_bytes());
-            hasher.update(&bytes);
-        }
-        for (module, level) in &self.parked {
-            let are = level.are.as_ref().map_or_else(Vec::new, Gff::write);
-            for part in [
-                module.as_bytes(),
-                level.area.as_bytes(),
-                &level.git.write(),
-                level_kjk(level).write().as_bytes(),
-                &are,
-            ] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(part);
-            }
-            if let Some(map) = &level.map {
-                for part in [map.write().into_bytes(), map_are_of(module, map).write()] {
-                    hasher.update(&(part.len() as u64).to_le_bytes());
-                    hasher.update(&part);
+            hasher.update(bytes);
+        };
+        part(self.game.as_bytes());
+        // Each level: its module, its area, its GIT, its kjk-only content,
+        // its ARE when it is no new map, and a new map with its ARE.
+        type Parts<'a> = (
+            &'a str,
+            &'a str,
+            &'a Gff,
+            KjkArea,
+            Option<&'a Gff>,
+            Option<&'a NewMap>,
+        );
+        let mut levels: Vec<Parts> = vec![(
+            self.module.as_str(),
+            self.area.as_str(),
+            &self.git,
+            self.own_kjk(),
+            self.are.as_ref(),
+            self.map.as_ref(),
+        )];
+        levels.extend(self.parked.iter().map(|(module, level)| {
+            (
+                module.as_str(),
+                level.area.as_str(),
+                &level.git,
+                level_kjk(level),
+                level.are.as_ref(),
+                level.map.as_ref(),
+            )
+        }));
+        levels.sort_by(|a, b| a.0.cmp(b.0));
+        part(&(levels.len() as u64).to_le_bytes());
+        for (module, area, git, kjk, are, map) in levels {
+            part(module.as_bytes());
+            part(area.as_bytes());
+            part(&git.write());
+            part(kjk.write().as_bytes());
+            match map {
+                Some(map) => {
+                    part(b"map");
+                    part(map.write().as_bytes());
+                    part(&map_are_of(module, map).write());
+                }
+                None => {
+                    part(b"level");
+                    part(&are.map_or_else(Vec::new, Gff::write));
                 }
             }
         }
-        if let Some(map) = &self.map {
-            for part in [map.write().into_bytes(), self.map_are(map).write()] {
-                hasher.update(&(part.len() as u64).to_le_bytes());
-                hasher.update(&part);
-            }
+        part(&(self.templates.len() as u64).to_le_bytes());
+        for (resref, made) in &self.templates {
+            part(resref.as_bytes());
+            part(&made.gff.write());
+        }
+        part(&(self.conversations.len() as u64).to_le_bytes());
+        for (name, conversation) in &self.conversations {
+            part(name.as_bytes());
+            part(&conversation.write());
+        }
+        part(&(self.others.len() as u64).to_le_bytes());
+        for (area, other) in &self.others {
+            part(area.as_bytes());
+            part(other.module.as_bytes());
+            part(&other.git.write());
+        }
+        // The cuts of the Jedi Academy rooms, each file by its name.
+        let mut cuts: Vec<(String, PathBuf)> =
+            std::fs::read_dir(self.folder.join(crate::ja_rooms::FOLDER))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file())
+                .filter_map(|path| Some((path.file_name()?.to_str()?.to_ascii_lowercase(), path)))
+                .filter(|(name, _)| name.ends_with(".toml"))
+                .collect();
+        cuts.sort();
+        for (name, path) in cuts {
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            part(name.as_bytes());
+            part(&bytes);
         }
         *hasher.finalize().as_bytes()
     }
@@ -820,29 +876,101 @@ impl Project {
         map_are_of(&self.module, map)
     }
 
-    /// Writes the project's own module, `modules/<module>.mod`
-    /// (`map::NewMap::module_files`), from the install's rooms that `read`
-    /// gives. A project that makes no map has none to write.
+    /// Writes the module of each new map the project makes,
+    /// `modules/<module>.mod` (`map::NewMap::module_files`), from the
+    /// install's rooms that `read` gives. A project that makes no map has
+    /// none to write. A parked map's is written too. Only the map being
+    /// edited had its module written, so another map's stayed as it was
+    /// when that map was last edited.
     pub fn save_module(
         &self,
         read: &dyn Fn(&str, ResType) -> Option<Vec<u8>>,
-    ) -> Result<Option<PathBuf>, String> {
-        let Some(map) = &self.map else {
-            return Ok(None);
-        };
-        let files = map.module_files(&self.module, &self.area, read)?;
-        let bytes = fmt_odyssey::erf::write(fmt_odyssey::erf::ErfKind::Mod, &files)?;
-        let path = self.module_path();
-        if let Some(folder) = path.parent() {
-            std::fs::create_dir_all(folder)
-                .map_err(|error| format!("{}: {error}", folder.display()))?;
+    ) -> Result<Vec<PathBuf>, String> {
+        let edited = (self.module.as_str(), self.area.as_str(), self.map.as_ref());
+        let parked = (self.parked.iter())
+            .map(|(module, level)| (module.as_str(), level.area.as_str(), level.map.as_ref()));
+        let mut written = Vec::new();
+        for (module, area, map) in std::iter::once(edited).chain(parked) {
+            let Some(map) = map else {
+                continue;
+            };
+            let files = map.module_files(module, area, read)?;
+            let bytes = fmt_odyssey::erf::write(fmt_odyssey::erf::ErfKind::Mod, &files)?;
+            let path = self.folder.join("modules").join(format!("{module}.mod"));
+            if let Some(folder) = path.parent() {
+                std::fs::create_dir_all(folder)
+                    .map_err(|error| format!("{}: {error}", folder.display()))?;
+            }
+            let fresh = path.with_extension("new");
+            std::fs::write(&fresh, &bytes)
+                .and_then(|()| std::fs::rename(&fresh, &path))
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            written.push(path);
         }
-        let fresh = path.with_extension("new");
-        std::fs::write(&fresh, &bytes)
-            .and_then(|()| std::fs::rename(&fresh, &path))
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        Ok(Some(path))
+        Ok(written)
     }
+}
+
+/// What stops the save in one level: its module's name, its object list,
+/// its kjk-only content, and its map when it is a new map.
+fn level_problems(module: &str, git: &Gff, kjk: &KjkArea, map: Option<&NewMap>) -> Vec<String> {
+    let mut problems = Vec::new();
+    for entry in git::entries(git) {
+        let named = format!("{:?} {} of the GIT", entry.kind, entry.index);
+        if matches!(entry.kind, Kind::Creature | Kind::Placeable) && entry.template.is_empty() {
+            problems.push(format!("{named} has no template"));
+        }
+        if entry.template.len() > RESREF_LEN {
+            problems.push(format!(
+                "{named}'s template {} is longer than {RESREF_LEN} characters",
+                entry.template
+            ));
+        }
+        if entry.tag.len() > TAG_LEN {
+            problems.push(format!(
+                "{named}'s tag {} is longer than {TAG_LEN} characters",
+                entry.tag
+            ));
+        }
+    }
+    let mut names: Vec<&str> = Vec::new();
+    for prop in &kjk.props {
+        if prop.model.is_empty() {
+            problems.push(format!("prop {} has no model", prop.name));
+        }
+        if !(SCALES.0..=SCALES.1).contains(&prop.scale) {
+            problems.push(format!(
+                "prop {} is drawn at scale {}, outside {} to {}",
+                prop.name, prop.scale, SCALES.0, SCALES.1
+            ));
+        }
+        names.push(&prop.name);
+    }
+    for shape in &kjk.boxes {
+        // A side that is no number is under no size, so it is asked for
+        // by itself.
+        let fits = |side: &f32| side.is_finite() && *side >= SMALLEST_SIDE;
+        if !shape.size.iter().all(fits) {
+            problems.push(format!(
+                "box {} has a side under {SMALLEST_SIDE} m",
+                shape.name
+            ));
+        }
+        names.push(&shape.name);
+    }
+    names.sort_unstable();
+    for pair in names.windows(2) {
+        if pair[0] == pair[1] {
+            problems.push(format!("two props or boxes are named {}", pair[0]));
+        }
+    }
+    if let Some(map) = map {
+        problems.extend(crate::map::name_problem(module));
+        if map.rooms.len() > 999 {
+            problems.push("a map has 999 rooms at most".into());
+        }
+    }
+    problems
 }
 
 /// The ARE of the new map `map` of the module `module`, with its rooms'
@@ -909,9 +1037,28 @@ fn template_files(folder: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// The templates a project's folder holds.
+///
+/// A project keeps one template of a name, whatever its kind
+/// (`Project::templates`). Two files of one name and two kinds, as
+/// `foo.utc` and `foo.utp`, are refused. One of the two used to be left out
+/// without a word, whichever the folder listed first.
 fn read_templates(folder: &Path) -> Result<BTreeMap<String, Template>, String> {
     let mut templates = BTreeMap::new();
+    let mut files: BTreeMap<String, PathBuf> = BTreeMap::new();
     for (resref, path) in template_files(folder) {
+        if let Some(other) = files.insert(resref.clone(), path.clone()) {
+            let name = |path: &Path| {
+                path.file_name()
+                    .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
+            };
+            return Err(format!(
+                "{} and {} are two templates named {resref}, and a project keeps one of a name: \
+                 take one of the two files out of {}",
+                name(&other),
+                name(&path),
+                folder.display()
+            ));
+        }
         let extension = path
             .extension()
             .map(|e| e.to_string_lossy().to_ascii_lowercase())

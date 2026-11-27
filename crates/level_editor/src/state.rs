@@ -2597,6 +2597,7 @@ pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Re
         position,
         yaw: 0.0,
         ja: found.ja.clone(),
+        dry: false,
     }));
     Ok(())
 }
@@ -2617,6 +2618,7 @@ pub(crate) fn add_room_home(state: &mut EditorState, model: &str) -> Result<(), 
         position: found.from,
         yaw: 0.0,
         ja: found.ja.clone(),
+        dry: false,
     }));
     Ok(())
 }
@@ -5120,23 +5122,8 @@ pub(crate) fn set_check(
     use level_edit::checks;
     use level_edit::dialog::{Edit as Talk, Side};
     let name = name.to_ascii_lowercase();
-    if let Some(check) = &check {
-        if checks::skill(&check.skill).is_none() {
-            return Err(format!(
-                "{:?} is not a skill: a check asks for {}",
-                check.skill,
-                (checks::SKILLS.iter().map(|skill| skill.key))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if !(0..=checks::MOST_SCORE).contains(&check.score) || check.cost > checks::MOST_COST {
-            return Err(format!(
-                "a check asks for a score from 0 to {} and costs 0 to {} items",
-                checks::MOST_SCORE,
-                checks::MOST_COST
-            ));
-        }
+    if let Some(why) = check.as_ref().and_then(checks::problem) {
+        return Err(why);
     }
     let (dlg, side, index, condition) = conversation_link(state, &name, at)?;
     let node = match side {
@@ -5171,27 +5158,35 @@ pub(crate) fn set_check(
     let mut edits = Vec::new();
     match &check {
         Some(check) => {
+            let costs = checks::skill(&check.skill).is_some_and(|skill| skill.item.is_some())
+                && check.cost > 0;
+            // Both scripts are made before either is kept, so a refusal
+            // of the second (the line's own script is named with a space
+            // or a quote) leaves the first as it was.
+            let made = checks::condition(check)?;
+            let spends = match costs {
+                true => Some(checks::payment(check, &then)?),
+                false => None,
+            };
             let script = if held {
                 condition.clone()
             } else {
                 fresh(state, false)
             };
-            put_draft(state, &script, checks::condition(check));
+            put_draft(state, &script, made);
             if script != condition {
                 edits.push(Edit::Conversation(
                     name.clone(),
                     Talk::Condition(at, script),
                 ));
             }
-            let costs = checks::skill(&check.skill).is_some_and(|skill| skill.item.is_some())
-                && check.cost > 0;
-            if costs {
+            if let Some(spends) = spends {
                 let script = if paid.is_some() {
                     runs.clone()
                 } else {
                     fresh(state, true)
                 };
-                put_draft(state, &script, checks::payment(check, &then));
+                put_draft(state, &script, spends);
                 if script != runs {
                     edits.push(Edit::Conversation(
                         name.clone(),
@@ -5243,7 +5238,8 @@ pub(crate) fn set_payment_then(
         cost,
     };
     let then = then.trim().to_ascii_lowercase();
-    put_draft(state, &payment, level_edit::checks::payment(&check, &then));
+    let made = level_edit::checks::payment(&check, &then)?;
+    put_draft(state, &payment, made);
     Ok(())
 }
 
@@ -5637,7 +5633,7 @@ pub(crate) fn table_names(state: &EditorState, table: &str) -> Vec<(u16, String)
             .text(row, "name")
             .and_then(|cell| cell.parse::<u32>().ok())
             .and_then(|strref| talk?.text(strref))
-            .map(|text| String::from_utf8_lossy(text).trim().to_string())
+            .map(|text| level_edit::game_text(text).trim().to_string())
             .filter(|text| !text.is_empty() && !text.starts_with("Bad Strref"));
         let label = two
             .text(row, "label")

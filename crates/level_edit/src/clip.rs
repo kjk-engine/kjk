@@ -3,8 +3,8 @@
 //!
 //! A copy (`Clip::of`) holds what is selected: each object's GIT entry as
 //! the project has it, the templates of the project's own that they use,
-//! and the Jedi Academy props, collision boxes, lamps and lights placed by
-//! hand. It is written as text (`Clip::write`), so it goes through the
+//! and the Jedi Academy props, collision boxes, ambient effects, lamps and
+//! lights placed by hand. It is written as text (`Clip::write`), so it goes through the
 //! system's clipboard: a first line that says what it is, the game, the
 //! middle of what was copied, the entries and templates as KOTOR's own
 //! bytes in hexadecimal, then the kjk-only things as `kjk-area.toml`
@@ -109,11 +109,14 @@ impl Clip {
         clip
     }
 
-    /// Whether it holds nothing.
+    /// Whether it holds nothing: none of what `of` copies. The ambient
+    /// effects were left out here, so a copy of effects alone counted as
+    /// empty and was not pasted.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
             && self.kjk.props.is_empty()
             && self.kjk.boxes.is_empty()
+            && self.kjk.effects.is_empty()
             && self.kjk.lamps.is_empty()
             && self.kjk.lights.is_empty()
     }
@@ -124,11 +127,11 @@ impl Clip {
         let mut kinds = Vec::new();
         for (kind, item) in &self.entries {
             git::push(&mut git, *kind, item.clone());
-            kinds.push(format!("{:?}", kind_word(*kind)));
+            kinds.push(crate::quoted(kind_word(*kind)));
         }
         let mut out = format!(
-            "{HEAD}\ngame = {:?}\ncentre = [{:?}, {:?}, {:?}]\nkinds = [{}]\ngit = \"{}\"\n",
-            self.game,
+            "{HEAD}\ngame = {}\ncentre = [{:?}, {:?}, {:?}]\nkinds = [{}]\ngit = \"{}\"\n",
+            crate::quoted(&self.game),
             self.centre[0],
             self.centre[1],
             self.centre[2],
@@ -137,9 +140,10 @@ impl Clip {
         );
         for (name, made) in &self.templates {
             out.push_str(&format!(
-                "\n[[template]]\nname = {name:?}\nkind = {:?}\nfrom = {:?}\ngff = \"{}\"\n",
-                crate::template::extension(made.restype),
-                made.from,
+                "\n[[template]]\nname = {}\nkind = {}\nfrom = {}\ngff = \"{}\"\n",
+                crate::quoted(name),
+                crate::quoted(crate::template::extension(made.restype)),
+                crate::quoted(&made.from),
                 hex(&made.gff.write()),
             ));
         }
@@ -164,19 +168,8 @@ impl Clip {
                 .map(str::to_string)
                 .ok_or(format!("the copy has no {key}"))
         };
-        let number = |item: &toml_edit::Value| {
-            item.as_float()
-                .or_else(|| item.as_integer().map(|whole| whole as f64))
-                .map(|value| value as f32)
-        };
-        let centre = document
-            .get("centre")
-            .and_then(toml_edit::Item::as_array)
-            .and_then(|values| {
-                let values: Vec<f32> = values.iter().filter_map(number).collect();
-                (values.len() == 3).then(|| [values[0], values[1], values[2]])
-            })
-            .ok_or("the copy has no centre")?;
+        let centre = crate::lights::triple(document.get("centre"))
+            .ok_or("the copy has no centre of three numbers")?;
         let kinds: Vec<Kind> = document
             .get("kinds")
             .and_then(toml_edit::Item::as_array)
@@ -294,7 +287,7 @@ pub fn paste(
     let mut renamed: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for (name, made) in &clip.templates {
         match project.templates.get(name) {
-            Some(had) if had.gff == made.gff => {}
+            Some(had) if had.restype == made.restype && had.gff == made.gff => {}
             // The level reads another template of this name (its own
             // module's, or the project's): the copy takes a new name, so
             // the level's own objects keep theirs.

@@ -250,11 +250,12 @@ pub(crate) struct Names {
     creatures: std::sync::OnceLock<Vec<Choice>>,
 }
 
-/// A text of the talk table, as the editor shows text (one byte a letter).
+/// A text of the talk table, as the editor shows text
+/// (`level_edit::game_text`).
 pub(crate) fn talk_text(state: &EditorState, strref: u32) -> Option<String> {
     let talk = state.setup.talk.as_ref()?;
     let bytes = talk.text(strref)?;
-    let text: String = bytes.iter().map(|&b| char::from(b)).collect();
+    let text = level_edit::game_text(bytes);
     let text = text.trim().to_string();
     (!text.is_empty()).then_some(text)
 }
@@ -266,7 +267,7 @@ fn localized(state: &EditorState, gff: &Gff, label: &str) -> String {
         return String::new();
     };
     if let Some((_, bytes)) = loc.strings.first() {
-        let own: String = bytes.iter().map(|&b| char::from(b)).collect();
+        let own = level_edit::game_text(bytes);
         if !own.trim().is_empty() {
             return own.trim().to_string();
         }
@@ -420,7 +421,7 @@ pub(crate) fn quests(state: &EditorState) -> Vec<Choice> {
             let mine = loc.is_some_and(|loc| loc.strref == u32::MAX && !loc.strings.is_empty());
             let name = loc.map_or_else(String::new, |loc| {
                 (loc.strings.first())
-                    .map(|(_, bytes)| bytes.iter().map(|&b| char::from(b)).collect::<String>())
+                    .map(|(_, bytes)| level_edit::game_text(bytes))
                     .filter(|own| !own.trim().is_empty())
                     .or_else(|| talk_text(state, loc.strref))
                     .unwrap_or_else(String::new)

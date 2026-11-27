@@ -83,6 +83,11 @@ pub const MADE_FROM: &str = "made-from.txt";
 /// the bake of the level `module` of the project in `folder`, in place of
 /// the one kept before. How many lightmaps it holds.
 pub fn keep_bake(folder: &Path, module: &str, from: &Path) -> Result<usize, String> {
+    // The bake's folder is removed below, and the level's name is what
+    // names it.
+    if let Some(why) = crate::file_name_problem(&module.to_ascii_lowercase()) {
+        return Err(why);
+    }
     let found = pictures(from);
     if found.is_empty() {
         return Err(format!("{} holds no baked lightmap", from.display()));
@@ -117,6 +122,9 @@ pub fn keep_bake(folder: &Path, module: &str, from: &Path) -> Result<usize, Stri
 /// Takes the bake of the level `module` out of the project in `folder`.
 /// False when it kept none.
 pub fn drop_bake(folder: &Path, module: &str) -> Result<bool, String> {
+    if let Some(why) = crate::file_name_problem(&module.to_ascii_lowercase()) {
+        return Err(why);
+    }
     let bake = bake_folder(folder, module);
     if !bake.exists() {
         return Ok(false);
@@ -169,10 +177,9 @@ impl OwnLighting {
                 .ok_or_else(|| bad(&format!("levels.{module} is not a table")))?;
             let mut levels = BTreeMap::new();
             for (room, level) in rooms.iter() {
-                let level = (level.as_float())
-                    .or_else(|| level.as_integer().map(|level| level as f64))
+                let level = crate::lights::number(Some(level))
                     .ok_or_else(|| bad(&format!("the level of {room} is not a number")))?;
-                levels.insert(room.to_ascii_lowercase(), level as f32);
+                levels.insert(room.to_ascii_lowercase(), level);
             }
             own.levels.insert(module.to_ascii_lowercase(), levels);
         }
@@ -190,12 +197,12 @@ impl OwnLighting {
         for kind in &self.kinds {
             out.push('\n');
             out.push_str(crate::kinds::kind_entry(kind).trim_end());
-            out.push_str(&format!("\nreason = {:?}\n", kind.reason));
+            out.push_str(&format!("\nreason = {}\n", crate::quoted(&kind.reason)));
         }
         for (module, levels) in &self.levels {
-            out.push_str(&format!("\n[levels.{module:?}]\n"));
+            out.push_str(&format!("\n[levels.{}]\n", crate::quoted(module)));
             for (room, level) in levels {
-                out.push_str(&format!("{room:?} = {level:?}\n"));
+                out.push_str(&format!("{} = {level:?}\n", crate::quoted(room)));
             }
         }
         out

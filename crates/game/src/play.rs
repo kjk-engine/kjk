@@ -372,6 +372,7 @@ pub fn compose(
     let mut ambient_effects = Vec::new();
     // A level editor project's sun for the area (`sun::of_area`).
     let mut sun = None;
+    let mut game = None;
     let mut sound = None;
     let mut probes = Default::default();
     let (mut baked, mut dark_unlit) = (false, false);
@@ -394,6 +395,7 @@ pub fn compose(
         weather = module.weather;
         ambient_effects = module.ambient_effects;
         sun = module.sun;
+        game = module.game;
         doors = module.doors;
         instance_models = module.instance_models;
         lamps = module.lamps;
@@ -435,6 +437,7 @@ pub fn compose(
     }
     let scene = LoadedScene {
         name,
+        game,
         models,
         textures,
         images: Default::default(),

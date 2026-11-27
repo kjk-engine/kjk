@@ -94,10 +94,20 @@ pub fn short(level: &str) -> &str {
     level.trim_start_matches("maps/").trim_end_matches(".bsp")
 }
 
+/// The name of the file that keeps `level`'s rooms, without its ending:
+/// the level's short name with every separator made a `-` (`mp/ffa3` is
+/// `mp-ffa3`). `\` and `:` are made one too. Only `/` was, so a level
+/// named with `..\` in a project's or a mod's file named a file outside
+/// the folder.
+pub fn file_stem(level: &str) -> String {
+    short(level).replace(['/', '\\', ':'], "-")
+}
+
 /// The file of `level`'s rooms in a project's folder.
 pub fn path(folder: &Path, level: &str) -> PathBuf {
-    let name = short(level).replace('/', "-");
-    folder.join(FOLDER).join(format!("{name}.toml"))
+    folder
+        .join(FOLDER)
+        .join(format!("{}.toml", file_stem(level)))
 }
 
 /// The levels a project's folder keeps rooms of: each level's path, and
@@ -135,11 +145,7 @@ impl JaRooms {
                 .into_iter()
                 .flat_map(|tables| tables.iter())
         };
-        let number = |value: &toml_edit::Value| {
-            (value.as_float())
-                .or_else(|| value.as_integer().map(|whole| whole as f64))
-                .map(|number| number as f32)
-        };
+        let number = crate::lights::real;
         let mut rooms: Vec<String> = Vec::new();
         for table in tables("room") {
             let name = (table.get("name").and_then(toml_edit::Item::as_str))
@@ -164,11 +170,14 @@ impl JaRooms {
                 .ok_or("a cut has no points")?;
             let mut points = Vec::with_capacity(listed.len());
             for value in listed {
+                // Every part must be a number: one left out would make a
+                // point of the three that are left.
                 let place: Vec<f32> = (value.as_array())
                     .into_iter()
                     .flat_map(|parts| parts.iter())
-                    .filter_map(number)
-                    .collect();
+                    .map(number)
+                    .collect::<Option<_>>()
+                    .ok_or("a cut's point is not three numbers")?;
                 let place: [f32; 3] = place
                     .try_into()
                     .map_err(|_| "a cut's point is not three numbers")?;
@@ -198,19 +207,21 @@ impl JaRooms {
              # its room, and a later cut takes from an earlier one. Lengths are in\n\
              # metres. Written by kjk's level editor (docs/LEVEL-EDIT.md). The\n\
              # level's file itself stays in the game.\n\
-             level = {:?}\ndigest = {:?}\nrest = {:?}\n",
-            self.level, self.digest, self.rest
+             level = {}\ndigest = {}\nrest = {}\n",
+            crate::quoted(&self.level),
+            crate::quoted(&self.digest),
+            crate::quoted(&self.rest)
         );
         for room in &self.rooms {
-            out.push_str(&format!("\n[[room]]\nname = {room:?}\n"));
+            out.push_str(&format!("\n[[room]]\nname = {}\n", crate::quoted(room)));
         }
         for cut in &self.cuts {
             let points: Vec<String> = (cut.points.iter())
                 .map(|[x, y, z]| format!("[{x:?}, {y:?}, {z:?}]"))
                 .collect();
             out.push_str(&format!(
-                "\n[[cut]]\nroom = {:?}\nup = {:?}\ndown = {:?}\nmargin = {:?}\npoints = [{}]\n",
-                self.rooms.get(cut.room).map_or("", String::as_str),
+                "\n[[cut]]\nroom = {}\nup = {:?}\ndown = {:?}\nmargin = {:?}\npoints = [{}]\n",
+                crate::quoted(self.rooms.get(cut.room).map_or("", String::as_str)),
                 cut.up,
                 cut.down,
                 cut.margin,

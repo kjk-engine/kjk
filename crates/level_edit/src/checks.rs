@@ -142,6 +142,46 @@ impl Check {
     }
 }
 
+/// What is wrong with `check`, if anything is: a skill no check knows, a
+/// score outside 0 to `MOST_SCORE`, or a cost over `MOST_COST`. No script
+/// is written of such a check (`condition`, `payment`).
+pub fn problem(check: &Check) -> Option<String> {
+    if skill(&check.skill).is_none() {
+        return Some(format!(
+            "{:?} is not a skill: a check asks for {}",
+            check.skill,
+            (SKILLS.iter().map(|skill| skill.key))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    (!(0..=MOST_SCORE).contains(&check.score) || check.cost > MOST_COST).then(|| {
+        format!("a check asks for a score from 0 to {MOST_SCORE} and costs 0 to {MOST_COST} items")
+    })
+}
+
+/// The longest name of a script: a resource's name.
+const MOST_NAME: usize = 16;
+
+/// What is wrong with `name` as the name of the script a line runs after a
+/// check's cost is spent, if anything is. A name is 1 to 16 characters,
+/// each a letter, a digit, `_`, `-` or `+`. The games' own scripts are
+/// named so: all but two of them with letters, digits and `_` alone, and
+/// KOTOR 1's `k_hmis_talk0+` and `k_hmis_talk6-8` with the other two.
+///
+/// The name is written into a header line, whose words a space parts, and
+/// into a string of the code, which a quote ends. With either in it, the
+/// editor no longer knew the script as a check's, or it did not compile.
+pub fn script_problem(name: &str) -> Option<String> {
+    let fits = (1..=MOST_NAME).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+'));
+    (!fits).then(|| {
+        format!("{name:?} is not a script's name: use 1 to 16 letters, digits, _, - and +")
+    })
+}
+
 /// The first line of a check's condition.
 const MADE_CHECK: &str = "// Made by kjk's level editor from a skill check (docs/LEVEL-EDIT.md).";
 /// The first line of the script that spends a check's cost.
@@ -203,7 +243,13 @@ pub fn read_payment(source: &str) -> Option<(String, u32, String)> {
 
 /// The condition `check` makes: TRUE when the character in the
 /// conversation has the skill's score, and the party carries the items.
-pub fn condition(check: &Check) -> String {
+/// Refused for a check that is wrong (`problem`). A condition used to be
+/// written of a skill no check knows too. It asked for no skill, so the
+/// check passed for every character.
+pub fn condition(check: &Check) -> Result<String, String> {
+    if let Some(why) = problem(check) {
+        return Err(why);
+    }
     let mut body = String::from(
         "    object oPC = GetPCSpeaker();\n\
          \x20   if (!GetIsObjectValid(oPC))\n\
@@ -211,19 +257,14 @@ pub fn condition(check: &Check) -> String {
          \x20       oPC = GetFirstPC();\n\
          \x20   }\n",
     );
-    match skill(&check.skill) {
-        Some(skill) => body.push_str(&format!(
-            "    if (GetSkillRank({}, oPC) < {})\n\
-             \x20   {{\n\
-             \x20       return FALSE;\n\
-             \x20   }}\n",
-            skill.constant, check.score
-        )),
-        None => body.push_str(&format!(
-            "    // {:?} is not a skill a check knows.\n",
-            check.skill
-        )),
-    }
+    let asked = skill(&check.skill).ok_or("the check's skill is not known")?;
+    body.push_str(&format!(
+        "    if (GetSkillRank({}, oPC) < {})\n\
+         \x20   {{\n\
+         \x20       return FALSE;\n\
+         \x20   }}\n",
+        asked.constant, check.score
+    ));
     if let Some((tag, cost)) = check.spent() {
         body.push_str(&format!(
             "    object oItem = GetItemPossessedBy(GetFirstPC(), \"{tag}\");\n\
@@ -233,7 +274,7 @@ pub fn condition(check: &Check) -> String {
              \x20   }}\n"
         ));
     }
-    format!(
+    Ok(format!(
         "{MADE_CHECK}\n\
          // Change the check in the conversation window; editing this file by hand ends it.\n\
          // {}\n\
@@ -248,12 +289,23 @@ pub fn condition(check: &Check) -> String {
         check.skill,
         check.score,
         check.cost
-    )
+    ))
 }
 
 /// The script that spends `check`'s cost, then runs `then` (empty for
-/// none). A check that costs nothing spends nothing.
-pub fn payment(check: &Check, then: &str) -> String {
+/// none). A check that costs nothing spends nothing. Refused for a check
+/// that is wrong (`problem`) and for a `then` that is no script's name
+/// (`script_problem`).
+pub fn payment(check: &Check, then: &str) -> Result<String, String> {
+    if let Some(why) = problem(check) {
+        return Err(why);
+    }
+    let then = then.trim().to_ascii_lowercase();
+    if !then.is_empty()
+        && let Some(why) = script_problem(&then)
+    {
+        return Err(why);
+    }
     let mut body = String::new();
     if let Some((tag, cost)) = check.spent() {
         body.push_str(&format!(
@@ -269,12 +321,11 @@ pub fn payment(check: &Check, then: &str) -> String {
              \x20   }}\n"
         ));
     }
-    let then = then.trim().to_ascii_lowercase();
     if !then.is_empty() {
         body.push_str(&format!("    ExecuteScript(\"{then}\", OBJECT_SELF);\n"));
     }
     let shown = if then.is_empty() { "-" } else { &then };
-    format!(
+    Ok(format!(
         "{MADE_PAY}\n\
          // Change the check in the conversation window; editing this file by hand ends it.\n\
          // It spends what the check costs, then runs the script the line ran before.\n\
@@ -284,7 +335,7 @@ pub fn payment(check: &Check, then: &str) -> String {
          {{\n\
          {body}}}\n",
         check.skill, check.cost
-    )
+    ))
 }
 
 /// A name for a new condition of a check (`kjc_N`) or a new script that

@@ -60,18 +60,29 @@ pub(crate) fn number(item: Option<&Item>) -> Option<f32> {
         .filter(|value| value.is_finite())
 }
 
+/// The number a value of a list holds, when it is a real one. TOML
+/// writes `nan` and `inf` as numbers too. Neither places, sizes nor turns
+/// anything, so no reader of a project's files takes them.
+pub(crate) fn real(value: &toml_edit::Value) -> Option<f32> {
+    (value.as_float())
+        .or_else(|| value.as_integer().map(|whole| whole as f64))
+        .map(|number| number as f32)
+        .filter(|number| number.is_finite())
+}
+
+/// Three real numbers, when the item is a list of just those. It used to
+/// leave out what was no number and take what was left, so `nan` and `inf`
+/// were taken, and a list of four with one of them wrong read as three.
 pub(crate) fn triple(item: Option<&Item>) -> Option<[f32; 3]> {
     let array = item?.as_array()?;
-    let values: Vec<f32> = array
-        .iter()
-        .filter_map(|value| {
-            value
-                .as_float()
-                .or_else(|| value.as_integer().map(|value| value as f64))
-                .map(|value| value as f32)
-        })
-        .collect();
-    <[f32; 3]>::try_from(values).ok()
+    if array.len() != 3 {
+        return None;
+    }
+    let mut out = [0.0; 3];
+    for (slot, value) in out.iter_mut().zip(array.iter()) {
+        *slot = real(value)?;
+    }
+    Some(out)
 }
 
 pub(crate) fn text(item: Option<&Item>) -> String {

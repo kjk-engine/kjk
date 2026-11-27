@@ -455,9 +455,15 @@ impl Editor {
     }
 
     /// The middle of the selection's places (metres), if anything is
-    /// selected.
+    /// selected. The sun has no place of its own: it is turned round the
+    /// level's middle. It counts, as that middle, only when nothing else
+    /// is selected. Counted among others, it pulled the middle of the
+    /// selection towards the middle of the level.
     pub fn selection_centre(&self) -> Option<[f32; 3]> {
-        let places: Vec<[f32; 3]> = (self.selection().into_iter())
+        let all = self.selection();
+        let sun_alone = all.iter().all(|target| *target == Target::Sun);
+        let places: Vec<[f32; 3]> = (all.into_iter())
+            .filter(|target| sun_alone || *target != Target::Sun)
             .filter_map(|target| self.placement(target))
             .map(|(at, _)| at)
             .collect();
@@ -471,10 +477,12 @@ impl Editor {
     }
 
     /// The edits that move everything selected that can be changed by
-    /// `by` (metres).
+    /// `by` (metres). The sun stays where it is: it is not moved
+    /// (`Edit::Move`), and a move made for it was refused, which took the
+    /// moves of everything else selected back with it.
     pub fn moves_by(&self, by: [f32; 3]) -> Vec<Edit> {
         (self.selection().into_iter())
-            .filter(|target| Self::editable(*target).is_ok())
+            .filter(|target| Self::editable(*target).is_ok() && *target != Target::Sun)
             .filter_map(|target| {
                 let (at, _) = self.placement(target)?;
                 Some(Edit::Move(
@@ -488,7 +496,8 @@ impl Editor {
     /// The edits that turn everything selected `degrees` round `centre`
     /// (metres, about Z): each moves round it, and each that turns (not a
     /// trigger's or an encounter's outline) turns as much. `sin_cos` is
-    /// the turn's sine and cosine.
+    /// the turn's sine and cosine. The sun does not move round `centre`:
+    /// it goes round the level's middle by as many degrees.
     pub fn turns_round(&self, centre: [f32; 3], degrees: f32, (sin, cos): (f32, f32)) -> Vec<Edit> {
         let mut edits = Vec::new();
         for target in self.selection() {
@@ -504,11 +513,10 @@ impl Editor {
                 centre[1] + sin * x + cos * y,
                 at[2],
             ];
-            edits.push(Edit::Move(target, moved));
-            if !matches!(
-                target,
-                Target::Object(Kind::Trigger | Kind::Encounter, _) | Target::Entry
-            ) {
+            if target != Target::Sun {
+                edits.push(Edit::Move(target, moved));
+            }
+            if !matches!(target, Target::Object(Kind::Trigger | Kind::Encounter, _)) {
                 edits.push(Edit::Turn(target, facing + degrees));
             }
         }
@@ -657,10 +665,21 @@ impl Editor {
         self.also = state.also;
     }
 
-    /// How many GIT objects use the template `resref`.
+    /// Every object list the project keeps: the level's being edited, each
+    /// parked level's, and each other area's whose doors it changes.
+    fn object_lists(&self) -> impl Iterator<Item = &fmt_odyssey::gff::Gff> {
+        std::iter::once(&self.project.git)
+            .chain(self.project.parked.values().map(|level| &level.git))
+            .chain(self.project.others.values().map(|other| &other.git))
+    }
+
+    /// How many GIT objects of the project use the template `resref`, in
+    /// all its object lists (`object_lists`). The project's templates are
+    /// shared by its levels, so the level being edited is not the only one
+    /// that can use one.
     pub fn users(&self, resref: &str) -> usize {
-        self.entries()
-            .iter()
+        self.object_lists()
+            .flat_map(git::entries)
             .filter(|entry| entry.template == resref)
             .count()
     }
@@ -741,6 +760,13 @@ impl Editor {
             return Ok(());
         }
         let restype = template::restype(kind).ok_or("this object has no template")?;
+        // The project's template of this name is this object's kind, or
+        // the object is not changed through it.
+        if let Some(made) = self.project.templates.get(&entry.template)
+            && made.restype != restype
+        {
+            return Err(Self::other_kind(&entry.template, made.restype));
+        }
         let own = self.project.templates.contains_key(&entry.template)
             && self.users(&entry.template) == 1;
         let resref = if own {
@@ -771,16 +797,45 @@ impl Editor {
             .get_mut(&resref)
             .expect("made above or found");
         template::apply(&mut made.gff, restype, change)?;
-        // A copy no object uses any more is dropped.
+        // A copy no object uses any more is dropped. An object of a parked
+        // level uses its copy too. Only the level being edited was asked,
+        // so a change here dropped every copy that another level alone
+        // used, and the next save deleted their files.
         let used: std::collections::BTreeSet<String> = self
-            .entries()
-            .into_iter()
+            .object_lists()
+            .flat_map(git::entries)
             .map(|entry| entry.template)
             .collect();
         self.project
             .templates
             .retain(|name, made| used.contains(name) || !crate::template::of_objects(made.restype));
         Ok(())
+    }
+
+    /// Why the name `name` cannot be used: the project has a template of
+    /// that name and of the kind `had`, and keeps one template of a name.
+    fn other_kind(name: &str, had: fmt_odyssey::ResType) -> String {
+        format!(
+            "the project already has {name}.{}, and keeps one template of a name: use another name",
+            crate::template::extension(had)
+        )
+    }
+
+    /// Refuses `area` when it is the area of a level the project edits
+    /// but the one edited now. Such a level has its own GIT in the
+    /// project, where its doors and triggers are changed. A copy of the
+    /// area among the other areas (`Project::others`) beside it is a
+    /// problem the project is not saved with (`Project::problems`), so it
+    /// is refused here, when it is asked for.
+    fn not_a_level(&self, area: &str) -> Result<(), String> {
+        let level =
+            (self.project.parked.iter()).find(|(_, level)| level.area.eq_ignore_ascii_case(area));
+        match level {
+            Some((module, _)) => Err(format!(
+                "{area} is the area of the project's level {module}: open that level to change its doors and triggers"
+            )),
+            None => Ok(()),
+        }
     }
 
     fn editable(target: Target) -> Result<(), String> {
@@ -984,6 +1039,10 @@ impl Editor {
                 if template.is_empty() || template.len() > git::RESREF_LEN {
                     return Err(format!("{template:?} is not a template's name"));
                 }
+                finite(
+                    position.into_iter().chain([facing]),
+                    "an object's place and facing",
+                )?;
                 let index = git::add_from(
                     &mut self.project.git,
                     kind,
@@ -997,6 +1056,16 @@ impl Editor {
                 if prop.model.is_empty() {
                     return Err("a prop needs a model".into());
                 }
+                finite(
+                    prop.position.into_iter().chain([prop.yaw, prop.scale]),
+                    "a prop's place, turn and scale",
+                )?;
+                if !(SCALES.0..=SCALES.1).contains(&prop.scale) {
+                    return Err(format!(
+                        "a prop's scale must be from {} to {}",
+                        SCALES.0, SCALES.1
+                    ));
+                }
                 if prop.name.is_empty() || kjk.props.iter().any(|p| p.name == prop.name) {
                     prop.name = kjk.free_name("prop");
                 }
@@ -1004,6 +1073,7 @@ impl Editor {
                 Ok(Some(Target::Prop(kjk.props.len() - 1)))
             }
             Edit::Paste { clip, at, taken } => {
+                finite(at, "the place a copy is pasted at")?;
                 let added = crate::clip::paste(&mut self.project, &clip, at, &|name| {
                     taken.iter().any(|had| had == name)
                 })?;
@@ -1053,7 +1123,11 @@ impl Editor {
                 Ok(self.selected)
             }
             Edit::AddBox(mut shape) => {
-                if shape.size.iter().any(|side| *side < SMALLEST_SIDE) {
+                finite(
+                    shape.centre.into_iter().chain([shape.yaw]),
+                    "a box's place and turn",
+                )?;
+                if (shape.size.iter()).any(|side| !side.is_finite() || *side < SMALLEST_SIDE) {
                     return Err(format!("a box's sides must be {SMALLEST_SIDE} m or more"));
                 }
                 if shape.name.is_empty() || kjk.boxes.iter().any(|b| b.name == shape.name) {
@@ -1141,6 +1215,7 @@ impl Editor {
                         "{area} is the project's own area: select the object and set where it leads"
                     ));
                 }
+                self.not_a_level(&area)?;
                 if !matches!(kind, Kind::Door | Kind::Trigger) {
                     return Err("only a door or a trigger leads somewhere".into());
                 }
@@ -1171,6 +1246,7 @@ impl Editor {
                 if points.len() < 3 {
                     return Err("an outline has three points or more".into());
                 }
+                finite(points.iter().flatten().copied(), "an outline's points")?;
                 let at = self
                     .entry(kind, index)
                     .ok_or_else(|| missing(target))?
@@ -1186,6 +1262,10 @@ impl Editor {
                 let Target::Object(Kind::Encounter, index) = target else {
                     return Err("only an encounter has spawn points".into());
                 };
+                finite(
+                    (points.iter()).flat_map(|(at, facing)| at.iter().copied().chain([*facing])),
+                    "a spawn point's place and facing",
+                )?;
                 if !git::set_spawn_points(&mut self.project.git, index, &points) {
                     return Err(missing(target));
                 }
@@ -1214,17 +1294,23 @@ impl Editor {
                         set_are(are, &label, value)?;
                     }
                     AreaChange::DryRoom(room, dry) => {
-                        let are = match self.project.map.as_mut() {
-                            Some(map) => &mut map.are,
-                            None => match self.project.are {
-                                Some(ref mut own) => own,
-                                None => self
-                                    .project
-                                    .are
-                                    .insert(base.ok_or("the area's ARE was not read")?),
-                            },
-                        };
-                        crate::settings::set_dry_room(are, &room, dry)?;
+                        // A new map's rooms keep the mark themselves. Its
+                        // ARE lists the base level's rooms until the map is
+                        // written, so the mark could not be set there.
+                        let module = self.project.module.clone();
+                        match self.project.map.as_mut() {
+                            Some(map) => map.set_dry_room(&module, &room, dry)?,
+                            None => {
+                                let are = match self.project.are {
+                                    Some(ref mut own) => own,
+                                    None => self
+                                        .project
+                                        .are
+                                        .insert(base.ok_or("the area's ARE was not read")?),
+                                };
+                                crate::settings::set_dry_room(are, &room, dry)?;
+                            }
+                        }
                     }
                     AreaChange::ModuleScript(label, script) => {
                         let map = self.project.map.as_mut().ok_or(
@@ -1299,6 +1385,7 @@ impl Editor {
                         "{area} is the project's own area: add the trigger in the level itself"
                     ));
                 }
+                self.not_a_level(&area)?;
                 if template.is_empty() || template.len() > git::RESREF_LEN {
                     return Err(format!("{template:?} is not a trigger template's name"));
                 }
@@ -1346,6 +1433,14 @@ impl Editor {
                 if crate::template::of_objects(template.restype) {
                     return Err("an object's template is changed through its object".into());
                 }
+                // A template of the name and another kind is not replaced.
+                // An item named as the journal is (`global`) used to take
+                // the journal's place.
+                if let Some(had) = self.project.templates.get(&name)
+                    && had.restype != template.restype
+                {
+                    return Err(Self::other_kind(&name, had.restype));
+                }
                 self.project.templates.insert(name, *template);
                 Ok(self.selected)
             }
@@ -1356,6 +1451,13 @@ impl Editor {
                 }
                 if !crate::template::of_objects(template.restype) {
                     return Err("an item or the journal is not an object's template".into());
+                }
+                // The project's own of the name is kept, when it is of
+                // this kind.
+                if let Some(had) = self.project.templates.get(&name)
+                    && had.restype != template.restype
+                {
+                    return Err(Self::other_kind(&name, had.restype));
                 }
                 self.project.templates.entry(name).or_insert(*template);
                 Ok(self.selected)
@@ -1472,8 +1574,29 @@ impl Editor {
     /// other areas, area settings and conversations. `other` is the same
     /// project read from another folder (a recovery copy), opened on the
     /// same level. Nothing stays selected.
-    pub fn replace_content(&mut self, other: Project) {
+    ///
+    /// `lighting` is the kinds of fitting the project changed and the level
+    /// each room of the level's bake aims at, as that folder holds them.
+    /// They are given apart from `other`, because `Project::open` does not
+    /// read them (the editor does, from the folder's `lighting::FILE`):
+    /// `other`'s own are empty, and taking those would erase the
+    /// project's. `None` keeps the ones the editor has.
+    ///
+    /// The project's other levels are not taken. They do not change while
+    /// a level is edited, so `other`'s are the project's own.
+    pub fn replace_content(
+        &mut self,
+        other: Project,
+        lighting: Option<(
+            Vec<crate::kinds::KindEdit>,
+            std::collections::BTreeMap<String, f32>,
+        )>,
+    ) {
         let before = self.state();
+        if let Some((kinds, levels)) = lighting {
+            self.project.kinds = kinds;
+            self.project.levels = levels;
+        }
         self.project.git = other.git;
         self.project.kjk = other.kjk;
         self.project.templates = other.templates;
@@ -1580,6 +1703,18 @@ fn aim_facing(aim: [f32; 3]) -> f32 {
 }
 
 /// What is wrong with a light placed by hand, if anything.
+/// Refuses `numbers` when one of them is no real number (`nan`, or an
+/// endless one). `what` names them: "a prop's place, turn and scale". A
+/// comparison with `nan` is false either way, so a check of a range alone
+/// lets it through.
+fn finite(numbers: impl IntoIterator<Item = f32>, what: &str) -> Result<(), String> {
+    if numbers.into_iter().all(f32::is_finite) {
+        Ok(())
+    } else {
+        Err(format!("{what} must be finite"))
+    }
+}
+
 fn light_problem(light: &crate::lights::PlacedLight) -> Result<(), String> {
     let numbers = light
         .at
