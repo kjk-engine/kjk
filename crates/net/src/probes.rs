@@ -1391,10 +1391,19 @@ pub fn handshake() -> Probes {
         &hello,
         |_, _, _| Ok(()),
     );
+    let burst_low = 2 * handshake::HELLO_RATE - 1;
+    let burst_high = 2 * handshake::HELLO_RATE;
+    let challenged_u64 = u64::from(challenged);
     probes.check(
         "handshake: hello rate limit",
-        "1000 Hellos in a second from one address get 8 at once then one per 125 ms (15 or 16); another address is answered meanwhile; the flooder is answered again after a pause",
-        (15..=16).contains(&challenged) && bystander_ok && after.event == Event::Challenged,
+        &format!(
+            "1000 Hellos in a second from one address get {} at once then refills at {}/s ({burst_low} or {burst_high}); another address is answered meanwhile; the flooder is answered again after a pause",
+            handshake::HELLO_RATE,
+            handshake::HELLO_RATE,
+        ),
+        (burst_low..=burst_high).contains(&challenged_u64)
+            && bystander_ok
+            && after.event == Event::Challenged,
         format!(
             "{challenged} challenged, bystander {}, after a pause {:?}",
             if bystander_ok { "answered" } else { "NOT answered" },

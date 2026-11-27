@@ -1113,7 +1113,14 @@ pub(crate) fn spots(
 fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
     let [x, y, z] = math::scale(spot.position, 1.0 / UNIT);
     (0..count)
-        .map(|seat| [x + seat as f32 * APART, y, z - motion::SOLE_Z])
+        .map(|seat| {
+            if count <= 4 {
+                [x + seat as f32 * APART, y, z - motion::SOLE_Z]
+            } else {
+                let [dx, dy] = crate::world::state::spawn_offset_m(seat as u8, count as u8);
+                [x + dx / UNIT, y + dy / UNIT, z - motion::SOLE_Z]
+            }
+        })
         .collect()
 }
 

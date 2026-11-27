@@ -194,7 +194,7 @@ mod sim_view;
 mod sim_worker;
 pub mod skeleton;
 mod skin_once;
-mod solo;
+pub mod solo;
 #[cfg(feature = "probes")]
 pub use solo::reload_probes as solo_reload_probes;
 pub mod sound;
@@ -498,7 +498,7 @@ fn beside_steam(socket: net::io::Socket) -> net::io::Socket {
 /// (`world_fingerprint`). The fingerprint cache is used: the first time
 /// hashes them (seconds on a fast disk, minutes on a slow one, which
 /// `status` tells as it goes), later only what changed.
-fn world_data(
+pub fn world_data(
     discovery: &vfs::Discovery,
     games: &[Game],
     status: &dyn Fn(String),

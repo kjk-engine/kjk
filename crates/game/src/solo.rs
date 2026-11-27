@@ -330,7 +330,7 @@ fn server_config(
     ServerConfig {
         seats,
         rate,
-        every: 2,
+        every: if seats > 4 { 4 } else { 2 },
         // Pacing is for a network; the loopback peer is local.
         link: if hosting {
             Config::default()
@@ -343,6 +343,7 @@ fn server_config(
         credentials,
         stances: Vec::new(),
         collision: session::collision().code(),
+        quorum_percent: if seats > 4 { 80 } else { 100 },
     }
 }
 

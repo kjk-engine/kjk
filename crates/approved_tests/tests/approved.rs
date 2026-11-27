@@ -6054,6 +6054,106 @@ fn net_bandwidth_budget() {
     }
 }
 
+/// Phase 3A/3B 64-player battle test: 64 avatars on `proving_ground` for 10s,
+/// asserting all 64 join, stay connected, stay within ring limits, rebuild valid
+/// snapshots, and stay within downlink budget.
+#[test]
+fn session_64p_battle() {
+    use net::session::probes;
+    use net::session::sessions;
+    let lan = sessions::determinism(1)
+        .into_iter()
+        .find(|session| session.setup.name == "lan")
+        .expect("lan setup")
+        .setup;
+
+    let pinned = sim::determinism::Setup::pinned();
+    let world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 64,
+            wanderers: 0,
+            guests: sim::Guests::Avatars,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let clients: Vec<probes::Joiner> = (0..64)
+        .map(|i| probes::Joiner {
+            at_us: (i as u64) * 35_000,
+            frame_us: 16_667,
+            plan_us: 100_000,
+        })
+        .collect();
+    let setup = probes::Setup {
+        name: "battle_64p".into(),
+        clients,
+        seconds: 10,
+        every: 4,
+        load_wait_us: 8_000_000,
+        ..lan
+    };
+    let mut scenario = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .with_setup(world);
+    let report = probes::run(&mut scenario, &setup);
+
+    let connected = report
+        .clients
+        .iter()
+        .filter(|c| c.seat.is_some() && c.ended.is_none())
+        .count();
+    let check_failures: u64 = report.clients.iter().map(|c| c.stats.check_failures).sum();
+    let rebuilt: u64 = report.clients.iter().map(|c| c.stats.rebuilt).sum();
+    let down_mean_kbps = report.clients.iter().map(|c| c.down_bps).sum::<f64>()
+        / report.clients.len().max(1) as f64
+        / 1024.0;
+    let down_max_kbps = report
+        .clients
+        .iter()
+        .map(|c| c.down_bps / 1024.0)
+        .fold(0.0f64, f64::max);
+    let snaps: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.snapshots)
+        .sum();
+    let frags: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.fragments)
+        .sum();
+    let single_mtu = if snaps > 0 {
+        snaps.saturating_sub(frags) as f64 / snaps as f64
+    } else {
+        1.0
+    };
+    println!(
+        "battle_64p: connected={connected}/64 rebuilt={rebuilt} check_failures={check_failures} down_mean={down_mean_kbps:.2}KB/s down_max={down_max_kbps:.2}KB/s single_mtu={single_mtu:.4}"
+    );
+    assert_eq!(connected, 64, "all 64 clients stay connected");
+    assert_eq!(check_failures, 0, "all rebuilt snapshots pass check");
+    assert!(rebuilt > 0, "clients rebuilt snapshots");
+    assert!(
+        down_max_kbps <= 45.0,
+        "max client downlink {down_max_kbps:.2} KB/s exceeds 45 KB/s budget"
+    );
+    assert!(
+        single_mtu >= 0.90,
+        "single-MTU ratio {single_mtu:.4} below 0.90"
+    );
+    assert!(
+        report
+            .server
+            .connections
+            .iter()
+            .all(|_| report.server.ring <= 256),
+        "host ring bounded: {}",
+        report.server.ring
+    );
+}
+
 /// Character creation (`sim::creation`): scores bought with 30 points from 8
 /// (a raise costing the score's modifier, 1 to 3, up to 18); the first
 /// level a level of the class taken from nothing (the hit die and CON, the

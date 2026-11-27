@@ -71,6 +71,33 @@ pub(super) fn entity_state(
     }
 }
 
+/// Deterministic ring-spawn offset in metres for `seat` out of `total_seats`.
+/// Preserves the legacy linear X spacing (`seat * 2.0`) when `total_seats <= 4`
+/// so 1–4 player worlds remain bit-identical.
+pub(crate) fn spawn_offset_m(seat: u8, total_seats: u8) -> [f32; 2] {
+    if total_seats <= 4 {
+        return [f32::from(seat) * 2.0, 0.0];
+    }
+    let rings: [(u8, f32); 4] = [(8, 1.1), (16, 2.2), (20, 3.0), (20, 3.8)];
+    let mut base = 0u8;
+    for (cap, radius) in rings {
+        let end = base.saturating_add(cap);
+        if seat < end {
+            let idx = seat - base;
+            let count = cap.min(total_seats.saturating_sub(base)).max(1);
+            let angle = std::f32::consts::TAU * f32::from(idx) / f32::from(count);
+            let (sin, cos) = collision::trig::sin_cos(angle);
+            return [radius * cos, radius * sin];
+        }
+        base = end;
+    }
+    let idx = seat.saturating_sub(base);
+    let angle =
+        std::f32::consts::TAU * f32::from(idx) / f32::from(total_seats.saturating_sub(base).max(1));
+    let (sin, cos) = collision::trig::sin_cos(angle);
+    [4.6 * cos, 4.6 * sin]
+}
+
 impl SimWorld {
     /// A new world: the players at `config.spawn`, or in a module's level
     /// at its entry, with the module's objects. Refused with more seats
@@ -89,7 +116,8 @@ impl SimWorld {
         };
         for seat in 0..players {
             let [x, y, z] = config.spawn;
-            let soles = [x + f32::from(seat) * 2.0, y, z];
+            let [dx, dy] = spawn_offset_m(seat, config.seats);
+            let soles = [x + dx, y + dy, z];
             let mut origin = scale(soles, 1.0 / UNIT);
             // Standing where a landing leaves the box: an eighth of a unit
             // above the floor (`CONTACT_GAP`), not touching it,

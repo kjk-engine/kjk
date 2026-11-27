@@ -960,8 +960,31 @@ impl<'a> Payload<'a> {
 /// Appends a payload's frame and seat commands (all but the send stamp,
 /// which `put_payload_head` writes first).
 pub fn put_payload_body(out: &mut Vec<u8>, frame: &[u8], commands: &TickInput, base: &TickInput) {
+    put_payload_body_for(out, frame, commands, base, None);
+}
+
+/// Like `put_payload_body`, writing only `only_seat`'s command when given
+/// (used for `seats > 4` so each client receives only its own echo).
+pub fn put_payload_body_for(
+    out: &mut Vec<u8>,
+    frame: &[u8],
+    commands: &TickInput,
+    base: &TickInput,
+    only_seat: Option<Seat>,
+) {
     put_varint(out, frame.len() as u64);
     out.extend_from_slice(frame);
+    if let Some(seat) = only_seat {
+        if let Some(command) = commands.get(seat) {
+            put_varint(out, 1);
+            out.push(seat.0);
+            let before = base.get(seat).copied().unwrap_or(Command::default());
+            put_command(out, &before, command);
+        } else {
+            put_varint(out, 0);
+        }
+        return;
+    }
     put_varint(out, commands.len() as u64);
     for (seat, command) in commands.iter() {
         out.push(seat.0);

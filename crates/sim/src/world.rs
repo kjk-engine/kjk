@@ -184,7 +184,7 @@ mod movement;
 #[cfg(feature = "probes")]
 pub mod push_probes;
 mod shut_in;
-mod state;
+pub(crate) mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;
 #[cfg(feature = "probes")]

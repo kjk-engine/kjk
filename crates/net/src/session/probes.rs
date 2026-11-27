@@ -442,9 +442,10 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
     let (mut world, start_level, request) = scenario.start();
     let mut net = SimNet::new(setup.seed);
     let host_at = net.endpoint();
+    let seats = world.snapshot().seats();
     let mut server = Server::new(
         ServerConfig {
-            seats: world.snapshot().seats(),
+            seats,
             rate,
             every: setup.every,
             link: Config::default(),
@@ -454,6 +455,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             credentials: credentials("host"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: if seats > 4 { 80 } else { 100 },
         },
         request,
     );
@@ -1558,6 +1560,7 @@ pub fn copy_probes() -> crate::probes::Probes {
             credentials: credentials("Ana"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: 100,
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1819,6 +1822,7 @@ fn host_of(seats: u8) -> (Server, Snapshot) {
             credentials: credentials("host"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: if seats > 4 { 80 } else { 100 },
         },
         LevelRequest::Stage(Level::arena().id()),
     );

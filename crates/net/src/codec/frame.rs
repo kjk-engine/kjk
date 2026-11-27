@@ -95,6 +95,30 @@ pub struct Stepped {
     split: Arc<Split>,
 }
 
+/// Per-entity `(id, avatar_seat, position)` extracted for `seats > 4` interest culling.
+pub type EntityPosition = (u32, Option<u8>, [f32; 3]);
+pub(crate) type EntityPositions = Arc<[EntityPosition]>;
+
+fn extract_positions(snapshot: &Snapshot) -> Option<EntityPositions> {
+    if snapshot.seats() <= 4 {
+        return None;
+    }
+    Some(
+        snapshot
+            .entities
+            .iter()
+            .map(|entity| {
+                let seat = match entity.kind {
+                    sim::Kind::Avatar(seat) => Some(seat.0),
+                    _ => None,
+                };
+                (entity.id.0, seat, entity.position)
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    )
+}
+
 /// A stepped snapshot's parts and check, made once, from the snapshot
 /// kept until then. A snapshot made beside (`Stepped::beside`) takes its
 /// parts and check from the net check thread, with the delta that thread
@@ -105,6 +129,7 @@ struct Split {
     done: OnceLock<(Arc<Parts>, Check)>,
     beside: Mutex<Option<Queued<Made>>>,
     packed: OnceLock<Packed>,
+    positions: Option<EntityPositions>,
 }
 
 /// What a thread made of a stepped snapshot (`Stepped::beside`).
@@ -125,23 +150,33 @@ struct Packed {
 static CHECKS: Worker = Worker::new("net check");
 
 impl Split {
-    fn new(snapshot: Option<Arc<Snapshot>>, done: OnceLock<(Arc<Parts>, Check)>) -> Split {
+    fn new(
+        snapshot: Option<Arc<Snapshot>>,
+        done: OnceLock<(Arc<Parts>, Check)>,
+        positions: Option<EntityPositions>,
+    ) -> Split {
         Split {
             snapshot: Mutex::new(snapshot),
             done,
             beside: Mutex::new(None),
             packed: OnceLock::new(),
+            positions,
         }
     }
 }
 
 impl Stepped {
     pub fn new(snapshot: &Snapshot) -> Stepped {
+        let positions = extract_positions(snapshot);
         let parts = snapshot.split();
         let check = Check::of(&parts.hash());
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
+            split: Arc::new(Split::new(
+                None,
+                OnceLock::from((Arc::new(parts), check)),
+                positions,
+            )),
         }
     }
 
@@ -149,21 +184,27 @@ impl Stepped {
     /// from: a host's step thread splits each tick for its players and its
     /// `hashes.txt` at once (issue 229).
     pub fn new_hashed(snapshot: &Snapshot) -> (Stepped, SnapshotHash) {
+        let positions = extract_positions(snapshot);
         let parts = snapshot.split();
         let hash = parts.hash();
         let check = Check::of(&hash);
         let stepped = Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
+            split: Arc::new(Split::new(
+                None,
+                OnceLock::from((Arc::new(parts), check)),
+                positions,
+            )),
         };
         (stepped, hash)
     }
 
     /// A shared snapshot, split when its parts or check are first read.
     pub fn shared(snapshot: Arc<Snapshot>) -> Stepped {
+        let positions = extract_positions(&snapshot);
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(Some(snapshot), OnceLock::new())),
+            split: Arc::new(Split::new(Some(snapshot), OnceLock::new(), positions)),
         }
     }
 
@@ -177,6 +218,7 @@ impl Stepped {
     /// frame splits it. If the thread cannot start or the job panics, the
     /// first read splits the snapshot itself.
     pub fn beside(snapshot: Arc<Snapshot>, base: Option<&Stepped>) -> Stepped {
+        let positions = extract_positions(&snapshot);
         let base = base.filter(|base| base.tick < snapshot.tick).cloned();
         let kept = snapshot.clone();
         let thread = CHECKS.run(move || {
@@ -196,7 +238,7 @@ impl Stepped {
                 packed,
             }
         });
-        let split = Split::new(Some(kept.clone()), OnceLock::new());
+        let split = Split::new(Some(kept.clone()), OnceLock::new(), positions);
         *split.beside.lock().unwrap_or_else(PoisonError::into_inner) = thread;
         Stepped {
             tick: kept.tick,
@@ -251,12 +293,40 @@ impl Stepped {
         self.split.done.get().is_some()
     }
 
+    /// Per-entity `(id, avatar_seat, position)` snapshot metadata when `seats > 4`.
+    pub fn positions(&self) -> Option<&[EntityPosition]> {
+        self.split.positions.as_deref()
+    }
+
     /// The delta packed beside (`beside`), if it is a delta from `base`.
     fn packed_against(&self, base: &Stepped) -> Option<&[u8]> {
         self.done();
         let packed = self.split.packed.get()?;
         std::ptr::eq(packed.base.as_ptr(), Arc::as_ptr(&base.split)).then_some(&packed.bytes[..])
     }
+}
+
+/// Appends a frame of `now_parts` in `epoch` against `base` (`(tick, parts)`,
+/// or `None` for a keyframe), computing `Check` directly from `now_parts` so
+/// filtered `Parts` verify cleanly with zero wire-format changes.
+pub fn encode_parts_frame(
+    epoch: u16,
+    tick: u64,
+    now_parts: &Parts,
+    base: Option<(u64, &Parts)>,
+    out: &mut Vec<u8>,
+) {
+    let base = base.filter(|(bt, _)| *bt < tick);
+    FrameHeader {
+        epoch,
+        tick,
+        baseline: base.map(|(bt, _)| bt),
+        check: Check::of(&now_parts.hash()),
+    }
+    .write(out);
+    let mut delta = Vec::new();
+    encode(base.map(|(_, parts)| parts), now_parts, &mut delta);
+    out.extend_from_slice(&pack(&delta));
 }
 
 /// Appends a frame of `now` in `epoch` against `base` (`None`, or a

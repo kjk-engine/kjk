@@ -105,7 +105,8 @@ pub mod probes;
 mod ring;
 
 pub use frame::{
-    Check, FrameHeader, Rebuilt, Stepped, decode_frame, encode_frame, pack, rebuild, unpack,
+    Check, FrameHeader, Rebuilt, Stepped, decode_frame, encode_frame, encode_parts_frame, pack,
+    rebuild, unpack,
 };
 pub use ring::{Begun, ClientRing, Confirmed, ServerRing};
 
