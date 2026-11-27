@@ -820,9 +820,15 @@ impl Solo {
     /// the client rebuilds it when its frame is due (`CHECKED_EVERY`).
     pub fn stepped(&mut self, input: &TickInput, snapshot: &Arc<Snapshot>) {
         let now = self.now();
+        self.stepped_at(input, snapshot, now);
+    }
+
+    /// `stepped` stamped with `at`, when the tick actually stepped (for
+    /// batched steps that land a frame later).
+    pub fn stepped_at(&mut self, input: &TickInput, snapshot: &Arc<Snapshot>, at: NetTime) {
         lock(&self.hosted)
             .server
-            .stepped_shared(now, input, snapshot.clone());
+            .stepped_shared(at, input, snapshot.clone());
         self.log_hash(snapshot);
         self.pump();
         self.wake();
@@ -840,12 +846,24 @@ impl Solo {
         split: Option<net::codec::Stepped>,
     ) {
         let now = self.now();
+        self.stepped_hashed_at(input, snapshot, hash, split, now);
+    }
+
+    /// `stepped_hashed` stamped with `at`, when the step thread stepped the tick.
+    pub fn stepped_hashed_at(
+        &mut self,
+        input: &TickInput,
+        snapshot: &Arc<Snapshot>,
+        hash: Option<sim::SnapshotHash>,
+        split: Option<net::codec::Stepped>,
+        at: NetTime,
+    ) {
         let tick = snapshot.tick;
         {
             let mut hosted = lock(&self.hosted);
             match split {
-                Some(split) => hosted.server.stepped_split(now, input, split),
-                None => hosted.server.stepped_shared(now, input, snapshot.clone()),
+                Some(split) => hosted.server.stepped_split(at, input, split),
+                None => hosted.server.stepped_shared(at, input, snapshot.clone()),
             }
         }
         if let Some(file) = &mut self.hashes {

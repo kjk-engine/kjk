@@ -523,6 +523,7 @@ struct Session {
     sent: Vec<(u16, u64)>,
     pending_newest: Option<u64>,
     last_commands_made: Option<u64>,
+    last_idle_cmd: Option<Command>,
     idle_cmds: u32,
     /// Every command up to this tick reached the host.
     acked_through: u64,
@@ -929,6 +930,7 @@ impl Client {
             sent: vec![(u16::MAX, 0); SENT],
             pending_newest: None,
             last_commands_made: None,
+            last_idle_cmd: None,
             idle_cmds: 0,
             acked_through: 0,
             misses: VecDeque::new(),
@@ -1296,6 +1298,8 @@ impl Client {
                 session.wanted = Some(request.clone());
                 session.play = None;
                 session.told_loaded = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
                 self.events.push_back(ClientEvent::NeedLevel(request));
             }
             Message::Snapshot(payload) => {
@@ -1321,6 +1325,8 @@ impl Client {
                 });
                 // The actions held name the world this install leaves.
                 session.told_loaded = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
                 self.unsent.clear();
                 self.events.push_back(ClientEvent::Installing(request));
             }
@@ -1332,6 +1338,8 @@ impl Client {
                 session.running = false;
                 session.was_held = true;
                 session.starting_rebase = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
                 let held = tick
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
@@ -2813,11 +2821,13 @@ fn send_commands(session: &mut Session) {
         from -= 1;
     }
     let mut is_idle_cmd = true;
+    let mut newest_cmd = None;
     for tick in from..=play.made {
         if let Some((command, lag)) = play.own_entry(tick) {
-            if command != Command::default() {
+            if command != command.idle() || session.last_idle_cmd != Some(command) {
                 is_idle_cmd = false;
             }
+            newest_cmd = Some(command);
             frame.push(tick, command, lag);
         }
     }
@@ -2825,7 +2835,17 @@ fn send_commands(session: &mut Session) {
         return;
     }
     if is_idle_cmd && !frame.is_empty() {
-        if confirmed <= session.confirmed_sent
+        let tick_us = session.clocks.tick_us();
+        let clocks_settled = session
+            .clocks
+            .predicted_error()
+            .is_some_and(|e| e.abs() * 2 < tick_us)
+            && session
+                .clocks
+                .remote_error()
+                .is_some_and(|e| e.abs() * 2 < tick_us);
+        if clocks_settled
+            && confirmed <= session.confirmed_sent
             && let Some(last) = session.last_commands_made
             && play.made >= last
             && session.idle_cmds >= 16
@@ -2846,6 +2866,7 @@ fn send_commands(session: &mut Session) {
     {
         session.pending_newest = Some(play.made);
         session.last_commands_made = Some(play.made);
+        session.last_idle_cmd = newest_cmd;
         session.confirmed_sent = confirmed;
     }
 }

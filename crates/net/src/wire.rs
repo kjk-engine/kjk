@@ -55,10 +55,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// (`Roster::good_evil`). 12: a seat may give the Debug Mode character
 /// page's orders (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), and a
 /// host may open that page for a seat (`Screen::DebugTerminal`). 13: save
-/// copies use 16 KiB parts, transport hardens acks/MTU, and frames use
-/// updated encoding. 14: seats send conversation picks reliably as
+/// copies use 16 KiB parts, transport hardens 64-bit acks/MTU, frames use
+/// LZ4 hot/cold encoding, and seats send conversation picks reliably as
 /// `Action::DialogPick` (wire tag 74).
-pub const PROTOCOL_VERSION: u16 = 14;
+pub const PROTOCOL_VERSION: u16 = 13;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

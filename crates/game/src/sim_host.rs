@@ -1617,6 +1617,7 @@ struct Landed {
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
     for_net: Option<crate::sim_worker::ForNet>,
+    stepped_at: net::NetTime,
 }
 
 impl Authority {
@@ -1681,6 +1682,7 @@ impl Authority {
                 snapshot,
                 notices: stepped.notices,
                 for_net: stepped.for_net,
+                stepped_at: stepped.stepped_at,
             });
         }
         if !away.unstepped.is_empty() {
@@ -2333,13 +2335,16 @@ fn advance(
             }
         }
         match landed.for_net.as_ref() {
-            Some(for_net) => authority.solo.stepped_hashed(
+            Some(for_net) => authority.solo.stepped_hashed_at(
                 &landed.input,
                 &landed.snapshot,
                 for_net.hash,
                 for_net.split.clone(),
+                landed.stepped_at,
             ),
-            None => authority.solo.stepped(&landed.input, &landed.snapshot),
+            None => authority
+                .solo
+                .stepped_at(&landed.input, &landed.snapshot, landed.stepped_at),
         }
     }
     // The first frame keeps the starting snapshot for the views.

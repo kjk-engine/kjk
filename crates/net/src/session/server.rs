@@ -52,7 +52,7 @@
 //! after waits one part at most. A copy over `MAX_SAVE_PARTS` parts is
 //! refused; a player with `MAX_QUEUED_COPIES` waiting is left out.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 
@@ -138,7 +138,7 @@ pub const MAX_EVERY: u8 = 8;
 /// Snapshot interval when all seats are idle and world state hasn't changed (~31 Hz).
 const IDLE_EVERY: u8 = 8;
 /// Consecutive unchanged idle ticks before throttling snapshot cadence.
-const IDLE_TICKS: u32 = 16;
+const IDLE_TICKS: u32 = 64;
 /// Rungs of the adaptive snapshot interval ladder (125 / n Hz).
 const EVERY_LADDER: [u8; 6] = [1, 2, 3, 4, 6, 8];
 /// Spacing between queued multi-fragment snapshot datagrams on a connection.
@@ -326,9 +326,12 @@ struct Base {
 #[derive(Debug)]
 pub struct EncodeJob {
     peer: Peer,
+    conn_id: u64,
+    job_id: u64,
     seat: Seat,
     only_seat: Option<Seat>,
     base_view: Option<(u64, Arc<Parts>)>,
+    entity_skips: BTreeMap<u32, u8>,
     epoch: u16,
     encode_gen: u64,
     newest: Stepped,
@@ -347,33 +350,38 @@ impl EncodeJob {
     /// Encodes and compresses the snapshot frame without holding any lock.
     pub fn run(self) -> EncodedJob {
         let mut frame = Vec::new();
-        let filtered_view = if let Some((base_tick, base_parts)) = &self.base_view {
-            let filtered = Arc::new(filter_parts_for_seat(
-                self.seat,
-                self.newest.tick,
-                self.every,
-                &self.newest,
-                base_parts,
-            ));
-            encode_parts_frame(
-                self.epoch,
-                self.newest.tick,
-                &filtered,
-                Some((*base_tick, base_parts.as_ref())),
-                &mut frame,
-            );
-            Some(filtered)
-        } else {
-            encode_frame(
-                self.epoch,
-                &self.newest,
-                self.base.as_ref().map(|base| &base.stepped),
-                &mut frame,
-            );
-            self.only_seat
-                .is_some()
-                .then(|| Arc::clone(self.newest.shared_parts()))
-        };
+        let (filtered_view, selected_entities, skipped_entities) =
+            if let Some((base_tick, base_parts)) = &self.base_view {
+                let (filtered, selected_entities, skipped_entities) = filter_parts_for_seat(
+                    self.seat,
+                    self.newest.tick,
+                    self.every,
+                    &self.newest,
+                    base_parts,
+                    &self.entity_skips,
+                );
+                let filtered = Arc::new(filtered);
+                encode_parts_frame(
+                    self.epoch,
+                    self.newest.tick,
+                    &filtered,
+                    Some((*base_tick, base_parts.as_ref())),
+                    &mut frame,
+                );
+                (Some(filtered), selected_entities, skipped_entities)
+            } else {
+                encode_frame(
+                    self.epoch,
+                    &self.newest,
+                    self.base.as_ref().map(|base| &base.stepped),
+                    &mut frame,
+                );
+                let view = self
+                    .only_seat
+                    .is_some()
+                    .then(|| Arc::clone(self.newest.shared_parts()));
+                (view, Vec::new(), Vec::new())
+            };
         let empty = TickInput::default();
         let base_commands = self
             .base
@@ -389,11 +397,15 @@ impl EncodeJob {
         );
         EncodedJob {
             peer: self.peer,
+            conn_id: self.conn_id,
+            job_id: self.job_id,
             epoch: self.epoch,
             encode_gen: self.encode_gen,
             newest: self.newest,
             base_tick: self.base.map(|base| base.stepped.tick),
             filtered_view,
+            selected_entities,
+            skipped_entities,
             applied_now: self.applied_now,
             since_us: self.since_us,
             every: self.every,
@@ -407,11 +419,15 @@ impl EncodeJob {
 #[derive(Debug)]
 pub struct EncodedJob {
     peer: Peer,
+    conn_id: u64,
+    job_id: u64,
     epoch: u16,
     encode_gen: u64,
     newest: Stepped,
     base_tick: Option<u64>,
     filtered_view: Option<Arc<Parts>>,
+    selected_entities: Vec<u32>,
+    skipped_entities: Vec<u32>,
     applied_now: Arc<TickInput>,
     since_us: u64,
     every: u8,
@@ -449,6 +465,7 @@ pub struct ConnectionStats {
 
 /// One client.
 struct Connection {
+    id: u64,
     link: Link,
     seat: Seat,
     /// What takes this seat back after a timeout.
@@ -462,8 +479,8 @@ struct Connection {
     pinned: Option<Base>,
     /// A snapshot waits to go.
     due: bool,
-    /// An off-lock encode job is currently running for this connection.
-    encoding: bool,
+    /// Off-lock encode job id currently running for this connection.
+    encoding: Option<u64>,
     every: u8,
     /// Subsequent fragments of a multi-fragment snapshot delta queued to go
     /// one every `FRAGMENT_PACE_US` so datagrams do not microburst.
@@ -484,6 +501,8 @@ struct Connection {
     /// Recent per-seat filtered `Parts` sent for `seats > 4` interest culling.
     sent_views: VecDeque<(u64, Arc<Parts>)>,
     pinned_view: Option<(u64, Arc<Parts>)>,
+    /// Consecutive budget-skips per entity id in `seats > 4` interest culling.
+    entity_skips: BTreeMap<u32, u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -562,6 +581,8 @@ pub struct Server {
     peer_to_slot: HashMap<Peer, usize>,
     poll_cursor: usize,
     encode_gen: u64,
+    next_conn_id: u64,
+    next_encode_id: u64,
     seats: Vec<SeatState>,
     ring: ServerRing,
     epoch: u16,
@@ -605,6 +626,8 @@ impl Server {
             peer_to_slot: HashMap::new(),
             poll_cursor: 0,
             encode_gen: 0,
+            next_conn_id: 0,
+            next_encode_id: 0,
             in_process: Vec::new(),
             in_process_every: 1,
             idle_ticks: 0,
@@ -1174,9 +1197,12 @@ impl Server {
             }
             Some(Lobby::Gathering) => {}
         }
+        self.next_conn_id += 1;
+        let conn_id = self.next_conn_id;
         self.connections[index] = Some(Slot {
             peer,
             conn: Connection {
+                id: conn_id,
                 link,
                 seat,
                 token,
@@ -1187,7 +1213,7 @@ impl Server {
                 confirmed_mask: 0,
                 pinned: None,
                 due: false,
-                encoding: false,
+                encoding: None,
                 every: base_every(&self.config, self.in_process_every(peer), peer),
                 paced_fragments: VecDeque::new(),
                 paced_at: now,
@@ -1201,6 +1227,7 @@ impl Server {
                 theirs: self.lobby.is_some().then(|| credentials.clone()),
                 sent_views: VecDeque::new(),
                 pinned_view: None,
+                entity_skips: BTreeMap::new(),
             },
         });
         self.peer_to_slot.insert(peer, index);
@@ -1224,6 +1251,7 @@ impl Server {
         {
             return;
         }
+        self.idle_ticks = 0;
         let level = Message::Level(self.level.clone()).to_bytes();
         for slot in self
             .connections
@@ -1238,6 +1266,7 @@ impl Server {
             slot.conn.pinned = None;
             slot.conn.sent_views.clear();
             slot.conn.pinned_view = None;
+            slot.conn.entity_skips.clear();
             slot.conn.due = true;
             let _ = slot.conn.link.send_reliable(&level);
         }
@@ -1316,6 +1345,7 @@ impl Server {
                     connection.confirmed = Confirmed::default();
                     connection.confirmed_mask = 0;
                     connection.paced_fragments.clear();
+                    connection.entity_skips.clear();
                     connection.due = true;
                     self.events
                         .push_back(ServerEvent::InstallDiffers { peer: from, epoch });
@@ -1331,6 +1361,7 @@ impl Server {
                 connection.confirmed = Confirmed::default();
                 connection.confirmed_mask = 0;
                 connection.paced_fragments.clear();
+                connection.entity_skips.clear();
             }
             Message::Choose { pick, swap } if lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
@@ -1516,10 +1547,28 @@ impl Server {
 
     /// Whether a frame can be made of `tick` (its players' snapshots go
     /// every `ServerConfig::every` ticks at the most, every multiple of it
-    /// when the link is poor): the ticks worth splitting before one asks.
-    /// A tick no frame reads is kept unsplit, and the ring drops it first.
+    /// when the link is poor, and staggered by seat when `seats > 4`): the
+    /// ticks worth splitting before one asks. A tick no frame reads is kept
+    /// unsplit, and the ring drops it first.
     pub fn sends_on(&self, tick: u64) -> bool {
-        tick.is_multiple_of(u64::from(self.config.every.clamp(1, MAX_EVERY)))
+        let mut any_remote = false;
+        let seats = self.config.seats;
+        for slot in self.connections.iter().flatten() {
+            if !slot.conn.joined || self.in_process.contains(&slot.peer) {
+                continue;
+            }
+            any_remote = true;
+            let effective = effective_every(slot.conn.every, false, self.idle_ticks);
+            let stagger = if seats > 4 {
+                u64::from(slot.conn.seat.0)
+            } else {
+                0
+            };
+            if (tick + stagger).is_multiple_of(u64::from(effective)) {
+                return true;
+            }
+        }
+        !any_remote && tick.is_multiple_of(u64::from(self.config.every.clamp(1, MAX_EVERY)))
     }
 
     /// Whether the peers in this process get a frame of `tick`
@@ -1531,8 +1580,12 @@ impl Server {
     fn keep_stepped(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
         let tick = stepped.tick;
         let was_idle = self.idle_ticks >= IDLE_TICKS;
+        let prev_input = self.applied.back().map(|(_, prev)| prev.as_ref());
+        let commands_idle = input.iter().all(|(seat, c)| {
+            *c == c.idle() && prev_input.is_some_and(|prev| prev.get(seat) == Some(c))
+        });
         let is_idle = input.actions().is_empty()
-            && input.iter().all(|(_, c)| *c == Command::default())
+            && commands_idle
             && self
                 .ring
                 .newest()
@@ -1672,7 +1725,7 @@ impl Server {
                 continue;
             }
             connection.due = false;
-            connection.encoding = false;
+            connection.encoding = None;
             connection.paced_fragments.clear();
             // Reports of commands before the stop mean nothing after.
             connection.report = ClockReport::default();
@@ -1736,6 +1789,7 @@ impl Server {
     fn resume(&mut self, now: NetTime, tick: u64, late: Vec<Peer>) {
         self.phase = Phase::Running;
         self.last = Some((tick, now));
+        self.idle_ticks = 0;
         let resume = Message::Resume { tick }.to_bytes();
         for slot in self.connections.iter_mut().flatten() {
             if slot.conn.joined {
@@ -1768,6 +1822,7 @@ impl Server {
         self.epoch = self.epoch.wrapping_add(1);
         self.encode_gen = self.encode_gen.wrapping_add(1);
         self.actions.clear();
+        self.idle_ticks = 0;
         self.ring.begin_epoch(self.epoch);
         let first = Stepped::new(after);
         self.ring.push(first.clone());
@@ -1797,8 +1852,9 @@ impl Server {
                 slot.conn.confirmed = Confirmed::default();
                 slot.conn.confirmed_mask = 0;
                 slot.conn.paced_fragments.clear();
+                slot.conn.entity_skips.clear();
                 slot.conn.due = false;
-                slot.conn.encoding = false;
+                slot.conn.encoding = None;
                 let _ = slot.conn.link.send_reliable(&message);
             }
         }
@@ -1870,7 +1926,12 @@ impl Server {
             let Some(slot) = self.connections[idx].as_mut() else {
                 continue;
             };
-            if Some(slot.peer) == exclude || !slot.conn.due || slot.conn.encoding {
+            flush_paced(&mut slot.conn, now);
+            if Some(slot.peer) == exclude
+                || !slot.conn.due
+                || slot.conn.encoding.is_some()
+                || !slot.conn.paced_fragments.is_empty()
+            {
                 continue;
             }
             slot.conn.due = false;
@@ -1934,8 +1995,12 @@ impl Server {
                 }
                 continue;
             }
-            slot.conn.encoding = true;
+            self.next_encode_id += 1;
+            let job_id = self.next_encode_id;
+            slot.conn.encoding = Some(job_id);
+            let conn_id = slot.conn.id;
             let peer = slot.peer;
+            let entity_skips = slot.conn.entity_skips.clone();
             let every = effective_every(
                 slot.conn.every,
                 self.in_process.contains(&peer),
@@ -1946,9 +2011,12 @@ impl Server {
                 .unwrap_or_else(|| Arc::new(TickInput::default()));
             return Some(EncodeJob {
                 peer,
+                conn_id,
+                job_id,
                 seat,
                 only_seat,
                 base_view,
+                entity_skips,
                 epoch: self.epoch,
                 encode_gen: self.encode_gen,
                 newest,
@@ -1970,7 +2038,10 @@ impl Server {
         let Some(slot) = self.connections[slot_idx].as_mut() else {
             return;
         };
-        slot.conn.encoding = false;
+        if slot.conn.id != done.conn_id || slot.conn.encoding != Some(done.job_id) {
+            return;
+        }
+        slot.conn.encoding = None;
         if done.epoch != self.epoch
             || done.encode_gen != self.encode_gen
             || self.phase != Phase::Running
@@ -1991,6 +2062,7 @@ impl Server {
                 self.scratch = payload;
                 if sent_ok {
                     slot.conn.stats.keyframes += 1;
+                    slot.conn.entity_skips.clear();
                     let should_pin = slot.conn.confirmed
                         != Confirmed(Some((self.epoch, done.newest.tick)))
                         && slot
@@ -2030,6 +2102,11 @@ impl Server {
                 }
                 if let Some(view) = done.filtered_view {
                     record_view(&mut slot.conn, done.newest.tick, view);
+                    apply_entity_skips(
+                        &mut slot.conn.entity_skips,
+                        &done.selected_entities,
+                        &done.skipped_entities,
+                    );
                 } else if self
                     .ring
                     .newest()
@@ -2066,12 +2143,14 @@ impl Server {
         }
         self.expire(now);
         let slot_idx = *self.peer_to_slot.get(&target)?;
+        if let Some(slot) = self.connections[slot_idx].as_mut() {
+            flush_paced(&mut slot.conn, now);
+        }
         let sent = self.send_snapshot_slot(now, slot_idx, true);
         let slot = self.connections[slot_idx].as_mut()?;
         if sent {
             attach_clock_report(&mut slot.conn, &mut self.scratch);
         }
-        flush_paced(&mut slot.conn, now);
         feed_copy(&mut slot.conn);
         slot.conn.link.poll_transmit(now)
     }
@@ -2104,6 +2183,9 @@ impl Server {
             if Some(peer) == exclude {
                 continue;
             }
+            if let Some(slot) = self.connections[idx].as_mut() {
+                flush_paced(&mut slot.conn, now);
+            }
             let sent = self.send_snapshot_slot(now, idx, sync_encode);
             let Some(slot) = self.connections[idx].as_mut() else {
                 continue;
@@ -2111,7 +2193,6 @@ impl Server {
             if sent {
                 attach_clock_report(&mut slot.conn, &mut self.scratch);
             }
-            flush_paced(&mut slot.conn, now);
             feed_copy(&mut slot.conn);
             if let Some(bytes) = slot.conn.link.poll_transmit(now) {
                 self.poll_cursor = (idx + 1) % len;
@@ -2128,7 +2209,11 @@ impl Server {
         let Some(slot) = self.connections[slot_idx].as_mut() else {
             return false;
         };
-        if !slot.conn.due || slot.conn.encoding || self.phase != Phase::Running {
+        if !slot.conn.due
+            || slot.conn.encoding.is_some()
+            || !slot.conn.paced_fragments.is_empty()
+            || self.phase != Phase::Running
+        {
             return false;
         }
         let Some(newest) = self.ring.newest() else {
@@ -2174,6 +2259,7 @@ impl Server {
                 .is_ok()
             {
                 slot.conn.stats.keyframes += 1;
+                slot.conn.entity_skips.clear();
                 if single_seat {
                     let view = Arc::clone(newest.shared_parts());
                     record_view(&mut slot.conn, newest.tick, Arc::clone(&view));
@@ -2206,13 +2292,15 @@ impl Server {
                 self.in_process.contains(&slot.peer),
                 self.idle_ticks,
             );
-            let filtered = Arc::new(filter_parts_for_seat(
+            let (filtered, selected_ids, skipped_ids) = filter_parts_for_seat(
                 seat,
                 newest.tick,
                 every,
                 newest,
                 &base_parts,
-            ));
+                &slot.conn.entity_skips,
+            );
+            let filtered = Arc::new(filtered);
             let mut frame = Vec::new();
             encode_parts_frame(
                 self.epoch,
@@ -2243,6 +2331,7 @@ impl Server {
             );
             self.scratch = payload;
             record_view(&mut slot.conn, newest.tick, filtered);
+            apply_entity_skips(&mut slot.conn.entity_skips, &selected_ids, &skipped_ids);
             return whole;
         }
         let key = Some(base.stepped.tick);
@@ -2406,7 +2495,11 @@ impl Server {
             .iter()
             .flatten()
             .filter_map(|slot| {
-                if slot.conn.due && !slot.conn.encoding && running {
+                if slot.conn.due
+                    && slot.conn.encoding.is_none()
+                    && slot.conn.paced_fragments.is_empty()
+                    && running
+                {
                     Some(NetTime(0))
                 } else {
                     let paced =
@@ -2478,6 +2571,7 @@ fn flush_paced(connection: &mut Connection, now: NetTime) {
         && let Some(frag) = connection.paced_fragments.pop_front()
     {
         let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &frag);
+        connection.stats.fragments += 1;
         if !connection.paced_fragments.is_empty() {
             connection.paced_at = now.plus(FRAGMENT_PACE_US);
         }
@@ -2520,7 +2614,6 @@ fn enqueue_delta(
             connection.paced_at = now.plus(FRAGMENT_PACE_US);
         }
         connection.stats.snapshots += 1;
-        connection.stats.fragments += count as u64 - 1;
     } else {
         connection.paced_fragments.clear();
         if connection
@@ -2651,6 +2744,17 @@ fn record_view(conn: &mut Connection, tick: u64, parts: Arc<Parts>) {
 }
 
 const MTU_ENTITY_BUDGET: usize = 900;
+const MAX_ENTITY_SKIPS: u8 = 4;
+
+fn apply_entity_skips(entity_skips: &mut BTreeMap<u32, u8>, selected: &[u32], skipped: &[u32]) {
+    for id in selected {
+        entity_skips.remove(id);
+    }
+    for id in skipped {
+        let count = entity_skips.entry(*id).or_insert(0);
+        *count = count.saturating_add(1);
+    }
+}
 
 fn bytes_eq(a: &std::sync::Arc<[u8]>, b: &std::sync::Arc<[u8]>) -> bool {
     Arc::ptr_eq(a, b) || *a == *b
@@ -2681,25 +2785,28 @@ fn est_entity_delta(base: &sim::EntityPart, now: &sim::EntityPart) -> usize {
 /// Builds a seat's interest-filtered `Parts` when `seats > 4`: keeps own
 /// avatar, newly spawned entities, and high-priority nearby entities within
 /// `MTU_ENTITY_BUDGET` (packing nearest tier-0/1/2/3 updates by priority and
-/// distance so most frames stay inside one UDP MTU), reusing `base_parts`
-/// verbatim for skipped entities so `codec::encode` emits `OP_KEEP`.
+/// distance so most frames stay inside one UDP MTU), promoting any entity
+/// skipped `MAX_ENTITY_SKIPS` consecutive snapshots so large updates never
+/// starve, and reusing `base_parts` verbatim for skipped entities so
+/// `codec::encode` emits `OP_KEEP`.
 fn filter_parts_for_seat(
     seat: Seat,
     tick: u64,
     every: u8,
     now: &Stepped,
     base_parts: &Parts,
-) -> Parts {
+    entity_skips: &BTreeMap<u32, u8>,
+) -> (Parts, Vec<u32>, Vec<u32>) {
     let now_parts = now.parts();
     let Some(positions) = now.positions() else {
-        return now_parts.clone();
+        return (now_parts.clone(), Vec::new(), Vec::new());
     };
     let Some(own_pos) = positions
         .iter()
         .find(|(_, avatar_seat, _)| *avatar_seat == Some(seat.0))
         .map(|(_, _, pos)| *pos)
     else {
-        return now_parts.clone();
+        return (now_parts.clone(), Vec::new(), Vec::new());
     };
 
     let n = now_parts.entities.len();
@@ -2719,6 +2826,8 @@ fn filter_parts_for_seat(
     let mut used = 0usize;
     let mut avatars: Vec<(u32, u32, usize, usize)> = Vec::new();
     let mut others: Vec<(u32, u32, usize, usize)> = Vec::new();
+    let mut selected_ids = Vec::new();
+    let mut skipped_ids = Vec::new();
 
     for (i, entity) in now_parts.entities.iter().enumerate() {
         let pos_entry = positions
@@ -2733,6 +2842,9 @@ fn filter_parts_for_seat(
             });
         let Some((_, avatar_seat, pos)) = pos_entry else {
             selected[i] = true;
+            if entity_skips.contains_key(&entity.id.0) {
+                selected_ids.push(entity.id.0);
+            }
             used += base_match[i].map_or(entity.hot.len() + entity.cold.len() + 4, |bi| {
                 est_entity_delta(&base_parts.entities[bi], entity)
             });
@@ -2740,6 +2852,9 @@ fn filter_parts_for_seat(
         };
         if avatar_seat == Some(seat.0) {
             selected[i] = true;
+            if entity_skips.contains_key(&entity.id.0) {
+                selected_ids.push(entity.id.0);
+            }
             used += base_match[i].map_or(entity.hot.len() + entity.cold.len() + 4, |bi| {
                 est_entity_delta(&base_parts.entities[bi], entity)
             });
@@ -2747,11 +2862,17 @@ fn filter_parts_for_seat(
         }
         let Some(base_idx) = base_match[i] else {
             selected[i] = true;
+            if entity_skips.contains_key(&entity.id.0) {
+                selected_ids.push(entity.id.0);
+            }
             used += entity.hot.len() + entity.cold.len() + 4;
             continue;
         };
         let base_ent = &base_parts.entities[base_idx];
         if bytes_eq(&base_ent.hot, &entity.hot) && bytes_eq(&base_ent.cold, &entity.cold) {
+            if entity_skips.contains_key(&entity.id.0) {
+                selected_ids.push(entity.id.0);
+            }
             continue;
         }
         let dx = pos[0] - own_pos[0];
@@ -2775,45 +2896,61 @@ fn filter_parts_for_seat(
     let mid_limit = (40.0f32 * 40.0f32).to_bits();
     let slot = tick / u64::from(every.max(1));
 
-    let mut eligible: Vec<(u8, u32, usize, usize)> =
+    let mut eligible: Vec<(bool, u8, u32, usize, u32, usize)> =
         Vec::with_capacity(avatars.len() + others.len());
     for (rank, &(d2_bits, id, now_idx, est)) in avatars.iter().enumerate() {
-        let tier = if rank < 4 && d2_bits <= near_limit {
+        let skips = entity_skips.get(&id).copied().unwrap_or(0);
+        let overdue = skips >= MAX_ENTITY_SKIPS;
+        let tier = if overdue || (rank < 4 && d2_bits <= near_limit) {
             Some(0)
         } else if rank < 8 && d2_bits <= near_limit && (slot + u64::from(id)).is_multiple_of(2) {
             Some(1)
         } else if rank < 16 && d2_bits <= mid_limit && (slot + u64::from(id)).is_multiple_of(4) {
             Some(2)
-        } else if (slot + u64::from(id)).is_multiple_of(12) {
+        } else if skips > 0 || (slot + u64::from(id)).is_multiple_of(12) {
             Some(3)
         } else {
             None
         };
         if let Some(tier) = tier {
-            eligible.push((tier, d2_bits, now_idx, est));
+            eligible.push((!overdue, tier, d2_bits, now_idx, id, est));
         }
     }
     for (rank, &(d2_bits, id, now_idx, est)) in others.iter().enumerate() {
-        let tier = if rank < 4 && d2_bits <= near_limit {
+        let skips = entity_skips.get(&id).copied().unwrap_or(0);
+        let overdue = skips >= MAX_ENTITY_SKIPS;
+        let tier = if overdue || (rank < 4 && d2_bits <= near_limit) {
             Some(0)
-        } else if (slot + u64::from(id)).is_multiple_of(4) {
+        } else if skips > 0 || (slot + u64::from(id)).is_multiple_of(4) {
             Some(2)
         } else {
             None
         };
         if let Some(tier) = tier {
-            eligible.push((tier, d2_bits, now_idx, est));
+            eligible.push((!overdue, tier, d2_bits, now_idx, id, est));
         }
     }
 
-    eligible.sort_unstable_by_key(|&(tier, d2, _, _)| (tier, d2));
+    eligible.sort_unstable_by_key(|&(not_overdue, tier, d2, _, id, _)| (not_overdue, tier, d2, id));
     let mut picked_any = false;
-    for (tier, _, now_idx, est) in eligible {
-        if used + est <= MTU_ENTITY_BUDGET || (tier == 0 && !picked_any && used < MTU_ENTITY_BUDGET)
+    let mut picked_overdue = false;
+    for (not_overdue, tier, _, now_idx, id, est) in eligible {
+        let overdue = !not_overdue;
+        if used + est <= MTU_ENTITY_BUDGET
+            || (tier == 0 && !picked_any && used < MTU_ENTITY_BUDGET)
+            || (overdue && !picked_overdue)
         {
             selected[now_idx] = true;
             used += est;
             picked_any = true;
+            if overdue {
+                picked_overdue = true;
+            }
+            if entity_skips.contains_key(&id) {
+                selected_ids.push(id);
+            }
+        } else {
+            skipped_ids.push(id);
         }
     }
 
@@ -2832,13 +2969,24 @@ fn filter_parts_for_seat(
         })
         .collect();
 
-    Parts {
+    for &id in entity_skips.keys() {
+        if now_parts
+            .entities
+            .binary_search_by_key(&sim::SimId(id), |e| e.id)
+            .is_err()
+        {
+            selected_ids.push(id);
+        }
+    }
+
+    let parts = Parts {
         head: now_parts.head.clone(),
         entities,
         tail: now_parts.tail.clone(),
         tail_cold: now_parts.tail_cold.clone(),
         stash: now_parts.stash.clone(),
-    }
+    };
+    (parts, selected_ids, skipped_ids)
 }
 
 /// A connection's snapshot interval with nothing to slow it: every tick

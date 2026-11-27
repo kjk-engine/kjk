@@ -61,6 +61,8 @@ pub(crate) struct Stepped {
     pub snapshot: Arc<Snapshot>,
     pub notices: Vec<(Seat, Notice)>,
     pub for_net: Option<ForNet>,
+    /// When the step thread pulled commands and stepped this tick.
+    pub stepped_at: net::NetTime,
 }
 
 /// What the step thread made of a tick for the network. A host's tick is
@@ -146,14 +148,15 @@ fn step_order(
         prepare,
         live,
     } = order;
-    let (input, split) = match live {
+    let (input, split, stepped_at) = match live {
         Some(live) => {
             let mut hosted = crate::net_thread::lock(&live.hosted);
             let input = hosted.commands_for(tick, live.paused_by);
             let split = hosted.server().sends_on(tick);
-            (input, split)
+            drop(hosted);
+            (input, split, crate::solo::now())
         }
-        None => (input, prepare.split),
+        None => (input, prepare.split, crate::solo::now()),
     };
     let snapshot = Arc::new(step(world, tick, &input, msec, StepReason::Authority));
     let notices = world.take_notices();
@@ -185,6 +188,7 @@ fn step_order(
         snapshot,
         notices,
         for_net,
+        stepped_at,
     }
 }
 
