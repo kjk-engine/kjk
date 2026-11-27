@@ -3476,7 +3476,10 @@ fn water_textures_drawn_as_water() {
 /// the override files read. On installs written there; no
 /// installs needed (approved 2026-11-05). A texture held as both a TPC and
 /// a TGA loads the copy the games load (`texture_formats`, proposed
-/// 2026-11-24, not yet approved).
+/// 2026-11-24, not yet approved). The conversations in the override
+/// folders are listed, the game's and the Workshop items', and none of a
+/// module's own (`override_conversations`, proposed 2026-11-27, not yet
+/// approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);

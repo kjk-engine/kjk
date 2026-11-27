@@ -218,6 +218,85 @@ impl Default for ScreenModes {
 /// The smallest fullscreen mode offered.
 const SMALLEST: UVec2 = UVec2::new(800, 600);
 
+/// The mode the game's window is made in. It is borderless when the saved
+/// settings ask for borderless, or for fullscreen on a system that takes
+/// fullscreen as borderless. It is a window when the settings ask for
+/// anything else, or when the last start did not get going with its
+/// display (its trial's file is still there).
+///
+/// A window made borderless does not switch to borderless at startup. On
+/// Windows, v0.22.0 made that switch 76 ms after the window was made, and
+/// the window then kept drawing at its first size of 1280 x 720.
+pub fn opening_mode() -> WindowMode {
+    let saved: std::collections::BTreeMap<String, String> = crate::settings::file()
+        .and_then(|file| std::fs::read(file).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_else(std::collections::BTreeMap::new);
+    let get = |key: &str| saved.get(key).map_or("", String::as_str);
+    let on_trial = trial_file().is_some_and(|file| file.exists());
+    opening(
+        DisplayMode::named(get("display.mode")),
+        size_named(get("display.size")),
+        on_trial,
+        exclusive_on(std::env::consts::OS),
+    )
+}
+
+/// `opening_mode` for a saved `mode` and `size`. A mode that needs the
+/// screen to be known (a window of a size, a screen's own mode) is made as
+/// a window, and `show` puts it to the window later.
+fn opening(mode: DisplayMode, size: Option<UVec2>, on_trial: bool, exclusive: bool) -> WindowMode {
+    let place = placed(mode, size, None, u32::MAX, exclusive);
+    if place.settled && !on_trial {
+        place.mode
+    } else {
+        WindowMode::Windowed
+    }
+}
+
+/// How long a borderless window may differ from its screen's size before
+/// `fill_screen` puts it to the screen's size.
+const FILL_SECONDS: f64 = 1.0;
+
+/// How many times `fill_screen` puts one borderless window to its screen's
+/// size before it stops trying.
+const FILL_TRIES: u8 = 3;
+
+/// On Windows, a borderless window that is not its screen's size for
+/// `FILL_SECONDS` is put to the screen's size, and the log says so.
+///
+/// Windows reports a window's new size after each change. When the report
+/// of the window's first size (1280 x 720) comes after the report of its
+/// borderless size, Bevy takes the first size as the window's size. Bevy
+/// then draws at 1280 x 720 and asks Windows for a window of that size. A
+/// minimized window (0 x 0) is left alone.
+fn fill_screen(
+    mut windows: Query<(&mut Window, Option<&OnMonitor>), With<PrimaryWindow>>,
+    monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
+    time: Res<Time<Real>>,
+    mut wrong: Local<(Option<f64>, u8)>,
+) {
+    let Ok((mut window, on)) = windows.single_mut() else {
+        return;
+    };
+    let size = window.resolution.physical_size();
+    let full = screen(on, &monitors)
+        .map(|monitor| UVec2::new(monitor.physical_width, monitor.physical_height));
+    let borderless = matches!(window.mode, WindowMode::BorderlessFullscreen(_));
+    let Some(full) = full.filter(|full| borderless && size != UVec2::ZERO && size != *full) else {
+        *wrong = (None, 0);
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    let since = *wrong.0.get_or_insert(now);
+    if now - since < FILL_SECONDS || wrong.1 >= FILL_TRIES {
+        return;
+    }
+    *wrong = (Some(now), wrong.1 + 1);
+    warn!(target: "display", ?size, screen = ?full, try_number = wrong.1, "the borderless window is not its screen's size; it is put to the screen's size");
+    window.resolution.set_physical_resolution(full.x, full.y);
+}
+
 pub struct DisplayPlugin;
 
 impl Plugin for DisplayPlugin {
@@ -232,6 +311,9 @@ impl Plugin for DisplayPlugin {
             )
             .add_systems(Last, (show, trial_settles, brightness, facts))
             .add_systems(Pace, pace);
+        if cfg!(windows) {
+            app.add_systems(Last, fill_screen.after(show));
+        }
     }
 
     /// `Pace` runs last of all the frame's schedules, after every plugin
@@ -380,7 +462,51 @@ pub fn probes() -> sim::probe::Checks {
             fullscreen_by_system(),
         ),
         ("a_display_change_is_put_once", change_put_once()),
+        ("window_opens_borderless", window_opens_borderless()),
     ]
+}
+
+/// The mode the window is made in: borderless for borderless, and for
+/// fullscreen where fullscreen is borderless. A window for a window of a
+/// size, for a screen's own mode, and for a borderless display whose last
+/// start did not get going.
+#[cfg(feature = "probes")]
+fn window_opens_borderless() -> Result<String, String> {
+    let full = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+    let hd = Some(UVec2::new(1920, 1080));
+    let cases = [
+        (DisplayMode::Borderless, None, false, true, full),
+        (DisplayMode::Fullscreen, hd, false, false, full),
+        (
+            DisplayMode::Fullscreen,
+            hd,
+            false,
+            true,
+            WindowMode::Windowed,
+        ),
+        (DisplayMode::Window, hd, false, false, WindowMode::Windowed),
+        (
+            DisplayMode::Window,
+            None,
+            false,
+            false,
+            WindowMode::Windowed,
+        ),
+        (
+            DisplayMode::Borderless,
+            None,
+            true,
+            false,
+            WindowMode::Windowed,
+        ),
+    ];
+    let wrong: Vec<_> = cases
+        .iter()
+        .filter(|(mode, size, on_trial, exclusive, wanted)| {
+            opening(*mode, *size, *on_trial, *exclusive) != *wanted
+        })
+        .collect();
+    sim::probe::check(wrong.is_empty(), format!("wrong opening modes {wrong:?}"))
 }
 
 /// A 1920 x 1080 screen at 60 Hz with that one mode.

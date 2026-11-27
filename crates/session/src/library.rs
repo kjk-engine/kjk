@@ -69,7 +69,8 @@ impl Seeds<'_> {
 /// creature templates (`spoken`: template, DLG) that are companions or that
 /// a script names, those of the templates the module carries in its own
 /// archives (`carried`: a script may make one by a name it builds), every
-/// script a DLG names, and every script or DLG a
+/// conversation and script in an override folder (a mod's script may name
+/// one by a name it builds), every script a DLG names, and every script or DLG a
 /// script names in a string constant (`ExecuteScript`'s,
 /// `ActionStartConversation`'s), with the game's routines; and every
 /// resref-like string the scripts hold. Its gathering taken from `bakes` when gathered
@@ -118,6 +119,7 @@ pub(crate) fn script_library(
                 .filter(|row| !row.script.is_empty())
                 .map(|row| row.script.to_ascii_lowercase()),
         )
+        .chain(source.override_names(ResType::NCS))
         .collect();
     let talks = data
         .objects()
@@ -131,6 +133,12 @@ pub(crate) fn script_library(
                 .map(|(_, dialog)| dialog.clone()),
         )
         .chain(carried.iter().cloned())
+        // The override folders' (the files mods add): a script may start
+        // one of them, or run one, by a name it puts together as it runs,
+        // which no string of it holds whole (Expanded Jedi Training's
+        // `m_train_convo` starts "train" + "_form"). The original game
+        // opens any file of the install by name when a script asks for it.
+        .chain(source.override_names(ResType::DLG))
         .filter(|name| !name.is_empty())
         .collect();
     let seeds = Seeds {

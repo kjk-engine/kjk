@@ -186,7 +186,10 @@ pub fn run(options: RunOptions) -> AppExit {
         ));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
-            primary_window: Some(game_window()),
+            primary_window: Some(Window {
+                mode: crate::display::opening_mode(),
+                ..game_window()
+            }),
             close_when_requested: !options.asks_before_closing,
             ..default()
         }))
