@@ -152,11 +152,11 @@ pub(crate) struct Ordered(pub Vec<SimId>);
 #[derive(Resource, Default)]
 pub(crate) struct ItemTalents(pub Vec<(crate::snapshot::SimId, u16, crate::snapshot::SimId)>);
 
-/// The feat lines minds' talents chose this step (`combat::picks`), by
-/// user, hand and `feat.2da` row: each kept in the scripts' step. Authority
-/// only.
+/// The feat lines minds chose this step (`combat::picks`), by user, hand,
+/// `feat.2da` row, and whether the engine's chooser chose it rather than a
+/// script's talent: each kept in the scripts' step. Authority only.
 #[derive(Resource, Default)]
-pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16)>);
+pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16, bool)>);
 
 /// The fighters whose minds switched their weapon sets this step (a
 /// creature whose target stands out of its reach switches to its ranged
@@ -257,6 +257,8 @@ struct Life {
     grappled: bool,
     /// The last to hit it, and when.
     attacker: Option<(u32, u64)>,
+    /// It is using an item through an action (`Character::item_use`).
+    using_item: bool,
 }
 
 /// Queues `id`'s hook for `event`, if it has one.
@@ -660,6 +662,9 @@ pub(super) fn scripts(
             stealth: fighter.covert.stealth,
             look: fighter.look,
             item_used_ms: fighter.pack.last.1,
+            item_use: (fighter.pack.using)
+                .filter(|_| fighter.pack.ordered)
+                .map(|(row, _)| row),
         });
         let sim = ObjectId(id.0.0);
         if let Some(fighting) = fighting {
@@ -673,6 +678,7 @@ pub(super) fn scripts(
                 in_combat: fighter.combat_until > now,
                 grappled: fighter.grapple.is_some(),
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
+                using_item: fighter.pack.using.is_some() && fighter.pack.ordered,
             });
         }
         if filled == list.len() {
@@ -1104,12 +1110,19 @@ pub(super) fn scripts(
         arena_edits =
             super::arena::orders(library, &view, state, orders, &bodies, (rules, &mut out));
     }
-    // The feat lines the minds' talents chose.
-    for &(user, hand, row) in &feat_talents.0 {
+    // The feat lines the minds chose, by a script's talent or by the
+    // engine's chooser.
+    for &(user, hand, row, engine) in &feat_talents.0 {
+        use crate::combat::picks::Picks;
         let who = ObjectId(user.0);
         if let Some(character) = view.thing(who).and_then(|thing| thing.character) {
             let mut sheet = out.sheet(who, character.worn);
-            if crate::combat::picks::Picks::choose(&mut sheet, hand, row) {
+            let chosen = if engine {
+                Picks::steer(&mut sheet, hand, row)
+            } else {
+                Picks::choose(&mut sheet, hand, row)
+            };
+            if chosen {
                 out.changes.push(Change::Sheet { who, sheet });
             }
         }
@@ -1982,7 +1995,11 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     }
     let now = view.now_ms;
     let next = state.rounds.entry(id.0).or_insert(now + ROUND_MS);
-    if now >= *next {
+    // A combat round does not end while the character uses an item through
+    // an action. It ends on the first step after the use is over. The
+    // round's AI script clears the character's actions, and that would
+    // break the use off.
+    if now >= *next && !life.using_item {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
         let scene = (state.last).contains_key(&(id.0, crate::script::last::SCENE_ROUND));

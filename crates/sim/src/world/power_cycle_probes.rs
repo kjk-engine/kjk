@@ -358,11 +358,13 @@ fn fists_talent_and_bytes() -> Result<String, String> {
     let again = Picks::choose(&mut sheet, 0, feats::POWER_ATTACK[0]);
     let mut out = Writer::default();
     sheet.picks.encode(&mut out);
-    let back = Picks::decode(&mut Reader::new("picks", &out.0), true, true)
+    let back = Picks::decode(&mut Reader::new("picks", &out.0), true, true, true)
         .map_err(|e| format!("{e:?}"))?;
-    let old = &out.0[..out.0.len() - 1];
-    let before =
-        Picks::decode(&mut Reader::new("picks", old), true, false).map_err(|e| format!("{e:?}"))?;
+    let mut old = Writer::default();
+    sheet.picks.encode_as(&mut old, false);
+    let old = &old.0[..old.0.len() - 1];
+    let before = Picks::decode(&mut Reader::new("picks", old), true, false, false)
+        .map_err(|e| format!("{e:?}"))?;
     check(
         taken
             && !again

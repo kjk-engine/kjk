@@ -1199,6 +1199,8 @@ impl State {
             return held;
         }
         self.wearing(out, who);
+        out.changes
+            .push(Change::WeaponSetsSwitched { who: ObjectId(who) });
         for &(id, slot) in &held {
             if let Some(mut item) = self.items.get_mut(&id) {
                 item.slot = Some(slot);

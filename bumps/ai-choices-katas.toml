@@ -1,0 +1,9 @@
+# The sim's hash moves on purpose: Skilled fighters, elites and companions
+# start special saber moves, and they roll or cartwheel out of danger.
+sim = "Skilled fighters and companions start special saber moves and escape from danger"
+
+[formats]
+snapshot = "a mind keeps the escape it presses the keys of, its side, since when, and when it may start the next (`Pace::escape`, `escape_side`, `escape_since`, `escape_after`), its average of its target's speed away and around (`Pace::drift`), and when its special move began (`Pace::special_began`)."
+
+[migrations]
+snapshot = "old saves read no escape under way, `escape_after = 0`, a target that stood still and no special move under way: every mind may start an escape at once"

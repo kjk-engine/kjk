@@ -835,6 +835,13 @@ pub(in crate::world) fn apply(
                     fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + crate::combat::SWAP_MS;
                 }
             }
+            // The hold on a changed feat line was for the weapon put away.
+            Change::WeaponSetsSwitched { who } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                {
+                    fighting.0.mind.feat_at = 0;
+                }
+            }
             Change::Usable { who, sheet, used } => {
                 if let Some((entity, _)) = entities.iter().find(|(_, id)| id.0.0 == who.0) {
                     commands.entity(entity).insert(PlayerSheet(sheet));

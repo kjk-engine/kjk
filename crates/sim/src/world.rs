@@ -96,7 +96,15 @@ pub mod bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub mod bulk_probes;
 #[cfg(feature = "probes")]
+pub mod choice_probes;
+#[cfg(feature = "probes")]
+pub mod companion_talent_probes;
+#[cfg(feature = "probes")]
 pub mod effects_probes;
+#[cfg(feature = "probes")]
+pub mod enemy_choice_probes;
+#[cfg(feature = "probes")]
+pub mod feat_choice_probes;
 #[cfg(feature = "probes")]
 pub mod floor_probes;
 #[cfg(feature = "probes")]
@@ -105,6 +113,8 @@ pub mod force_probes;
 pub mod held_probes;
 #[cfg(feature = "probes")]
 pub mod hold_probes;
+#[cfg(feature = "probes")]
+pub mod medpac_hit_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
@@ -141,6 +151,8 @@ mod scene;
 pub mod scream_probes;
 #[cfg(feature = "probes")]
 pub mod speaker_probes;
+#[cfg(feature = "probes")]
+pub mod special_choice_probes;
 pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;

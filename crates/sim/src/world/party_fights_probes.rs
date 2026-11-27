@@ -78,9 +78,12 @@ impl Run {
                 )
             }));
         }
+        // The foe carries no items, so that a grenade or a shield of its
+        // own choice never changes who stands and fights.
         data.placements.push(Placement::Own(ObjectData {
             sheet: Some(Sheet {
                 faction: factions::HOSTILE_1,
+                items: Default::default(),
                 ..Sheet::dev_soldier()
             }),
             ..ObjectData::bare(
@@ -90,16 +93,7 @@ impl Run {
             )
         }));
         let library = crate::probe::library("", Vec::<(String, _)>::new());
-        // The navigation mesh over the room.
-        let [p, q, r, s] = [[-7.5, -5.5], [7.5, -5.5], [7.5, 5.5], [-7.5, 5.5]]
-            .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
-        let mut nav = collision::nav::NavMesh::build(
-            &[[p, q, r], [p, r, s]],
-            crate::walk::CLEARANCE * collision::UNIT,
-        );
-        if let Some(level) = ground.collision().level() {
-            nav.mark(level);
-        }
+        let nav = ground_nav(&ground);
         let level = ground.with_module(data).with_scripts(library).with_nav(nav);
         let config = WorldConfig {
             seats: if guest { 2 } else { 1 },
@@ -250,6 +244,20 @@ impl Run {
             crate::math::flat_distance(a.origin, b.origin)
         })
     }
+}
+
+/// The navigation mesh over the proving ground's room `ground`.
+pub(super) fn ground_nav(ground: &crate::Level) -> collision::nav::NavMesh {
+    let [p, q, r, s] = [[-7.5, -5.5], [7.5, -5.5], [7.5, 5.5], [-7.5, 5.5]]
+        .map(|[x, y]| crate::determinism::ground_point(x, y, 0.0));
+    let mut nav = collision::nav::NavMesh::build(
+        &[[p, q, r], [p, r, s]],
+        crate::walk::CLEARANCE * collision::UNIT,
+    );
+    if let Some(level) = ground.collision().level() {
+        nav.mark(level);
+    }
+    nav
 }
 
 fn lead(id: u32) -> Option<Action> {

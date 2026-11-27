@@ -402,6 +402,16 @@ summary = "The floor beyond a doorway is checked every {walking.searches.doorway
 source = "ours"
 see = "sim::walk::outside"
 
+[searches.placeable_tries]
+name = "Route Around an Object"
+type = "u32"
+value = 4
+unit = "times"
+range = [0, 16]
+summary = "A path does not turn where an object in the level leaves a character no room to stand. Such a path is planned again without the floor around that turn, at most {walking.searches.placeable_tries:bare} times. If no path without such a turn is found, the first path is used."
+source = "ours (Taris's Lower City: the floor runs on between a rubble pile and the wall behind it)"
+see = "sim::walk::route_round"
+
 [searches.clear_rings]
 name = "Around a Pillar"
 value = [6.0, 12.0, 18.0, 24.0, 32.0, 40.0, 48.0, 56.0, 64.0]

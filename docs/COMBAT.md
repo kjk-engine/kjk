@@ -407,9 +407,44 @@ circles at a walk now and then, holds each way it moves a while before
 turning back, parries when its enemy swings, and swings within striking
 range, its swings chained from where the last ended (move_body, creatures
 only) rather than by its keys;
-Force users cast their scripts' talents (`k_ai_master` chooses every
-power, item, grenade and feat), on a stage without scripts what fits,
-`ai::choose_power`; two creatures outside the party whose scripts attack
+Force users cast their scripts' feats and a boss's own powers. A companion
+the AI controls chooses its own powers and grenades, and every other
+creature that fights chooses its own powers, items and grenades
+(`combat::choose`, the rulebook's Choosing Powers and Items). The powers and
+items that the games' generic combat scripts (`k_ai_master`, the `k_def_`
+and `k_hen_` scripts, `data/ai_generic_scripts.txt`) pick for a creature
+are left to that choice. The characters of one side wait for each other
+before they use the same kind of thing (`ai.choices.side_wait_ms`). The
+same characters choose their own feat line where scripts run
+(`choose::feat_line`, the rulebook's Choosing Feats). A single blade
+fights in the strong style against a target that blocks often, in the
+fast style against a tired or staggered target, and in the medium style
+otherwise. Two blades, a staff, fists and a stun baton take the matching
+feat line through `Picks::steer`. A gun takes Rapid Shot, Sniper Shot or
+Power Blast by its own reasons, and Power Blast when no reason holds. It
+fires the special of the line in use when that line's reason holds or the
+line is its fallback. A single blade's new style is queued. The swing
+under way keeps its style, and a creature takes the new one as its next
+swing begins, in a chain too. A changed line is kept for 6 seconds, until
+the character switches weapon sets. A line the player picked with the
+next-feat key or the action bar stays. A Skilled fighter starts the
+special moves of its saber style itself, under both rule sets, by a
+chance as it attacks, and a Boss by a higher chance (`pace::special_one_in`, the
+rulebook's Special Saber Moves by Tier). It needs a reason first
+(`pace::special_reason`): a stunned, knocked down, staggered or tired target,
+a target that swings, blocks standing still, or stands still or comes at it.
+A target that leaves it or circles it gets none, judged from the target's
+speed averaged over a short time (`Pace::drift`). The long moves, the katas
+and the jump attacks, need a stunned or knocked down target, or a tired one
+that stands still. A special move that hits nothing makes the fighter wait
+longer before the next (`Pace::note_special_end`). A fighter with a melee weapon that
+is not a lightsaber is Skilled when it knows a second or third rank of a
+melee feat attack or its tag is in `data/duel_skilled.txt`, and a companion
+is always Skilled. A Skilled fighter and a Boss roll or cartwheel to a side
+when a grenade lands near, when the target winds up a kata or a spin, or
+when it starts to back off tired (`Pace::escaping`, the rulebook's Rolls and
+Cartwheels Out of Danger). A feat line that a generic combat script
+picks becomes a plain attack on the same target; two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,
 `damage::weapon_damage`); a gunner beyond its
@@ -1009,15 +1044,27 @@ moving do not break it off; a stun (a grip's choke too), a knockdown or a
 fall does (`items::break_off`), the item gone. A weapon change or a power
 with a hand waits for it (`Pack::busy`), as an action queued after it. A
 use its action began (Use Item, an AI's item talent from `k_ai_master`'s
-`GN_TalentMasterRoutine`) takes its item as it lands instead, and a
-script's `ClearAllActions` before then breaks it off with nothing spent,
-as KOTOR's action queue does: the AI clears and queues its talent again
-when a delayed combat round runs (`Pack::ordered`); the talent's action
+`GN_TalentMasterRoutine`) takes its item as it lands instead
+(`Pack::ordered`). A script's `ClearAllActions` before then breaks it off
+with nothing spent, as KOTOR's action queue does. The talent's action
 ends with its use, one item an action, or with its refusal (no such item
-left, its target out of reach). Minds heal below 35% (an antidote when
-afflicted), raise a shield and take a stim in a fight (`ai::choose_item`),
-never before they are aware. A **poison** (`items::Poisoned`: a script's
-`EffectPoison` by its `poison.2da` row, a trap's, a weapon's on-hit, the
+left, its target out of reach). While such a use runs, the scripts see it
+as the character's current action. `GetCurrentAction` names the talent's
+action, and `GetAttemptedSpellTarget` returns the user
+(`script::Character::item_use`). The games' damaged scripts (`k_ai_master`'s
+events 1006 for a creature and 2006 for a companion) start a new combat
+round only for a character with no attack target and no spell target. So a
+hit no longer starts a round whose `ClearAllActions` would break the use
+off and queue the same medpac again. A character's combat round does not
+end while such a use runs either. It ends on the first step after the use
+is over, because `k_def_combend01`'s round clears the actions without any
+test. Outside story scripts and for enemies, a mind uses a medpac when
+below half its hit points, and a shield or a stim in the first seconds of
+a fight, never before it is aware (`combat::choose`). A companion uses a
+medpac or a repair kit only when its own combat script picks one. A
+companion uses no stim and no shield in a fight, because the engine drops
+every item spell that its combat script picks, other than a medpac, a
+repair kit and a droid's own weapon. A **poison** (`items::Poisoned`: a script's
 poison grenade) runs as KOTOR's executables run it: its first dose lands
 as it takes, then one every `period` while its `duration` lasts (none at
 its very end), and it stays on until then, keeping a second poison off
@@ -1053,9 +1100,13 @@ concussion a stun, adhesive entanglement (no save), poison 4 every 3 s for
 30 s (DC 25); holds last 3 s at most, then a second's immunity. Sheets carry
 two kinds (creatures from their inventory; the dev soldier three frag and
 a thermal, the dev Jedi two frag); fighters count throws and carry poison
-and weakness. Creatures throw at targets 4–12 m off now and then
-(`ai::choose_grenade`; on a module `k_ai_master` picks them, thrown the same
-way). A throw while a conversation holds the world
+and weakness. A companion, and every other creature that fights, throws at
+a target up to 12 m off when at least two enemies and none of its allies
+stand in the blast (`combat::choose`). A companion throws only in an
+intense fight, and never the party's last two of a kind. An enemy throws
+the grenades of its own inventory, its last one too. No two characters of
+one side throw within 10 s of each other (`ai.choices.side_wait_ms`). A
+throw while a conversation holds the world
 (`ActionUseTalentOnObject` in a scene: K1's `k_pend_cut2_3`, the only one in
 either game) goes at any distance: 55° up, charged to land on the target
 (`grenades::lob_strength`), meeting nothing on the way and bursting as it

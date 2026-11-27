@@ -1,0 +1,11 @@
+# The sim's hash moves on purpose: companions and enemies choose their own
+# feat line and saber style.
+sim = "companions and enemies choose their own feat line and saber style"
+
+[formats]
+snapshot = "a character's feat choices mark each line the player picked (`Picks::player`), and a mind keeps when it last changed its feat line or saber style (`Mind::feat_at`)."
+save = "a companion kept outside the party keeps the marks of the feat lines the player picked (`Picks::player`)."
+
+[migrations]
+snapshot = "old saves read no marks and `feat_at = 0`: no line counts as the player's pick until the player picks again, and every mind may change its feat line at once"
+save = "old saves read no marks: no line of a companion kept outside the party counts as the player's pick until the player picks again"

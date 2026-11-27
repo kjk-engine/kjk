@@ -1863,6 +1863,15 @@ impl Library {
             .unwrap_or(Talent::default())
     }
 
+    /// Whether `spells.2da` row `row` is used on enemies (`Talent::hostile`),
+    /// or `None` for a row past the table.
+    pub fn hostile(&self, row: u16) -> Option<bool> {
+        self.talents
+            .spells
+            .get(usize::from(row))
+            .map(|talent| talent.hostile)
+    }
+
     /// The menu that offers power `row`, where its impact script can run:
     /// `Menu::None` for a row no menu offers, or one with no script here.
     pub fn offered(&self, row: u16) -> Menu {
@@ -2183,6 +2192,15 @@ pub struct Character {
     /// When it last used an item (sim ms; 0 for never,
     /// `combat::items::Pack::last`).
     pub item_used_ms: u64,
+    /// The `spells.2da` row of an item it is using through an action, while
+    /// the use runs. Such an action is Use Item or an AI's item talent
+    /// (`combat::items::Pack::ordered`). The talent's action leaves the
+    /// queue as the use begins, but scripts still see the use as its current
+    /// action (`GetCurrentAction`) with itself as the spell's target
+    /// (`GetAttemptedSpellTarget`). The games' damaged scripts start a new
+    /// combat round only for a character with no action of that kind, and a
+    /// new round's `ClearAllActions` would break the use off.
+    pub item_use: Option<u16>,
 }
 
 /// The world as scripts read it this step: things in id order, the
@@ -2716,6 +2734,10 @@ pub enum Change {
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },
+    /// `who`'s weapon sets were exchanged, by anyone (`State::switch_weapons`):
+    /// its mind may choose the feat line of the new weapon at once
+    /// (`Mind::feat_at` cleared).
+    WeaponSetsSwitched { who: ObjectId },
     /// A conversation began around `around`: its PC, or the body whose use
     /// started it; or the host joined one, around its owner (R5). Those
     /// `who` names, far off, come to it
@@ -3030,6 +3052,12 @@ pub(super) struct Event {
     /// through deferred code, which steered a guest's companion into the
     /// fight while its seat played it.
     pub ai: Option<ObjectId>,
+    /// The name of the script that began the creature's own AI run
+    /// (`ai`). For an event on one of its hooks it is the hook's script,
+    /// such as `k_def_combend01`. A script that this run executes keeps the
+    /// name. For deferred code it is the script the code was written in,
+    /// because a deferral keeps no more than that. `run_as` fills it in.
+    pub ai_script: Option<String>,
     /// The companion a guest drives whose own act raised the event
     /// (`Pending::leads`): this run, and what it executes, see it lead the
     /// party, as KOTOR's scripts see the character its player controls
@@ -3281,6 +3309,9 @@ impl Step<'_> {
         };
         *counts.entry(script.to_string()).or_insert(0) += 1;
         let what = if code.is_some() { "deferred" } else { "run" };
+        let ai_script =
+            (event.ai).map(|_| (event.ai_script.clone()).unwrap_or_else(|| script.to_string()));
+        let event = Event { ai_script, ..event };
         let mut engine = Engine {
             library: self.library,
             view: self.view,

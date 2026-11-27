@@ -1,0 +1,17 @@
+# Creature tags (lower case) that are Skilled when they hold a melee weapon:
+# elite blade fighters that the feat rule misses (`pace::elite`). A creature
+# with a lightsaber or a Force power is Skilled already. A tag that no module
+# has does nothing.
+# KOTOR 1: the Mandalorians on Kashyyyk and Dantooine that hold a vibro
+# sword or a vibro double-blade and know only first-rank melee feats.
+kas25_mandalor01
+kas25_mandalor02
+kas25_mandalor03
+kas25_mandalor04
+kas25_mandalor05
+kas25_mandalor06
+kas25_mandalor07
+kas25_mand_end
+dan14ac_mand01
+# KOTOR 2: the Mandalorian recruit on Dxun who trains with a short sword.
+trainingmandalorian

@@ -1506,9 +1506,12 @@ fn mind_snipes() -> Result<String, String> {
     data.placements.push(Placement::Own(ObjectData {
         kind: ObjectKind::Creature,
         tag: "sniper".into(),
+        // The sniper carries no items, so that a stim or a shield of its
+        // own choice never delays its Sniper Shot.
         sheet: Some(Sheet {
             faction: HOSTILE_1,
             max_hp: 500,
+            items: Default::default(),
             ..sheet
         }),
         ..ObjectData::unknown(
