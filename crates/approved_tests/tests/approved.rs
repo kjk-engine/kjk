@@ -7797,6 +7797,330 @@ fn level_edit_nav_edits() {
     );
 }
 
+/// A room cut from a Jedi Academy level (`asset_ja::level_rooms`, proposed
+/// 2026-11-26, awaiting approval), on a shape the test makes. The cut is a
+/// wedge 10 metres long and 1 metre wide at its far end, 2 metres high,
+/// with a margin of 0.1 metres. Its two long faces meet at 5.7 degrees, so
+/// moved out by the margin they meet 2 metres beyond the wedge's tip, not
+/// 0.1. A point 1 metre beyond the tip is in the room, and a triangle
+/// there is cut into the room too: the two used to disagree, and the
+/// triangle was left to the rest of the level. 2.5 metres beyond the tip,
+/// both give the rest of the level. A square room's margin is as it was:
+/// 0.05 metres outside a wall is in the room and 0.2 metres is not. No
+/// installs.
+#[test]
+fn ja_room_cut_sharp_corner() {
+    use asset_ja::level_rooms::{Cut, REST, RoomCuts, Shape};
+    let room = |points: &[[f32; 3]]| {
+        RoomCuts {
+            names: vec![REST.to_string(), "room".to_string()],
+            cuts: vec![Cut {
+                room: 1,
+                shape: Shape {
+                    points: points.to_vec(),
+                    up: 2.0,
+                    down: 0.0,
+                    margin: 0.1,
+                },
+            }],
+        }
+        .cutter()
+    };
+    // A small triangle at `at`, level, and the rooms its pieces are in.
+    let rooms_of = |cutter: &asset_ja::level_rooms::Cutter, at: [f32; 3]| -> Vec<usize> {
+        let [x, y, z] = at;
+        let triangle = [[x, y, z], [x + 0.1, y, z], [x, y + 0.03, z]];
+        let mut rooms: Vec<usize> = (cutter.pieces(triangle).iter())
+            .map(|(room, _)| *room)
+            .collect();
+        rooms.sort_unstable();
+        rooms.dedup();
+        rooms
+    };
+
+    let wedge = room(&[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 1.0, 0.0]]);
+    let beyond = [-1.0, -0.05, 1.0];
+    assert_eq!(
+        wedge.room_at(beyond),
+        1,
+        "1 m beyond the tip is in the room"
+    );
+    assert_eq!(rooms_of(&wedge, beyond), [1], "and so is a triangle there");
+    let far = [-2.5, -0.05, 1.0];
+    assert_eq!(wedge.room_at(far), 0, "2.5 m beyond the tip is not");
+    assert_eq!(rooms_of(&wedge, far), [0]);
+    // Inside the wedge itself, as before.
+    assert_eq!(wedge.room_at([9.0, 0.4, 1.0]), 1);
+    assert_eq!(rooms_of(&wedge, [9.0, 0.4, 1.0]), [1]);
+
+    let square = room(&[
+        [0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [4.0, 4.0, 0.0],
+        [0.0, 4.0, 0.0],
+    ]);
+    assert_eq!(square.room_at([4.05, 2.0, 1.0]), 1);
+    assert_eq!(rooms_of(&square, [3.98, 2.0, 1.0]), [1]);
+    assert_eq!(square.room_at([4.2, 2.0, 1.0]), 0);
+    assert_eq!(rooms_of(&square, [4.2, 2.0, 1.0]), [0]);
+    eprintln!("a wedge's sharp corner and a square room cut triangles as they hold points");
+}
+
+/// The doors of a Jedi Academy level (`asset_ja::movers`, proposed
+/// 2026-11-26, awaiting approval), on a level the test makes. A door whose
+/// model is built round an origin stands at the origin, where the level
+/// draws it: its foot is the middle of its model moved by the origin. It
+/// used to stand where its model lies, near the level's zero point. A door
+/// without an origin stands where its model lies, as before. Two parts of
+/// one team are one door, named by the first name either part has, and
+/// open from the start when either part is. No installs.
+#[test]
+fn ja_door_origin_and_team() {
+    use fmt_ja::bsp::{Bsp, Entity, Model};
+    let model = |min: [f32; 3], max: [f32; 3]| Model {
+        min,
+        max,
+        surfaces: (0, 0),
+        brushes: (0, 0),
+    };
+    let entity = |pairs: &[(&str, &str)]| {
+        Entity(
+            pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+        )
+    };
+    let bsp = Bsp {
+        models: vec![
+            model([-4096.0; 3], [4096.0; 3]),
+            // Built round its origin, 16 wide, 64 across and 96 high.
+            model([-8.0, -32.0, 0.0], [8.0, 32.0, 96.0]),
+            // At its own place.
+            model([100.0, -32.0, 0.0], [116.0, 32.0, 96.0]),
+            // The two halves of a gate.
+            model([300.0, 0.0, 0.0], [316.0, 64.0, 96.0]),
+            model([300.0, 64.0, 0.0], [316.0, 128.0, 96.0]),
+        ],
+        entities: vec![
+            entity(&[("classname", "worldspawn")]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*1"),
+                ("origin", "500 200 16"),
+            ]),
+            entity(&[("classname", "func_door"), ("model", "*2")]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*3"),
+                ("team", "gate"),
+            ]),
+            entity(&[
+                ("classname", "func_door"),
+                ("model", "*4"),
+                ("team", "gate"),
+                ("targetname", "the_gate"),
+                ("spawnflags", "1"),
+            ]),
+        ],
+        ..Bsp::default()
+    };
+    let movers = asset_ja::movers::movers(&bsp);
+    let doors = asset_ja::movers::doors(&movers);
+    assert_eq!(doors.len(), 3, "{doors:?}");
+    assert_eq!(
+        doors[0].foot(),
+        [500.0, 200.0, 16.0],
+        "a door round an origin"
+    );
+    assert_eq!(
+        (doors[0].min, doors[0].max),
+        ([492.0, 168.0, 16.0], [508.0, 232.0, 112.0])
+    );
+    assert_eq!(
+        doors[1].foot(),
+        [108.0, 0.0, 0.0],
+        "a door at its own place"
+    );
+    let gate = doors[2];
+    assert_eq!(gate.parts.len(), 2);
+    assert_eq!(gate.name, "the_gate");
+    assert!(gate.starts_open);
+    assert_eq!(gate.foot(), [308.0, 64.0, 0.0]);
+    eprintln!("3 doors: one round its origin, one at its place, one team of two");
+}
+
+/// What a Jedi Academy level's reader refuses or bounds (`fmt_ja::bsp`,
+/// proposed 2026-11-26, awaiting approval), on tables the test makes. The
+/// visibility table of three clusters answers for a pair inside it by the
+/// pair's bit. For a cluster it has no row or no bit for, it answers that
+/// nothing is seen: the cluster 8 used to be read from the next cluster's
+/// row and came out as seen. A level with no table sees everything.
+///
+/// A light grid's cells are counted by the nearest whole number. With cells
+/// 33.3 wide in a world from -1340 to 1040, the grid has 72 cells along
+/// that axis. Worked out, the 71 steps between its first and last point
+/// come to 70.99999, and cut off that gave 71 cells.
+///
+/// A level whose brush, or whose brush's side, names a shader it lacks is
+/// refused, as one whose surface does. A level of one brush with its
+/// shader passes. No installs.
+#[test]
+fn ja_level_bounds() {
+    use fmt_ja::bsp::{Brush, BrushSide, Bsp, Plane, Shader, Visibility, grid_layout};
+    let level = |brush_shader: u32, side_shader: u32| Bsp {
+        shaders: vec![Shader {
+            name: "textures/probe/wall".into(),
+            surface_flags: 0,
+            content_flags: 0,
+        }],
+        planes: vec![Plane {
+            normal: [0.0, 0.0, 1.0],
+            dist: 0.0,
+        }],
+        brushes: vec![Brush {
+            sides: (0, 1),
+            shader: brush_shader,
+        }],
+        brush_sides: vec![BrushSide {
+            plane: 0,
+            shader: side_shader,
+        }],
+        ..Bsp::default()
+    };
+    assert_eq!(level(0, 0).checked(), Ok(()));
+    let refused = |level: Bsp| level.checked().err().map(|error| error.to_string());
+    assert!(
+        refused(level(1, 0)).is_some_and(|why| why.contains("brush 0 names shader 1")),
+        "a brush's shader"
+    );
+    assert!(
+        refused(level(0, 7)).is_some_and(|why| why.contains("a brush side names a shader")),
+        "a brush side's shader"
+    );
+    let (_, cells) = grid_layout(
+        [33.3, 64.0, 128.0],
+        [-1340.0, 0.0, 0.0],
+        [1040.0, 640.0, 1280.0],
+    );
+    assert_eq!(
+        cells,
+        [72, 11, 11],
+        "the light grid's cells along each axis"
+    );
+    // Cluster 0 sees itself, cluster 1 sees all three, cluster 2 itself.
+    let table = Visibility {
+        clusters: 3,
+        row_bytes: 1,
+        rows: vec![0b001, 0b111, 0b100],
+    };
+    assert!(table.sees(0, 0) && table.sees(1, 2) && table.sees(2, 2));
+    assert!(!table.sees(0, 1) && !table.sees(2, 0));
+    assert!(
+        !table.sees(0, 8),
+        "a cluster past the row's end is not seen"
+    );
+    assert!(!table.sees(0, 3) && !table.sees(3, 0) && !table.sees(usize::MAX, 0));
+    assert!(
+        Visibility::default().sees(7, 9),
+        "no table: everything is seen"
+    );
+    eprintln!("a visibility table of 3 clusters answers inside its rows alone");
+}
+
+/// A model as kjk writes one for a room it builds (`fmt_odyssey::mdl::written`,
+/// proposed 2026-11-27, awaiting approval), on meshes the test makes. A
+/// model of two meshes reads back with both, each with its texture and its
+/// corners. The mesh that names a lightmap reads back as lightmapped, and
+/// the mesh that names none does not: it used to be marked as lightmapped
+/// too. A mesh whose texture's name is not ASCII is refused, and so are
+/// 65,535 meshes, one more than a model can number.
+///
+/// The model's lightmap takes a new name of 16 characters, and one of 17 is
+/// refused, as a resource's name is. The model is moved and turned. With
+/// its root claiming 5,000 nodes under it, more than the 4,096 a model is
+/// moved with, it is refused by both: the nodes past 4,096 used to be left
+/// where they were without a word. No installs.
+#[test]
+fn room_model_written() {
+    use fmt_odyssey::mdl::{Model, WrittenMesh, relit, shifted, turned, written};
+    let mesh = |name: &str, texture: &str, lightmap: &str| WrittenMesh {
+        name: name.to_string(),
+        texture: texture.to_string(),
+        lightmap: lightmap.to_string(),
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 3],
+        uv1: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+        uv2: vec![[0.25, 0.25], [0.75, 0.25], [0.25, 0.75]],
+        triangles: vec![[0, 1, 2]],
+        material: 4,
+        transparency_hint: 0,
+    };
+    let (mdl, mdx) = written(
+        "room",
+        &[
+            mesh("room_0", "wall", "jl0123456789abcd"),
+            mesh("room_1", "floor", ""),
+        ],
+    )
+    .unwrap();
+    let model = Model::parse(&mdl, &mdx).unwrap();
+    let read: Vec<(String, String, bool, usize)> = (model.root.children.iter())
+        .filter_map(|node| {
+            let mesh = node.mesh.as_ref()?;
+            Some((
+                node.name.clone(),
+                mesh.textures[0].clone(),
+                mesh.lightmapped,
+                mesh.positions.len(),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("room_0".to_string(), "wall".to_string(), true, 3),
+            ("room_1".to_string(), "floor".to_string(), false, 3),
+        ]
+    );
+    let refused =
+        |meshes: &[WrittenMesh]| written("room", meshes).err().map(|error| error.to_string());
+    assert!(
+        refused(&[mesh("room_0", "w\u{e4}nde", "")]).is_some_and(|why| why.contains("not ASCII")),
+        "a texture's name that is not ASCII"
+    );
+    assert!(
+        refused(&vec![WrittenMesh::default(); 65_535])
+            .is_some_and(|why| why.contains("more than a model can number")),
+        "65,535 meshes"
+    );
+    let named = |new: &str| relit(&mdl, &|_| Some(new.to_string())).map(|(_, names)| names);
+    assert_eq!(
+        named("lm0123456789abcd").ok(),
+        Some(vec!["jl0123456789abcd".to_string()]),
+        "a lightmap renamed to 16 characters"
+    );
+    assert!(named("lm0123456789abcde").is_err(), "17 characters");
+    assert!(shifted(&mdl, [1.0, 2.0, 3.0]).is_ok() && turned(&mdl, (1.0, 0.0)).is_ok());
+    // The root's count of the nodes under it, after the 12 bytes of the
+    // file's header: the root's place is at 40, and its count at 48 of it.
+    let root = u32::from_le_bytes(mdl[52..56].try_into().unwrap()) as usize;
+    let mut damaged = mdl.clone();
+    damaged[12 + root + 48..12 + root + 52].copy_from_slice(&5000u32.to_le_bytes());
+    for moved in [
+        shifted(&damaged, [1.0, 2.0, 3.0]),
+        turned(&damaged, (1.0, 0.0)),
+    ] {
+        let why = moved.err().map(|error| error.to_string());
+        assert!(
+            why.as_ref()
+                .is_some_and(|why| why.contains("5000 nodes under a root")),
+            "{why:?}"
+        );
+    }
+    eprintln!("a model of 2 meshes reads back, one of them lightmapped");
+}
+
 /// A new map in the level editor (`level_edit::map`, proposed 2026-11-20,
 /// awaiting approval), on rooms and an area the test makes. A walkmesh
 /// writes back to the same reading, and moved, its vertices, planes and
@@ -8148,6 +8472,39 @@ fn level_edit_turned_rooms() {
         perimeters: vec![4],
         aabb_word: 0,
     };
+    // A walkmesh's use positions, turned a quarter and placed 10 m along
+    // X: the two relative ones turn and stay offsets, the two absolute ones
+    // turn and move. Moved alone, the relative ones stay as they are.
+    let used = Walkmesh {
+        use_positions: [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.5],
+            [5.0, 5.0, 0.0],
+            [6.0, 5.0, 0.0],
+        ],
+        ..walkmesh.clone()
+    };
+    assert_eq!(
+        used.turned([0.0; 3], [10.0, 0.0, 0.0], (1.0, 0.0))
+            .use_positions,
+        [
+            [0.0, 1.0, 0.0],
+            [-2.0, 0.0, 0.5],
+            [5.0, 5.0, 0.0],
+            [5.0, 6.0, 0.0]
+        ],
+        "a turned walkmesh's use positions"
+    );
+    assert_eq!(
+        used.moved([10.0, 0.0, 0.0]).use_positions,
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.5],
+            [15.0, 5.0, 0.0],
+            [16.0, 5.0, 0.0]
+        ],
+        "a moved walkmesh's use positions"
+    );
     // The face holding a point, by its corners (seen from above).
     let face_at = |mesh: &Walkmesh, point: [f32; 2]| {
         mesh.faces.iter().position(|face| {

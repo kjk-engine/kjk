@@ -9,6 +9,7 @@ description = "The owner-approved test scenarios, and nothing else (docs/TESTS.m
 
 # The scenarios are the layers' probes (their `probes` feature).
 [dependencies]
+asset_ja.workspace = true
 asset_odyssey.workspace = true
 audio = { workspace = true, features = ["probes"] }
 bink = { workspace = true, features = ["probes"] }
@@ -18,6 +19,7 @@ collision = { workspace = true, features = ["probes"] }
 # with `--features rig`.
 console = { workspace = true, optional = true }
 collision_odyssey = { workspace = true, features = ["probes"] }
+fmt_ja.workspace = true
 fmt_odyssey.workspace = true
 level_edit.workspace = true
 net = { workspace = true, features = ["probes"] }
