@@ -955,12 +955,9 @@ impl Move<'_, '_> {
             }
             Hand::Knockdown => {
                 // A grapple finisher's victim lies as the finisher left it:
-                // knocked into `BOTH_KNOCKDOWN2`, on its back at the second's
-                // end, or landed from the third's flight (`world::grapples`).
-                let thrown = matches!(
-                    self.ps.legs.anim,
-                    BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_2 | BOTH_PLAYER_PA_3_FLY
-                );
+                // knocked into `BOTH_KNOCKDOWN2`, or landed from the third's
+                // flight (`world::grapples`).
+                let thrown = matches!(self.ps.legs.anim, BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_3_FLY);
                 let anim = match saber.getup {
                     Getup::Down if thrown => self.ps.legs.anim,
                     Getup::Down => BOTH_KNOCKDOWN1,

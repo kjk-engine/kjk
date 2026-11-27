@@ -425,27 +425,20 @@ impl Classes {
     }
 
     /// The skill points a level of `class` gives a character with `sheet`
-    /// raising `ability`: its base and the INT modifier (the raised one),
-    /// divided by `levels::K1_POINTS_DIVISOR` unless `whole_skill_points`, at
-    /// least `levels::LEAST_SKILL_POINTS`; `levels::FIRST_LEVEL_TIMES` that
-    /// for a character's first level (character creation's, as reone's
-    /// screen and TSL's level-up stats count it).
+    /// raising `ability` (`rules::skill_points`).
     fn skill_points(&self, class: &Class, sheet: &Sheet, ability: Option<u8>) -> u8 {
         let raised = u8::from(ability == Some(Ability::Intelligence as u8));
         let score = sheet.abilities[Ability::Intelligence as usize].saturating_add(raised);
         let intelligence = (i32::from(score) - 10).div_euclid(2);
-        let first = if sheet.level == 0 {
-            levels::FIRST_LEVEL_TIMES
-        } else {
-            1
-        };
-        let points = i32::from(class.skill_points) + intelligence;
-        let points = if self.whole_skill_points {
-            points
-        } else {
-            points / levels::K1_POINTS_DIVISOR
-        };
-        (points.max(levels::LEAST_SKILL_POINTS) * first) as u8
+        rules::skill_points(
+            class.skill_points,
+            intelligence,
+            self.whole_skill_points,
+            sheet.level == 0,
+            levels::K1_POINTS_DIVISOR,
+            levels::LEAST_SKILL_POINTS,
+            levels::FIRST_LEVEL_TIMES,
+        ) as u8
     }
 
     /// The most ranks a skill may have at `level`: `levels::RANK_CAP_OVER`

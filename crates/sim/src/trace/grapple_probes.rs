@@ -474,11 +474,12 @@ fn blow_count_matches_ja() -> Result<String, String> {
     check(wrong.is_empty(), format!("{wrong:?}"))
 }
 
-/// When the first or third finisher ends the victim is let go and knocked
-/// down. The second kills it instead (`finisher_two_kills_as_ragdoll`).
+/// When any finisher ends without killing its victim, the victim is let go
+/// alive and knocked down, and the second finisher does not keep playing its
+/// stand-up animation.
 fn victim_down_at_end() -> Result<String, String> {
     let mut wrong = Vec::new();
-    for (keys, finisher) in [("", 1u8), ("f0=-1", 3)] {
+    for (keys, finisher) in [("", 1u8), ("r0=1", 2), ("f0=-1", 3)] {
         let ticks = grab_with(
             "advanced",
             ("fists", ""),
@@ -488,12 +489,28 @@ fn victim_down_at_end() -> Result<String, String> {
             12_000,
         )?;
         let seen = states(&ticks, 1);
-        let end = seen.iter().rposition(|(_, f)| f.grapple.is_some());
-        let down = end
-            .and_then(|end| seen.get(end + 1))
-            .is_some_and(|(_, f)| f.saber.floored() && f.grapple.is_none());
+        let Some(end) = seen.iter().rposition(|(_, f)| f.grapple.is_some()) else {
+            wrong.push(format!("finisher {finisher}: never held"));
+            continue;
+        };
+        let released = seen.get(end + 1);
+        let down =
+            released.is_some_and(|(_, f)| f.alive() && f.saber.floored() && f.grapple.is_none());
         if !down {
-            wrong.push(format!("finisher {finisher}: not knocked down as it ended"));
+            wrong.push(format!(
+                "finisher {finisher}: not knocked down alive as it ended"
+            ));
+        }
+        if finisher == 2 {
+            let knocked = released.is_some_and(|(ps, _)| ps.legs.anim == Anim::BOTH_KNOCKDOWN2);
+            let continued = seen[end + 1..]
+                .iter()
+                .any(|(ps, _)| ps.legs.anim == Anim::BOTH_PLAYER_PA_2);
+            if !knocked || continued {
+                wrong.push(format!(
+                    "finisher 2: knockdown {knocked}, continued PA_2 {continued}"
+                ));
+            }
         }
     }
     check(wrong.is_empty(), format!("{wrong:?}"))
@@ -878,18 +895,12 @@ fn throw_lands_near() -> Result<String, String> {
     )
 }
 
-/// The second finisher lets go `grab::LET_GO_MS` in, after its first slam:
-/// the victim is dead from that step, falls as a ragdoll from the pose it is
-/// in (`Fighter::blasted_ms`), and the rest of its clip never plays.
+/// When a blow in the second finisher marks the victim to die, the finisher
+/// lets go `grab::LET_GO_MS` in and the victim dies then, falling as a ragdoll
+/// from the pose it is in (`Fighter::blasted_ms`) without playing the rest
+/// of its clip.
 fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
-    let ticks = grab_with(
-        "advanced",
-        ("fists", ""),
-        MAX_HP * 100,
-        "r0=1",
-        ("", ""),
-        12_000,
-    )?;
+    let ticks = grab_with("advanced", ("fists", ""), 150, "r0=1", ("", ""), 12_000)?;
     let seen: Vec<(u64, MotionState, Fighter)> = ticks
         .iter()
         .filter_map(|tick| {
@@ -897,6 +908,9 @@ fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
             Some((tick.time_ms, entity.player?, entity.fighter?))
         })
         .collect();
+    let marked = seen
+        .iter()
+        .any(|(.., f)| f.grapple.is_some_and(|held| held.dead));
     let held = seen
         .iter()
         .rposition(|(.., f)| f.grapple.is_some())
@@ -908,12 +922,46 @@ fn finisher_two_kills_as_ragdoll() -> Result<String, String> {
         .iter()
         .any(|(_, ps, _)| ps.legs.anim == Anim::BOTH_PLAYER_PA_2);
     check(
-        dead && limp && !stood && ps.legs.anim != Anim::BOTH_PLAYER_PA_2,
+        marked && dead && limp && !stood && ps.legs.anim != Anim::BOTH_PLAYER_PA_2,
         format!(
-            "let go at {released} ms: dead {dead}; falls limp {limp} (from {} ms); its clip plays on after {stood}",
+            "marked {marked}; let go at {released} ms: dead {dead}; falls limp {limp} (from {} ms); its clip plays on after {stood}",
             f.blasted_ms
         ),
     )
+}
+
+/// Neutral outsiders, faction friends with friendly fire off, and plot NPCs
+/// are never grabbed, while ordinary hostile NPCs are grabbed.
+fn no_neutral_friendly_or_plot_grab() -> Result<String, String> {
+    let table = duel_anims(&Missing::None)?;
+    let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
+    let cases = [
+        ("neutral", "friendly off\n", "faction=friendly", false),
+        ("neutral_ff", "", "faction=friendly", false),
+        ("ally", "friendly off\n", "faction=ally", false),
+        ("plot", "friendly off\n", "plot=1", false),
+        ("hostile", "friendly off\n", "", true),
+    ];
+    let mut wrong = Vec::new();
+    for (label, before, creature_opts, want) in cases {
+        let ticks = play(&format!(
+            "scenario probe\nrules advanced\nseed 7\n{before}\
+             fighter 0 fists x=0 defence=2 tiers=2 fp=100 hp={MAX_HP}\n\
+             creature fists x=40 yaw=180 defence=2 tiers=2 fp=100 hp={MAX_HP} {creature_opts}\n\
+             sheet 0 bab=40\nbegin\nwound c0 {HURT}\nduel 0 points={}\n\
+             tick 20\ntick 1 b0=alt\ntick {}\ntick {}\n",
+            rules::duel::meters::POINTS_MAX,
+            steps(reach),
+            steps(2_000),
+        ))?;
+        let held = creature_states(&ticks)
+            .iter()
+            .any(|(_, f)| f.grapple.is_some());
+        if held != want {
+            wrong.push(format!("{label}: held {held}, want {want}"));
+        }
+    }
+    check(wrong.is_empty(), format!("{wrong:?}"))
 }
 
 /// The first placed creature's body and fight every tick.
@@ -1034,7 +1082,7 @@ fn finisher_three_throws_marked_victim_limp() -> Result<String, String> {
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 30] = [
+    let all: [Probe; 31] = [
         ("kicked_victim_stays_held", kicked_victim_stays_held),
         (
             "finisher_three_throws_marked_victim_limp",
@@ -1058,6 +1106,10 @@ pub fn probes() -> Checks {
         (
             "no_party_grab_without_friendly_fire",
             no_party_grab_without_friendly_fire,
+        ),
+        (
+            "no_neutral_friendly_or_plot_grab",
+            no_neutral_friendly_or_plot_grab,
         ),
         ("no_grab_under_ja_rules", no_grab_under_ja_rules),
         ("no_grab_with_weapon", no_grab_with_weapon),

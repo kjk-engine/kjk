@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3784a16b29671fc5`.
+Edition `cda0e74cd64d0628`.
 
 ## Contents
 
@@ -794,7 +794,7 @@ no key is held then, the key held when [Alt attack] was pressed picks it.
 When no key is held at either moment, the first finisher plays. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
 [Strafe right] catches its kick by the foot, swings it over and slams it to
-the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground, knocking it down. [Backward] chokes it and throws it to
 the ground. Each blow of a finisher deals the damage of
 a whole round of punches, and it always hits. An enemy that a blow would
 kill dies when the finisher lets it go. After [Backward], such an enemy
@@ -9596,12 +9596,16 @@ The character's base attack bonus, saving throws and Defense rise as the
 class's tables set out. Every 4th
 level, the character adds +1 to one ability score.
 
-At each level, the character gains skill points equal to the class's skill
-points plus the Intelligence modifier. In KOTOR, this number is divided by
-2. A level always grants at least
-1 skill point. A character's
-first level grants 4 times as
-many skill points.
+At character creation in KOTOR, a character gains skill points equal to the
+class's skill points divided by 2,
+plus the full Intelligence modifier, times
+4. At later levels in KOTOR, the
+class's skill points and the Intelligence modifier are added first and divided
+by 2. In KOTOR 2, each level adds
+the class's skill points and the Intelligence modifier whole, and the first
+level grants 4 times that amount. A
+level always grants at least 1 skill
+point.
 
 One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
@@ -9639,7 +9643,7 @@ A character's first level grants 4 times the skill points of a normal level.
 
 <a id="progression-levels-k1-points-divisor"></a>**KOTOR Skill Points** = **2** · `progression.levels.k1_points_divisor`
 
-In KOTOR, the skill points of a level are divided by 2. The skill points of a level are the class's skill points plus the Intelligence modifier.
+In KOTOR, character creation divides the class's skill points by 2 before adding the Intelligence modifier, and later levels divide the sum of the class's skill points and the Intelligence modifier by 2.
 
 <sub>Source: K1's level-up screen. Code: `sim::levels::Classes::skill_points`.</sub>
 
@@ -12935,7 +12939,7 @@ The first and the third finisher throw the victim back from the grabber at 140 u
 
 <a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
 
-The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+The second finisher lets the victim go 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim is knocked down then, or dies and falls limp from the pose it is in if a blow already marked it to die.
 
 <sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
 

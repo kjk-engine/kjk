@@ -614,6 +614,25 @@ pub fn pace(cadence_ms: u32) -> i64 {
     PACE * i64::from(cadence_ms) * 1000 / ROUND_MS as i64
 }
 
+/// How `attacker` (`attacker_target` if any) stands toward `target` for a
+/// single attack or grab: `module::relation`, except a creature outside the
+/// party attacking or grabbing its own target counts as aimed
+/// (`Relation::Outsider { aimed: true }`), whatever their faction standing
+/// (a script's `ActionAttack` on an ally).
+pub fn strike_relation(
+    standing: Option<crate::module::Standing<'_>>,
+    attacker: crate::module::Side,
+    attacker_target: Option<crate::snapshot::SimId>,
+    target: crate::module::Side,
+) -> Relation {
+    let aimed = !attacker.party && attacker_target == Some(crate::snapshot::SimId(target.id));
+    match crate::module::relation(standing, attacker, target) {
+        Relation::Outsider { .. } => Relation::Outsider { aimed },
+        Relation::Party if aimed => Relation::Outsider { aimed },
+        relation => relation,
+    }
+}
+
 /// Whether the attacker may harm the target, at what share (thousandths)
 /// (C17).
 pub fn share(relation: Relation, source: &Source, target: &Sheet, mode: FriendlyFire) -> i64 {

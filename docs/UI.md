@@ -234,8 +234,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   soldier's) `appearance_l`, a Consular's (K1's scoundrel's)
   `appearance_s`, any other's `appearancenumber`. Scores as K1's (30
   points from 8, 18 at most, a raise 1 to 3). Skill points are the
-  class's and the INT modifier whole, not K1's half of them, at least 1,
-  times 4 (TSL's tables halve `skillpointbase` instead:
+  class's and the INT modifier whole (`rules::skill_points`, where TSL's
+  tables already halve `skillpointbase` and K1 halves only `skillpointbase`
+  at level 1 before adding the INT modifier, times 4:
   `Classes::whole_skill_points`). The first level's feat picks
   (`featgain.2da`) and granted feats as K1's; no powers: neither game's
   creation has a power step, and TSL saves its character knowing none

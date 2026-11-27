@@ -69,7 +69,7 @@ fn persona(seat: Seat) -> Persona {
 }
 
 /// STR 10, DEX 14, CON 14, INT 12, WIS 10, CHA 10 (22 points), 4 ranks in
-/// each of the first two skills (8 points: (4 + 1) / 2 × 4), `feats`.
+/// each of the first two skills (8 of 12 points: (4 / 2 + 1) × 4, leaving 4 unspent), `feats`.
 fn made(feats: Vec<u16>) -> Creation {
     let mut skills = [0; SKILLS];
     skills[..2].fill(4);
@@ -142,9 +142,21 @@ pub fn creation() -> Checks {
                     && !sheet.feats.has(RECOMMENDED)
                     && sheet.skills[..2] == [4, 4]
                     && career == &vec![(0, 1)]
-                    && *unspent == 0
+                    && *unspent == 4
             }),
             format!("{first:?}"),
+        ),
+    ));
+    let mut full_skills = made(vec![PICKED]);
+    full_skills.choices.skills[..3].fill(4);
+    let spent_all = creation::sheet(&classes, &full_skills, 2);
+    checks.push((
+        "level 1 spends all 12 points ((4 / 2 + 1) × 4) across 3 class skills",
+        check(
+            spent_all
+                .as_ref()
+                .is_ok_and(|(sheet, _, unspent)| sheet.skills[..3] == [4, 4, 4] && *unspent == 0),
+            format!("{spent_all:?}"),
         ),
     ));
     checks.push((
@@ -177,7 +189,10 @@ pub fn creation() -> Checks {
     };
     let refusals = [
         refused(|c| c.abilities = [18, 18, 8, 8, 8, 8]),
-        refused(|c| c.choices.skills[2] = 1),
+        refused(|c| {
+            c.choices.skills[2] = 4;
+            c.choices.skills[3] = 1;
+        }),
         refused(|c| c.choices.skills = [5, 0, 0, 0, 0, 0, 0, 0]),
         refused(|c| c.choices.feats = vec![NEEDS_PICKED]),
         refused(|c| c.choices.feats = vec![RECOMMENDED, PICKED]),

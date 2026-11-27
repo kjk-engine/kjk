@@ -699,12 +699,7 @@ pub(super) fn hurt(
         // its damage ask none (a script's `ActionAttack` on an ally).
         let relation = match attacker {
             Some(by) => {
-                let aimed = !who[by].1.party && actors[by].5.0.target == Some(hit.target);
-                match crate::module::relation(repute, who[by].1, target_side) {
-                    Relation::Outsider { .. } => Relation::Outsider { aimed },
-                    Relation::Party if aimed => Relation::Outsider { aimed },
-                    relation => relation,
-                }
+                damage::strike_relation(repute, who[by].1, actors[by].5.0.target, target_side)
             }
             None => Relation::Outsider { aimed: true },
         };

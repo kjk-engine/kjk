@@ -126,12 +126,16 @@ The character's base attack bonus, saving throws and Defense rise as the
 class's tables set out. Every {progression.levels.ability_every:bare}th
 level, the character adds +1 to one ability score.
 
-At each level, the character gains skill points equal to the class's skill
-points plus the Intelligence modifier. In KOTOR, this number is divided by
-{progression.levels.k1_points_divisor:bare}. A level always grants at least
-{progression.levels.least_skill_points:bare} skill point. A character's
-first level grants {progression.levels.first_level_times:bare} times as
-many skill points.
+At character creation in KOTOR, a character gains skill points equal to the
+class's skill points divided by {progression.levels.k1_points_divisor:bare},
+plus the full Intelligence modifier, times
+{progression.levels.first_level_times:bare}. At later levels in KOTOR, the
+class's skill points and the Intelligence modifier are added first and divided
+by {progression.levels.k1_points_divisor:bare}. In KOTOR 2, each level adds
+the class's skill points and the Intelligence modifier whole, and the first
+level grants {progression.levels.first_level_times:bare} times that amount. A
+level always grants at least {progression.levels.least_skill_points:bare} skill
+point.
 
 One rank in a class skill takes {progression.levels.skill_cost[0]:bare}
 skill point. One rank in a cross-class skill takes
@@ -184,7 +188,7 @@ name = "KOTOR Skill Points"
 type = "i32"
 value = 2
 range = [1, 4]
-summary = "In KOTOR, the skill points of a level are divided by {progression.levels.k1_points_divisor:bare}. The skill points of a level are the class's skill points plus the Intelligence modifier."
+summary = "In KOTOR, character creation divides the class's skill points by {progression.levels.k1_points_divisor:bare} before adding the Intelligence modifier, and later levels divide the sum of the class's skill points and the Intelligence modifier by {progression.levels.k1_points_divisor:bare}."
 source = "K1's level-up screen"
 see = "sim::levels::Classes::skill_points"
 applies = ["kind:player", "kind:companion"]

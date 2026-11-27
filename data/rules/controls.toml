@@ -526,7 +526,7 @@ no key is held then, the key held when [Alt attack] was pressed picks it.
 When no key is held at either moment, the first finisher plays. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
 [Strafe right] catches its kick by the foot, swings it over and slams it to
-the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground, knocking it down. [Backward] chokes it and throws it to
 the ground. Each blow of a finisher deals the damage of
 a whole round of punches, and it always hits. An enemy that a blow would
 kill dies when the finisher lets it go. After [Backward], such an enemy

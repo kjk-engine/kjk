@@ -840,7 +840,7 @@ pub(super) fn all() -> Vec<Check> {
             .and_then(|()| expect(&format!("backing out undoes: {undone:?}"), undone == "8"))
             .and_then(|()| {
                 expect(
-                    &format!("(2 + 0) / 2 × 4 skill points: {skill_points:?}"),
+                    &format!("(2 / 2 + 0) × 4 skill points: {skill_points:?}"),
                     skill_points == "4",
                 )
             })
@@ -871,5 +871,70 @@ pub(super) fn all() -> Vec<Check> {
         feats_owed(),
         class_tiles(),
         class_tiles_turn_back(),
+        k1_skill_points(),
     ]
+}
+
+/// Level-1 KOTOR 1 skill points in creation halve only the class base
+/// before adding the full Intelligence modifier (`rules::skill_points`).
+fn k1_skill_points() -> Check {
+    let mut assets = Fake::new();
+    layouts(&mut assets);
+    let mut vm = chargen_vm();
+    if let Some(chargen) = vm.chargen.as_mut() {
+        chargen.classes[0].skill_points = 2;
+        chargen.classes[1].skill_points = 6;
+        chargen.classes[2].skill_points = 8;
+    }
+    let cases = [
+        ("BTN_SEL3", 10, 8, 4, "20"), // Soldier INT 18
+        ("BTN_SEL2", 10, 8, 4, "28"), // Scout INT 18
+        ("BTN_SEL1", 8, 8, 8, "28"),  // Scoundrel INT 16
+        ("BTN_SEL1", 10, 8, 4, "32"), // Scoundrel INT 18
+    ];
+    let mut wrong = Vec::new();
+    for (class_btn, int_raises, str_raises, dex_raises, want) in cases {
+        let mut stack = Stack::new(crate::screens::open);
+        stack.open("chargen:solo", &vm);
+        stack.step(&mut assets, &vm, &keys(&[]));
+        presses(
+            &mut stack,
+            &mut assets,
+            &vm,
+            &[
+                class_btn,
+                "CUST_CHAR_BTN",
+                "BTN_STEPNAME1",
+                "BTN_ACCEPT",
+                "BTN_STEPNAME2",
+            ],
+        );
+        for _ in 0..int_raises {
+            presses(&mut stack, &mut assets, &vm, &["INT_PLUS_BTN"]);
+        }
+        for _ in 0..str_raises {
+            presses(&mut stack, &mut assets, &vm, &["STR_PLUS_BTN"]);
+        }
+        for _ in 0..dex_raises {
+            presses(&mut stack, &mut assets, &vm, &["DEX_PLUS_BTN"]);
+        }
+        presses(
+            &mut stack,
+            &mut assets,
+            &vm,
+            &["BTN_ACCEPT", "BTN_STEPNAME3"],
+        );
+        let got = text(&stack, &vm, "REMAINING_SELECTIONS_LBL");
+        if got != want {
+            wrong.push(format!(
+                "{class_btn} (int+{int_raises}): got {got}, want {want}"
+            ));
+        }
+    }
+    check(
+        "k1 creation skill points with intelligence",
+        expect(&format!("mismatches: {wrong:?}"), wrong.is_empty()).map(|()| {
+            "Soldier INT 18 -> 20, Scout INT 18 -> 28, Scoundrel INT 16 -> 28, 18 -> 32".into()
+        }),
+    )
 }
