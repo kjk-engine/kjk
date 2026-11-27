@@ -1044,19 +1044,27 @@ moving do not break it off; a stun (a grip's choke too), a knockdown or a
 fall does (`items::break_off`), the item gone. A weapon change or a power
 with a hand waits for it (`Pack::busy`), as an action queued after it. A
 use its action began (Use Item, an AI's item talent from `k_ai_master`'s
-`GN_TalentMasterRoutine`) takes its item as it lands instead, and a
-script's `ClearAllActions` before then breaks it off with nothing spent,
-as KOTOR's action queue does: the AI clears and queues its talent again
-when a delayed combat round runs (`Pack::ordered`); the talent's action
+`GN_TalentMasterRoutine`) takes its item as it lands instead
+(`Pack::ordered`). A script's `ClearAllActions` before then breaks it off
+with nothing spent, as KOTOR's action queue does. The talent's action
 ends with its use, one item an action, or with its refusal (no such item
-left, its target out of reach). On a stage without scripts a mind uses a
-medpac when below half its hit points, and a shield or a stim in the first
-seconds of a fight, never before it is aware (`combat::choose`). A
-companion uses a medpac or a repair kit only when its own combat script
-picks one. A companion uses no stim and no shield in a fight, because the
-engine drops every item spell that its combat script picks, other than a
-medpac, a repair kit and a droid's own weapon. A **poison** (`items::Poisoned`: a script's
-`EffectPoison` by its `poison.2da` row, a trap's, a weapon's on-hit, the
+left, its target out of reach). While such a use runs, the scripts see it
+as the character's current action. `GetCurrentAction` names the talent's
+action, and `GetAttemptedSpellTarget` returns the user
+(`script::Character::item_use`). The games' damaged scripts (`k_ai_master`'s
+events 1006 for a creature and 2006 for a companion) start a new combat
+round only for a character with no attack target and no spell target. So a
+hit no longer starts a round whose `ClearAllActions` would break the use
+off and queue the same medpac again. A character's combat round does not
+end while such a use runs either. It ends on the first step after the use
+is over, because `k_def_combend01`'s round clears the actions without any
+test. Outside story scripts and for enemies, a mind uses a medpac when
+below half its hit points, and a shield or a stim in the first seconds of
+a fight, never before it is aware (`combat::choose`). A companion uses a
+medpac or a repair kit only when its own combat script picks one. A
+companion uses no stim and no shield in a fight, because the engine drops
+every item spell that its combat script picks, other than a medpac, a
+repair kit and a droid's own weapon. A **poison** (`items::Poisoned`: a script's
 poison grenade) runs as KOTOR's executables run it: its first dose lands
 as it takes, then one every `period` while its `duration` lasts (none at
 its very end), and it stays on until then, keeping a second poison off

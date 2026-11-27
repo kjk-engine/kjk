@@ -113,6 +113,8 @@ pub mod force_probes;
 pub mod held_probes;
 #[cfg(feature = "probes")]
 pub mod hold_probes;
+#[cfg(feature = "probes")]
+pub mod medpac_hit_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
