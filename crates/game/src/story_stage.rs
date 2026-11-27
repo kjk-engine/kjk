@@ -23,6 +23,15 @@ pub struct Staged {
     pub over: Option<ui::over_play::OverPlay>,
 }
 
+/// A staged frame after the owner's input: its layers, and what the screens
+/// made of the input.
+pub struct Live {
+    pub shown: Vec<Shown>,
+    pub sounds: Vec<ui::intent::GuiSound>,
+    pub intents: Vec<ui::intent::Intent>,
+    pub refusals: Vec<String>,
+}
+
 /// One layer of a staged frame: the screen module that drew it, the layout
 /// it drew, and what it drew.
 pub struct Shown {
@@ -107,10 +116,18 @@ impl Staged {
     /// then the screens of the stack. What a screen refused to draw is
     /// printed.
     pub fn frame(&mut self) -> Vec<Shown> {
-        let frame = self.stack.step(&mut self.assets, &self.vm, &self.quiet);
+        let quiet = self.quiet.clone();
+        let frame = self.live(&quiet);
         for why in &frame.refusals {
             outln!("refused: {why}");
         }
+        frame.shown
+    }
+
+    /// The frame after `input`, which the catalogue in the game gives it:
+    /// what the owner's mouse, keys and pad did, in the stack's window.
+    pub fn live(&mut self, input: &ui::input::UiInput) -> Live {
+        let frame = self.stack.step(&mut self.assets, &self.vm, input);
         let mut shown = Vec::new();
         if let Some(over) = self.over.as_mut() {
             let mut drawing = ui::hud_layer::Frame {
@@ -118,16 +135,12 @@ impl Staged {
                 vm: &self.vm,
                 palette: self.stack.palette,
                 pulse: self.stack.pulsing(),
-                scale_factor: self.quiet.scale_factor,
+                scale_factor: input.scale_factor,
                 settings: 0,
                 marked: self.stack.marked,
             };
             let corner = ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES);
-            let still = over.still(
-                &mut drawing,
-                self.quiet.window,
-                (self.stack.clock(), corner),
-            );
+            let still = over.still(&mut drawing, input.window, (self.stack.clock(), corner));
             for layer in still {
                 shown.push(Shown {
                     screen: layer.module.to_string(),
@@ -145,7 +158,12 @@ impl Staged {
                 list,
             });
         }
-        shown
+        Live {
+            shown,
+            sounds: frame.sounds,
+            intents: frame.intents,
+            refusals: frame.refusals,
+        }
     }
 
     /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `key MOVE` a

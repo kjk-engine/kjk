@@ -788,6 +788,24 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             ),
             GuiVerb::Sweep { game, out } => gui_verbs::sweep(&discover(), game.as_deref(), out),
             GuiVerb::Sheet { game, out } => gui_verbs::sheet(&discover(), &game, out),
+            GuiVerb::Catalogue {
+                story,
+                at,
+                game,
+                cmds,
+                headless,
+            } => match gui_catalogue::start(story.as_deref(), &at, game.as_deref()) {
+                Ok(start) => play(
+                    cmds.as_deref().unwrap_or(""),
+                    headless,
+                    size.unwrap_or(scene::HEADLESS_SIZE),
+                    runtime::Scene::Catalogue(Box::new(start)),
+                ),
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::from(2)
+                }
+            },
             GuiVerb::Census { out } => gui_catalogue::census(&discover(), out),
             GuiVerb::List { json } => gui_catalogue::list(json),
             GuiVerb::Show { module } => gui_catalogue::show(&module),
@@ -1389,6 +1407,27 @@ pub(crate) enum GuiVerb {
         /// Output folder; defaults to kjk-artifacts/gui/catalogue
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+    /// The UI catalogue in the game: a story's screen opened live on a
+    /// virtual screen of one of the six sizes
+    Catalogue {
+        /// The story, as `options/At rest`: its screen module, a slash, and
+        /// its name or slug. The first story by default
+        #[arg(long)]
+        story: Option<String>,
+        /// The size it opens at (`deck`, `1080p`, `4k-tv`, `4k-monitor`,
+        /// `4x3`, `ultrawide`)
+        #[arg(long, default_value = "1080p")]
+        at: String,
+        /// k1 or tsl; the first game the story names by default
+        #[arg(long)]
+        game: Option<String>,
+        /// Commands to run, e.g. 'wait 30f; screenshot first; quit'
+        #[arg(long)]
+        cmds: Option<String>,
+        /// Run without a window, rendering into an off-screen image
+        #[arg(long)]
+        headless: bool,
     },
     /// Count what the layouts of each install use (fonts, colours, border
     /// textures, control kinds) into data/ui/census.json

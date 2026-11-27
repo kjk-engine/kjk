@@ -846,6 +846,58 @@ Running and checking:
     capture. It needs no game data, so it
     reads each line of the talk table as stand-in words (`talk 1234`,
     `ui::catalogue::StandInTalk`).
+- **The catalogue in the game** (`kjk_game::catalogue_view`,
+  `ui::virtual_screen`). `kjk gui catalogue [--story MODULE/STORY] [--at
+  SIZE] [--game k1|tsl]` opens the game on one story, live. The story is
+  `MODULE/NAME`, where the name may be the story's slug, such as
+  `options/gameplay-page`. Without `--story` it opens the first story of the
+  first module. `--at` names the size it opens at (`1080p` by default).
+  `--headless --cmds '…'` work as for any run (docs/RUN.md).
+  - **The virtual screen.** The story is staged with
+    `kjk_game::story_stage::Staged` in a window of the chosen size and scale
+    factor from `catalogue::SIZES`, whatever the real window is. A second
+    camera draws its draw list into an image of the device's exact pixel
+    size, through the same material the game uses (`ui_material`). The
+    window shows that image. The screen takes the mouse, the keyboard and a
+    pad. It runs in real time and plays its sounds. When its last screen
+    closes, the story opens again.
+  - **The three modes.** Fit scales the whole image to fit the window and
+    leaves black bars. Pixel for pixel shows one pixel of the image as one
+    pixel of the display. As seen scales the image so that a pixel of the
+    device looks as big to the owner as it does on the device, seen from the
+    device's usual distance. The scale is the device pixel's apparent size
+    over the display pixel's, where a pixel's apparent size is its width
+    over its distance (`virtual_screen::seen_scale`). The plan gives each
+    size's screen and distance (`virtual_screen::viewing`): 7 inches at 35
+    cm for `deck`, 24 inches at 60 cm for `1080p`, 55 inches at 2.5 m for
+    `4k-tv`, 27 inches at 60 cm for `4k-monitor`, 20 inches at 60 cm for
+    `4x3` and 34 inches at 70 cm for `ultrawide`. On a display of 254 pixels
+    to the inch seen from 60 cm, a Steam Deck pixel covers about 2.02 pixels
+    of the display and a pixel of the 4K TV about 0.76. The display's
+    density and the owner's distance come from the settings
+    `catalogue.display_density` (110 by default) and `catalogue.distance_cm`
+    (60 by default) until the operating system's own size is read.
+  - **Panning.** When the image is larger than the window, which pixel for
+    pixel and as seen make it on a large device, the right mouse button
+    dragged or the pad's right stick moves the window over it.
+  - **The pointer.** The window's pointer is mapped into the image in all
+    three modes (`virtual_screen::Placement::to_image`) and then into the
+    virtual window's logical pixels, so a click lands on the control it is
+    over. A pointer in the black bars is not over the screen.
+  - **Keys.** `F6` or the pad chord LB with Y (`LB+North`) changes to the
+    next of the six sizes, and `F7` or LB with X (`LB+West`) to the next
+    mode. A size change keeps the screen as it is: the stack is stepped in
+    the new window and lays itself out again. The keys are the table `KEYS`
+    in `catalogue_view.rs`, one row for each, with a key and a chord.
+  - **Console.** `ui catalogue size NAME|next`, `ui catalogue mode
+    fit|pixel|seen|next`, `ui catalogue pan X Y`, `ui catalogue density N`
+    and `ui catalogue distance CM` do the same from a script. The `ui`
+    commands that move the pointer (`ui pointer X Y`, `ui click X Y`, `ui
+    down`, `ui drag`, `ui up`) take points of the window, and the catalogue
+    maps them as it maps the mouse. `ui press TAG`, `ui nav`, `ui raw`, `ui
+    type` and `ui back` reach the screens. A dump has the fact `catalogue`,
+    with the size, the mode, where the image stands in the window and the
+    focused control.
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
   2025.10). They hold the screens' palettes, which are the source of the
   colours in the code (the probe `palette_tokens` fails when a palette

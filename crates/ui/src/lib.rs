@@ -22,4 +22,5 @@ pub mod skin;
 pub mod strings;
 #[cfg(feature = "probes")]
 pub mod sweep;
+pub mod virtual_screen;
 pub mod vm;

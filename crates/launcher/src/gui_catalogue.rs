@@ -22,6 +22,48 @@ fn finish(result: Result<(), String>) -> ExitCode {
     }
 }
 
+/// What the catalogue in the game opens on (`kjk gui catalogue`): the story
+/// `module/name` (its name or slug), or the first story of the first module,
+/// on `game` (the first the story names), at the size named `at`.
+pub fn start(
+    story: Option<&str>,
+    at: &str,
+    game: Option<&str>,
+) -> Result<kjk_game::catalogue_view::Start, String> {
+    let files = stories()?;
+    let size = Size::named(at).ok_or(format!("{at}: no such size"))?;
+    let (module, story) = match story {
+        Some(wanted) => {
+            let (module, name) = wanted
+                .split_once('/')
+                .ok_or(format!("{wanted}: name a story as MODULE/STORY"))?;
+            let file = (files.iter().find(|file| file.module == module))
+                .ok_or(format!("{module}: no story file"))?;
+            let story = (file.stories.iter())
+                .find(|story| story.name == name || slug(&story.name) == name)
+                .ok_or(format!("{module}: no story {name:?}"))?;
+            (file.module.clone(), story.clone())
+        }
+        None => files
+            .iter()
+            .find_map(|file| Some((file.module.clone(), file.stories.first()?.clone())))
+            .ok_or("no story to open")?,
+    };
+    let key = game
+        .or(story.games.first().map(String::as_str))
+        .ok_or(format!("{}: no game", story.name))?;
+    let game = Game::from_key(key).ok_or(format!("{key}: use k1 or tsl"))?;
+    if !story.games.iter().any(|named| named == key) {
+        return Err(format!("{}: not drawn on {key}", story.name));
+    }
+    Ok(kjk_game::catalogue_view::Start {
+        module,
+        story,
+        game,
+        size: size.name,
+    })
+}
+
 /// Every module's status and stories: one line each, or JSON.
 pub fn list(json: bool) -> ExitCode {
     finish(stories().map(|files| {
