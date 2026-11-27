@@ -2467,11 +2467,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         if hybrid_probe {
             // Phase 3 Hybrid Character Lighting: linear indirect 3D probes +
             // live direct fitted lights & twin suns with zero wraparound.
-            let meta = probe_hybrid_meta(owner);
-            let direct_scale = meta.x;
-            let sun1_vis = meta.y;
-            let sun2_vis = meta.z;
-            let model_room = min(u32(meta.w + 0.5), VIS_ROOMS);
+            let hybrid_meta = probe_hybrid_meta(owner);
+            let direct_scale = hybrid_meta.x;
+            let sun1_vis = hybrid_meta.y;
+            let sun2_vis = hybrid_meta.z;
+            let model_room = min(u32(hybrid_meta.w + 0.5), VIS_ROOMS);
             var direct_lin = vec3<f32>(0.0);
 #ifdef FITTED_LIGHTS
             let fitted_direct = fitted_lights(

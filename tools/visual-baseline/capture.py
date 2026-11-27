@@ -204,8 +204,9 @@ def main() -> int:
                 env["KJK_GPU_TIMES"] = "1"
             if mode in ("classic", "enhanced"):
                 env["KJK_FITTED_LIGHTS"] = "off"
-            else:
-                env.pop("KJK_FITTED_LIGHTS", None)
+            elif "KJK_FITTED_LIGHTS" not in env:
+                if env.get("KJK_DETAIL_BAKE") or env.get("KJK_DETAIL_BAKES"):
+                    env["KJK_FITTED_LIGHTS"] = "baked"
 
             if args.dry_run:
                 print(f"[{mode}] {scene['id']} ({scene['game']}:{scene['module']}): {' '.join(cmd)}")
