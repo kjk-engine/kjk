@@ -28,6 +28,14 @@ pub trait Source {
         Vec::new()
     }
 
+    /// The resources of `restype` the override folders hold (none by
+    /// default): the files mods add, which a script may name by a name it
+    /// puts together as it runs.
+    fn override_names(&self, restype: ResType) -> Vec<String> {
+        let _ = restype;
+        Vec::new()
+    }
+
     /// A voiced line's file (`streamwaves`, `streamvoice`), if any.
     fn voice(&self, _resref: &str) -> Option<Vec<u8>> {
         None
