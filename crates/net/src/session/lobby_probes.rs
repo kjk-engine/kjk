@@ -42,6 +42,7 @@ fn config(seats: u8) -> ServerConfig {
         credentials: credentials("host", BUILD),
         stances: Vec::new(),
         collision: 1,
+        quorum_percent: 100,
     }
 }
 

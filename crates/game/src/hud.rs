@@ -117,19 +117,22 @@ pub fn install(app: &mut World, setup: HudSetup) {
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(crate::dialogue_view::DialogueViewPlugin)
-            .init_resource::<crate::progress::Told>()
-            .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
-            .add_systems(
-                Update,
-                (
-                    follow,
-                    show.before(console::ConsoleQueue),
-                    crate::progress::marks.after(show),
-                )
-                    .run_if(resource_exists::<Hud>)
-                    .before(crate::ui_view::Stepped),
-            );
+        app.add_plugins((
+            crate::dialogue_view::DialogueViewPlugin,
+            crate::net_graph::NetGraphPlugin,
+        ))
+        .init_resource::<crate::progress::Told>()
+        .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
+        .add_systems(
+            Update,
+            (
+                follow,
+                show.before(console::ConsoleQueue),
+                crate::progress::marks.after(show),
+            )
+                .run_if(resource_exists::<Hud>)
+                .before(crate::ui_view::Stepped),
+        );
     }
 }
 

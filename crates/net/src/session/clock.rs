@@ -60,6 +60,9 @@ const GAIN_PPM: i64 = 30_000;
 const MAX_DILATION_PPM: i64 = 50_000;
 /// Error in ticks beyond which a clock jumps.
 pub const RESYNC_TICKS: i64 = 8;
+/// Frames averaged for `Clocks::frame` p90, and outlier cutoff (> 50 ms).
+const FRAME_WINDOW: usize = 60;
+const FRAME_OUTLIER_US: i64 = 50_000;
 /// The loss margin grows at most this often, and shrinks after this long
 /// without a miss.
 const MARGIN_EVERY_US: u64 = 500_000;
@@ -185,6 +188,16 @@ impl Delays {
         *self.scratch.select_nth_unstable(at).1
     }
 
+    /// Shifts all stored samples by `delta` at `now` (used after a hold
+    /// so `spread` and `p95` jitter survive across the pause).
+    pub fn shift(&mut self, now: NetTime, delta: i64) {
+        for (at, sample) in &mut self.samples {
+            *at = now;
+            *sample += delta;
+        }
+        self.least = self.least.map(|least| least + delta);
+    }
+
     /// Forgets every sample (the host's timeline moved: an install).
     pub fn reset(&mut self) {
         self.samples.clear();
@@ -246,9 +259,10 @@ pub struct Clocks {
     pub rtt_min_us: i64,
     /// The smoothed round trip, µs.
     pub rtt_us: i64,
-    /// The longest recent frame, µs: a frame makes its commands up to
-    /// this late.
+    /// The rolling p90 frame duration over up to `FRAME_WINDOW` recent
+    /// non-hitch frames, µs: a frame makes its commands up to this late.
     pub frame_us: i64,
+    frame_samples: VecDeque<i64>,
     /// Predicted time minus local time, µs.
     pub predicted: i64,
     /// Remote time minus local time, µs.
@@ -282,6 +296,7 @@ impl Clocks {
             rtt_min_us: 0,
             rtt_us: 0,
             frame_us: 0,
+            frame_samples: VecDeque::with_capacity(FRAME_WINDOW),
             predicted: 0,
             remote: 0,
             ideal: None,
@@ -362,14 +377,19 @@ impl Clocks {
         })
     }
 
-    /// A frame `elapsed_us` after the last: the longest recent one decays
-    /// towards the newest (1/16 a frame).
+    /// Records a frame `elapsed_us` after the last into a 60-frame rolling
+    /// p90, ignoring asset/shader hitch outliers (`> 50 ms`).
     pub fn frame(&mut self, elapsed_us: i64) {
-        self.frame_us = if elapsed_us >= self.frame_us {
-            elapsed_us
-        } else {
-            self.frame_us - (self.frame_us - elapsed_us) / 16
-        };
+        if elapsed_us <= 0 || elapsed_us > FRAME_OUTLIER_US {
+            return;
+        }
+        if self.frame_samples.len() == FRAME_WINDOW {
+            self.frame_samples.pop_front();
+        }
+        self.frame_samples.push_back(elapsed_us);
+        let mut scratch: Vec<i64> = self.frame_samples.iter().copied().collect();
+        let at = (scratch.len() * 90 / 100).min(scratch.len() - 1);
+        self.frame_us = *scratch.select_nth_unstable(at).1;
     }
 
     /// The remote clock's target offset: `D` behind the host's snapshots
@@ -410,6 +430,23 @@ impl Clocks {
         self.delays.reset();
         self.ideal = None;
         self.starved = 0;
+    }
+
+    /// After a hold (`Message::Resume { tick }`): preserves learned jitter
+    /// spread (`p95`/`spread`) and re-seeds `host_offset` from `Resume`.
+    pub fn resume(&mut self, now: NetTime, tick: u64) {
+        self.starved = 0;
+        let new_least = now.0 as i64 - time_us(self.rate, tick);
+        if let Some(old_least) = self.delays.least() {
+            let delta = new_least - old_least;
+            self.delays.shift(now, delta);
+            if let Some(ideal) = &mut self.ideal {
+                *ideal -= delta;
+            }
+        } else {
+            self.delays.sample(now, new_least);
+        }
+        self.start();
     }
 
     /// Remote time passed the newest snapshot.

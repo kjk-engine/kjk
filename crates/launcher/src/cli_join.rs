@@ -45,6 +45,12 @@ pub(crate) struct JoinArgs {
     /// then marks Ready
     #[arg(long, value_parser = parse_lobby_script)]
     lobby_script: Option<kjk_game::lobby_guest::Script>,
+    /// Number of headless simulated bots to run in one process (used with `--headless`)
+    #[arg(long, default_value_t = 1)]
+    bots: u8,
+    /// Headless bot duration in seconds (used with `--headless`)
+    #[arg(long)]
+    seconds: Option<u64>,
 }
 
 fn parse_lobby_script(text: &str) -> Result<kjk_game::lobby_guest::Script, String> {
@@ -67,6 +73,20 @@ pub(crate) fn run(args: JoinArgs, size: (u32, u32)) -> ExitCode {
     };
     if let Some(script) = args.lobby_script {
         kjk_game::lobby_guest::script(script);
+    }
+    if args.headless
+        && args.cmds.is_none()
+        && args.lobby_script.is_none()
+        && (args.bots > 1 || args.seconds.is_some())
+    {
+        return crate::headless_net::run_bots(&crate::headless_net::BotsRun {
+            host: &args.host,
+            name: &args.name,
+            password: args.password.as_deref(),
+            conditions,
+            bots: args.bots.max(1),
+            seconds: args.seconds.unwrap_or(60),
+        });
     }
     // Only a player's game keeps its seat's token for the next start.
     let player = kjk_game::crash::PlayerRun::of(args.headless, args.cmds.as_deref().unwrap_or(""));

@@ -22,7 +22,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use steamworks::networking_types::{NetworkingIdentity, SendFlags};
+use steamworks::networking_types::{NetworkingConnectionState, NetworkingIdentity, SendFlags};
 use steamworks::{Client, FriendFlags, GameRichPresenceJoinRequested, SteamId};
 
 use super::Clock;
@@ -34,7 +34,7 @@ pub const APP_ID: u32 = 480;
 /// The channel kjk's datagrams travel on.
 const CHANNEL: u32 = 0;
 /// The most messages taken from Steam at once.
-const BATCH: usize = 64;
+const BATCH: usize = 512;
 /// The rich presence key that marks a kjk host among app 480's players.
 const MARK: &str = "kjk";
 
@@ -100,6 +100,44 @@ pub fn floating_keyboard(field: [i32; 4]) -> bool {
 pub fn pump(client: &Client) {
     let _held = PUMP.lock().unwrap_or_else(PoisonError::into_inner);
     client.run_callbacks();
+}
+
+/// Runs Steam's pending callbacks if `PUMP` is uncontended, so UI frames do
+/// not stall behind the net thread's Steam pump.
+pub fn try_pump(client: &Client) -> bool {
+    let Ok(_held) = PUMP.try_lock() else {
+        return false;
+    };
+    client.run_callbacks();
+    true
+}
+
+/// Live Steam link telemetry queried off the hot receive path.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct SteamLinkInfo {
+    pub connected: bool,
+    pub ping_ms: i32,
+    pub quality_local: f32,
+    pub quality_remote: f32,
+    pub pending_unreliable: i32,
+}
+
+/// Connection info for `peer_id` via `ISteamNetworkingMessages`, polled at
+/// <= 1 Hz off the hot receive path.
+pub fn connection_info(peer_id: u64) -> Option<SteamLinkInfo> {
+    let client = client().ok()?;
+    let identity = NetworkingIdentity::new_steam_id(SteamId::from_raw(peer_id));
+    let (state, _info, realtime) = client
+        .networking_messages()
+        .get_session_connection_info(&identity);
+    let rt = realtime?;
+    Some(SteamLinkInfo {
+        connected: state == NetworkingConnectionState::Connected,
+        ping_ms: rt.ping(),
+        quality_local: rt.connection_quality_local(),
+        quality_remote: rt.connection_quality_remote(),
+        pending_unreliable: rt.pending_unreliable(),
+    })
 }
 
 /// The hosts a friend's "Join Game" or invite asked to join since last

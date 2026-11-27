@@ -213,6 +213,33 @@ pub(crate) struct PlayerCursor;
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
 
+/// Live `net.json` metrics from the active co-op client or host for bug reports (`report::make`).
+pub(crate) fn live_net_json(world: &mut World) -> Option<serde_json::Value> {
+    if let Some(mut joined) = world.get_resource_mut::<crate::net_join::Joined>() {
+        return Some(joined.live_net_json());
+    }
+    world
+        .get_resource_mut::<Authority>()
+        .map(|mut authority| authority.solo.live_net_json())
+}
+
+fn publish_host_net_graph(
+    authority: Res<Authority>,
+    graph: Option<Res<crate::net_graph::NetGraph>>,
+    mut feed: ResMut<crate::net_graph::HostGraph>,
+) {
+    if graph.is_some_and(|graph| graph.enabled) {
+        feed.0 = authority.solo.graph_sample();
+    }
+}
+
+/// The latest authority snapshot known to this process (`sim_host`: host's
+/// stepped world; `net_join`: newest authority snapshot decoded from the
+/// wire). Dialogue UI and reply gating read authority state without waiting for
+/// the remote interpolation buffer (`PresentedSnapshot`).
+#[derive(Resource, Clone)]
+pub struct AuthoritySnapshot(pub Arc<Snapshot>);
+
 #[derive(Resource, Default)]
 pub struct PresentedDoors {
     snapshot: Option<Arc<Snapshot>>,
@@ -893,6 +920,11 @@ impl Plugin for SimHostPlugin {
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
             .init_resource::<PresentedDoors>()
+            .init_resource::<crate::net_graph::HostGraph>()
+            .add_systems(
+                Update,
+                publish_host_net_graph.run_if(resource_exists::<Authority>),
+            )
             .add_systems(
                 PreUpdate,
                 (
@@ -1054,6 +1086,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         states.0.insert("world".into(), true);
         states.0.insert("loading".into(), false);
         let last = Arc::new(last);
+        app.insert_resource(AuthoritySnapshot(last.clone()));
         app.insert_resource(PresentedSnapshot(
             Presented::shared(last.clone()),
             vec![last.clone()],
@@ -1584,6 +1617,7 @@ struct Landed {
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
     for_net: Option<crate::sim_worker::ForNet>,
+    stepped_at: net::NetTime,
 }
 
 impl Authority {
@@ -1648,6 +1682,7 @@ impl Authority {
                 snapshot,
                 notices: stepped.notices,
                 for_net: stepped.for_net,
+                stepped_at: stepped.stepped_at,
             });
         }
         if !away.unstepped.is_empty() {
@@ -2227,7 +2262,7 @@ fn advance(
     (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
-    mut presented: ResMut<PresentedSnapshot>,
+    (mut presented, mut authority_snapshot): (ResMut<PresentedSnapshot>, ResMut<AuthoritySnapshot>),
     mut facts: ResMut<DumpFacts>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
@@ -2300,13 +2335,16 @@ fn advance(
             }
         }
         match landed.for_net.as_ref() {
-            Some(for_net) => authority.solo.stepped_hashed(
+            Some(for_net) => authority.solo.stepped_hashed_at(
                 &landed.input,
                 &landed.snapshot,
                 for_net.hash,
                 for_net.split.clone(),
+                landed.stepped_at,
             ),
-            None => authority.solo.stepped(&landed.input, &landed.snapshot),
+            None => authority
+                .solo
+                .stepped_at(&landed.input, &landed.snapshot, landed.stepped_at),
         }
     }
     // The first frame keeps the starting snapshot for the views.
@@ -2502,6 +2540,7 @@ fn advance(
                     hash: announcement.after.to_string(),
                 });
                 let after = Arc::new(after);
+                authority_snapshot.0 = after.clone();
                 presented.0 = Presented::shared(after.clone());
                 presented.1 = vec![after.clone()];
                 authority.clock = Accumulator::new(rate, after.tick);
@@ -2689,16 +2728,18 @@ fn advance(
     // A scripted player, and a headless run without keys (`ui reply` in a
     // run's commands), answer here: no key reading below takes the pick.
     let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
-    if let Some(pick) = picked.filter(|_| scripted)
+    if let Some(pick) = picked
         && authority.last.talk_for(own_seat).is_some()
     {
-        authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
+        if scripted {
+            authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
+        } else {
+            authority.solo.act(sim::action::Action::DialogPick(pick));
+        }
     }
     if let Some(actions) = &actions {
         let talk = authority.last.talk_for(own_seat);
-        authority
-            .controls
-            .update(actions, talk, picked.filter(|_| !scripted));
+        authority.controls.update(actions, talk, None);
     }
     let bar = bar_use
         .as_deref()
@@ -2752,6 +2793,7 @@ fn advance(
         }
     }
     if any_landed {
+        authority_snapshot.0 = authority.last.clone();
         held_up |= authority.last.paused_by.is_some();
     }
     if held_up {
@@ -2790,8 +2832,7 @@ fn advance(
             Driver::Pilot => false,
         }
         && authority.last.paused_by.is_none()
-        && authority.declined.is_empty()
-        && !authority.solo.hosting();
+        && authority.declined.is_empty();
     let mut orders = Vec::new();
     let last_due = due.last().map(|(tick, _)| *tick);
     let module = authority.world.level().name().to_owned();
@@ -2899,8 +2940,36 @@ fn advance(
             (_, _, own) => own,
         };
         authority.solo.command(tick, own);
+        let hosting = authority.solo.hosting();
         let snapshot = match &mut authority.source {
             Source::Live { recorder } => {
+                if beside && batched && hosting {
+                    let prepare = Prepare {
+                        hash: crate::solo::net_audit_enabled(),
+                        split: false,
+                        check: false,
+                    };
+                    orders.push(Order {
+                        tick,
+                        input: TickInput::default(),
+                        msec,
+                        prepare,
+                        live: Some(crate::sim_worker::LiveInput {
+                            hosted: authority.solo.shared_hosted(),
+                            paused_by: authority.last.paused_by,
+                        }),
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
+                    Stepper::send(
+                        &mut authority.world,
+                        &mut authority.stepper,
+                        std::mem::take(&mut orders),
+                        authority.lifecycle.is_some(),
+                    );
+                    break;
+                }
                 // What the server has (the player's), and the pilot for the
                 // seats no client drives.
                 let mut input = authority.solo.commands_for(tick, authority.last.paused_by);
@@ -2912,13 +2981,12 @@ fn advance(
                     }
                 }
                 if beside && (batched || last_due == Some(tick)) {
-                    // A host's tick is hashed on the step thread, and
-                    // split there when a frame can be made of it. A solo
-                    // host's tick that its own client checks is split on a
-                    // thread of its own.
-                    let hosting = authority.solo.hosting();
+                    // A host's tick is hashed on the step thread (when
+                    // auditing), and split there when a frame can be made
+                    // of it. A solo host's tick that its own client checks
+                    // is split on a thread of its own.
                     let prepare = Prepare {
-                        hash: hosting,
+                        hash: hosting && crate::solo::net_audit_enabled(),
                         split: hosting && authority.solo.sends_on(tick),
                         check: !hosting && authority.solo.checks_on(tick),
                     };
@@ -2927,6 +2995,7 @@ fn advance(
                         input,
                         msec,
                         prepare,
+                        live: None,
                     });
                     if last_due != Some(tick) {
                         continue;
@@ -3023,6 +3092,7 @@ fn advance(
         if presented.1.len() >= 2 * KEPT_IN_A_JUMP {
             presented.1.drain(..KEPT_IN_A_JUMP);
         }
+        authority_snapshot.0 = snapshot.clone();
         authority.last = snapshot;
         // A replay's install after this tick: the world waits for it.
         if authority.replay_install(tick, &mut loading) {

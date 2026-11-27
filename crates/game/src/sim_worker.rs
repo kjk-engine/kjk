@@ -18,6 +18,9 @@ use std::sync::{Arc, Mutex};
 use sim::notice::Notice;
 use sim::{Seat, SimWorld, Snapshot, StepReason, TickInput, step};
 
+use crate::net_thread::Shared;
+use crate::solo::Hosted;
+
 /// The world, at home or away being stepped.
 pub(crate) struct WorldSlot(Option<Box<SimWorld>>);
 
@@ -58,6 +61,8 @@ pub(crate) struct Stepped {
     pub snapshot: Arc<Snapshot>,
     pub notices: Vec<(Seat, Notice)>,
     pub for_net: Option<ForNet>,
+    /// When the step thread pulled commands and stepped this tick.
+    pub stepped_at: net::NetTime,
 }
 
 /// What the step thread made of a tick for the network. A host's tick is
@@ -82,6 +87,13 @@ pub(crate) struct Prepare {
     pub check: bool,
 }
 
+/// Live-hosted input pull performed right before stepping a batched tick so
+/// incoming guest commands arriving between ticks of the same frame are seen.
+pub(crate) struct LiveInput {
+    pub hosted: Shared<Hosted>,
+    pub paused_by: Option<Seat>,
+}
+
 /// A tick to step away: its number, its input, how many milliseconds it
 /// covers, and what to make beside its snapshot.
 pub(crate) struct Order {
@@ -89,6 +101,7 @@ pub(crate) struct Order {
     pub input: TickInput,
     pub msec: u32,
     pub prepare: Prepare,
+    pub live: Option<LiveInput>,
 }
 
 /// What the thread brings home with the world.
@@ -133,10 +146,21 @@ fn step_order(
         input,
         msec,
         prepare,
+        live,
     } = order;
+    let (input, split, stepped_at) = match live {
+        Some(live) => {
+            let mut hosted = crate::net_thread::lock(&live.hosted);
+            let input = hosted.commands_for(tick, live.paused_by);
+            let split = hosted.server().sends_on(tick);
+            drop(hosted);
+            (input, split, crate::solo::now())
+        }
+        None => (input, prepare.split, crate::solo::now()),
+    };
     let snapshot = Arc::new(step(world, tick, &input, msec, StepReason::Authority));
     let notices = world.take_notices();
-    let for_net = match (prepare.hash, prepare.split, prepare.check) {
+    let for_net = match (prepare.hash, split, prepare.check) {
         (_, true, _) => {
             let (split, hash) = net::codec::Stepped::new_hashed(&snapshot);
             Some(ForNet {
@@ -164,6 +188,7 @@ fn step_order(
         snapshot,
         notices,
         for_net,
+        stepped_at,
     }
 }
 
@@ -188,7 +213,10 @@ impl Stepper {
                     }
                     let away = Away {
                         stepped,
-                        unstepped: orders.map(|order| order.input).collect(),
+                        unstepped: orders
+                            .filter(|order| order.live.is_none())
+                            .map(|order| order.input)
+                            .collect(),
                     };
                     if give.send((world, away)).is_err() {
                         break;

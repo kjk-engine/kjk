@@ -691,7 +691,7 @@ fn visited(snapshot: &Snapshot, script: &State) -> BTreeMap<String, StoryModule>
         (
             place.module.as_str(),
             snapshot.entities.as_slice(),
-            snapshot.roster.as_deref(),
+            snapshot.roster.as_deref().map(Vec::as_slice),
         )
     });
     let left = snapshot.stash.iter().map(|stashed| {

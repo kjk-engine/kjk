@@ -477,6 +477,15 @@ pub(super) fn answers(
             answers.insert(seat.0, Answer { by, pick });
         }
     }
+    for (seat, action) in inputs.actions() {
+        if let crate::action::Action::DialogPick(pick) = *action {
+            let by = bodies
+                .iter()
+                .find(|(of, _)| *of == *seat)
+                .map_or(ObjectId::INVALID, |(_, body)| *body);
+            answers.insert(seat.0, Answer { by, pick });
+        }
+    }
     answers
 }
 

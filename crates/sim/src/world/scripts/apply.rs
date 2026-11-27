@@ -590,7 +590,12 @@ pub(in crate::world) fn apply(
                 let chart = level.0.module().and_then(|module| module.map);
                 let module = area.place.as_ref().map(|place| place.module.clone());
                 if let (Some(chart), Some(module)) = (chart, module) {
-                    crate::fog::reveal(&mut area.explored, &module, &chart, how);
+                    crate::fog::reveal(
+                        std::sync::Arc::make_mut(&mut area.explored),
+                        &module,
+                        &chart,
+                        how,
+                    );
                 }
             }
             Change::MapPin {

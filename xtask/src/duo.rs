@@ -680,6 +680,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &[
             ("KJK_NETEM", &format!("{},seed=1", options.netem)),
             ("KJK_SAVES", &host_saves_env),
+            ("KJK_NET_AUDIT", "1"),
         ],
         &repo_root(),
         &folder,
@@ -721,6 +722,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &[
                 ("KJK_NETEM", &format!("{},seed=2", options.netem)),
                 ("KJK_SAVES", &player_saves_env),
+                ("KJK_NET_AUDIT", "1"),
             ],
             &repo_root(),
             &folder,

@@ -318,7 +318,7 @@ impl Restore<'_> {
         state.galaxy.available = story.galaxy.available.iter().copied().collect();
         state.galaxy.selectable = story.galaxy.selectable.iter().copied().collect();
         state.galaxy.selected = story.galaxy.selected;
-        state.reputation = story.adjustments();
+        state.reputation = story.adjustments().into();
         state.unescapable = story.unescapable.iter().cloned().collect();
         state.transit = story.transit.clone();
         state.party.party_ai = story.party_ai;

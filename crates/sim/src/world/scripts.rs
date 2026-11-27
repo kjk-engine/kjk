@@ -1540,11 +1540,13 @@ pub(super) fn scripts(
             state.reward(xp, &mut scripts.notices);
             script::xp::tell_pc_level(library, &view, state);
             if xp > 0 {
-                progressed.0.kills.push(crate::snapshot::Kill {
-                    dead: id.0,
-                    xp,
-                    at_ms: now,
-                });
+                std::sync::Arc::make_mut(&mut progressed.0)
+                    .kills
+                    .push(crate::snapshot::Kill {
+                        dead: id.0,
+                        xp,
+                        at_ms: now,
+                    });
             }
             // A creature not of the party is taken away a while after,
             // leaving its remains (`remains`).
@@ -1638,11 +1640,13 @@ pub(super) fn scripts(
         scripts.state.intents = out.intents;
         scripts.changes = out.changes;
         scripts.notices.extend(out.notices);
-        progressed.0.statuses.extend(
-            out.statuses
-                .into_iter()
-                .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
-        );
+        if !out.statuses.is_empty() {
+            std::sync::Arc::make_mut(&mut progressed.0).statuses.extend(
+                out.statuses
+                    .into_iter()
+                    .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
+            );
+        }
         float(&mut progressed.0, out.feedback, now);
         scripts.area_sound = out.area_sound;
         scripts.fade = out.fade;
@@ -1784,8 +1788,8 @@ pub(super) fn scripts(
                 &from.containers,
                 &module.name,
             );
-            if holding.0 != goods {
-                holding.0 = goods;
+            if *holding.0 != goods {
+                *std::sync::Arc::make_mut(&mut holding.0) = goods;
             }
             scripts.members = members;
             scripts.open = open;
@@ -1884,21 +1888,39 @@ fn passes_on(
 fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed) {
     use crate::snapshot::{Feedback, Kill, Status};
     let xp = state.xp(crate::inventory::PARTY);
-    let shown = &mut progressed.0;
-    shown
+    let current = &progressed.0;
+    let expired = current
         .kills
-        .retain(|kill| now_ms < kill.at_ms + Kill::SHOWN_MS);
-    shown
-        .feedback
-        .retain(|feedback| now_ms < feedback.at_ms + Feedback::SHOWN_MS);
-    shown
-        .statuses
-        .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
-    if shown.xp != xp
-        || shown.journal != state.journal
-        || shown.careers != state.careers
-        || shown.unspent != state.unspent
-    {
+        .iter()
+        .any(|kill| now_ms >= kill.at_ms + Kill::SHOWN_MS)
+        || current
+            .feedback
+            .iter()
+            .any(|feedback| now_ms >= feedback.at_ms + Feedback::SHOWN_MS)
+        || current
+            .statuses
+            .iter()
+            .any(|status| now_ms >= status.at_ms + Status::KEPT_MS);
+    let differs = current.xp != xp
+        || current.journal != state.journal
+        || current.careers != state.careers
+        || current.unspent != state.unspent;
+    if !expired && !differs {
+        return;
+    }
+    let shown = std::sync::Arc::make_mut(&mut progressed.0);
+    if expired {
+        shown
+            .kills
+            .retain(|kill| now_ms < kill.at_ms + Kill::SHOWN_MS);
+        shown
+            .feedback
+            .retain(|feedback| now_ms < feedback.at_ms + Feedback::SHOWN_MS);
+        shown
+            .statuses
+            .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
+    }
+    if differs {
         shown.journal.clone_from(&state.journal);
         shown.xp = xp;
         shown.careers.clone_from(&state.careers);
@@ -2475,8 +2497,15 @@ fn come_alive(
 
 /// The feedback the step floated over objects (`Progress::feedback`), from
 /// `now`.
-fn float(progress: &mut crate::snapshot::Progress, feedback: Vec<(ObjectId, u32)>, now: u64) {
-    progress
+fn float(
+    progress: &mut std::sync::Arc<crate::snapshot::Progress>,
+    feedback: Vec<(ObjectId, u32)>,
+    now: u64,
+) {
+    if feedback.is_empty() {
+        return;
+    }
+    std::sync::Arc::make_mut(progress)
         .feedback
         .extend(
             feedback

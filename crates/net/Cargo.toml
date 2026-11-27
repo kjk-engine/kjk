@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 blake3.workspace = true
-miniz_oxide.workspace = true
+lz4_flex.workspace = true
 sim.workspace = true
 # The co-op lobby's state (`session::lobby`), which the lobby messages carry.
 session.workspace = true
@@ -18,6 +18,12 @@ steamworks = { workspace = true, optional = true }
 # The socket's receive buffer (`io::udp`), which std has no word for.
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+] }
 
 [features]
 # The probes (`kjk <layer> probes`): checks, not the game.

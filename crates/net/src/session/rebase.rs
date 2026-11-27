@@ -22,6 +22,8 @@
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::worker::{NotifyOnDrop, PendingSignal, WaitSignal};
+
 use sim::{
     Command, EntityState, Kind, Level, Seat, SimId, SimWorld, Snapshot, StepReason, TickInput,
     TickRate, WorkedOut, step,
@@ -94,6 +96,8 @@ pub(super) struct Job {
     /// What the world it replaces worked out (`SimWorld::worked_out`),
     /// when that world was home.
     pub worked: Option<WorkedOut>,
+    /// Recycled allocation from the previously replaced prediction world.
+    pub spare: Option<Box<SimWorld>>,
     pub seat: Seat,
     /// This seat's body in `base`.
     pub own_id: Option<SimId>,
@@ -131,7 +135,16 @@ pub(super) struct Done {
 pub(super) fn run(job: Job) -> Option<Done> {
     #[cfg(feature = "probes")]
     assert!(!job.die, "a rewind's thread dies (the probes asked)");
-    let mut world = SimWorld::from_snapshot(&job.base, job.level).ok()?;
+    let mut world = match job.spare {
+        Some(mut world) => {
+            if world.restore_from(&job.base, &job.level).is_ok() {
+                *world
+            } else {
+                SimWorld::from_snapshot(&job.base, job.level).ok()?
+            }
+        }
+        None => SimWorld::from_snapshot(&job.base, job.level).ok()?,
+    };
     if let Some(worked) = job.worked {
         world.use_worked_out(worked);
     }
@@ -216,7 +229,9 @@ pub(super) struct Beside {
     on: RebaseOn,
     away: bool,
     ready: Option<Stepped>,
-    thread: Option<Worker<Steps, Stepped>>,
+    thread: Option<Worker<(u64, Steps), Stepped>>,
+    signal: WaitSignal,
+    seq: u64,
     /// The thread died with the world (a panic in a step): the steps run
     /// in the caller from then on, and the world is made again.
     pub lost: bool,
@@ -229,6 +244,8 @@ impl Beside {
             away: false,
             ready: None,
             thread: None,
+            signal: WaitSignal::new(),
+            seq: 0,
             lost: false,
         }
     }
@@ -238,6 +255,29 @@ impl Beside {
         self.away
     }
 
+    /// If the background step job is still running, returns a signal that
+    /// fires once it finishes.
+    pub fn pending(&mut self) -> Option<PendingSignal> {
+        if !self.away || self.ready.is_some() {
+            return None;
+        }
+        if let Some((_, done)) = &self.thread {
+            match done
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_recv()
+            {
+                Ok(stepped) => {
+                    self.ready = Some(stepped);
+                    return None;
+                }
+                Err(TryRecvError::Disconnected) => return None,
+                Err(TryRecvError::Empty) => return Some(self.signal.pending(self.seq)),
+            }
+        }
+        None
+    }
+
     /// Steps `job`'s ticks (nothing may be away); in the caller, they are
     /// done on return, and land with the next `land`.
     pub fn send(&mut self, job: Steps) {
@@ -245,12 +285,17 @@ impl Beside {
         self.away = true;
         if self.on == RebaseOn::Thread && !self.lost {
             if self.thread.is_none() {
-                let (jobs, take) = channel::<Steps>();
+                let (jobs, take) = channel::<(u64, Steps)>();
                 let (give, done) = channel::<Stepped>();
+                let signal = self.signal.clone();
                 let spawned = std::thread::Builder::new()
                     .name("net predict".into())
                     .spawn(move || {
-                        for job in take {
+                        for (seq, job) in take {
+                            let _notify = NotifyOnDrop {
+                                signal: signal.clone(),
+                                target: seq,
+                            };
                             if give.send(step_all(job)).is_err() {
                                 break;
                             }
@@ -261,15 +306,18 @@ impl Beside {
                 }
             }
             match &self.thread {
-                Some((jobs, _)) => match jobs.send(job) {
-                    Ok(()) => return,
-                    Err(returned) => {
-                        self.lost = true;
-                        self.thread = None;
-                        self.ready = Some(step_all(returned.0));
-                        return;
+                Some((jobs, _)) => {
+                    self.seq += 1;
+                    match jobs.send((self.seq, job)) {
+                        Ok(()) => return,
+                        Err(returned) => {
+                            self.lost = true;
+                            self.thread = None;
+                            self.ready = Some(step_all(returned.0.1));
+                            return;
+                        }
                     }
-                },
+                }
                 None => self.lost = true,
             }
         }
@@ -316,7 +364,10 @@ pub(super) struct Rebaser {
     /// The job given and not landed yet.
     busy: bool,
     ready: Option<Option<Done>>,
-    thread: Option<Worker<Job, Option<Done>>>,
+    spare: Option<Box<SimWorld>>,
+    thread: Option<Worker<(u64, Job), Option<Done>>>,
+    signal: WaitSignal,
+    seq: u64,
     /// The thread died (a panic in a step): rewinds run in the caller
     /// from then on.
     pub lost: bool,
@@ -328,14 +379,48 @@ impl Rebaser {
             on,
             busy: false,
             ready: None,
+            spare: None,
             thread: None,
+            signal: WaitSignal::new(),
+            seq: 0,
             lost: false,
         }
+    }
+
+    pub fn give_spare(&mut self, world: Box<SimWorld>) {
+        self.spare = Some(world);
+    }
+
+    pub fn take_spare(&mut self) -> Option<Box<SimWorld>> {
+        self.spare.take()
     }
 
     /// A job is under way or its result not taken yet.
     pub fn busy(&self) -> bool {
         self.busy
+    }
+
+    /// If a rewind is actively running on the background thread, returns a
+    /// signal that fires once it completes (without consuming its result).
+    pub fn pending(&mut self) -> Option<PendingSignal> {
+        if !self.busy || self.ready.is_some() {
+            return None;
+        }
+        if let Some((_, done)) = &self.thread {
+            match done
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_recv()
+            {
+                Ok(result) => {
+                    self.ready = Some(result);
+                    return None;
+                }
+                Err(TryRecvError::Disconnected) => return None,
+                Err(TryRecvError::Empty) => return Some(self.signal.pending(self.seq)),
+            }
+        }
+        None
     }
 
     /// Starts `job` (none may be under way); in the caller, it is done on
@@ -344,30 +429,42 @@ impl Rebaser {
         debug_assert!(!self.busy, "one rewind at a time");
         self.busy = true;
         if self.on == RebaseOn::Thread && !self.lost {
+            let seq = self.seq + 1;
             let Some((jobs, _)) = self.thread() else {
                 self.lost = true;
                 self.ready = Some(run(job));
                 return;
             };
-            if let Err(returned) = jobs.send(job) {
-                self.lost = true;
-                self.thread = None;
-                self.ready = Some(run(returned.0));
+            match jobs.send((seq, job)) {
+                Ok(()) => {
+                    self.seq = seq;
+                    return;
+                }
+                Err(returned) => {
+                    self.lost = true;
+                    self.thread = None;
+                    self.ready = Some(run(returned.0.1));
+                    return;
+                }
             }
-            return;
         }
         self.ready = Some(run(job));
     }
 
     /// The thread, started the first time.
-    fn thread(&mut self) -> Option<&Worker<Job, Option<Done>>> {
+    fn thread(&mut self) -> Option<&Worker<(u64, Job), Option<Done>>> {
         if self.thread.is_none() {
-            let (jobs, take) = channel::<Job>();
+            let (jobs, take) = channel::<(u64, Job)>();
             let (give, done) = channel::<Option<Done>>();
+            let signal = self.signal.clone();
             std::thread::Builder::new()
                 .name("net rewind".into())
                 .spawn(move || {
-                    for job in take {
+                    for (seq, job) in take {
+                        let _notify = NotifyOnDrop {
+                            signal: signal.clone(),
+                            target: seq,
+                        };
                         if give.send(run(job)).is_err() {
                             break;
                         }

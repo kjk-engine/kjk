@@ -2555,7 +2555,7 @@ impl Engine<'_> {
                 ) {
                     crate::module::adjust(
                         &view.module.repute,
-                        &mut self.state.reputation,
+                        std::sync::Arc::make_mut(&mut self.state.reputation),
                         target,
                         source,
                         int(args, 2),

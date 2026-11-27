@@ -175,7 +175,7 @@ pub(super) fn interact(
             .find(|(of, ..)| of.0 == id)
             .map(|(_, _, fighting)| (id, &fighting.0))
     });
-    let at_tables = (&talking.0, &holding.0, &tabled.0[..], &embattled.0[..]);
+    let at_tables = (&talking.0, &*holding.0, &tabled.0[..], &embattled.0[..]);
     // An ask lasts one step: the host takes it, or it is asked again.
     module.pending = None;
     // The walks into exits, in seat order, each with the exit whose tenant

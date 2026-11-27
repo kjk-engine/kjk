@@ -419,7 +419,11 @@ fn run_case(
     let mut host = spawn(
         binary,
         &host_args,
-        &[("KJK_SAVES", &host_saves), ("KJK_MUTE", "1")],
+        &[
+            ("KJK_SAVES", &host_saves),
+            ("KJK_MUTE", "1"),
+            ("KJK_NET_AUDIT", "1"),
+        ],
         &repo_root(),
         folder,
         "host",
@@ -433,7 +437,11 @@ fn run_case(
             ("Kalle", b_script, "guest-b", b_cmds),
         ] {
             let saves = saves_of(side);
-            let env = [("KJK_SAVES", saves.as_str()), ("KJK_MUTE", "1")];
+            let env = [
+                ("KJK_SAVES", saves.as_str()),
+                ("KJK_MUTE", "1"),
+                ("KJK_NET_AUDIT", "1"),
+            ];
             guests.push(spawn(
                 binary,
                 &guest_args(name, script, cmds),

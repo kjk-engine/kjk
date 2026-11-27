@@ -121,6 +121,7 @@ mod motion_proxy;
 pub mod movie_verbs;
 mod movie_view;
 pub mod net_feel;
+mod net_graph;
 pub mod net_join;
 mod net_thread;
 pub mod own_fx;
@@ -193,7 +194,7 @@ mod sim_view;
 mod sim_worker;
 pub mod skeleton;
 mod skin_once;
-mod solo;
+pub mod solo;
 #[cfg(feature = "probes")]
 pub use solo::reload_probes as solo_reload_probes;
 pub mod sound;
@@ -353,7 +354,16 @@ pub fn listen_socket(
     address: std::net::SocketAddr,
     steam: bool,
 ) -> Result<net::io::Socket, String> {
-    let udp = net::io::Udp::bind(address, solo::clock())
+    listen_socket_for(address, steam, 3)
+}
+
+/// Like `listen_socket`, sizing socket buffers for `seats`.
+pub fn listen_socket_for(
+    address: std::net::SocketAddr,
+    steam: bool,
+    seats: u8,
+) -> Result<net::io::Socket, String> {
+    let udp = net::io::Udp::bind_with(address, solo::clock(), net::io::SocketConfig::host(seats))
         .map_err(|error| format!("listen on {address}: {error}"))?;
     // A host no IPv4 player can reach would wait for players who all time
     // out (issue 340).
@@ -379,7 +389,7 @@ pub fn host_session(
     let socket = match spec.lobby {
         Some(open) => solo::Listening::Lobby(Box::new(open)),
         None => solo::Listening::Socket(Box::new(net::netem::Netem::new(
-            listen_socket(spec.address, spec.steam)?,
+            listen_socket_for(spec.address, spec.steam, spec.seats)?,
             spec.conditions,
         ))),
     };
@@ -488,7 +498,7 @@ fn beside_steam(socket: net::io::Socket) -> net::io::Socket {
 /// (`world_fingerprint`). The fingerprint cache is used: the first time
 /// hashes them (seconds on a fast disk, minutes on a slow one, which
 /// `status` tells as it goes), later only what changed.
-fn world_data(
+pub fn world_data(
     discovery: &vfs::Discovery,
     games: &[Game],
     status: &dyn Fn(String),

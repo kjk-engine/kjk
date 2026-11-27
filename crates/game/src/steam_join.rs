@@ -38,7 +38,7 @@ fn joins(
     let Ok(client) = steam::client() else {
         return;
     };
-    steam::pump(client);
+    let _ = steam::try_pump(client);
     for host in steam::join_requests() {
         if playing.is_some() {
             ui.vm

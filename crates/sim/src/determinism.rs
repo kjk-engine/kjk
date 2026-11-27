@@ -229,7 +229,7 @@ pub fn proving_ground() -> Level {
 
 /// The proving ground as a module named `name`: a second one to leave
 /// behind (`fixtures::kitchen_sink`).
-pub(crate) fn proving_ground_named(name: &str) -> Level {
+pub fn proving_ground_named(name: &str) -> Level {
     let (sin, cos) = collision::trig::sin_cos(TURN_DEGREES * (std::f32::consts::PI / 180.0));
     let frame = Frame { sin, cos };
     let mut builder = LevelBuilder::new();

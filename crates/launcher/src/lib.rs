@@ -18,6 +18,7 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod headless_net;
 mod installs_report;
 mod levels;
 mod lighting_verbs;

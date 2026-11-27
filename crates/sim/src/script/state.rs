@@ -259,7 +259,7 @@ pub struct State {
     pub watch: Watch,
     /// What scripts changed of how factions stand (`AdjustReputation`),
     /// the game's from then on, in every module.
-    pub reputation: crate::module::Adjustments,
+    pub reputation: std::sync::Arc<crate::module::Adjustments>,
     /// What each trap in play keeps beyond its facts, by the trap's id
     /// (`world::traps`).
     pub traps: BTreeMap<u32, TrapState>,
@@ -997,7 +997,7 @@ impl State {
         }
         self.watch.encode(out);
         out.u32(self.reputation.len() as u32);
-        for (&(a, b), by) in &self.reputation {
+        for (&(a, b), by) in self.reputation.iter() {
             out.u8(a);
             out.u8(b);
             out.u16(*by as u16);
@@ -1324,14 +1324,13 @@ impl State {
         }
         state.watch = Watch::decode(input)?;
         let by_cell = input.since(crate::since::save::REPUTATION_HELD);
+        let rep = std::sync::Arc::make_mut(&mut state.reputation);
         for _ in 0..input.u32()? {
             let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
             if by_cell {
-                state.reputation.insert((a, b), by);
+                rep.insert((a, b), by);
             } else {
-                state
-                    .reputation
-                    .extend(crate::module::adjustment_cells(a, b, by));
+                rep.extend(crate::module::adjustment_cells(a, b, by));
             }
         }
         for _ in 0..input.u32()? {

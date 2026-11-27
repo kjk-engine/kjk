@@ -65,12 +65,12 @@ use crate::codec::Check;
 use crate::wire::{self, Reader, WireError, put_text, put_u16, put_u64, put_varint, put_zigzag};
 
 /// The most commands one commands frame carries (256 ms at 125 Hz).
-pub const MAX_COMMANDS: usize = 32;
+pub const MAX_COMMANDS: usize = 48;
 /// The most fragments of one snapshot payload.
 pub const MAX_FRAGMENTS: usize = 16;
 /// Bytes of payload in one fragment: a fragment, its frame header and the
-/// packet header fit a datagram with room to spare.
-pub const FRAGMENT: usize = 1150;
+/// packet header (`HEADER_LEN` = 23) fit inside `MAX_DATAGRAM` (1120).
+pub const FRAGMENT: usize = 1070;
 
 const WELCOME: u8 = 1;
 const LEVEL: u8 = 2;
@@ -96,11 +96,11 @@ const CLOSED: u8 = 20;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
-/// message after it (an install, a notice) waits for one part at most: a
-/// quarter second at the default budget.
-pub const SAVE_PART: usize = 64 * 1024;
+/// message after it (an install, a notice) waits for one part at most:
+/// ~62 ms at the default budget.
+pub const SAVE_PART: usize = 16 * 1024;
 /// The most parts of one save copy: 32 MiB.
-pub const MAX_SAVE_PARTS: usize = 512;
+pub const MAX_SAVE_PARTS: usize = 2048;
 
 /// One part of a save copy (I30 P17): copy `copy`'s part `part` of
 /// `parts`; every part but the last carries `SAVE_PART` bytes. The bytes
@@ -721,6 +721,8 @@ pub struct Commands {
     pub epoch: u16,
     /// The newest snapshot the client rebuilt and verified.
     pub confirmed: Option<u64>,
+    /// Bit `i` set when the client also holds `confirmed - (i + 1)`.
+    pub confirmed_mask: u8,
     /// The tick of the last command.
     pub newest: u64,
     count: usize,
@@ -734,6 +736,7 @@ impl Commands {
         Commands {
             epoch,
             confirmed,
+            confirmed_mask: 0,
             newest: 0,
             count: 0,
             list: [Command::default(); MAX_COMMANDS],
@@ -781,6 +784,7 @@ impl Commands {
     pub fn encode(&self, out: &mut Vec<u8>) {
         put_u16(out, self.epoch);
         put_varint(out, self.confirmed.map_or(0, |tick| tick + 1));
+        out.push(self.confirmed_mask);
         put_varint(out, self.newest);
         out.push(self.count as u8);
         let (mut before, mut lag) = (Command::default(), 0i64);
@@ -796,6 +800,12 @@ impl Commands {
         let mut input = Reader::new(payload);
         let epoch = input.u16("epoch")?;
         let confirmed = input.varint("confirmed")?.checked_sub(1);
+        let confirmed_mask = input.u8("confirmed mask")?;
+        if confirmed.is_none() && confirmed_mask != 0 {
+            return Err(WireError::Invalid {
+                what: "confirmed mask",
+            });
+        }
         let newest = input.varint("newest")?;
         let count = usize::from(input.u8("count")?);
         if count > MAX_COMMANDS {
@@ -812,6 +822,7 @@ impl Commands {
             });
         }
         let mut commands = Commands::new(epoch, confirmed);
+        commands.confirmed_mask = confirmed_mask;
         let (mut before, mut lag) = (Command::default(), 0i64);
         for index in 0..count {
             let command = read_command(&mut input, &before)?;
@@ -949,8 +960,31 @@ impl<'a> Payload<'a> {
 /// Appends a payload's frame and seat commands (all but the send stamp,
 /// which `put_payload_head` writes first).
 pub fn put_payload_body(out: &mut Vec<u8>, frame: &[u8], commands: &TickInput, base: &TickInput) {
+    put_payload_body_for(out, frame, commands, base, None);
+}
+
+/// Like `put_payload_body`, writing only `only_seat`'s command when given
+/// (used for `seats > 4` so each client receives only its own echo).
+pub fn put_payload_body_for(
+    out: &mut Vec<u8>,
+    frame: &[u8],
+    commands: &TickInput,
+    base: &TickInput,
+    only_seat: Option<Seat>,
+) {
     put_varint(out, frame.len() as u64);
     out.extend_from_slice(frame);
+    if let Some(seat) = only_seat {
+        if let Some(command) = commands.get(seat) {
+            put_varint(out, 1);
+            out.push(seat.0);
+            let before = base.get(seat).copied().unwrap_or(Command::default());
+            put_command(out, &before, command);
+        } else {
+            put_varint(out, 0);
+        }
+        return;
+    }
     put_varint(out, commands.len() as u64);
     for (seat, command) in commands.iter() {
         out.push(seat.0);

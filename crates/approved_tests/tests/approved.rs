@@ -5671,10 +5671,11 @@ const OWN_SESSION_TESTS: [&str; 7] = [
 ];
 
 /// Whole sessions (`kjk net session`, no install): the determinism world's
-/// `lan`, `wan`, a one-minute `soak`, `hostile`, `reconnect`, `restart`
-/// and `save_copy` (`hold`, `reload` and the rewinds' are their own tests)
-/// played over a `SimNet`, every binding check passing; and a million
-/// corrupted session encodings through their decoders, none panicking.
+/// `lan`, `wan`, a one-minute `soak`, `hostile`, `reconnect`, `restart`,
+/// `save_copy`, `vpn_hamachi`, and `late_game_3p` (`hold`, `reload` and the
+/// rewinds' are their own tests) played over a `SimNet`, every binding check
+/// passing; and a million corrupted session encodings through their decoders,
+/// none panicking.
 #[test]
 fn net_sessions() {
     use net::session::sessions;
@@ -5682,7 +5683,7 @@ fn net_sessions() {
         .into_iter()
         .filter(|session| !OWN_SESSION_TESTS.contains(&session.setup.name.as_str()))
         .collect();
-    assert_eq!(played.len(), 7, "sessions went missing");
+    assert_eq!(played.len(), 9, "sessions went missing");
     std::thread::scope(|scope| {
         let handles: Vec<_> = played
             .into_iter()
@@ -5790,6 +5791,367 @@ fn hold_and_resume() {
         let held = format!("client {index} held and started again");
         assert!(names.contains(&held), "no check: {held}");
     }
+}
+
+/// `SimWorld::restore_from` reuses the ECS world across snapshots (same level,
+/// cross-level, entity spawns/despawns, and benched/away avatars) and steps
+/// identically to a fresh `SimWorld::from_snapshot`.
+#[test]
+fn restore_from_matches_from_snapshot() {
+    let setup = sim::determinism::Setup::pinned();
+    let arena = sim::Level::arena();
+    let proving = sim::determinism::proving_ground();
+    let mut live = sim::SimWorld::new(setup.world, arena.clone()).expect("arena world");
+
+    let step_firing = |world: &mut sim::SimWorld, count: u64| {
+        let from = world.snapshot().tick;
+        for tick in from + 1..=from + count {
+            let mut input = sim::TickInput::default();
+            for seat in 0..4 {
+                input.insert(
+                    sim::Seat(seat),
+                    sim::Command {
+                        angles: sim::moves::view_angles(
+                            0.0,
+                            ((tick + u64::from(seat) * 19) % 360) as f32,
+                        ),
+                        forward: if tick % 3 == 0 { 127 } else { -64 },
+                        buttons: if tick % 2 == 0 {
+                            sim::buttons::ATTACK
+                        } else {
+                            0
+                        },
+                        ..sim::Command::default()
+                    },
+                );
+            }
+            sim::step(
+                world,
+                tick,
+                &input,
+                setup.rate.msec(tick),
+                sim::StepReason::Authority,
+            );
+        }
+    };
+
+    step_firing(&mut live, 60);
+    let snap_arena = live.snapshot();
+
+    step_firing(&mut live, 30);
+    live.install(proving.clone(), None).expect("proving ground");
+    step_firing(&mut live, 60);
+    let snap_proving_early = live.snapshot();
+
+    step_firing(&mut live, 40);
+    let snap_proving_late = live.snapshot();
+
+    // Build a TSL module variant containing a placed Creature so seat 1 can
+    // drive it and leave seat 1's own avatar benched + away.
+    let mut tsl_builder = collision::LevelBuilder::new();
+    let floor = collision::Tag::level(collision::Contents::SOLID, 1);
+    tsl_builder.triangle(
+        [[-12.0, -12.0, 0.0], [12.0, -12.0, 0.0], [12.0, 12.0, 0.0]],
+        floor,
+    );
+    tsl_builder.triangle(
+        [[-12.0, -12.0, 0.0], [12.0, 12.0, 0.0], [-12.0, 12.0, 0.0]],
+        floor,
+    );
+    let mut tsl_module = (**proving.module().expect("proving module")).clone();
+    tsl_module.game = "tsl".into();
+    tsl_module.name = "proving_tsl".into();
+    tsl_module.area = "proving_tsl".into();
+    tsl_module.entry.position = [0.0, 0.0, 0.0];
+    let mut creature = match &tsl_module.placements[0] {
+        sim::module::Placement::Own(gate) => gate.clone(),
+        _ => panic!("proving_ground first placement"),
+    };
+    creature.kind = sim::module::ObjectKind::Creature;
+    creature.tag = "companion_standin".into();
+    creature.opens = sim::module::Opens::Never;
+    creature.position = [0.0, 2.0, 0.0];
+    creature.sheet = Some(sim::combat::Sheet::dev_soldier());
+    tsl_module.placements = vec![sim::module::Placement::Own(creature)];
+    let tsl_proving = sim::Level::new(
+        "proving_tsl",
+        std::sync::Arc::new(tsl_builder.build()),
+        std::sync::Arc::new(sim::motion::AnimTable::stand_in()),
+    )
+    .with_module(tsl_module);
+
+    live.install(tsl_proving.clone(), None)
+        .expect("tsl proving");
+    step_firing(&mut live, 20);
+    let snap_tsl = live.snapshot();
+
+    let mut snap_benched = snap_tsl.clone();
+    if let Some(entity) = snap_benched.entities.iter_mut().find(|entity| {
+        matches!(
+            entity.kind,
+            sim::Kind::Object(sim::module::ObjectKind::Creature, _)
+        ) && entity.fighter.is_some()
+    }) {
+        entity.fighter.as_mut().expect("fighter").mind.driver = Some(sim::Seat(1));
+    }
+    assert!(
+        snap_benched
+            .entities
+            .iter()
+            .any(|entity| snap_benched.away(entity)),
+        "snapshot should exercise a benched/away avatar"
+    );
+
+    let cases: [(&str, &sim::Snapshot, &sim::Level); 5] = [
+        ("same_level_proving", &snap_proving_early, &proving),
+        ("same_level_proving_late", &snap_proving_late, &proving),
+        ("tsl_benched_away", &snap_benched, &tsl_proving),
+        ("unbench_tsl", &snap_tsl, &tsl_proving),
+        ("cross_level_arena", &snap_arena, &arena),
+    ];
+
+    for (label, target, level) in cases {
+        live.restore_from(target, level)
+            .unwrap_or_else(|error| panic!("{label}: restore_from failed: {error}"));
+        let mut fresh = sim::SimWorld::from_snapshot(target, level.clone())
+            .unwrap_or_else(|error| panic!("{label}: from_snapshot failed: {error}"));
+        assert_eq!(
+            live.snapshot().hash(),
+            fresh.snapshot().hash(),
+            "{label}: immediate snapshot mismatch"
+        );
+        for n in 1..=40 {
+            step_firing(&mut live, 1);
+            step_firing(&mut fresh, 1);
+            assert_eq!(
+                live.snapshot().hash(),
+                fresh.snapshot().hash(),
+                "{label}: hash diverged at step {n}"
+            );
+        }
+    }
+}
+
+/// Phase 1 bandwidth and single-MTU framing budget: in 3-player co-op fight
+/// (`seats: 3, wanderers: 4`) downlink stays at or below 20 KB/s, in 3-player
+/// idle (`wanderers: 0`) at or below 4 KB/s, and over 95% of snapshot frames
+/// fit in a single MTU datagram.
+#[test]
+fn net_bandwidth_budget() {
+    use net::session::probes;
+    use net::session::sessions;
+    let lan = sessions::determinism(1)
+        .into_iter()
+        .find(|session| session.setup.name == "lan")
+        .expect("lan setup")
+        .setup;
+
+    let pinned = sim::determinism::Setup::pinned();
+    let fight_world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 3,
+            wanderers: 4,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let fight_setup = probes::Setup {
+        name: "fight_budget".into(),
+        seconds: 15,
+        ..lan.clone()
+    };
+    let mut fight = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .with_setup(fight_world);
+    let fight_report = probes::run(&mut fight, &fight_setup);
+    let fight_checks = sessions::checks(&fight_report, sessions::Expect::Clean);
+    let fight_failed: Vec<&str> = fight_checks
+        .iter()
+        .filter(|check| check.failed())
+        .map(|check| check.name.as_str())
+        .collect();
+    assert!(
+        fight_failed.is_empty(),
+        "fight session failed: {fight_failed:?}"
+    );
+    for (i, client) in fight_report.clients.iter().enumerate() {
+        println!(
+            "fight client {i}: down={:.1} B/s, up={:.1} B/s",
+            client.down_bps, client.up_bps
+        );
+    }
+    for conn in &fight_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        println!(
+            "fight seat {}: snapshots={}, keyframes={}, fragments={}, single_mtu_ratio={:.4}",
+            conn.seat.0, conn.stats.snapshots, conn.stats.keyframes, conn.stats.fragments, ratio
+        );
+    }
+    let idle_world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 3,
+            wanderers: 0,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let idle_setup = probes::Setup {
+        name: "idle_budget".into(),
+        seconds: 10,
+        ..lan
+    };
+    let mut idle = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .idle()
+        .with_setup(idle_world);
+    let idle_report = probes::run(&mut idle, &idle_setup);
+    for (i, client) in idle_report.clients.iter().enumerate() {
+        println!(
+            "idle client {i}: down={:.1} B/s, up={:.1} B/s",
+            client.down_bps, client.up_bps
+        );
+    }
+    for conn in &idle_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        println!(
+            "idle seat {}: snapshots={}, keyframes={}, fragments={}, single_mtu_ratio={:.4}",
+            conn.seat.0, conn.stats.snapshots, conn.stats.keyframes, conn.stats.fragments, ratio
+        );
+        assert!(
+            ratio > 0.95,
+            "idle seat {} single-MTU ratio {:.3} <= 0.95",
+            conn.seat.0,
+            ratio
+        );
+    }
+    for (i, client) in fight_report.clients.iter().enumerate() {
+        assert!(
+            client.down_bps <= 20_000.0,
+            "fight client {i} downlink {:.1} B/s exceeds 20 KB/s budget",
+            client.down_bps
+        );
+    }
+    for conn in &fight_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        assert!(
+            ratio > 0.95,
+            "fight seat {} single-MTU ratio {:.3} <= 0.95 ({} fragments / {} snapshots)",
+            conn.seat.0,
+            ratio,
+            conn.stats.fragments,
+            conn.stats.snapshots
+        );
+    }
+    for (i, client) in idle_report.clients.iter().enumerate() {
+        assert!(
+            client.down_bps <= 4_000.0,
+            "idle client {i} downlink {:.1} B/s exceeds 4 KB/s budget",
+            client.down_bps
+        );
+    }
+}
+
+/// Phase 3A/3B 64-player battle test: 64 avatars on `proving_ground` for 10s,
+/// asserting all 64 join, stay connected, stay within ring limits, rebuild valid
+/// snapshots, and stay within downlink budget.
+#[test]
+fn session_64p_battle() {
+    use net::session::probes;
+    use net::session::sessions;
+    let lan = sessions::determinism(1)
+        .into_iter()
+        .find(|session| session.setup.name == "lan")
+        .expect("lan setup")
+        .setup;
+
+    let pinned = sim::determinism::Setup::pinned();
+    let world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 64,
+            wanderers: 0,
+            guests: sim::Guests::Avatars,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let clients: Vec<probes::Joiner> = (0..64)
+        .map(|i| probes::Joiner {
+            at_us: (i as u64) * 35_000,
+            frame_us: 16_667,
+            plan_us: 100_000,
+        })
+        .collect();
+    let setup = probes::Setup {
+        name: "battle_64p".into(),
+        clients,
+        seconds: 10,
+        every: 4,
+        load_wait_us: 8_000_000,
+        ..lan
+    };
+    let mut scenario = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .with_setup(world);
+    let report = probes::run(&mut scenario, &setup);
+
+    let connected = report
+        .clients
+        .iter()
+        .filter(|c| c.seat.is_some() && c.ended.is_none())
+        .count();
+    let check_failures: u64 = report.clients.iter().map(|c| c.stats.check_failures).sum();
+    let rebuilt: u64 = report.clients.iter().map(|c| c.stats.rebuilt).sum();
+    let down_mean_kbps = report.clients.iter().map(|c| c.down_bps).sum::<f64>()
+        / report.clients.len().max(1) as f64
+        / 1024.0;
+    let down_max_kbps = report
+        .clients
+        .iter()
+        .map(|c| c.down_bps / 1024.0)
+        .fold(0.0f64, f64::max);
+    let snaps: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.snapshots)
+        .sum();
+    let frags: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.fragments)
+        .sum();
+    let single_mtu = if snaps > 0 {
+        snaps.saturating_sub(frags) as f64 / snaps as f64
+    } else {
+        1.0
+    };
+    println!(
+        "battle_64p: connected={connected}/64 rebuilt={rebuilt} check_failures={check_failures} down_mean={down_mean_kbps:.2}KB/s down_max={down_max_kbps:.2}KB/s single_mtu={single_mtu:.4}"
+    );
+    assert_eq!(connected, 64, "all 64 clients stay connected");
+    assert_eq!(check_failures, 0, "all rebuilt snapshots pass check");
+    assert!(rebuilt > 0, "clients rebuilt snapshots");
+    assert!(
+        down_max_kbps <= 45.0,
+        "max client downlink {down_max_kbps:.2} KB/s exceeds 45 KB/s budget"
+    );
+    assert!(
+        single_mtu >= 0.90,
+        "single-MTU ratio {single_mtu:.4} below 0.90"
+    );
+    assert!(
+        report
+            .server
+            .connections
+            .iter()
+            .all(|_| report.server.ring <= 256),
+        "host ring bounded: {}",
+        report.server.ring
+    );
 }
 
 /// Character creation (`sim::creation`): scores bought with 30 points from 8

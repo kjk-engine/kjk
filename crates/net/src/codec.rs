@@ -93,8 +93,9 @@
 //! baselines. Evidence: `probes` (run by `kjk net codec`).
 
 use std::fmt;
+use std::sync::Arc;
 
-use sim::{DecodeError, Parts, SimId, Stash};
+use sim::{DecodeError, EntityPart, Parts, SimId, Stash};
 
 use crate::wire::{self, put_varint, varint_len};
 
@@ -104,7 +105,8 @@ pub mod probes;
 mod ring;
 
 pub use frame::{
-    Check, FrameHeader, Rebuilt, Stepped, decode_frame, encode_frame, pack, rebuild, unpack,
+    Check, FrameHeader, Rebuilt, Stepped, decode_frame, encode_frame, encode_parts_frame, pack,
+    rebuild, unpack,
 };
 pub use ring::{Begun, ClientRing, Confirmed, ServerRing};
 
@@ -112,23 +114,31 @@ pub use ring::{Begun, ClientRing, Confirmed, ServerRing};
 pub const MAX_ENTITIES: usize = 65_536;
 /// The longest record a delta may carry whole.
 pub const MAX_RECORD: usize = 1 << 20;
-/// Stepped snapshots the host keeps for deltas: a second at 125 Hz.
-pub const SERVER_RING: usize = 128;
-/// Rebuilt snapshots a client keeps: more than a round trip's worth.
-pub const CLIENT_RING: usize = 64;
+/// Stepped snapshots the host keeps for deltas: two seconds at 125 Hz.
+pub const SERVER_RING: usize = 256;
+/// Rebuilt snapshots a client keeps: a second at 125 Hz.
+pub const CLIENT_RING: usize = 128;
 
 const BLOB_SAME: u8 = 0;
 const BLOB_MASKED: u8 = 1;
 const BLOB_WHOLE: u8 = 2;
 const BLOB_SPLICED: u8 = 3;
+const BLOB_DIGEST: u8 = 4;
 
 const OP_KEEP: u64 = 0;
 const OP_DROP: u64 = 1;
-const OP_XOR: u64 = 2;
-const OP_NEW: u64 = 3;
+const OP_HOT_XOR: u64 = 2;
+const OP_XOR: u64 = 3;
+const OP_NEW: u64 = 4;
+const OP_HOT_BLOB: u64 = 5;
 
-/// One entity's record, as `sim::Parts` holds them.
-type Record = (SimId, Vec<u8>);
+fn hot_eq(a: &Arc<[u8]>, b: &Arc<[u8]>) -> bool {
+    Arc::ptr_eq(a, b) || a == b
+}
+
+fn cold_eq(a: &Arc<[u8]>, b: &Arc<[u8]>) -> bool {
+    Arc::ptr_eq(a, b) || a == b
+}
 
 /// Why bytes did not rebuild a snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,7 +216,7 @@ impl CodecError {
 /// Allocation-free apart from `out` growing.
 pub fn encode(base: Option<&Parts>, now: &Parts, out: &mut Vec<u8>) {
     encode_blob(base.map(|base| base.head.as_slice()), &now.head, out);
-    let records: &[Record] = base.map_or(&[], |base| &base.entities);
+    let records: &[EntityPart] = base.map_or(&[], |base| &base.entities);
     Walk {
         base: records,
         now: &now.entities,
@@ -218,12 +228,24 @@ pub fn encode(base: Option<&Parts>, now: &Parts, out: &mut Vec<u8>) {
     }
     .run();
     encode_blob(base.map(|base| base.tail.as_slice()), &now.tail, out);
+    for i in 0..now.tail_cold.len() {
+        match base {
+            Some(base) if Arc::ptr_eq(&base.tail_cold[i], &now.tail_cold[i]) => {
+                out.push(BLOB_SAME);
+            }
+            _ => encode_blob(
+                base.map(|base| base.tail_cold[i].as_ref()),
+                &now.tail_cold[i],
+                out,
+            ),
+        }
+    }
     match base {
         Some(base) if base.stash == now.stash => out.push(BLOB_SAME),
         _ => {
-            out.push(BLOB_WHOLE);
-            put_varint(out, now.stash.bytes().len() as u64);
-            out.extend_from_slice(now.stash.bytes());
+            out.push(BLOB_DIGEST);
+            out.extend_from_slice(&now.stash.digest());
+            put_varint(out, u64::from(now.stash.ids_end()));
         }
     }
 }
@@ -295,8 +317,8 @@ fn put_masked(base: &[u8], now: &[u8], out: &mut Vec<u8>) {
 /// The entity list's walk: both lists by id, runs of one op kind written
 /// as they end.
 struct Walk<'a> {
-    base: &'a [Record],
-    now: &'a [Record],
+    base: &'a [EntityPart],
+    now: &'a [EntityPart],
     out: &'a mut Vec<u8>,
     /// The run in progress: its op, length and where it starts in each
     /// list.
@@ -312,7 +334,7 @@ impl Walk<'_> {
         loop {
             match (self.base.get(i), self.now.get(j)) {
                 (None, None) => break,
-                (Some((before, _)), Some((after, _))) if after < before => {
+                (Some(before), Some(after)) if after.id < before.id => {
                     self.add(OP_NEW, i, j);
                     j += 1;
                 }
@@ -320,7 +342,7 @@ impl Walk<'_> {
                     self.add(OP_DROP, i, j);
                     i += 1;
                 }
-                (Some((before, _)), Some((after, _))) if before < after => {
+                (Some(before), Some(after)) if before.id < after.id => {
                     self.add(OP_DROP, i, j);
                     i += 1;
                 }
@@ -328,11 +350,16 @@ impl Walk<'_> {
                     self.add(OP_NEW, i, j);
                     j += 1;
                 }
-                (Some((_, before)), Some((_, after))) => {
-                    if before == after {
+                (Some(before), Some(after)) => {
+                    let same_cold = cold_eq(&before.cold, &after.cold);
+                    if hot_eq(&before.hot, &after.hot) && same_cold {
                         self.add(OP_KEEP, i, j);
-                    } else if before.len() == after.len() {
+                    } else if before.hot.len() == after.hot.len() && same_cold {
+                        self.add(OP_HOT_XOR, i, j);
+                    } else if before.hot.len() == after.hot.len() {
                         self.add(OP_XOR, i, j);
+                    } else if same_cold {
+                        self.add(OP_HOT_BLOB, i, j);
                     } else {
                         self.add(OP_DROP, i, j);
                         self.add(OP_NEW, i + 1, j);
@@ -363,25 +390,44 @@ impl Walk<'_> {
         if self.count == 0 {
             return;
         }
-        put_varint(self.out, ((self.count as u64) << 2) | self.kind);
+        put_varint(self.out, ((self.count as u64) << 3) | self.kind);
         match self.kind {
+            OP_HOT_XOR => {
+                let pairs = self.base[self.base_at..]
+                    .iter()
+                    .zip(&self.now[self.now_at..]);
+                for (before, after) in pairs.take(self.count) {
+                    put_masked(&before.hot, &after.hot, self.out);
+                }
+            }
             OP_XOR => {
                 let pairs = self.base[self.base_at..]
                     .iter()
                     .zip(&self.now[self.now_at..]);
-                for ((_, before), (_, after)) in pairs.take(self.count) {
-                    put_masked(before, after, self.out);
+                for (before, after) in pairs.take(self.count) {
+                    put_masked(&before.hot, &after.hot, self.out);
+                    encode_blob(Some(&before.cold), &after.cold, self.out);
+                }
+            }
+            OP_HOT_BLOB => {
+                let pairs = self.base[self.base_at..]
+                    .iter()
+                    .zip(&self.now[self.now_at..]);
+                for (before, after) in pairs.take(self.count) {
+                    encode_blob(Some(&before.hot), &after.hot, self.out);
                 }
             }
             OP_NEW => {
                 for at in self.now_at..self.now_at + self.count {
-                    let (id, record) = &self.now[at];
+                    let entity = &self.now[at];
                     let after = at
                         .checked_sub(1)
-                        .map_or(0, |before| u64::from(self.now[before].0.0) + 1);
-                    put_varint(self.out, u64::from(id.0).saturating_sub(after));
-                    put_varint(self.out, record.len() as u64);
-                    self.out.extend_from_slice(record);
+                        .map_or(0, |before| u64::from(self.now[before].id.0) + 1);
+                    put_varint(self.out, u64::from(entity.id.0).saturating_sub(after));
+                    put_varint(self.out, entity.hot.len() as u64);
+                    self.out.extend_from_slice(&entity.hot);
+                    put_varint(self.out, entity.cold.len() as u64);
+                    self.out.extend_from_slice(&entity.cold);
                 }
             }
             _ => {}
@@ -401,15 +447,24 @@ pub fn decode(base: Option<&Parts>, delta: &[u8]) -> Result<Parts, CodecError> {
         at: 0,
     };
     let head = decode_blob(&mut input, base.map(|base| base.head.as_slice()), "head")?;
-    let records: &[Record] = base.map_or(&[], |base| &base.entities);
+    let records: &[EntityPart] = base.map_or(&[], |base| &base.entities);
     let entities = decode_entities(&mut input, records)?;
     let tail = decode_blob(&mut input, base.map(|base| base.tail.as_slice()), "tail")?;
+    let mut tail_cold: [Arc<[u8]>; 7] = std::array::from_fn(|_| Arc::from(&[][..]));
+    for (i, slot) in tail_cold.iter_mut().enumerate() {
+        *slot = decode_arc_blob(&mut input, base.map(|base| &base.tail_cold[i]), "tail cold")?;
+    }
     let at = input.at;
     let stash = match (input.u8("stash")?, base) {
         (BLOB_SAME, Some(base)) => base.stash.clone(),
-        (BLOB_WHOLE, _) => {
-            let len = input.bounded("stash", input.bytes.len())?;
-            Stash::decode(input.take(len, "stash")?).map_err(CodecError::Snapshot)?
+        (BLOB_DIGEST, _) => {
+            let digest = input.array::<32>("stash digest")?;
+            let ids_end =
+                u32::try_from(input.varint("stash ids_end")?).map_err(|_| CodecError::Limit {
+                    what: "stash ids_end",
+                    at,
+                })?;
+            Stash::digest_only(digest, ids_end)
         }
         _ => return Err(CodecError::Invalid { what: "stash", at }),
     };
@@ -421,6 +476,7 @@ pub fn decode(base: Option<&Parts>, delta: &[u8]) -> Result<Parts, CodecError> {
         head,
         entities,
         tail,
+        tail_cold,
         stash,
     })
 }
@@ -487,7 +543,37 @@ fn decode_blob(
     what: &'static str,
 ) -> Result<Vec<u8>, CodecError> {
     let at = input.at;
-    match (input.u8(what)?, base) {
+    let tag = input.u8(what)?;
+    decode_blob_tag(tag, at, input, base, what)
+}
+
+fn decode_arc_blob(
+    input: &mut Reader,
+    base: Option<&Arc<[u8]>>,
+    what: &'static str,
+) -> Result<Arc<[u8]>, CodecError> {
+    let at = input.at;
+    let tag = input.u8(what)?;
+    if tag == BLOB_SAME {
+        return base.cloned().ok_or(CodecError::Invalid { what, at });
+    }
+    Ok(Arc::from(decode_blob_tag(
+        tag,
+        at,
+        input,
+        base.map(|b| b.as_ref()),
+        what,
+    )?))
+}
+
+fn decode_blob_tag(
+    tag: u8,
+    at: usize,
+    input: &mut Reader,
+    base: Option<&[u8]>,
+    what: &'static str,
+) -> Result<Vec<u8>, CodecError> {
+    match (tag, base) {
         (BLOB_SAME, Some(base)) => Ok(base.to_vec()),
         (BLOB_MASKED, Some(base)) => take_masked(input, base, what),
         (BLOB_WHOLE, _) => {
@@ -545,19 +631,25 @@ fn take_masked(input: &mut Reader, base: &[u8], what: &'static str) -> Result<Ve
     Ok(out)
 }
 
-fn decode_entities(input: &mut Reader, base: &[Record]) -> Result<Vec<Record>, CodecError> {
-    let mut out: Vec<Record> = Vec::with_capacity(base.len());
+fn decode_entities(input: &mut Reader, base: &[EntityPart]) -> Result<Vec<EntityPart>, CodecError> {
+    let mut out: Vec<EntityPart> = Vec::with_capacity(base.len());
     let mut next = 0usize;
     loop {
         let at = input.at;
         let tag = input.varint("entity op")?;
-        let (count, kind) = (tag >> 2, tag & 3);
+        let (count, kind) = (tag >> 3, tag & 7);
         if count == 0 {
             if kind == OP_KEEP {
                 break;
             }
             return Err(CodecError::Invalid {
                 what: "empty entity op",
+                at,
+            });
+        }
+        if kind >= 6 {
+            return Err(CodecError::Invalid {
+                what: "entity op",
                 at,
             });
         }
@@ -571,7 +663,7 @@ fn decode_entities(input: &mut Reader, base: &[Record]) -> Result<Vec<Record>, C
             }
             for _ in 0..count {
                 let at = input.at;
-                let after = out.last().map_or(0, |(id, _)| u64::from(id.0) + 1);
+                let after = out.last().map_or(0, |part| u64::from(part.id.0) + 1);
                 let id = input
                     .varint("entity id")?
                     .checked_add(after)
@@ -580,9 +672,19 @@ fn decode_entities(input: &mut Reader, base: &[Record]) -> Result<Vec<Record>, C
                         what: "entity id",
                         at,
                     })?;
-                let len = input.bounded("record length", MAX_RECORD)?;
-                let record = input.take(len, "record")?.to_vec();
-                push(&mut out, SimId(id), record, at)?;
+                let len_hot = input.bounded("record length", MAX_RECORD)?;
+                let hot = Arc::from(input.take(len_hot, "record")?);
+                let len_cold = input.bounded("record length", MAX_RECORD - len_hot)?;
+                let cold = Arc::from(input.take(len_cold, "record")?);
+                push(
+                    &mut out,
+                    EntityPart {
+                        id: SimId(id),
+                        hot,
+                        cold,
+                    },
+                    at,
+                )?;
             }
             continue;
         }
@@ -597,29 +699,68 @@ fn decode_entities(input: &mut Reader, base: &[Record]) -> Result<Vec<Record>, C
         next += records.len();
         match kind {
             OP_KEEP => {
-                for (id, record) in records {
-                    push(&mut out, *id, record.clone(), at)?;
+                for part in records {
+                    push(&mut out, part.clone(), at)?;
+                }
+            }
+            OP_HOT_XOR => {
+                for part in records {
+                    let at = input.at;
+                    let hot = Arc::from(take_masked(input, &part.hot, "record")?);
+                    push(
+                        &mut out,
+                        EntityPart {
+                            id: part.id,
+                            hot,
+                            cold: part.cold.clone(),
+                        },
+                        at,
+                    )?;
                 }
             }
             OP_XOR => {
-                for (id, record) in records {
+                for part in records {
                     let at = input.at;
-                    let changed = take_masked(input, record, "record")?;
-                    push(&mut out, *id, changed, at)?;
+                    let hot = Arc::from(take_masked(input, &part.hot, "record")?);
+                    let cold = decode_arc_blob(input, Some(&part.cold), "record cold")?;
+                    push(
+                        &mut out,
+                        EntityPart {
+                            id: part.id,
+                            hot,
+                            cold,
+                        },
+                        at,
+                    )?;
+                }
+            }
+            OP_HOT_BLOB => {
+                for part in records {
+                    let at = input.at;
+                    let hot = Arc::from(decode_blob(input, Some(&part.hot), "record")?);
+                    push(
+                        &mut out,
+                        EntityPart {
+                            id: part.id,
+                            hot,
+                            cold: part.cold.clone(),
+                        },
+                        at,
+                    )?;
                 }
             }
             _ => {}
         }
     }
-    for (id, record) in &base[next..] {
-        push(&mut out, *id, record.clone(), input.at)?;
+    for part in &base[next..] {
+        push(&mut out, part.clone(), input.at)?;
     }
     Ok(out)
 }
 
 /// Appends a record, keeping ids strictly rising and the count bounded.
-fn push(out: &mut Vec<Record>, id: SimId, record: Vec<u8>, at: usize) -> Result<(), CodecError> {
-    if out.last().is_some_and(|(last, _)| *last >= id) {
+fn push(out: &mut Vec<EntityPart>, part: EntityPart, at: usize) -> Result<(), CodecError> {
+    if out.last().is_some_and(|last| last.id >= part.id) {
         return Err(CodecError::Invalid {
             what: "entity order",
             at,
@@ -631,6 +772,6 @@ fn push(out: &mut Vec<Record>, id: SimId, record: Vec<u8>, at: usize) -> Result<
             at,
         });
     }
-    out.push((id, record));
+    out.push(part);
     Ok(())
 }

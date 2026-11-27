@@ -1,0 +1,7 @@
+sim = "stop mutating force::regenerate regen_at/fp_carry when full"
+
+[formats]
+snapshot = "omit actor position/velocity duplicated by MotionState, reorder entity sheet and cold tail blobs for Arc memoization"
+
+[migrations]
+snapshot = "old snapshots encode explicit actor position/velocity, sheet before missile, and interleaved tail fields"

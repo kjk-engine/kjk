@@ -1321,11 +1321,13 @@ fn float(progressed: &mut super::Progressed, level: &Static, over: SimId, row: u
         .scripts()
         .and_then(|library| library.presentation().feedback.get(row).copied())
         .unwrap_or(0);
-    progressed.0.feedback.push(crate::snapshot::Feedback {
-        over: over.0,
-        strref,
-        at_ms: now,
-    });
+    std::sync::Arc::make_mut(&mut progressed.0)
+        .feedback
+        .push(crate::snapshot::Feedback {
+            over: over.0,
+            strref,
+            at_ms: now,
+        });
 }
 
 /// How a script's hold on `actors[at]` by `by` until `until` takes hold

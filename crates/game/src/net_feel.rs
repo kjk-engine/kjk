@@ -104,7 +104,7 @@ pub fn sample_host(feel: &mut Feel, server: &net::session::ServerStats) {
     for c in server
         .connections
         .iter()
-        .filter(|c| matches!(c.peer, net::Peer::Addr(_)))
+        .filter(|c| !matches!(c.peer, net::Peer::Local(_)))
     {
         // The mean slack of the commands since the last sample.
         let now = (c.stats.slack_sum_us, c.stats.commands);
@@ -115,6 +115,7 @@ pub fn sample_host(feel: &mut Feel, server: &net::session::ServerStats) {
             ("jitter_ms", c.link.jitter_us as f64 / 1000.0),
             ("loss_percent", c.link.loss_ppm as f64 / 10_000.0),
             ("interval_ticks", f64::from(c.every)),
+            ("keyframes", c.stats.keyframes as f64),
         ];
         if commands > 0 {
             gauges.push(("slack_ms", (now.0 - sum) as f64 / commands as f64 / 1000.0));
@@ -153,4 +154,19 @@ pub fn sample_player(feel: &mut Feel, client: &net::session::Client) {
         ("substituted_s", stats.host_substituted as f64),
     ];
     feel.sample("net", &gauges, &totals);
+}
+
+#[cfg(feature = "steam")]
+pub fn sample_steam(feel: &mut Feel, track: &str, info: net::io::SteamLinkInfo) {
+    let gauges = [
+        ("steam_connected", f64::from(u8::from(info.connected))),
+        ("steam_ping_ms", f64::from(info.ping_ms)),
+        ("steam_quality_local", f64::from(info.quality_local)),
+        ("steam_quality_remote", f64::from(info.quality_remote)),
+        (
+            "steam_pending_unreliable",
+            f64::from(info.pending_unreliable),
+        ),
+    ];
+    feel.sample(track, &gauges, &[]);
 }
