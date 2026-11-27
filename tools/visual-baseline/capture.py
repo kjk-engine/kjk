@@ -148,7 +148,7 @@ def main() -> int:
     parser.add_argument("--msaa", default=None, help="Override display.msaa (default: 4 for classic, taa otherwise)")
     parser.add_argument("--shadows", default="high", help="display.shadows setting (off, low, high, ultra)")
     parser.add_argument("--exe", default=None, help="Path to kjk binary")
-    parser.add_argument("--wait-frames", type=int, default=60, help="Frames to wait after world loads")
+    parser.add_argument("--wait-frames", type=int, default=400, help="Frames to wait after world loads")
     parser.add_argument("--pose-wait-frames", type=int, default=14, help="Frames to wait after setting camera pose")
     parser.add_argument("--gpu-times", action="store_true", help="Enable KJK_GPU_TIMES=1 and capture dump stats")
     parser.add_argument("--timeout", type=int, default=180, help="Per-scene timeout in seconds")

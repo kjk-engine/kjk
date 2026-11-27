@@ -309,21 +309,23 @@ type HeldView = (
 
 fn drawn_extent(
     camera: &ExtractedCamera,
+    target: &ViewTarget,
     resolution: Option<&MainPassResolutionOverride>,
-) -> Option<(UVec2, [u32; 4])> {
-    match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
+) -> Option<(Extent3d, [u32; 4])> {
+    let size = target.main_texture().size();
+    let bounds = match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
         Some(vp) => {
             let far = vp.physical_position + vp.physical_size;
-            Some((
-                far,
-                [vp.physical_position.x, vp.physical_position.y, far.x, far.y],
-            ))
+            [
+                vp.physical_position.x,
+                vp.physical_position.y,
+                far.x.min(size.width),
+                far.y.min(size.height),
+            ]
         }
-        None => {
-            let size = camera.physical_target_size?;
-            Some((size, [0, 0, size.x, size.y]))
-        }
-    }
+        None => [0, 0, size.width, size.height],
+    };
+    Some((size, bounds))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -342,10 +344,10 @@ fn hold_back(
     let Some(phase) = phases.get_mut(&extracted.retained_view_entity) else {
         return;
     };
-    let Some((extent, bounds)) = drawn_extent(camera, resolution) else {
+    let Some((size, bounds)) = drawn_extent(camera, target, resolution) else {
         return;
     };
-    if extent.x == 0 || extent.y == 0 {
+    if size.width == 0 || size.height == 0 || bounds[2] <= bounds[0] || bounds[3] <= bounds[1] {
         return;
     }
 
@@ -381,8 +383,8 @@ fn hold_back(
     }
 
     let size = Extent3d {
-        width: extent.x,
-        height: extent.y,
+        width: size.width,
+        height: size.height,
         depth_or_array_layers: 1,
     };
     let make_tex = |label: &'static str| TextureDescriptor {
