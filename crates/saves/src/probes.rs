@@ -367,12 +367,12 @@ fn roster_save(save: &sim::Save) -> Result<sim::Save, String> {
     let Some(proto) = save.snapshot.entities.first().copied() else {
         return Err("the sink has no entity".into());
     };
-    save.snapshot.roster = Some(vec![
+    save.snapshot.roster = Some(std::sync::Arc::new(vec![
         origin(ObjectKind::Door, "door_a"),
         origin(ObjectKind::Placeable, "plc_b"),
         origin(ObjectKind::Creature, "cre_c"),
         origin(ObjectKind::Creature, "cre_d"),
-    ]);
+    ]));
     let made = |id, kind, number, state| sim::EntityState {
         id: sim::SimId(id),
         kind: sim::Kind::Object(kind, number),

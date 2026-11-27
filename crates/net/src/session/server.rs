@@ -132,7 +132,11 @@ struct Reserved {
 /// Commands kept per seat, by tick.
 pub const SEAT_BUFFER: usize = 64;
 /// The longest snapshot interval the adaptive rate goes to.
-pub const MAX_EVERY: u8 = 4;
+pub const MAX_EVERY: u8 = 8;
+/// Rungs of the adaptive snapshot interval ladder (125 / n Hz).
+const EVERY_LADDER: [u8; 6] = [1, 2, 3, 4, 6, 8];
+/// Spacing between queued multi-fragment snapshot datagrams on a connection.
+const FRAGMENT_PACE_US: u64 = 2_000;
 /// Loss over which a connection's snapshots slow down (parts per million).
 const SLOW_LOSS_PPM: u64 = 100_000;
 /// The window loss and round trips are judged over.
@@ -408,12 +412,17 @@ struct Connection {
     joined: bool,
     loaded: Option<u16>,
     confirmed: Confirmed,
+    confirmed_mask: u8,
     pinned: Option<Base>,
     /// A snapshot waits to go.
     due: bool,
     /// An off-lock encode job is currently running for this connection.
     encoding: bool,
     every: u8,
+    /// Subsequent fragments of a multi-fragment snapshot delta queued to go
+    /// one every `FRAGMENT_PACE_US` so datagrams do not microburst.
+    paced_fragments: VecDeque<Vec<u8>>,
+    paced_at: NetTime,
     /// The current window: when it began, and the link's sent and lost
     /// counts then.
     window: (NetTime, u64, u64),
@@ -1115,10 +1124,13 @@ impl Server {
                 joined: false,
                 loaded: None,
                 confirmed: Confirmed::default(),
+                confirmed_mask: 0,
                 pinned: None,
                 due: false,
                 encoding: false,
                 every: base_every(&self.config, self.in_process_every(peer), peer),
+                paced_fragments: VecDeque::new(),
+                paced_at: now,
                 window: (now, 0, 0),
                 clean_since: now,
                 report: ClockReport::default(),
@@ -1159,6 +1171,8 @@ impl Server {
         {
             slot.conn.joined = true;
             slot.conn.confirmed = Confirmed::default();
+            slot.conn.confirmed_mask = 0;
+            slot.conn.paced_fragments.clear();
             slot.conn.pinned = None;
             slot.conn.due = true;
             let _ = slot.conn.link.send_reliable(&level);
@@ -1236,6 +1250,8 @@ impl Server {
                     // never agrees, I30 P13).
                     connection.pinned = None;
                     connection.confirmed = Confirmed::default();
+                    connection.confirmed_mask = 0;
+                    connection.paced_fragments.clear();
                     connection.due = true;
                     self.events
                         .push_back(ServerEvent::InstallDiffers { peer: from, epoch });
@@ -1249,6 +1265,8 @@ impl Server {
             Message::Resync => {
                 connection.pinned = None;
                 connection.confirmed = Confirmed::default();
+                connection.confirmed_mask = 0;
+                connection.paced_fragments.clear();
             }
             Message::Choose { pick, swap } if lobby == Some(Lobby::Gathering) => {
                 let slot = usize::from(connection.seat.0);
@@ -1284,7 +1302,10 @@ impl Server {
         if commands.epoch == epoch
             && let Some(tick) = commands.confirmed
         {
-            self.ring.confirm(&mut connection.confirmed, epoch, tick);
+            let advanced = self.ring.confirm(&mut connection.confirmed, epoch, tick);
+            if advanced || connection.confirmed == Confirmed(Some((epoch, tick))) {
+                connection.confirmed_mask = commands.confirmed_mask;
+            }
             if connection
                 .pinned
                 .as_ref()
@@ -1564,6 +1585,7 @@ impl Server {
             }
             connection.due = false;
             connection.encoding = false;
+            connection.paced_fragments.clear();
             // Reports of commands before the stop mean nothing after.
             connection.report = ClockReport::default();
             connection.report_due = false;
@@ -1650,6 +1672,8 @@ impl Server {
                     from_install: true,
                 });
                 slot.conn.confirmed = Confirmed::default();
+                slot.conn.confirmed_mask = 0;
+                slot.conn.paced_fragments.clear();
                 slot.conn.due = false;
                 slot.conn.encoding = false;
                 let _ = slot.conn.link.send_reliable(&message);
@@ -1732,6 +1756,7 @@ impl Server {
                 let mut payload = std::mem::take(&mut self.scratch);
                 let whole = enqueue_delta(
                     &mut slot.conn,
+                    now,
                     newest.tick,
                     since_us,
                     cached_bytes,
@@ -1765,7 +1790,7 @@ impl Server {
 
     /// Commits a finished `EncodedJob` back into `Server`, caching deltas
     /// and enqueueing frames onto the connection's `Link`.
-    pub fn finish_encode(&mut self, done: EncodedJob) {
+    pub fn finish_encode(&mut self, now: NetTime, done: EncodedJob) {
         let Some(&slot_idx) = self.peer_to_slot.get(&done.peer) else {
             return;
         };
@@ -1813,6 +1838,7 @@ impl Server {
                 let mut payload = std::mem::take(&mut self.scratch);
                 let whole = enqueue_delta(
                     &mut slot.conn,
+                    now,
                     done.newest.tick,
                     done.since_us,
                     &done.body_bytes,
@@ -1863,6 +1889,7 @@ impl Server {
         if sent {
             attach_clock_report(&mut slot.conn, &mut self.scratch);
         }
+        flush_paced(&mut slot.conn, now);
         feed_copy(&mut slot.conn);
         slot.conn.link.poll_transmit(now)
     }
@@ -1902,6 +1929,7 @@ impl Server {
             if sent {
                 attach_clock_report(&mut slot.conn, &mut self.scratch);
             }
+            flush_paced(&mut slot.conn, now);
             feed_copy(&mut slot.conn);
             if let Some(bytes) = slot.conn.link.poll_transmit(now) {
                 self.poll_cursor = (idx + 1) % len;
@@ -1972,6 +2000,7 @@ impl Server {
         let mut payload = std::mem::take(&mut self.scratch);
         let whole = enqueue_delta(
             &mut slot.conn,
+            now,
             newest.tick,
             since,
             &self.cache[cached].1,
@@ -2104,7 +2133,12 @@ impl Server {
                 if slot.conn.due && !slot.conn.encoding && running {
                     Some(NetTime(0))
                 } else {
-                    slot.conn.link.next_deadline()
+                    let paced =
+                        (!slot.conn.paced_fragments.is_empty()).then_some(slot.conn.paced_at);
+                    [slot.conn.link.next_deadline(), paced]
+                        .into_iter()
+                        .flatten()
+                        .min()
                 }
             })
             .min()
@@ -2162,8 +2196,21 @@ fn attach_clock_report(connection: &mut Connection, scratch: &mut Vec<u8>) {
     }
 }
 
+fn flush_paced(connection: &mut Connection, now: NetTime) {
+    if !connection.paced_fragments.is_empty()
+        && now >= connection.paced_at
+        && let Some(frag) = connection.paced_fragments.pop_front()
+    {
+        let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &frag);
+        if !connection.paced_fragments.is_empty() {
+            connection.paced_at = now.plus(FRAGMENT_PACE_US);
+        }
+    }
+}
+
 fn enqueue_delta(
     connection: &mut Connection,
+    now: NetTime,
     tick: u64,
     since_us: u64,
     body_bytes: &[u8],
@@ -2175,6 +2222,7 @@ fn enqueue_delta(
     let count = payload.len().div_ceil(FRAGMENT);
     let whole = count <= MAX_FRAGMENTS;
     if whole {
+        connection.paced_fragments.clear();
         let mut out = Vec::with_capacity(FRAGMENT + 16);
         for (index, bytes) in payload.chunks(FRAGMENT).enumerate() {
             out.clear();
@@ -2185,16 +2233,26 @@ fn enqueue_delta(
                 bytes,
             }
             .encode(&mut out);
-            let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &out);
+            if index == 0 {
+                let _ = connection.link.queue_unreliable(frame::SNAPSHOT, &out);
+            } else {
+                connection.paced_fragments.push_back(out.clone());
+            }
+        }
+        if !connection.paced_fragments.is_empty() {
+            connection.paced_at = now.plus(FRAGMENT_PACE_US);
         }
         connection.stats.snapshots += 1;
         connection.stats.fragments += count as u64 - 1;
-    } else if connection
-        .link
-        .send_reliable(&Message::Snapshot(payload).to_bytes())
-        .is_ok()
-    {
-        connection.stats.reliable_deltas += 1;
+    } else {
+        connection.paced_fragments.clear();
+        if connection
+            .link
+            .send_reliable(&Message::Snapshot(payload).to_bytes())
+            .is_ok()
+        {
+            connection.stats.reliable_deltas += 1;
+        }
     }
     whole
 }
@@ -2207,20 +2265,42 @@ fn applied_at(applied: &VecDeque<(u64, TickInput)>, tick: u64) -> Option<&TickIn
 }
 
 /// The baseline for a connection's next frame: its confirmed snapshot if
-/// held (with the commands applied then), else its pin; none means a
-/// keyframe.
+/// held (with the commands applied then), falling back through recent
+/// `confirmed_mask` bits, else its pin; none means a keyframe.
 fn baseline(
     ring: &ServerRing,
     applied: &VecDeque<(u64, TickInput)>,
     connection: &Connection,
 ) -> Option<Base> {
-    let confirmed = ring.baseline(&connection.confirmed).and_then(|stepped| {
-        applied_at(applied, stepped.tick).map(|commands| Base {
-            stepped: stepped.clone(),
-            commands: commands.clone(),
-            from_install: false,
+    let confirmed = ring
+        .baseline(&connection.confirmed)
+        .and_then(|stepped| {
+            applied_at(applied, stepped.tick).map(|commands| Base {
+                stepped: stepped.clone(),
+                commands: commands.clone(),
+                from_install: false,
+            })
         })
-    });
+        .or_else(|| {
+            let Confirmed(Some((epoch, top))) = connection.confirmed else {
+                return None;
+            };
+            if epoch != ring.epoch() {
+                return None;
+            }
+            (0..8u64).find_map(|bit| {
+                if (connection.confirmed_mask & (1 << bit)) == 0 {
+                    return None;
+                }
+                let tick = top.checked_sub(bit + 1)?;
+                let stepped = ring.get(tick)?;
+                applied_at(applied, tick).map(|commands| Base {
+                    stepped: stepped.clone(),
+                    commands: commands.clone(),
+                    from_install: false,
+                })
+            })
+        });
     match (confirmed, &connection.pinned) {
         (Some(confirmed), Some(pin)) if pin.stepped.tick > confirmed.stepped.tick => {
             Some(pin.clone())
@@ -2260,7 +2340,8 @@ fn base_every(config: &ServerConfig, in_process: Option<u8>, peer: Peer) -> u8 {
 
 /// The adaptive snapshot interval (D7), judged every `WINDOW_US`: loss
 /// over 10% of the packets sent in the window, or a round trip over twice
-/// the least, doubles it; `FAST_AFTER_US` of clean windows halves it.
+/// the least, steps up `EVERY_LADDER` (`2 -> 3 -> 4 -> 6 -> 8`);
+/// `FAST_AFTER_US` of clean windows steps back down.
 fn adapt(connection: &mut Connection, now: NetTime, least: u8) {
     let (began, sent, lost) = connection.window;
     if now.since(began) < WINDOW_US {
@@ -2273,15 +2354,24 @@ fn adapt(connection: &mut Connection, now: NetTime, least: u8) {
         || (stats.rtt_min_us > 0 && stats.rtt_us > 2 * stats.rtt_min_us);
     if bad {
         connection.clean_since = now;
-        if connection.every < MAX_EVERY {
-            connection.every = (connection.every * 2).min(MAX_EVERY);
+        if let Some(next) = EVERY_LADDER.iter().copied().find(|&r| r > connection.every) {
+            connection.every = next;
             connection.stats.interval_changes += 1;
         }
     } else if now.since(connection.clean_since) >= FAST_AFTER_US && connection.every > least.max(1)
     {
-        connection.every = (connection.every / 2).max(least.max(1));
-        connection.clean_since = now;
-        connection.stats.interval_changes += 1;
+        let floor = least.max(1);
+        let prev = EVERY_LADDER
+            .iter()
+            .rev()
+            .copied()
+            .find(|&r| r < connection.every && r >= floor)
+            .unwrap_or(floor);
+        if prev < connection.every {
+            connection.every = prev;
+            connection.clean_since = now;
+            connection.stats.interval_changes += 1;
+        }
     }
 }
 

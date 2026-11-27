@@ -36,7 +36,7 @@ pub trait Endpoint: Send + 'static {
     fn poll_encode_job(&mut self, _now: NetTime) -> Option<EncodeJob> {
         None
     }
-    fn finish_encode(&mut self, _done: EncodedJob) {}
+    fn finish_encode(&mut self, _now: NetTime, _done: EncodedJob) {}
 }
 
 impl Endpoint for Client {
@@ -178,10 +178,10 @@ impl NetThread {
                         for datagram in arrived.drain(..) {
                             session.receive(datagram.at, datagram.from, &datagram.bytes);
                         }
-                        for done in done_encoded.drain(..) {
-                            session.finish_encode(done);
-                        }
                         let now = clock();
+                        for done in done_encoded.drain(..) {
+                            session.finish_encode(now, done);
+                        }
                         while let Some(job) = session.poll_encode_job(now) {
                             encode_jobs.push(job);
                         }
@@ -230,10 +230,10 @@ impl NetThread {
                         }
                         let perf_t = crate::perf::enabled().then(Instant::now);
                         let mut session = lock(&shared);
-                        for done in done_encoded.drain(..) {
-                            session.finish_encode(done);
-                        }
                         let now = clock();
+                        for done in done_encoded.drain(..) {
+                            session.finish_encode(now, done);
+                        }
                         while let Some(out) = session.poll_transmit(now) {
                             leaving.push(out);
                         }

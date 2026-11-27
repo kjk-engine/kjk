@@ -33,6 +33,7 @@
 //!   transition asked for is done, tick, time and random streams go on.
 
 use std::fmt;
+use std::sync::Arc;
 
 use collision::{CollisionWorld, Contents, Extents, Shape, UNIT};
 
@@ -463,7 +464,7 @@ pub(crate) fn assemble(
             place: current.clone(),
             entities: objects,
             spawned: before.spawned.to_vec(),
-            roster: before.roster.clone(),
+            roster: before.roster.as_deref().cloned(),
         });
     }
     // The area as it was left, else its placements anew (new ids, in their
@@ -501,8 +502,8 @@ pub(crate) fn assemble(
     // The placements as the module was first installed: kept through the
     // stash, taken from the level only when it is planned anew.
     let roster = match &stashed {
-        Some(stashed) => stashed.roster.clone(),
-        None => Some(roster(level.placed())),
+        Some(stashed) => stashed.roster.clone().map(Arc::new),
+        None => Some(Arc::new(roster(level.placed()))),
     };
     let made = stashed.as_ref().map_or(&[][..], |stashed| &stashed.spawned);
     let mut instances = Instances::of(level, made);
@@ -772,12 +773,12 @@ pub(crate) fn assemble(
         },
         // The party keeps its gold and items; trades end (`enter_module`),
         // and what lies on the floor is the area left's.
-        goods: crate::inventory::Goods {
+        goods: Arc::new(crate::inventory::Goods {
             trades: Vec::new(),
             floor: Vec::new(),
             empty: Vec::new(),
-            ..before.goods.clone()
-        },
+            ..(*before.goods).clone()
+        }),
         // The new area's own sound until its scripts set any.
         area_sound: crate::snapshot::AreaSound::default(),
         // A module loads under black, lifted once its arrival's scripts have

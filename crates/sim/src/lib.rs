@@ -89,10 +89,10 @@ pub use rng::SimRng;
 pub use save::{FORMAT as SAVE_FORMAT, OLDEST as SAVE_OLDEST, Save, ScriptVmState, StoredVersions};
 pub use snapshot::FORMAT as SNAPSHOT_FORMAT;
 pub use snapshot::{
-    AreaSound, Busy, Census, Departing, Departure, EntityState, Fade, Feedback, Going, Kill, Kind,
-    ObjectState, Parts, Place, Presented, PresentedEntity, Progress, ReadyCheck, RequestWait,
-    RoomAnim, Screens, SimId, Snapshot, SnapshotHash, Spawned, Stash, Stashed, Status, StatusKind,
-    Track, Transit, Transition, cannot_equip, lock, look, pin, room_key, sound, trap,
+    AreaSound, Busy, Census, Departing, Departure, EntityPart, EntityState, Fade, Feedback, Going,
+    Kill, Kind, ObjectState, Parts, Place, Presented, PresentedEntity, Progress, ReadyCheck,
+    RequestWait, RoomAnim, Screens, SimId, Snapshot, SnapshotHash, Spawned, Stash, Stashed, Status,
+    StatusKind, Track, Transit, Transition, cannot_equip, lock, look, pin, room_key, sound, trap,
 };
 pub use wire::{DecodeError, Since, Stored};
 #[cfg(feature = "probes")]

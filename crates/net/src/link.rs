@@ -94,14 +94,14 @@ pub const MIN_MARGIN_US: u64 = 5_000;
 /// The RTT assumed before the first sample.
 pub const INITIAL_RTT_US: u64 = 100_000;
 /// The most packets carrying slices that are neither acked nor given up
-/// on (one fewer than an ack's reach of 33 packets).
-pub const MAX_SLICE_PACKETS: usize = 32;
+/// on (one fewer than an ack's reach of 65 packets).
+pub const MAX_SLICE_PACKETS: usize = 64;
 /// How far ahead of the newest packet received a number is taken without
 /// a second packet to confirm it: the ack bits' reach.
-pub const JUMP_WINDOW: u32 = 32;
+pub const JUMP_WINDOW: u32 = 64;
 /// Sent-packet records kept; a packet this many sends old that is still
 /// unacked is declared lost.
-const SENT_RING: usize = 256;
+const SENT_RING: usize = 1024;
 /// Newly acked packet numbers kept for `take_acked`; older ones are
 /// forgotten if the session does not take them.
 const ACKED_KEEP: usize = 1024;
@@ -325,22 +325,32 @@ struct Incoming {
     parts: BTreeMap<u32, Vec<u8>>,
 }
 
-/// The round-trip estimator, in TCP's scaled integers.
+const RTT_BUCKETS: usize = 6;
+const RTT_BUCKET_US: u64 = 5_000_000;
+
+/// The round-trip estimator, in TCP's scaled integers, plus a 30 s
+/// sliding-window minimum across six 5 s buckets.
 #[derive(Debug, Clone, Copy)]
 struct Rtt {
     /// Smoothed RTT × 8.
     srtt8: u64,
     /// Mean deviation × 4.
     jitter4: u64,
+    buckets: [Option<u64>; RTT_BUCKETS],
+    bucket_start: NetTime,
+    cursor: usize,
     min: u64,
     samples: u64,
 }
 
 impl Rtt {
-    fn new() -> Rtt {
+    fn new(now: NetTime) -> Rtt {
         Rtt {
             srtt8: INITIAL_RTT_US * 8,
             jitter4: INITIAL_RTT_US / 2 * 4,
+            buckets: [None; RTT_BUCKETS],
+            bucket_start: now,
+            cursor: 0,
             min: 0,
             samples: 0,
         }
@@ -354,17 +364,44 @@ impl Rtt {
         self.jitter4 / 4
     }
 
-    fn sample(&mut self, rtt: u64) {
+    fn advance(&mut self, now: NetTime) {
+        if self.samples == 0 {
+            self.bucket_start = now;
+            return;
+        }
+        let elapsed = now.since(self.bucket_start);
+        let steps = (elapsed / RTT_BUCKET_US) as usize;
+        if steps == 0 {
+            return;
+        }
+        if steps >= RTT_BUCKETS {
+            self.buckets = [None; RTT_BUCKETS];
+            self.cursor = 0;
+            self.bucket_start = now;
+            self.min = 0;
+            return;
+        }
+        for _ in 0..steps {
+            self.cursor = (self.cursor + 1) % RTT_BUCKETS;
+            self.buckets[self.cursor] = None;
+        }
+        self.bucket_start = self.bucket_start.plus(steps as u64 * RTT_BUCKET_US);
+        self.min = self.buckets.iter().flatten().copied().min().unwrap_or(0);
+    }
+
+    fn sample(&mut self, now: NetTime, rtt: u64) {
+        self.advance(now);
         if self.samples == 0 {
             self.srtt8 = rtt * 8;
             self.jitter4 = rtt / 2 * 4;
-            self.min = rtt;
         } else {
             let deviation = rtt.abs_diff(self.srtt());
             self.jitter4 = self.jitter4 - self.jitter4 / 4 + deviation;
             self.srtt8 = self.srtt8 - self.srtt8 / 8 + rtt;
-            self.min = self.min.min(rtt);
         }
+        self.buckets[self.cursor] =
+            Some(self.buckets[self.cursor].map_or(rtt, |prev| prev.min(rtt)));
+        self.min = self.buckets.iter().flatten().copied().min().unwrap_or(0);
         self.samples += 1;
     }
 }
@@ -429,11 +466,11 @@ impl Budget {
     }
 }
 
-/// Which of the peer's packets we have: the newest and 32 bits behind it.
+/// Which of the peer's packets we have: the newest and 64 bits behind it.
 #[derive(Debug, Clone, Copy)]
-struct Received32 {
+struct Received64 {
     newest: Option<u16>,
-    bits: u32,
+    bits: u64,
     newest_at: NetTime,
 }
 
@@ -447,7 +484,7 @@ enum Arrival {
     Stale,
 }
 
-impl Received32 {
+impl Received64 {
     fn place(&self, seq: u16) -> Arrival {
         let Some(newest) = self.newest else {
             return Arrival::Newer(0);
@@ -458,9 +495,9 @@ impl Received32 {
             0 => Arrival::Duplicate,
             _ => {
                 let bit = (-ahead - 1) as u32;
-                if bit >= 32 {
+                if bit >= 64 {
                     Arrival::Stale
-                } else if self.bits & (1 << bit) != 0 {
+                } else if self.bits & (1u64 << bit) != 0 {
                     Arrival::Duplicate
                 } else {
                     Arrival::Older(bit)
@@ -473,13 +510,14 @@ impl Received32 {
         match *arrival {
             Arrival::Newer(ahead) => {
                 self.bits = match (self.newest, ahead) {
-                    (None, _) | (_, 33..) => 0,
-                    (Some(_), _) => ((u64::from(self.bits) << ahead) | 1 << (ahead - 1)) as u32,
+                    (None, _) | (_, 65..) => 0,
+                    (Some(_), 64) => 1u64 << 63,
+                    (Some(_), _) => (self.bits << ahead) | (1u64 << (ahead - 1)),
                 };
                 self.newest = Some(seq);
                 self.newest_at = now;
             }
-            Arrival::Older(bit) => self.bits |= 1 << bit,
+            Arrival::Older(bit) => self.bits |= 1u64 << bit,
             Arrival::Duplicate | Arrival::Stale => {}
         }
     }
@@ -508,7 +546,7 @@ pub struct Link {
     slice_packets: usize,
     /// The newest of our packets acked so far.
     newest_acked: Option<u16>,
-    received: Received32,
+    received: Received64,
     ack_owed_since: Option<NetTime>,
     last_sent: NetTime,
     last_received: NetTime,
@@ -561,7 +599,7 @@ impl Link {
             oldest: 0,
             slice_packets: 0,
             newest_acked: None,
-            received: Received32 {
+            received: Received64 {
                 newest: None,
                 bits: 0,
                 newest_at: now,
@@ -570,7 +608,7 @@ impl Link {
             last_sent: now,
             last_received: now,
             in_process: false,
-            rtt: Rtt::new(),
+            rtt: Rtt::new(now),
             loss_ppm: 0,
             budget: Budget::new(config.budget, now),
             unreliable: Vec::new(),
@@ -874,6 +912,7 @@ impl Link {
     /// Queues again the slices of packets past their resend time, and
     /// declares lost those past their loss time.
     fn expire(&mut self, now: NetTime) {
+        self.rtt.advance(now);
         let (resend, lost) = self.timeouts();
         let mut seq = self.oldest;
         while seq != self.next_seq {
@@ -1083,8 +1122,8 @@ impl Link {
 
     fn take_acks(&mut self, now: NetTime, ack: Ack) {
         self.acknowledge(now, ack.seq, Some(ack.delay));
-        for bit in 0..32 {
-            if ack.bits & (1 << bit) != 0 {
+        for bit in 0..64u16 {
+            if ack.bits & (1u64 << bit) != 0 {
                 self.acknowledge(now, ack.seq.wrapping_sub(bit + 1), None);
             }
         }
@@ -1107,7 +1146,7 @@ impl Link {
         }
         if let Some(delay) = delay {
             let rtt = now.since(record.at).saturating_sub(u64::from(delay) * 100);
-            self.rtt.sample(rtt);
+            self.rtt.sample(now, rtt);
         }
         self.sent[slot].state = SentState::Acked;
         if self

@@ -159,8 +159,8 @@ impl Endpoint for Hosted {
             .poll_encode_job_excluding(now, Some(self.host_end.remote()))
     }
 
-    fn finish_encode(&mut self, done: EncodedJob) {
-        self.server.finish_encode(done);
+    fn finish_encode(&mut self, now: NetTime, done: EncodedJob) {
+        self.server.finish_encode(now, done);
     }
 }
 

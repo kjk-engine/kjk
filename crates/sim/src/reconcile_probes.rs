@@ -705,7 +705,8 @@ pub fn loads() -> Vec<Check> {
             let report = world.reconciled();
             let (trusted, moved, dropped, added, snapped) = case.says;
             let ok = report.map(says) == Some((trusted, moved, dropped.to_vec(), added, snapped))
-                && snapshot.roster.as_deref() == Some(&roster(changed.placed())[..])
+                && snapshot.roster.as_deref().map(Vec::as_slice)
+                    == Some(&roster(changed.placed())[..])
                 && (case.holds)(&before, &snapshot, world.script_state());
             check(case.name, ok, format!("{report:?}"))
         }

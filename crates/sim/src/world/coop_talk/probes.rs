@@ -776,10 +776,11 @@ impl Run {
         let barker = object(&self.last, BARKER)?;
         let mut state = self.world.script_state().clone();
         let war = crate::module::cell(HOSTILE_1, PLAYER);
+        let rep = std::sync::Arc::make_mut(&mut state.reputation);
         if on {
-            state.reputation.insert(war, -50);
+            rep.insert(war, -50);
         } else {
-            state.reputation.remove(&war);
+            rep.remove(&war);
         }
         self.world.set_script_state(state);
         let now = self.now();

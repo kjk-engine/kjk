@@ -344,12 +344,12 @@ struct Talking(Told);
 /// What players see of the items in play (`Snapshot::goods`): the
 /// authority's scripts gather it, a snapshot restores it.
 #[derive(Resource, Default)]
-struct Holding(crate::inventory::Goods);
+struct Holding(pub std::sync::Arc<crate::inventory::Goods>);
 
 /// The story's progress as everyone sees it (`Snapshot::progress`): the
 /// authority's scripts write it, a snapshot restores it.
 #[derive(Resource, Default)]
-struct Progressed(crate::snapshot::Progress);
+struct Progressed(pub std::sync::Arc<crate::snapshot::Progress>);
 
 /// The pazaak matches as everyone sees them (`Snapshot::pazaak`): the
 /// authority's scripts write them, a snapshot restores them.
@@ -359,7 +359,7 @@ struct Tabled(Vec<crate::pazaak::Match>);
 /// Who each seat's player is (`Snapshot::personas`): given where a session
 /// starts (`SimWorld::set_persona`), a snapshot restores it.
 #[derive(Resource, Default)]
-pub(crate) struct Personas(pub Vec<crate::persona::Persona>);
+pub(crate) struct Personas(pub std::sync::Arc<Vec<crate::persona::Persona>>);
 
 /// The party is in combat (`Snapshot::in_combat`): `party::combat` writes it
 /// every step after the hurts, a snapshot restores it. The test KOTOR
@@ -389,7 +389,7 @@ struct Module {
     /// made (`crate::instance`).
     pub(super) instances: Instances,
     /// Its placements as first installed (`Snapshot::roster`).
-    roster: Option<Vec<crate::reconcile::Origin>>,
+    roster: Option<Arc<Vec<crate::reconcile::Origin>>>,
     /// What reconciling the saved objects did as the world loaded or
     /// entered the module (`SimWorld::reconciled`): not state.
     reconciled: Option<crate::reconcile::Report>,
@@ -404,7 +404,7 @@ struct Module {
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,
     /// What the party explored of each area's map (`crate::fog`).
-    explored: Vec<crate::fog::Explored>,
+    explored: Arc<Vec<crate::fog::Explored>>,
     /// The scripts' visual effects on its doors and placeables
     /// (`crate::visuals`).
     visuals: Vec<crate::visuals::OnObject>,
@@ -921,7 +921,10 @@ impl SimWorld {
     /// Seat `persona.seat`'s player is `persona` from now on (character
     /// creation's, or the host's default for a seat without one).
     pub fn set_persona(&mut self, persona: crate::persona::Persona) {
-        crate::persona::put(&mut self.world.resource_mut::<Personas>().0, persona);
+        crate::persona::put(
+            Arc::make_mut(&mut self.world.resource_mut::<Personas>().0),
+            persona,
+        );
     }
 
     /// The blades play by `rules` from now on (the session's choice, on the
@@ -1245,7 +1248,7 @@ impl SimWorld {
         let who = acting_body(seat, own_id, lent.map(|(id, _)| id));
         let at_tables = (
             &world.resource::<Talking>().0,
-            &world.resource::<Holding>().0,
+            &*world.resource::<Holding>().0,
             &world.resource::<Tabled>().0[..],
             &world.resource::<party::Embattled>().0[..],
         );

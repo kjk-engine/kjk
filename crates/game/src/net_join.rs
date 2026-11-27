@@ -471,6 +471,8 @@ pub(crate) struct Joined {
     /// net feel's samples.
     facts: serde_json::Value,
     feel: crate::net_feel::Feel,
+    #[cfg(feature = "steam")]
+    steam_info: Option<(Instant, Option<net::io::SteamLinkInfo>)>,
 }
 
 /// A joined player's session is under way (its systems run).
@@ -539,6 +541,8 @@ pub fn install(
         frames: 0,
         facts: serde_json::Value::Null,
         feel: crate::net_feel::Feel::default(),
+        #[cfg(feature = "steam")]
+        steam_info: None,
     });
 }
 
@@ -954,8 +958,28 @@ pub(crate) fn advance(
         Vec::new()
     };
 
-    if joined.feel.frame() {
+    #[cfg(feature = "steam")]
+    let steam_link = if let Peer::Steam(id) = joined.joining.host {
+        let refresh = joined
+            .steam_info
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(1));
+        if refresh {
+            let info = net::io::steam::connection_info(id);
+            joined.steam_info = Some((Instant::now(), info));
+        }
+        joined.steam_info.as_ref().and_then(|(_, info)| *info)
+    } else {
+        None
+    };
+
+    let sampled = joined.feel.frame();
+    if sampled {
         crate::net_feel::sample_player(&mut joined.feel, &client);
+        #[cfg(feature = "steam")]
+        if let Some(info) = steam_link {
+            crate::net_feel::sample_steam(&mut joined.feel, "steam", info);
+        }
     }
     let stats = client.stats();
     let link = client.link_stats();
@@ -989,7 +1013,8 @@ pub(crate) fn advance(
         Peer::Steam(_) => "steam",
         _ => "udp",
     };
-    joined.facts = serde_json::json!({
+    #[cfg_attr(not(feature = "steam"), allow(unused_mut))]
+    let mut net_facts = serde_json::json!({
             "path": path,
             "recv_buffer": joined.joining.recv_buffer,
             "seat": seat.map(|seat| seat.0),
@@ -1022,6 +1047,17 @@ pub(crate) fn advance(
             "bytes_up": link.map(|l| l.bytes_sent),
             "bytes_down": link.map(|l| l.bytes_received),
     });
+    #[cfg(feature = "steam")]
+    if let Some(info) = steam_link {
+        net_facts["steam"] = serde_json::json!({
+            "connected": info.connected,
+            "ping_ms": info.ping_ms,
+            "quality_local": info.quality_local,
+            "quality_remote": info.quality_remote,
+            "pending_unreliable": info.pending_unreliable,
+        });
+    }
+    joined.facts = net_facts;
     facts.0.insert("net".into(), joined.facts.clone());
 }
 

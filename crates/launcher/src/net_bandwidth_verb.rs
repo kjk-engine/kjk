@@ -15,13 +15,13 @@ use std::process::ExitCode;
 
 use net::codec;
 use sim::combat::Fighter;
-use sim::{EntityState, Kind, Parts, Recording, SimId, Snapshot, Stash};
+use sim::{EntityPart, EntityState, Kind, Parts, Recording, Snapshot, Stash};
 
 use crate::sim_verbs::Installers;
 
 /// Bytes a snapshot frame carries besides its delta: the packet header
 /// and the frame header (`FrameHeader`, its hash).
-const FRAME_OVERHEAD: usize = 19 + 16;
+const FRAME_OVERHEAD: usize = 23 + 16;
 
 /// A record's field groups: each puts the current state's group onto the
 /// baseline's entity.
@@ -107,11 +107,12 @@ const GROUPS: [Group; 15] = [
 ];
 
 /// The delta's bytes for one record changed from `base` to `now`.
-fn record_cost(base: &[u8], now: &[u8]) -> usize {
-    let parts = |record: &[u8]| Parts {
+fn record_cost(base: &EntityPart, now: &EntityPart) -> usize {
+    let parts = |part: &EntityPart| Parts {
         head: Vec::new(),
-        entities: vec![(SimId(1), record.to_vec())],
+        entities: vec![part.clone()],
         tail: Vec::new(),
+        tail_cold: Default::default(),
         stash: Stash::default(),
     };
     let mut out = Vec::new();
@@ -214,7 +215,7 @@ pub fn bandwidth(
             let old = from.map(|from| &snapshots[from]);
             let mut records = 0usize;
             for entity in &snapshots[at].entities {
-                let record = Snapshot::record(entity);
+                let record = Snapshot::record_parts(entity);
                 let held = old.and_then(|old| {
                     let i = old
                         .entities
@@ -224,21 +225,22 @@ pub fn bandwidth(
                 });
                 let cost = match held {
                     Some(&held) => {
-                        let was = Snapshot::record(&held);
+                        let was = Snapshot::record_parts(&held);
                         if was == record {
                             continue;
                         }
                         for (name, apply) in GROUPS {
                             let mut hybrid = held;
                             apply(&mut hybrid, entity);
-                            let cost = record_cost(&was, &Snapshot::record(&hybrid));
+                            let cost = record_cost(&was, &Snapshot::record_parts(&hybrid));
                             *by_group.entry(name).or_default() += cost;
                         }
                         record_cost(&was, &record)
                     }
                     None => {
-                        *by_group.entry("records new to the client").or_default() += record.len();
-                        record.len()
+                        let len = record.hot.len() + record.cold.len();
+                        *by_group.entry("records new to the client").or_default() += len;
+                        len
                     }
                 };
                 records += cost;

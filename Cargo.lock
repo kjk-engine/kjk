@@ -4253,7 +4253,7 @@ version = "0.0.0"
 dependencies = [
  "blake3",
  "libc",
- "miniz_oxide 0.9.1",
+ "lz4_flex",
  "session",
  "sim",
  "steamworks",

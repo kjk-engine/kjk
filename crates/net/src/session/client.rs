@@ -75,9 +75,9 @@ pub const MAX_CATCH_UP: u64 = sim::MAX_CATCH_UP as u64;
 const REASSEMBLY: usize = 4;
 /// Packets remembered for their newest command (acks come back within
 /// far fewer).
-const SENT: usize = 256;
+const SENT: usize = 1024;
 /// Seat commands kept, by tick.
-const SEAT_COMMANDS: usize = 128;
+pub(crate) const SEAT_COMMANDS: usize = 256;
 /// Own commands and predictions kept, by tick.
 const OWN: usize = 128;
 /// Snapshots an in-process client keeps (`Client::in_process`): its
@@ -1516,16 +1516,24 @@ impl Client {
             return;
         }
         let tick = announcement.tick;
-        let committed = install
+        let digest_only_stash = install
             .before
             .as_ref()
-            .zip(session.level.clone())
-            .and_then(|(before, old)| SimWorld::from_snapshot(before, old).ok())
-            .and_then(|mut world| {
-                let after = world.install(level.clone(), announcement.arrival()).ok()?;
-                Some((world, after))
+            .is_some_and(|before| before.stash.is_digest_only());
+        let committed = (!digest_only_stash)
+            .then(|| {
+                install
+                    .before
+                    .as_ref()
+                    .zip(session.level.clone())
+                    .and_then(|(before, old)| SimWorld::from_snapshot(before, old).ok())
+                    .and_then(|mut world| {
+                        let after = world.install(level.clone(), announcement.arrival()).ok()?;
+                        Some((world, after))
+                    })
+                    .filter(|(_, after)| announcement.check_after(after).is_ok())
             })
-            .filter(|(_, after)| announcement.check_after(after).is_ok());
+            .flatten();
         session.install = None;
         session.epoch = epoch;
         session.level = Some(level);
@@ -1547,7 +1555,9 @@ impl Client {
                 check
             }
             None => {
-                session.stats.installs_differed += 1;
+                if !digest_only_stash {
+                    session.stats.installs_differed += 1;
+                }
                 session.ring.begin_epoch(epoch, None);
                 session.play = None;
                 Check([0; 8])
@@ -2116,11 +2126,12 @@ fn observe(session: &mut Session) {
         let host = newest
             .parts
             .entities
-            .binary_search_by_key(&id, |(id, _)| *id)
+            .binary_search_by_key(&id, |part| part.id)
             .ok()
-            .map(|at| &newest.parts.entities[at].1);
+            .map(|at| &newest.parts.entities[at]);
         session.stats.compared += 1;
-        if host.is_none_or(|host| *host != Snapshot::record(&predicted)) {
+        let pred = Snapshot::record_parts(&predicted);
+        if host.is_none_or(|host| host.hot != pred.hot || host.cold != pred.cold) {
             session.differs = true;
             let missed = session
                 .misses
@@ -2633,6 +2644,21 @@ fn queue_lockstep(session: &mut Session, target: u64, command: Command) -> u64 {
     made
 }
 
+fn confirmed_mask(ring: &ClientRing, confirmed: Option<u64>) -> u8 {
+    let Some(top) = confirmed else {
+        return 0;
+    };
+    let mut mask = 0u8;
+    for bit in 0..8u64 {
+        if let Some(tick) = top.checked_sub(bit + 1)
+            && ring.get(tick).is_some()
+        {
+            mask |= 1 << bit;
+        }
+    }
+    mask
+}
+
 /// Queues every command the host has not acked, as many as fit,
 /// contiguous, up to the last made.
 fn send_commands(session: &mut Session) {
@@ -2641,6 +2667,7 @@ fn send_commands(session: &mut Session) {
     };
     let confirmed = session.ring.newest().map(|newest| newest.tick);
     let mut frame = Commands::new(session.epoch, confirmed);
+    frame.confirmed_mask = confirmed_mask(&session.ring, confirmed);
     let first =
         (session.acked_through + 1).max((play.made + 1).saturating_sub(MAX_COMMANDS as u64));
     let mut from = play.made + 1;
@@ -2702,7 +2729,8 @@ fn confirm_idle(session: &mut Session) {
     if playing || session.confirmed_sent.is_some_and(|sent| sent >= newest) {
         return;
     }
-    let frame = Commands::new(session.epoch, Some(newest));
+    let mut frame = Commands::new(session.epoch, Some(newest));
+    frame.confirmed_mask = confirmed_mask(&session.ring, Some(newest));
     let mut payload = Vec::with_capacity(16);
     frame.encode(&mut payload);
     if session

@@ -155,3 +155,18 @@ pub fn sample_player(feel: &mut Feel, client: &net::session::Client) {
     ];
     feel.sample("net", &gauges, &totals);
 }
+
+#[cfg(feature = "steam")]
+pub fn sample_steam(feel: &mut Feel, track: &str, info: net::io::SteamLinkInfo) {
+    let gauges = [
+        ("steam_connected", f64::from(u8::from(info.connected))),
+        ("steam_ping_ms", f64::from(info.ping_ms)),
+        ("steam_quality_local", f64::from(info.quality_local)),
+        ("steam_quality_remote", f64::from(info.quality_remote)),
+        (
+            "steam_pending_unreliable",
+            f64::from(info.pending_unreliable),
+        ),
+    ];
+    feel.sample(track, &gauges, &[]);
+}

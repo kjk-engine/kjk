@@ -141,7 +141,7 @@ pub(super) fn class_body(game: vfs::Game) -> Result<String, String> {
     edit.change_class(&PLAYER, 5, 1)?;
     let second = persona(edit.save())?;
     let matched = edit.body_warning(&PLAYER);
-    if let Some(held) = save.snapshot.personas.first_mut() {
+    if let Some(held) = std::sync::Arc::make_mut(&mut save.snapshot.personas).first_mut() {
         held.appearance = soldier.appearance;
     }
     let mut edit = Editor::new(&mut save, &catalog)

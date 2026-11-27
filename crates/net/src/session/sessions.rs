@@ -366,7 +366,7 @@ pub fn checks(report: &Report, expect: Expect) -> Vec<Check> {
                 && c.memory_max.reassembly <= 4
                 && c.memory_max.own <= 128
                 && c.memory_max.history <= 128
-                && c.memory_max.seat_commands <= 128
+                && c.memory_max.seat_commands <= crate::session::client::SEAT_COMMANDS
         });
     check(
         "memory",

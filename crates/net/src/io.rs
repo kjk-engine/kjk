@@ -15,7 +15,7 @@ pub mod steam;
 mod udp;
 
 #[cfg(feature = "steam")]
-pub use steam::{Steam, SteamStats};
+pub use steam::{Steam, SteamLinkInfo, SteamStats};
 pub use udp::{
     LARGE_RECV_BUFFER, LARGE_SEND_BUFFER, RECV_BUFFER, SEND_BUFFER, SocketConfig, Udp, UdpStats,
     Waker,

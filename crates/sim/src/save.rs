@@ -417,14 +417,17 @@ impl Save {
                 members: &members,
                 items: &self.script.items,
             };
+            let mut roster = snapshot.roster.as_deref().cloned();
             let held = Held {
                 entities: &mut snapshot.entities,
                 spawned: Arc::make_mut(&mut snapshot.spawned),
-                roster: &mut snapshot.roster,
+                roster: &mut roster,
                 next_id: &mut snapshot.next_id,
                 snap: restamp.is_some(),
             };
-            reconcile(held, &level, &party)
+            let report = reconcile(held, &level, &party);
+            snapshot.roster = roster.map(Arc::new);
+            report
         });
         snapshot.place = level.place();
         snapshot.seats_held = self.seats_for(seats);

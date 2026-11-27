@@ -10,7 +10,7 @@ use sim::{Parts, Snapshot, SnapshotHash};
 
 use crate::worker::{Queued, Worker};
 
-use super::{CodecError, Reader, decode, encode, put_varint};
+use super::{CodecError, Reader, decode, encode, put_varint, wire};
 
 /// The first 8 bytes of a snapshot's BLAKE3 hash: what a frame is checked
 /// against.
@@ -280,29 +280,29 @@ pub fn encode_frame(epoch: u16, now: &Stepped, base: Option<&Stepped>, out: &mut
     out.extend_from_slice(&pack(&delta));
 }
 
-/// A packed delta's first byte: the delta as it is, or deflated.
+/// A packed delta's first byte: the delta as it is, or LZ4-compressed.
 const RAW: u8 = 0;
-const DEFLATED: u8 = 1;
-/// The deflate level: 9 packs no smaller on snapshots, 1 about 8% larger.
-const LEVEL: u8 = 6;
-/// The longest delta a deflated one may unpack to (a keyframe of a full
+const LZ4: u8 = 1;
+/// The longest delta a compressed one may unpack to (a keyframe of a full
 /// module is a few hundred KB).
 pub const MAX_DELTA: usize = 32 << 20;
 
 /// A delta packed for the wire: one byte, then the delta as it is or, when
-/// smaller, deflated (raw DEFLATE, RFC 1951). A delta's records of one kind
-/// change alike (their masks and the bytes of the same fields), which
-/// halves a fight's deltas.
+/// smaller, `varint(uncompressed_len) + lz4_flex::block`.
 pub fn pack(delta: &[u8]) -> Vec<u8> {
-    let deflated = miniz_oxide::deflate::compress_to_vec(delta, LEVEL);
-    let (kind, body) = if deflated.len() < delta.len() {
-        (DEFLATED, &deflated[..])
-    } else {
-        (RAW, delta)
-    };
-    let mut out = Vec::with_capacity(1 + body.len());
-    out.push(kind);
-    out.extend_from_slice(body);
+    if delta.len() >= 16 {
+        let compressed = lz4_flex::block::compress(delta);
+        let mut header = Vec::with_capacity(11);
+        header.push(LZ4);
+        put_varint(&mut header, delta.len() as u64);
+        if header.len() + compressed.len() < 1 + delta.len() {
+            header.extend_from_slice(&compressed);
+            return header;
+        }
+    }
+    let mut out = Vec::with_capacity(1 + delta.len());
+    out.push(RAW);
+    out.extend_from_slice(delta);
     out
 }
 
@@ -314,13 +314,34 @@ pub fn unpack(packed: &[u8]) -> Result<Cow<'_, [u8]>, CodecError> {
             at: 0,
         }),
         Some((&RAW, delta)) => Ok(Cow::Borrowed(delta)),
-        Some((&DEFLATED, body)) => {
-            miniz_oxide::inflate::decompress_to_vec_with_limit(body, MAX_DELTA)
-                .map(Cow::Owned)
-                .map_err(|_| CodecError::Invalid {
-                    what: "deflated delta",
+        Some((&LZ4, rest)) => {
+            let (len_u64, consumed) = wire::read_varint(rest).map_err(|_| CodecError::Invalid {
+                what: "lz4 delta",
+                at: 1,
+            })?;
+            let body = &rest[consumed..];
+            // Bound uncompressed length both by `MAX_DELTA` and the physical LZ4 limit (~260x).
+            let max_possible = body.len().saturating_mul(260).saturating_add(32);
+            let Some(len) = usize::try_from(len_u64)
+                .ok()
+                .filter(|&n| n <= MAX_DELTA && n <= max_possible)
+            else {
+                return Err(CodecError::Limit {
+                    what: "lz4 delta",
                     at: 1,
-                })
+                });
+            };
+            let out = lz4_flex::block::decompress(body, len).map_err(|_| CodecError::Invalid {
+                what: "lz4 delta",
+                at: 1 + consumed,
+            })?;
+            if out.len() != len {
+                return Err(CodecError::Invalid {
+                    what: "lz4 delta",
+                    at: 1 + consumed,
+                });
+            }
+            Ok(Cow::Owned(out))
         }
         Some(_) => Err(CodecError::Invalid {
             what: "packing",
@@ -375,7 +396,7 @@ pub fn rebuild(
             .entities
             .iter()
             .zip(&parts.entities)
-            .all(|(entity, (id, _))| entity.id == *id);
+            .all(|(entity, part)| entity.id == part.id);
     if snapshot.tick != header.tick || !ids_match {
         return Err(CodecError::Invalid {
             what: "frame against its snapshot",

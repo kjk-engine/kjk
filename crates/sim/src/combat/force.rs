@@ -1141,17 +1141,39 @@ pub fn regenerate_tsl(
         _ => {}
     }
     let most = i32::from(sheet.force_points()) + over.max(0);
+    let max_fp = most * 100;
+    if *fp >= max_fp && rate >= 0.0 && state.fp_carry >= 0 {
+        if state.fp_carry != 0 {
+            state.fp_carry = 0;
+        }
+        return;
+    }
+    if *fp <= 0 && rate <= 0.0 && state.fp_carry <= 0 {
+        if state.fp_carry != 0 {
+            state.fp_carry = 0;
+        }
+        return;
+    }
     let per_second = rate / table.time.max(0.0001) * most as f32;
     let gained = per_second * 100.0 * msec as f32 / 1000.0 + state.fp_carry as f32 / 1000.0;
     let whole = gained.trunc();
-    state.fp_carry = ((gained - whole) * 1000.0).round() as i32;
-    *fp = (*fp + whole as i32).clamp(0, most * 100);
+    let next = *fp + whole as i32;
+    if next >= max_fp {
+        *fp = max_fp;
+        state.fp_carry = 0;
+    } else if next <= 0 {
+        *fp = 0;
+        state.fp_carry = 0;
+    } else {
+        *fp = next;
+        state.fp_carry = ((gained - whole) * 1000.0).round() as i32;
+    }
 }
 
 /// One step of regeneration (C13, JA's power upkeep): a point
 /// each `regen_every` for a character knowing `feats`, up to the maximum;
-/// while `paused` (or full) the clock starts over, so it resumes a period
-/// after the pause ends.
+/// while `paused` (or full) the clock clears to zero, so it resumes a
+/// period after the pause ends.
 pub fn regenerate(
     state: &mut ForceState,
     fp: &mut i32,
@@ -1162,12 +1184,23 @@ pub fn regenerate(
     let every = regen_every(feats, max_fp);
     let max = i32::from(max_fp) * 100;
     if paused || *fp >= max {
-        state.regen_at = state.regen_at.max(now + every);
+        // Keep drain timers past the normal period, while clearing idle
+        // cooldowns to 0 so unchanged actors stop churning every tick.
+        if state.regen_at != 0 && state.regen_at <= now + every {
+            state.regen_at = 0;
+        }
+        return;
+    }
+    if state.regen_at == 0 {
+        state.regen_at = now + every;
         return;
     }
     while state.regen_at <= now && *fp < max {
         *fp = (*fp + 100).min(max);
         state.regen_at += every;
+    }
+    if *fp >= max {
+        state.regen_at = 0;
     }
 }
 

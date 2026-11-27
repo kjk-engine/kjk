@@ -69,8 +69,8 @@ pub const MAX_COMMANDS: usize = 32;
 /// The most fragments of one snapshot payload.
 pub const MAX_FRAGMENTS: usize = 16;
 /// Bytes of payload in one fragment: a fragment, its frame header and the
-/// packet header fit a datagram with room to spare.
-pub const FRAGMENT: usize = 1150;
+/// packet header (`HEADER_LEN` = 23) fit inside `MAX_DATAGRAM` (1120).
+pub const FRAGMENT: usize = 1070;
 
 const WELCOME: u8 = 1;
 const LEVEL: u8 = 2;
@@ -721,6 +721,8 @@ pub struct Commands {
     pub epoch: u16,
     /// The newest snapshot the client rebuilt and verified.
     pub confirmed: Option<u64>,
+    /// Bit `i` set when the client also holds `confirmed - (i + 1)`.
+    pub confirmed_mask: u8,
     /// The tick of the last command.
     pub newest: u64,
     count: usize,
@@ -734,6 +736,7 @@ impl Commands {
         Commands {
             epoch,
             confirmed,
+            confirmed_mask: 0,
             newest: 0,
             count: 0,
             list: [Command::default(); MAX_COMMANDS],
@@ -781,6 +784,7 @@ impl Commands {
     pub fn encode(&self, out: &mut Vec<u8>) {
         put_u16(out, self.epoch);
         put_varint(out, self.confirmed.map_or(0, |tick| tick + 1));
+        out.push(self.confirmed_mask);
         put_varint(out, self.newest);
         out.push(self.count as u8);
         let (mut before, mut lag) = (Command::default(), 0i64);
@@ -796,6 +800,12 @@ impl Commands {
         let mut input = Reader::new(payload);
         let epoch = input.u16("epoch")?;
         let confirmed = input.varint("confirmed")?.checked_sub(1);
+        let confirmed_mask = input.u8("confirmed mask")?;
+        if confirmed.is_none() && confirmed_mask != 0 {
+            return Err(WireError::Invalid {
+                what: "confirmed mask",
+            });
+        }
         let newest = input.varint("newest")?;
         let count = usize::from(input.u8("count")?);
         if count > MAX_COMMANDS {
@@ -812,6 +822,7 @@ impl Commands {
             });
         }
         let mut commands = Commands::new(epoch, confirmed);
+        commands.confirmed_mask = confirmed_mask;
         let (mut before, mut lag) = (Command::default(), 0i64);
         for index in 0..count {
             let command = read_command(&mut input, &before)?;
