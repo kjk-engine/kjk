@@ -1086,6 +1086,25 @@ pub fn renamed(mdl: &[u8], name: &str) -> Result<Vec<u8>, FormatError> {
     Ok(copy)
 }
 
+/// The most controllers of a node, nodes under a root and animations
+/// that `shifted` and `turned` go through. A room has a handful of the
+/// first and a few hundred of the second at most. A file that claims more
+/// is damaged, and is refused (`at_most`). The loops used to stop at these
+/// numbers without a word, which left the rest of such a model unmoved.
+const MOST_CONTROLLERS: usize = 256;
+const MOST_CHILDREN: usize = 4096;
+const MOST_ANIMATIONS: usize = 1024;
+
+/// `count`, refused when it is more than `most` of `what`.
+fn at_most(count: usize, most: usize, what: &str) -> Result<usize, FormatError> {
+    if count > most {
+        return Err(unsupported(format!(
+            "{count} {what}, more than the {most} a model is moved with"
+        )));
+    }
+    Ok(count)
+}
+
 /// A copy of the model file `mdl` whose meshes name other lightmaps:
 /// each mesh's lightmap that `rename` gives a new name for takes that
 /// name. A room placed twice in one map gets lightmaps of its own in its
@@ -1124,7 +1143,10 @@ pub fn relit(
             let name = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
             if !name.is_empty() && !fmt_is_null(&name) {
                 if let Some(new) = rename(&name) {
-                    if new.len() >= 32 || !new.is_ascii() {
+                    // A lightmap's name is a resource's: 16 characters at
+                    // most, as `written` takes. The field's own 31 were
+                    // let through.
+                    if new.len() > 16 || !new.is_ascii() {
                         return Err(unsupported(format!(
                             "{new:?} does not fit a lightmap's name"
                         )));
@@ -1186,7 +1208,7 @@ pub fn shifted(mdl: &[u8], by: [f32; 3]) -> Result<Vec<u8>, FormatError> {
         }
         let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
         let data_at = get(copy, at + 68)? as usize;
-        for k in 0..keys.min(256) {
+        for k in 0..at_most(keys, MOST_CONTROLLERS, "controllers of a node")? {
             let key = keys_at + k * 16;
             let kind = get(copy, key)?;
             let rows = (get(copy, key + 4)? >> 16) as usize;
@@ -1221,7 +1243,7 @@ pub fn shifted(mdl: &[u8], by: [f32; 3]) -> Result<Vec<u8>, FormatError> {
             get(copy, root + 44)? as usize,
             get(copy, root + 48)? as usize,
         );
-        (0..count.min(4096))
+        (0..at_most(count, MOST_CHILDREN, "nodes under a root")?)
             .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
             .collect()
     };
@@ -1234,7 +1256,7 @@ pub fn shifted(mdl: &[u8], by: [f32; 3]) -> Result<Vec<u8>, FormatError> {
         get(&copy, header + 8)? as usize,
         get(&copy, header + 12)? as usize,
     );
-    for i in 0..animations.min(1024) {
+    for i in 0..at_most(animations, MOST_ANIMATIONS, "animations")? {
         let animation = get(&copy, animations_at + i * 4)? as usize;
         let animation_root = get(&copy, animation + 40)? as usize;
         for child in children(&copy, animation_root)? {
@@ -1321,7 +1343,7 @@ pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError
         }
         let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
         let data_at = get(copy, at + 68)? as usize;
-        for k in 0..keys.min(256) {
+        for k in 0..at_most(keys, MOST_CONTROLLERS, "controllers of a node")? {
             let key = keys_at + k * 16;
             let kind = get(copy, key)?;
             let head = get(copy, key + 4)?;
@@ -1375,7 +1397,7 @@ pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError
             get(copy, root + 44)? as usize,
             get(copy, root + 48)? as usize,
         );
-        (0..count.min(4096))
+        (0..at_most(count, MOST_CHILDREN, "nodes under a root")?)
             .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
             .collect()
     };
@@ -1388,7 +1410,7 @@ pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError
         get(&copy, header + 8)? as usize,
         get(&copy, header + 12)? as usize,
     );
-    for i in 0..animations.min(1024) {
+    for i in 0..at_most(animations, MOST_ANIMATIONS, "animations")? {
         let animation = get(&copy, animations_at + i * 4)? as usize;
         let animation_root = get(&copy, animation + 40)? as usize;
         for child in children(&copy, animation_root)? {
@@ -1458,8 +1480,9 @@ pub struct WrittenMesh {
 /// another: place, normal, texture place and lightmap place (40 bytes).
 ///
 /// Refused when a mesh has more than 65,535 vertices (a face numbers them
-/// with 16 bits), when its arrays differ in length, or when a name does
-/// not fit.
+/// with 16 bits), when its arrays differ in length, when a name does not
+/// fit or is not ASCII, or when there are more than 65,534 meshes (a node's
+/// number has 16 bits, and the root takes 0).
 pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>), FormatError> {
     const GEOMETRY: usize = 80;
     const MODEL: usize = 116;
@@ -1467,6 +1490,14 @@ pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>),
     const STRIDE: usize = 40;
     if name.len() >= 32 || !name.is_ascii() {
         return Err(unsupported(format!("{name:?} does not fit a model's name")));
+    }
+    // Each mesh is a node numbered from 1. More of them than 16 bits count
+    // used to wrap round to numbers already given.
+    if meshes.len() >= usize::from(u16::MAX) {
+        return Err(unsupported(format!(
+            "{name}: {} meshes, more than a model can number",
+            meshes.len()
+        )));
     }
     for mesh in meshes {
         let count = mesh.positions.len();
@@ -1487,6 +1518,11 @@ pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>),
         }
         if mesh.texture.len() > 16 || mesh.lightmap.len() > 16 || mesh.name.len() >= 32 {
             return Err(unsupported(format!("{}: a name is too long", mesh.name)));
+        }
+        // The names are resources' and a node's, a byte a character. Only
+        // the model's own name was checked.
+        if !(mesh.name.is_ascii() && mesh.texture.is_ascii() && mesh.lightmap.is_ascii()) {
+            return Err(unsupported(format!("{:?}: a name is not ASCII", mesh.name)));
         }
         if (mesh.triangles.iter().flatten()).any(|&at| usize::from(at) >= count) {
             return Err(unsupported(format!(
@@ -1594,9 +1630,11 @@ pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>),
         }
         put_u16(&mut data, header + 304, mesh.positions.len() as u16);
         put_u16(&mut data, header + 306, 2);
-        // Lightmapped, not rotating its texture, not a background, casting a
-        // shadow, not beaming, drawn.
-        data[header + 308..header + 314].copy_from_slice(&[1, 0, 0, 1, 0, 1]);
+        // Lightmapped when it names a lightmap, not rotating its texture,
+        // not a background, casting a shadow, not beaming, drawn. A mesh
+        // with no lightmap used to be marked as lightmapped all the same.
+        let lightmapped = u8::from(!mesh.lightmap.is_empty());
+        data[header + 308..header + 314].copy_from_slice(&[lightmapped, 0, 0, 1, 0, 1]);
         put_u32(&mut data, header + 324, mdx.len() as u32);
         for at in 0..mesh.positions.len() {
             for value in (mesh.positions[at].iter())

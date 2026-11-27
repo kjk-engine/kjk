@@ -303,6 +303,12 @@ impl Walkmesh {
                     .sum::<f32>();
             }
         }
+        // The two relative use positions are offsets, so they turn and do
+        // not move. Left as they were, they pointed the way they did
+        // before the turn. The two absolute ones are places.
+        for offset in &mut placed.use_positions[..2] {
+            *offset = turn(*offset);
+        }
         for position in &mut placed.use_positions[2..] {
             *position = place(*position);
         }
