@@ -118,6 +118,16 @@ fn library() -> crate::script::Library {
     let dialogues: BTreeMap<String, fmt_odyssey::dlg::Dlg> = [
         ("probe_talk", talking(2, "")),
         ("probe_one_liner", talking(0, "")),
+        ("probe_cutscene_one_liner", {
+            let mut dlg = talking(0, "");
+            dlg.animated_cut = true;
+            dlg.camera_model = "cam".into();
+            dlg.entries[0].text.strref = u32::MAX;
+            dlg.entries[0].text.strings.clear();
+            dlg.entries[0].delay = Some(1);
+            dlg.replies[0].script.script = "probe_tell_tag".into();
+            dlg
+        }),
         ("probe_destroyed_talk", talking(2, "probe_destroy_self")),
         ("probe_nothing_to_say", {
             let mut dlg = talking(2, "");
@@ -573,6 +583,48 @@ fn refused(fails: &str) -> Result<(bool, bool), String> {
     Ok((locked, open))
 }
 
+/// A one-entry cutscene with a silent entry (`delay = 1s`) and a silent
+/// leaf reply whose script runs only once the entry finishes: it enters
+/// full conversation mode (`conversations.len() == 1`) rather than barking
+/// and firing the leaf reply on step 1.
+fn cutscene_one_liner_waits() -> Result<(bool, bool, usize, Vec<String>), String> {
+    let owner = ObjectData::creature("owner", "owner", by_entry(1.5, 0.0), Sheet::commoner());
+    let (mut world, first) = world_with(vec![owner], None, library())?;
+    let owner = id_of(&mut world, first)?;
+    let mut tick = 1;
+    let player = step(&mut world, tick, &TickInput::default())
+        .body(Seat(0))
+        .map(|entity| entity.id.0)
+        .ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state.talk.asked.push(Start {
+        owner: ObjectId(owner),
+        pc: ObjectId(player),
+        asker: ObjectId(player),
+        dialog: "probe_cutscene_one_liner".into(),
+        bark: false,
+        cue: None,
+    });
+    world.set_script_state(state);
+    let mut still = TickInput::default();
+    still.insert(Seat(0), Command::default());
+    tick += 1;
+    let at_start = step(&mut world, tick, &still);
+    let mut said = Vec::new();
+    told(&mut world, &mut said);
+    let started_conv = at_start.talk.conversations.len() == 1 && at_start.talk.barks.is_empty();
+    let ran_at_start = !said.is_empty();
+    for step_n in 1..=ANSWER_STEPS {
+        tick += 1;
+        let snapshot = step(&mut world, tick, &still);
+        told(&mut world, &mut said);
+        if snapshot.talk.conversations.is_empty() {
+            return Ok((started_conv, ran_at_start, step_n, said));
+        }
+    }
+    Err(format!("the cutscene one-liner did not end; told {said:?}"))
+}
+
 pub fn probes() -> Checks {
     let all: Vec<String> = HEARERS
         .iter()
@@ -648,6 +700,18 @@ pub fn probes() -> Checks {
                 Ok((began, waiting)) => check(
                     began && waiting,
                     format!("the conversation began {began}, the walk after it waits {waiting}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "cutscene_one_liner_waits_for_line",
+            match cutscene_one_liner_waits() {
+                Ok((started, immediate, steps, said)) => check(
+                    started && !immediate && steps >= 100 && said == ["owner".to_string()],
+                    format!(
+                        "started conv {started}, ran at start {immediate}, steps {steps}, said {said:?}"
+                    ),
                 ),
                 Err(why) => Err(why),
             },

@@ -100,10 +100,22 @@ impl Step<'_> {
         let replies = self.offer(dlg, id, entry, start.owner, start.pc);
         let node = &dlg.entries[entry as usize];
         let speaker = self.speaker(&node.speaker, start.owner);
-        let one_liner = replies.len() == 1 && {
-            let reply = &dlg.replies[replies[0] as usize];
-            says_nothing(library, reply) && reply.links.is_empty()
-        };
+        // Cutscenes, staged conversations, silent beats, and lines that wait on
+        // an animation, fade, or explicit delay must enter full conversation mode
+        // (`show`) rather than barking and running their leaf reply immediately
+        // (K1's `stunt_31b` / `31b_convers`, whose lone silent entry plays a
+        // camera animation before its silent reply jumps to `lev_m40ac`).
+        let one_liner = !dlg.staged()
+            && dlg.camera_model.is_empty()
+            && !says_nothing(library, node)
+            && node.wait_flags == 0
+            && node.delay.is_none()
+            && node.fade.kind == 0
+            && replies.len() == 1
+            && {
+                let reply = &dlg.replies[replies[0] as usize];
+                says_nothing(library, reply) && reply.links.is_empty()
+            };
         if start.bark || one_liner {
             self.progress(node);
             let text = Said::Entry {
