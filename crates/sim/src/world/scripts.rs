@@ -521,6 +521,20 @@ pub(super) fn scripts(
     let mut own = Vec::new();
     let mut lives = Vec::new();
     let mut bodies = Vec::new();
+    // The bodies a walk stopped by may wait for (`Character::bumped_stuck`):
+    // a seat's own character, whose player can step aside, and any body on
+    // the move. A still creature may stand in the way for good.
+    let will_clear: BTreeSet<SimId> = rows
+        .iter()
+        .filter(|(_, avatar, object, player, ..)| {
+            (avatar.is_some() && object.is_none())
+                || player.is_some_and(|player| {
+                    crate::math::flat_length(player.0.velocity) * collision::UNIT
+                        >= rules::walking::pace::LEAST_WALK
+                })
+        })
+        .map(|(id, ..)| id.0)
+        .collect();
     for (id, avatar, object, player, placed, fighting, sheet, benched, away) in rows {
         let data = object.and_then(|object| object.facts.as_deref());
         // A character's sheet as it wears it, and with its effects and
@@ -617,10 +631,12 @@ pub(super) fn scripts(
             in_combat: fighter.in_combat(now),
             fake_combat: fighter.faking(now),
             stuck: fighter.mind.walker.is_some_and(|walker| walker.stuck()),
-            bumped_stuck: fighter
-                .mind
-                .walker
-                .is_some_and(|walker| walker.bumped_stuck()),
+            bumped_stuck: fighter.mind.walker.is_some_and(|walker| {
+                walker.bumped_stuck()
+                    && walker
+                        .bumped
+                        .is_some_and(|(body, _)| will_clear.contains(&body))
+            }),
             walking: fighter.mind.walker.is_some_and(|walker| walker.stalls == 0)
                 && player.is_some_and(|player| {
                     crate::math::flat_length(player.0.velocity) * collision::UNIT

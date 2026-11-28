@@ -1,0 +1,1 @@
+sim = "a scripted move to an object stopped by a creature standing still gives up instead of retrying forever"

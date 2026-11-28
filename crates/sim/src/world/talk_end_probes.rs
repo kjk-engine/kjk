@@ -785,12 +785,23 @@ fn move_to_object_waits_out_stun() -> Result<bool, String> {
     Ok(false)
 }
 
-/// An unforced `ActionMoveToObject` whose walker gave up only on body bumps
-/// clears the bumps and keeps walking instead of dropping the action.
-fn move_to_object_retries_after_body_bump() -> Result<bool, String> {
+/// Who stands in the way of `move_after_body_bump`'s walker.
+#[derive(Clone, Copy)]
+enum Blocker {
+    /// The player's own character, once: the walk is taken up again.
+    Player,
+    /// A creature standing still, on every step: the move is given up.
+    StillCreature,
+}
+
+/// An unforced `ActionMoveToObject` whose walker gave up only on bumping into
+/// `blocker`: whether the walker reached its object, and whether its move
+/// ended (its queue empty) short of it.
+fn move_after_body_bump(blocker: Blocker) -> Result<(bool, bool), String> {
     use crate::script::actions::{Action as Queue, Queued, Target};
     let near = crate::determinism::ground_point(-4.5, 0.0, 0.0);
     let far = crate::determinism::ground_point(-1.5, 0.0, 0.0);
+    let aside = crate::determinism::ground_point(-6.5, 0.0, 0.0);
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let first = data.placements.len() as u32;
@@ -802,6 +813,7 @@ fn move_to_object_retries_after_body_bump() -> Result<bool, String> {
                 tag: "post".into(),
                 ..ObjectData::unknown("post", far, 0.0)
             },
+            ObjectData::creature("statue", "statue", aside, Sheet::commoner()),
         ]
         .map(Placement::Own),
     );
@@ -829,17 +841,28 @@ fn move_to_object_retries_after_body_bump() -> Result<bool, String> {
         }],
     );
     world.set_script_state(state);
+    let body = match blocker {
+        Blocker::Player => world
+            .world
+            .query::<(&Id, &super::Avatar)>()
+            .iter(&world.world)
+            .map(|(id, _)| id.0)
+            .next()
+            .ok_or("the ground has no player")?,
+        Blocker::StillCreature => crate::snapshot::SimId(id_of(&mut world, first + 2)?),
+    };
     let mut bumped = false;
     for tick in 1..=(ANSWER_STEPS * 2) as u64 {
         let snapshot = step(&mut world, tick, &TickInput::default());
-        if !bumped && snapshot.time_ms >= 600 {
+        let again = matches!(blocker, Blocker::StillCreature) || !bumped;
+        if again && snapshot.time_ms >= 600 {
             let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
             for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
                 if id.0.0 == walker
                     && let Some(w) = fighting.0.mind.walker.as_mut()
                 {
                     w.bumps = crate::script::STUCK_STALLS;
-                    w.bumped = Some((crate::snapshot::SimId(0), [0.0, 0.0]));
+                    w.bumped = Some((body, [0.0, 0.0]));
                     bumped = true;
                 }
             }
@@ -850,10 +873,15 @@ fn move_to_object_retries_after_body_bump() -> Result<bool, String> {
             .find(|entity| entity.id.0 == walker)
             .map(|entity| entity.position);
         if bumped && at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0) {
-            return Ok(true);
+            return Ok((true, false));
+        }
+        let ended =
+            (world.script_state().actions.get(&walker)).is_none_or(|queue| queue.is_empty());
+        if bumped && ended {
+            return Ok((false, true));
         }
     }
-    Ok(false)
+    Ok((false, false))
 }
 
 pub fn probes() -> Checks {
@@ -987,15 +1015,22 @@ pub fn probes() -> Checks {
                 Err(why) => Err(why),
             },
         ),
-        (
-            "move_to_object_retries_after_body_bump",
-            match move_to_object_retries_after_body_bump() {
-                Ok(reached) => check(
-                    reached,
-                    format!("walker reached target after body bump: {reached}"),
-                ),
-                Err(why) => Err(why),
-            },
-        ),
     ]
+    .into_iter()
+    .chain(
+        [
+            ("move_to_object_retries_after_body_bump", Blocker::Player, (true, false)),
+            ("move_to_object_gives_up_on_still_body", Blocker::StillCreature, (false, true)),
+        ]
+        .map(|(name, blocker, want)| {
+            let result = move_after_body_bump(blocker).and_then(|(reached, ended)| {
+                check(
+                    (reached, ended) == want,
+                    format!("walker reached its object {reached}, move ended short {ended}"),
+                )
+            });
+            (name, result)
+        }),
+    )
+    .collect()
 }
