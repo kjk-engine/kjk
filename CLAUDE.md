@@ -51,3 +51,51 @@ A title names the thing. Most of the time it is a short noun phrase, like an ent
 | Masters pay less to block, and their sabers never wear. | A character with Master Jedi Defense, or of level 20 or higher, counts as a master. Masters pay 80% of the normal block cost against lightsabers and 60% against blaster bolts. Their lightsabers never wear down. |
 
 Before sending any text a person will read, reread it and rewrite every sentence that leaves its subject, its number or its meaning unsaid.
+
+# Roadmap
+
+The big pieces of work are tracked as cards on a private board called "kjk roadmap". Each card is an issue in the private repo `kjk-engine/roadmap`. Only the two developers and their AI sessions can read it.
+
+A card has one of five statuses.
+
+| Status | Meaning |
+|---|---|
+| Idea | The developers have not agreed on it yet. |
+| Planned | The developers agreed on it. Nobody has started. |
+| In progress | Someone is working on it now. |
+| On hold | Work started or was decided, and then stopped for a stated reason. |
+| Done | The work is merged into main. |
+
+## What a session does
+
+- Before starting a large piece of work, list the cards with `gh issue list --repo kjk-engine/roadmap` and look for the card it belongs to.
+- When work on a card starts, set the card's status to In progress and assign the developer who started the session.
+- A pull request that finishes a card says `Closes kjk-engine/roadmap#N` in its description. The card then moves to Done when the pull request merges.
+- A pull request that does only part of a card says `Part of kjk-engine/roadmap#N` instead. The card stays open.
+- When work on a card stops before it is finished, set the status to On hold. Add a comment on the card with the reason, the branch name and what is left to do.
+- Bug fixes and small changes do not get a card. Player bug reports stay in the issues of this repo.
+- Create a new card only when a developer asks for one.
+- Never copy the text of a card into a pull request, a commit message or a Discord post. This repo is public and the roadmap is private.
+- If `gh` reports that it has no access to the roadmap, say so to the developer and carry on with the work.
+
+## Setting a card's status
+
+The board is project number 1 of the `kjk-engine` organization. The login needs the `project` scope, which `gh auth refresh -s project` adds.
+
+```bash
+# Find the card's item id on the board by its issue number.
+gh project item-list 1 --owner kjk-engine --limit 200 --format json \
+  -q '.items[] | select(.content.number==N) | .id'
+
+# Set the status. Use the option id from the table below.
+gh project item-edit --project-id PVT_kwDOFNBy-c4Br_63 --id ITEM_ID \
+  --field-id PVTSSF_lADOFNBy-c4Br_63zhqQBKQ --single-select-option-id OPTION_ID
+```
+
+| Status | Option id |
+|---|---|
+| Idea | `3ee0bad6` |
+| Planned | `c1a14f1f` |
+| In progress | `8da6407d` |
+| On hold | `005edd1d` |
+| Done | `57b81c1a` |
