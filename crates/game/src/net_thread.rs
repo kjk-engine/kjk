@@ -366,6 +366,12 @@ impl NetThread {
         self.waker.wake();
     }
 
+    /// Clones the waker so another thread (such as the sim step thread) can
+    /// wake the net thread after publishing snapshots directly.
+    pub fn waker(&self) -> net::io::Waker {
+        self.waker.clone()
+    }
+
     /// Stops the thread; its socket back.
     pub fn stop(mut self) -> Option<Netem<Socket>> {
         self.halt()
