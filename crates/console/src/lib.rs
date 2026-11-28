@@ -175,6 +175,7 @@ struct Pipelines {
 
 pub struct ConsolePlugin {
     pub commands: Vec<Command>,
+    pub exit_when_done: bool,
 }
 
 impl Plugin for ConsolePlugin {
@@ -182,6 +183,7 @@ impl Plugin for ConsolePlugin {
         let pipelines = Pipelines::default();
         app.insert_resource(Queue {
             pending: self.commands.iter().cloned().collect(),
+            exit_when_done: self.exit_when_done,
             active: None,
             frame: 0,
             started: Instant::now(),
@@ -272,6 +274,7 @@ fn count_pipelines(cache: Res<PipelineCache>, pipelines: Res<Pipelines>) {
 #[derive(Resource)]
 struct Queue {
     pending: VecDeque<Command>,
+    exit_when_done: bool,
     active: Option<Active>,
     frame: u64,
     started: Instant,
@@ -412,6 +415,10 @@ fn run_queue(
 
     if queue.active.is_none() {
         let Some(command) = queue.pending.pop_front() else {
+            if queue.exit_when_done {
+                info!(target: "console", "headless script finished; exiting");
+                exit.write(AppExit::Success);
+            }
             return;
         };
         info!(target: "console", "start: {command}");

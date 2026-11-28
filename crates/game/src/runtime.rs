@@ -317,9 +317,11 @@ pub fn run(options: RunOptions) -> AppExit {
         app.add_plugins(crate::ui_view::UiViewPlugin::new(assets, start));
     }
     app.insert_resource(crate::console_view::Scripted(!options.commands.is_empty()));
+    let exit_when_done = options.headless && !options.commands.is_empty();
     app.add_plugins((
         ConsolePlugin {
             commands: options.commands,
+            exit_when_done,
         },
         crate::launch_times::LaunchTimesPlugin,
         crate::crash::DeviceLostPlugin,
