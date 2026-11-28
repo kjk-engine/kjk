@@ -25,6 +25,17 @@ use vfs::{DirIndex, Discovery, Game};
 /// another module is entered.
 const MODULE_ART: [&str; 2] = ["load_", "lbl_map"];
 
+/// The "Damage" heading of a weapon's base damage in both games' talk
+/// tables, "Physical" for `baseitems.2da`'s `damageflags` bits 0 to 2
+/// (Bludgeoning, Piercing, Slashing), and the first strref before the
+/// remaining damage types (Universal at `38553`, Acid/Unstoppable at
+/// `38554`, ..., Energy at `38562`, matching `iprp_damagetype.2da` rows
+/// 3 to 12).
+const DAMAGE: u32 = 31385;
+const DAMAGE_PHYSICAL: u32 = 38552;
+const DAMAGE_TYPE_BASE: u32 = 38550;
+const PHYSICAL_DAMAGE_BITS: u32 = 0b111;
+const KNOWN_DAMAGE_BITS: u32 = 13;
 /// The heading of a weapon's critical threat in its description, "Critical
 /// Threat" in both games' talk tables.
 const CRITICAL_THREAT: u32 = 38571;
@@ -1117,7 +1128,8 @@ impl GuiAssets {
         }
     }
 
-    /// An item's stats, a line each: a weapon's damage and an armour's
+    /// An item's stats, a line each: a weapon's damage (with its base
+    /// damage type from `baseitems.2da`'s `damageflags`) and an armour's
     /// defence (base item `base`'s `numdice`/`dietoroll`, `baseac`), then
     /// each of `properties` as the games' tables name it: its
     /// `itempropdef.2da` name, its subtype's, its cost's and its
@@ -1142,9 +1154,7 @@ impl GuiAssets {
                 && dice > 0
                 && sides > 0
             {
-                lines.push(always(
-                    format!("Damage: {}-{}", dice, dice * sides).into_bytes(),
-                ));
+                lines.push(always(self.weapon_damage_line(row, dice, sides)));
             }
             if let Some(ac) = int(self, "baseac").filter(|ac| *ac > 0) {
                 lines.push(always(format!("Defense: +{ac}").into_bytes()));
@@ -1201,6 +1211,34 @@ impl GuiAssets {
             });
         }
         lines
+    }
+
+    /// A weapon's base damage stat line as both games write it:
+    /// `"Damage: "` (localized), each base damage type from
+    /// `baseitems.2da`'s `damageflags` followed by `", "` (physical bits
+    /// 0 to 2 as "Physical", bits 3 to 12 by strrefs `38553` to `38562`,
+    /// any higher mod bits via `iprp_damagetype.2da`), then `"{min}-{max}"`.
+    fn weapon_damage_line(&mut self, base_row: usize, dice: i64, sides: i64) -> Vec<u8> {
+        let flags = self
+            .table("baseitems")
+            .and_then(|table| table.int(base_row, "damageflags"))
+            .and_then(|flags| u32::try_from(flags).ok())
+            .unwrap_or(0);
+        let mut extras: [Option<Vec<u8>>; (u32::BITS - KNOWN_DAMAGE_BITS) as usize] =
+            Default::default();
+        if flags >> KNOWN_DAMAGE_BITS != 0 {
+            for (bit, slot) in (KNOWN_DAMAGE_BITS..u32::BITS).zip(extras.iter_mut()) {
+                if flags & (1u32 << bit) != 0 {
+                    *slot = self.named_row("iprp_damagetype", bit as usize);
+                }
+            }
+        }
+        let strref = |id| self.text(Source::Campaign, id);
+        format_weapon_damage(flags, dice, sides, strref, |bit| {
+            extras
+                .get_mut(bit - KNOWN_DAMAGE_BITS as usize)
+                .and_then(Option::take)
+        })
     }
 
     /// The critical threat of a weapon of base item `base`: its
@@ -1485,4 +1523,43 @@ fn read_layout(resolver: &Resolver, name: &str) -> Result<Gui, String> {
 fn parse_layout(name: &str, location: &Location) -> Result<Gui, String> {
     let bytes = location.read().map_err(|error| error.to_string())?;
     Gui::parse(&bytes).map_err(|error| format!("{name}.gui: {error}"))
+}
+
+/// Formats a weapon's base damage line (`"Damage: Energy, 2-16"`) from
+/// the localized `"Damage"` heading, `baseitems.2da`'s `damageflags` bits,
+/// `dice` and `sides`, and lookups for campaign strrefs and custom
+/// `iprp_damagetype.2da` rows (`bit >= 13`).
+pub(crate) fn format_weapon_damage(
+    flags: u32,
+    dice: i64,
+    sides: i64,
+    mut strref: impl FnMut(u32) -> Option<Vec<u8>>,
+    mut extra_type: impl FnMut(usize) -> Option<Vec<u8>>,
+) -> Vec<u8> {
+    let mut line = strref(DAMAGE)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| b"Damage".to_vec());
+    line.extend_from_slice(b": ");
+    if flags & PHYSICAL_DAMAGE_BITS != 0
+        && let Some(name) = strref(DAMAGE_PHYSICAL).filter(|name| !name.is_empty())
+    {
+        line.extend(name);
+        line.extend_from_slice(b", ");
+    }
+    for bit in 3..u32::BITS {
+        if flags & (1u32 << bit) == 0 {
+            continue;
+        }
+        let name = if bit < KNOWN_DAMAGE_BITS {
+            strref(DAMAGE_TYPE_BASE + bit)
+        } else {
+            extra_type(bit as usize)
+        };
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            line.extend(name);
+            line.extend_from_slice(b", ");
+        }
+    }
+    line.extend(format!("{}-{}", dice, dice * sides).into_bytes());
+    line
 }

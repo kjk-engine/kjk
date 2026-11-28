@@ -8,13 +8,22 @@
 use sim::probe::{Checks, check};
 use vfs::Game;
 
-/// Each game's weapons, by template, and the critical threat their
-/// description should show.
-const WEAPONS: [(Game, &str, &str); 4] = [
-    (Game::Kotor1, "g_w_lghtsbr01", "19-20,x2"),
-    (Game::Kotor1, "g_w_blstrpstl001", "20-20,x2"),
-    (Game::Kotor2, "g_w_lghtsbr01", "19-20,x2"),
-    (Game::Kotor2, "w_blaste_01", "20-20,x2"),
+/// Each game's weapons, by template, their base damage line, and the
+/// critical threat their description should show.
+const WEAPONS: [(Game, &str, &str, &str); 13] = [
+    (Game::Kotor1, "g_w_lghtsbr01", "Damage: Energy, 2-16", "19-20,x2"),
+    (Game::Kotor1, "g_w_blstrpstl001", "Damage: Energy, 1-6", "20-20,x2"),
+    (Game::Kotor1, "g_w_bowcstr001", "Damage: Energy, 1-10", "19-20,x2"),
+    (Game::Kotor1, "g_w_ionblstr01", "Damage: Ion, 1-4", "20-20,x2"),
+    (Game::Kotor1, "g_w_sonicpstl01", "Damage: Sonic, 1-4", "20-20,x2"),
+    (Game::Kotor1, "g_w_dsrptpstl001", "Damage: Physical, 1-4", "20-20,x2"),
+    (Game::Kotor1, "g_w_vbroshort01", "Damage: Physical, 1-10", "19-20,x2"),
+    (Game::Kotor2, "g_w_lghtsbr01", "Damage: Energy, 2-20", "19-20,x2"),
+    (Game::Kotor2, "w_blaste_01", "Damage: Energy, 1-8", "20-20,x2"),
+    (Game::Kotor2, "w_blaste_02", "Damage: Ion, 1-6", "20-20,x3"),
+    (Game::Kotor2, "w_blaste_04", "Damage: Sonic, 1-4", "20-20,x2"),
+    (Game::Kotor2, "w_blaste_05", "Damage: Unstoppable, 1-6", "18-20,x2"),
+    (Game::Kotor2, "w_melee_01", "Damage: Physical, 1-6", "20-20,x2"),
 ];
 
 /// Each game's items, by template, and how their description begins: the
@@ -36,13 +45,15 @@ const REQUIREMENTS: [(Game, &str, &str); 7] = [
 pub fn probes() -> Checks {
     let discovery = crate::discover();
     let mut checks: Checks = vec![edges_written()];
-    for (game, template, threat) in WEAPONS {
+    for (game, template, damage, threat) in WEAPONS {
         if discovery.get(game).is_none() {
             continue;
         }
-        let name: &'static str =
-            Box::leak(format!("{}: {template} shows its critical threat", game.key()).into_boxed_str());
-        let want = format!("Critical Threat:\n{threat}\n");
+        let name: &'static str = Box::leak(
+            format!("{}: {template} shows its damage type and critical threat", game.key())
+                .into_boxed_str(),
+        );
+        let want = format!("{damage}\nCritical Threat:\n{threat}\n");
         let shown = described(&discovery, game, template);
         checks.push((
             name,

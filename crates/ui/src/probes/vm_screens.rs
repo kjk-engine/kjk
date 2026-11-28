@@ -1026,5 +1026,76 @@ pub(super) fn all() -> Vec<Check> {
         })
         .map(|()| "journal, store and its filters, upgrades, message box, level-up".into())
         }),
+        weapon_damage_types(),
     ]
+}
+
+/// Checks `assets::format_weapon_damage` across physical, energy, ion, sonic,
+/// K1/TSL disruptor, multi-flag, custom mod bit, and fallback cases.
+fn weapon_damage_types() -> Check {
+    let tlk = |unstoppable: bool, id: u32| -> Option<Vec<u8>> {
+        let word = match id {
+            31385 => "Damage",
+            38552 => "Physical",
+            38553 => "Universal",
+            38554 => {
+                if unstoppable {
+                    "Unstoppable"
+                } else {
+                    "Acid"
+                }
+            }
+            38555 => "Cold",
+            38556 => "Light Side",
+            38557 => "Electrical",
+            38558 => "Fire",
+            38559 => "Dark Side",
+            38560 => "Sonic",
+            38561 => "Ion",
+            38562 => "Energy",
+            _ => return None,
+        };
+        Some(word.as_bytes().to_vec())
+    };
+    let fmt = |flags, dice, sides, unstoppable| {
+        String::from_utf8(crate::assets::format_weapon_damage(
+            flags,
+            dice,
+            sides,
+            |id| tlk(unstoppable, id),
+            |bit| (bit == 13).then(|| b"Custom".to_vec()),
+        ))
+        .unwrap_or_default()
+    };
+    let cases = [
+        (fmt(4096, 2, 8, false), "Damage: Energy, 2-16"),
+        (fmt(4096, 1, 10, false), "Damage: Energy, 1-10"),
+        (fmt(2048, 1, 4, false), "Damage: Ion, 1-4"),
+        (fmt(1024, 1, 4, false), "Damage: Sonic, 1-4"),
+        (fmt(1, 1, 6, false), "Damage: Physical, 1-6"),
+        (fmt(2, 1, 10, false), "Damage: Physical, 1-10"),
+        (fmt(4, 1, 12, false), "Damage: Physical, 1-12"),
+        (fmt(7, 1, 4, false), "Damage: Physical, 1-4"),
+        (fmt(16, 1, 6, true), "Damage: Unstoppable, 1-6"),
+        (fmt(7 | 4096, 1, 8, false), "Damage: Physical, Energy, 1-8"),
+        (fmt(1 << 13, 1, 6, false), "Damage: Custom, 1-6"),
+        (fmt(0, 1, 6, false), "Damage: 1-6"),
+        (
+            String::from_utf8(crate::assets::format_weapon_damage(
+                4096,
+                2,
+                8,
+                |_| None,
+                |_| None,
+            ))
+            .unwrap_or_default(),
+            "Damage: 2-16",
+        ),
+    ];
+    let ok = cases.iter().all(|(got, want)| got == want);
+    check(
+        "weapon_damage_types",
+        expect(&format!("weapon damage cases: {cases:?}"), ok)
+            .map(|()| "base damage types formatted before weapon damage range".into()),
+    )
 }
