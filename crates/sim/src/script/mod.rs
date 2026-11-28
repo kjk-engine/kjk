@@ -2133,7 +2133,9 @@ pub struct Character {
     /// Its walk has stalled again and again (`STUCK_STALLS`): it can come
     /// no nearer where it is going.
     pub stuck: bool,
-    /// KOTOR's walker gave up only on bumping into bodies (`bumped_stuck`).
+    /// KOTOR's walker gave up only on bumping into a body, and that body is
+    /// a seat's own character or is on the move, so it will clear the way
+    /// (`walk::Walker::bumped_stuck`).
     pub bumped_stuck: bool,
     /// Its walk carries it on now: not stalled, its body moving.
     pub walking: bool,
@@ -3568,8 +3570,11 @@ impl Step<'_> {
                             self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
-                        // `ActionMoveToObject` bumped into bodies (not a static
-                        // wall): KOTOR queues the move again once clear.
+                        // `ActionMoveToObject` stopped by a body that will
+                        // clear (a player's character, or one on the move)
+                        // walks again. One stopped by a creature standing
+                        // still gives up below, so what its script queued
+                        // after the move still runs.
                         Some((at, _))
                             if force_ms.is_none()
                                 && matches!(to, Target::Object(..))
