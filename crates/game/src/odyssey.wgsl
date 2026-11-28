@@ -2384,7 +2384,12 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         return ray_debug(in.world_position.xyz, base.rgb, select(1u, 2u, shadows.debug == 6u));
     }
 #endif
-    var self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    let raw_self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    // A room's light fitting or display screen carries `LAMP_TEXELS` or `self_illum`
+    // and often has its own fitted-light proxy placed inches in front of its face.
+    let is_room_emissive = (params.flags & ROOM) != 0u
+        && ((params.flags & LAMP_TEXELS) != 0u || max3(raw_self_lit) > 0.05);
+    var self_lit = raw_self_lit;
     if light_trial() != 0u && (params.flags & LAMP_TEXELS) != 0u {
         self_lit = self_lit * smoothstep(0.8, 1.0, max3(texel.rgb));
     }
@@ -2472,6 +2477,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     // How much of a room's baked light the characters' and placeables'
     // shadows leave at this surface.
     var unshadowed = 1.0;
+    var fitted_kept = 1.0;
     // Under `KJK_MODEL_LIGHT` the parts of a model's light, as the baked
     // trial adds them (below): its own glow, the probes' light (from above
     // and from the sides) and the lamps'. `term_floor` is the least probe
@@ -2831,13 +2837,12 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // A room's surface with a baked lightmap holds the fitted lights'
         // light already.
         // The fittings' own shadows of the characters and placeables near.
-        var fitted_kept = 1.0;
 #ifdef FITTED_LIGHTS
         let surf_normal = select(vec3<f32>(0.0), fitted_normal, has_normal);
         if !baked_room {
             let fitted_res = fitted_lights(in.world_position.xyz, spec_normal, surf_normal, has_normal, room, near, 1.0, COMBAT_WRAP, false, pbr_on && has_normal, view_dir, pbr.roughness, pbr.f0);
             fight = fight + fitted_res.lit * unshadowed;
-            if pbr_on {
+            if pbr_on && !is_room_emissive {
                 pbr_spec = pbr_spec + fitted_res.spec * unshadowed;
             }
         } else {
@@ -2853,8 +2858,10 @@ fn shade(in: VertexOutput) -> vec4<f32> {
                 }
                 lighting = lighting * fitted_kept;
             }
-            if pbr_on && has_normal {
-                let room_spec_vis = clamp(dot(decode_22(lighting) + baked_linear_hdr * (unshadowed * fitted_kept), LUMA) * 1.6, 0.0, 1.35);
+            if pbr_on && has_normal && !is_room_emissive {
+                let baked_ext_lin = decode_22(min(baked, vec3<f32>(1.0)) * (unshadowed * fitted_kept))
+                    + baked_linear_hdr * (unshadowed * fitted_kept);
+                let room_spec_vis = clamp(dot(baked_ext_lin, LUMA) * 1.6, 0.0, 1.35);
                 if room_spec_vis > 0.01 {
                     let room_spec = fitted_lights(in.world_position.xyz, spec_normal, surf_normal, has_normal, room, no_casters(), 0.0, COMBAT_WRAP, false, true, view_dir, pbr.roughness, pbr.f0).spec;
                     pbr_spec = pbr_spec + room_spec * room_spec_vis;
@@ -2870,7 +2877,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
             if sun_vis > 0.01 && probe_list.sun2_way.w > 0.5 {
                 pbr_spec = pbr_spec + probe_list.sun2_colour.rgb * ggx_spec(shade_normal, view_dir, probe_list.sun2_way.xyz, pbr.roughness, pbr.f0) * sun_vis;
             }
-            if (params.flags & HAS_DIR_LIGHTMAP) != 0u && dir_str > 0.01 {
+            if !is_room_emissive && (params.flags & HAS_DIR_LIGHTMAP) != 0u && dir_str > 0.01 {
                 let dir_baked = (decode_22(baked) + baked_linear_hdr) * (dir_str * 0.35 * unshadowed * fitted_kept);
                 pbr_spec = pbr_spec + ggx_spec(shade_normal, view_dir, dom_dir, max(pbr.roughness, 0.28), pbr.f0) * dir_baked;
             }
@@ -2985,7 +2992,12 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         if pbr_on && has_env_shine {
             let ndotv = max(dot(shade_normal, view_dir), 0.0);
             let f_ibl = pbr.f0 + (max(vec3<f32>(1.0 - pbr.roughness), pbr.f0) - pbr.f0) * pow(1.0 - ndotv, 5.0);
-            let local_luma = dot(decode_22(lighting) + hdr_over, LUMA);
+            let ext_luma = select(
+                dot(decode_22(lighting) + hdr_over, LUMA),
+                dot(decode_22(min(baked, vec3<f32>(1.0)) * (unshadowed * fitted_kept)) + baked_over, LUMA),
+                baked_room,
+            );
+            let local_luma = ext_luma;
             let env_vis = clamp(local_luma * 1.4 + 0.08, 0.08, 1.35);
             let ibl_mask = select(pbr.shiny, max(pbr.shiny, pbr.metalness), (params.flags & HAS_PBR_RM) != 0u);
             extra = extra + decode_22(env_shine) * f_ibl * (env_vis * ibl_mask * 0.85);
