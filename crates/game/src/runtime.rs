@@ -278,6 +278,7 @@ pub fn run(options: RunOptions) -> AppExit {
             (
                 crate::bark_view::BarkViewPlugin,
                 crate::arena::ArenaPlugin,
+                crate::console_view::ConsoleViewPlugin,
                 crate::floaty_view::FloatyViewPlugin,
                 crate::duel_view::DuelViewPlugin,
                 crate::hitmarker_view::HitmarkerViewPlugin,
@@ -315,6 +316,7 @@ pub fn run(options: RunOptions) -> AppExit {
             .ok();
         app.add_plugins(crate::ui_view::UiViewPlugin::new(assets, start));
     }
+    app.insert_resource(crate::console_view::Scripted(!options.commands.is_empty()));
     app.add_plugins((
         ConsolePlugin {
             commands: options.commands,

@@ -9,6 +9,7 @@ pub mod campaign;
 pub mod chargen;
 pub mod companion_places;
 pub mod computer;
+pub mod console;
 pub mod container;
 pub mod credits;
 pub mod debug_character;

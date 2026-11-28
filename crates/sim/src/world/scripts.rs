@@ -477,7 +477,7 @@ pub(super) fn scripts(
         Res<LetGo>,
         ResMut<super::traps::Shot>,
     ),
-    area: Res<super::Module>,
+    (area, mut cheats): (Res<super::Module>, ResMut<super::CheatState>),
     mut next_id: ResMut<super::NextId>,
     mut streams: ResMut<Streams>,
     mut scripts: ResMut<Scripts>,
@@ -1094,15 +1094,30 @@ pub(super) fn scripts(
         &mut scripts.notices,
         &mut out,
     );
+    // The arena's orders and the console's cheats (`cheats`).
+    let rules = level.arena_rules();
+    let cheating = (inputs.0.actions().iter())
+        .any(|(_, action)| matches!(action, Action::Arena(_) | Action::Cheat(_)));
     let mut arena_edits = false;
-    if let Some(rules) = level.arena_rules() {
+    if rules.is_some() || cheating {
         let bodies: Vec<super::arena::SeatBody> = seats
             .iter()
             .map(|&(seat, player)| (seat, player, acting(&view, seat.0, player)))
             .collect();
+        let cheats = &mut cheats.0;
+        super::cheats::policy(&inputs.0, &bodies, cheats, &mut out);
         let orders = (&inputs.0, used.0.as_slice());
-        arena_edits =
-            super::arena::orders(library, &view, state, orders, &bodies, (rules, &mut out));
+        arena_edits = super::arena::orders(
+            library,
+            &view,
+            state,
+            orders,
+            &bodies,
+            (rules, cheats, &mut out),
+        );
+        let cheat_orders = (&inputs.0, bodies.as_slice());
+        let arena = (rules.is_some(), cheats);
+        arena_edits |= super::cheats::orders(library, &view, state, cheat_orders, arena, &mut out);
     }
     // The feat lines the minds' talents chose.
     for &(user, hand, row) in &feat_talents.0 {

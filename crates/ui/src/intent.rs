@@ -58,6 +58,13 @@ pub enum SessionIntent {
     /// keys and panel in a partly lit KOTOR hall), played alone; the main
     /// menu options' Debug button.
     Sandbox,
+    /// A new game in `module`, played alone with the quick character,
+    /// arriving at `arrival` (its entry without): the console's `warp` at
+    /// the main menu.
+    Warp {
+        module: String,
+        arrival: Option<String>,
+    },
     /// Back to the main menu.
     ToMenu,
 }
@@ -313,6 +320,9 @@ pub enum LobbyIntent {
     Collision(String),
     /// The host turns "Show chosen replies" on or off.
     ShowReplies(bool),
+    /// The host sets who may use console commands that change the game,
+    /// by its settings value (`screens::options::CHEAT_RULES`).
+    Cheats(String),
     /// The host goes back to the list of saves.
     ChangeSave,
     /// The host opens Steam's invite dialog.

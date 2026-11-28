@@ -308,6 +308,37 @@ summary = "The character on the Debug Mode map starts with {world.arena.terminal
 source = "ours"
 see = "game::arena::gear"
 
+[console]
+title = "Console Limits"
+summary = "Caps on credits, XP, and item stack counts added through the console."
+
+[console.credits_most]
+name = "Max Console Credits"
+type = "i32"
+value = 9999999
+range = [1, 2147483647]
+summary = "Console commands cap party credits at {world.console.credits_most:bare}."
+source = "ours"
+see = "sim::world::cheats"
+
+[console.xp_most]
+name = "Max Console XP"
+type = "i32"
+value = 9999999
+range = [1, 2147483647]
+summary = "Console commands cap party XP at {world.console.xp_most:bare}."
+source = "ours"
+see = "sim::world::cheats"
+
+[console.items_most]
+name = "Max Items per Command"
+type = "u16"
+value = 100
+range = [1, 1000]
+summary = "giveitem adds at most {world.console.items_most:bare} items per command."
+source = "ours"
+see = "sim::world::cheats"
+
 [force_costs]
 title = "Force Point Cost"
 summary = """

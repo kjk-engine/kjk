@@ -120,7 +120,7 @@ fn run_seats(
 }
 
 /// `run_seats` with any actions.
-fn act(
+pub(super) fn act(
     world: &mut SimWorld,
     seats: u8,
     actions: &[(Seat, Action)],
@@ -176,7 +176,7 @@ pub fn probes() -> crate::probe::Checks {
 }
 
 /// Seat `seat`'s character's id and sheet in `snapshot`.
-fn mine(snapshot: &Snapshot, seat: Seat) -> Result<(SimId, Sheet), String> {
+pub(super) fn mine(snapshot: &Snapshot, seat: Seat) -> Result<(SimId, Sheet), String> {
     let me = snapshot.own(seat).ok_or("no player")?;
     Ok((me.id, me.sheet.ok_or("no sheet")?))
 }

@@ -1,0 +1,9 @@
+# The console's mod commands and the parameters of the scripts it runs.
+sim = "a waiting script keeps the parameters a console command gave it (`Pending::params`)"
+
+[formats]
+save = "a waiting script keeps the parameters a console command gave it (`Pending::params`)."
+replay = "a console order may run a script with parameters (`CheatOrder::Script`, cheat order code 10)."
+
+[migrations]
+save = "old saves read no parameters for every waiting script, as no script waited with any"

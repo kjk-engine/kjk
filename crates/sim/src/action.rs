@@ -261,8 +261,13 @@ pub enum Action {
     /// (by the rule of `Fit`), made together, or none of them
     /// (`script::items::State::assemble`).
     Assemble { item: u32, changes: Vec<Fitting> },
-    /// A combat arena's order (`world::arena`), on an arena level only.
+    /// A combat arena's order (`world::arena`). It is carried out on an
+    /// arena level, and on any other level when the cheat rule lets the
+    /// seat cheat (`world::cheats`).
     Arena(ArenaOrder),
+    /// A console order that changes the game (`world::cheats`). The cheat
+    /// rule decides whether the seat may give it.
+    Cheat(CheatOrder),
     /// Stance set `set` of the level's sets for character `whom`
     /// (`world::stances`). A seat picks for its own character, and the first
     /// seat also for any party member. Set 0 picks the character's table
@@ -346,6 +351,71 @@ pub enum ArenaOrder {
         who: crate::snapshot::SimId,
         sheet: Box<crate::combat::Sheet>,
     },
+}
+
+/// A console order that changes the game (`Action::Cheat`,
+/// `world::cheats`). `Credits` and `Xp` add to the party's totals (clamped
+/// between 0 and the console limits).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheatOrder {
+    /// Who may cheat from now on. Only the first seat may send it.
+    Policy(crate::world::cheats::Rule),
+    /// `count` of the item of this template added to the party's inventory.
+    Item { template: String, count: u16 },
+    /// This many credits added to the party's credits (taken away when
+    /// negative). The total stays between 0 and the console's limit.
+    Credits(i32),
+    /// This many experience points added to the party's experience. The
+    /// total stays between 0 and the console's limit.
+    Xp(i32),
+    /// `who` given full hit points and Force points. With no one named,
+    /// every party member the seat may change.
+    Heal { who: Option<crate::snapshot::SimId> },
+    /// The creature `who` killed in the normal way, so its death script
+    /// runs.
+    Kill { who: Mark },
+    /// The script global `name` set to `value`. A boolean global is set
+    /// true for any value but 0.
+    Global { name: String, value: i32 },
+    /// The script `resref` run with `who` as its caller, or with no caller
+    /// when no one is named. The script reads `params` with KOTOR 2's
+    /// `GetScriptParameter` and `GetScriptStringParameter`.
+    Script {
+        resref: String,
+        who: Option<crate::snapshot::SimId>,
+        params: ScriptParams,
+    },
+    /// Changes nothing but the mark that the game was cheated. The console's
+    /// `warp` sends it, because a warp skips parts of the story outside the
+    /// simulation.
+    Warped,
+}
+
+/// The parameters a console command gives the script it runs
+/// (`CheatOrder::Script`). KOTOR 2's `GetScriptParameter(1)` to
+/// `GetScriptParameter(5)` read `numbers`, and `GetScriptStringParameter`
+/// reads `text`, as they read a conversation script's parameters. `text` is
+/// game text, one character for each byte (`fmt_odyssey::code_page`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScriptParams {
+    pub numbers: [i32; 5],
+    pub text: String,
+}
+
+impl ScriptParams {
+    /// Whether every number is 0 and the text is empty, as a script without
+    /// parameters reads them.
+    pub fn is_empty(&self) -> bool {
+        self.numbers == [0; 5] && self.text.is_empty()
+    }
+}
+
+/// An object a cheat order names: by its id, or by its tag (the nearest
+/// object so tagged to the seat's body).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mark {
+    Id(crate::snapshot::SimId),
+    Tag(String),
 }
 
 /// What a seat asks of its body's readied grenade (`Action::Grenade`).
@@ -570,6 +640,138 @@ const PLAY: u8 = 69;
 const JOIN_TALKS: u8 = 72;
 const SCREEN: u8 = 73;
 const DIALOG_PICK: u8 = 74;
+const CHEAT: u8 = 75;
+
+/// A cheat order's optional object: `u32::MAX` for none.
+const NO_ONE: u32 = u32::MAX;
+
+fn encode_someone(out: &mut Writer, who: Option<crate::snapshot::SimId>) {
+    out.u32(who.map_or(NO_ONE, |who| who.0));
+}
+
+fn decode_someone(input: &mut Reader) -> Result<Option<crate::snapshot::SimId>, DecodeError> {
+    let who = input.u32()?;
+    Ok((who != NO_ONE).then_some(crate::snapshot::SimId(who)))
+}
+
+impl CheatOrder {
+    fn encode(&self, out: &mut Writer) {
+        match self {
+            CheatOrder::Policy(rule) => {
+                out.u8(0);
+                out.u8(rule.code());
+            }
+            CheatOrder::Item { template, count } => {
+                out.u8(1);
+                out.string(template);
+                out.u16(*count);
+            }
+            CheatOrder::Credits(amount) => {
+                out.u8(2);
+                out.u32(*amount as u32);
+            }
+            CheatOrder::Xp(total) => {
+                out.u8(3);
+                out.u32(*total as u32);
+            }
+            CheatOrder::Heal { who } => {
+                out.u8(4);
+                encode_someone(out, *who);
+            }
+            CheatOrder::Kill { who: Mark::Id(id) } => {
+                out.u8(5);
+                out.u32(id.0);
+            }
+            CheatOrder::Kill {
+                who: Mark::Tag(tag),
+            } => {
+                out.u8(6);
+                out.string(tag);
+            }
+            CheatOrder::Global { name, value } => {
+                out.u8(7);
+                out.string(name);
+                out.u32(*value as u32);
+            }
+            CheatOrder::Script {
+                resref,
+                who,
+                params,
+            } if params.is_empty() => {
+                out.u8(8);
+                out.string(resref);
+                encode_someone(out, *who);
+            }
+            CheatOrder::Script {
+                resref,
+                who,
+                params,
+            } => {
+                out.u8(10);
+                out.string(resref);
+                encode_someone(out, *who);
+                for number in params.numbers {
+                    out.u32(number as u32);
+                }
+                out.string(&params.text);
+            }
+            CheatOrder::Warped => out.u8(9),
+        }
+    }
+
+    fn decode(input: &mut Reader) -> Result<CheatOrder, DecodeError> {
+        let at = input.at();
+        Ok(match input.u8()? {
+            0 => {
+                let at = input.at();
+                let code = input.u8()?;
+                let rule = crate::world::cheats::Rule::from_code(code)
+                    .ok_or_else(|| input.invalid("cheat rule", at))?;
+                CheatOrder::Policy(rule)
+            }
+            1 => CheatOrder::Item {
+                template: input.string()?,
+                count: input.u16()?,
+            },
+            2 => CheatOrder::Credits(input.u32()? as i32),
+            3 => CheatOrder::Xp(input.u32()? as i32),
+            4 => CheatOrder::Heal {
+                who: decode_someone(input)?,
+            },
+            5 => CheatOrder::Kill {
+                who: Mark::Id(crate::snapshot::SimId(input.u32()?)),
+            },
+            6 => CheatOrder::Kill {
+                who: Mark::Tag(input.string()?),
+            },
+            7 => CheatOrder::Global {
+                name: input.string()?,
+                value: input.u32()? as i32,
+            },
+            8 => CheatOrder::Script {
+                resref: input.string()?,
+                who: decode_someone(input)?,
+                params: ScriptParams::default(),
+            },
+            9 => CheatOrder::Warped,
+            10 => {
+                let resref = input.string()?;
+                let who = decode_someone(input)?;
+                let mut numbers = [0; 5];
+                for number in &mut numbers {
+                    *number = input.u32()? as i32;
+                }
+                let text = input.string()?;
+                CheatOrder::Script {
+                    resref,
+                    who,
+                    params: ScriptParams { numbers, text },
+                }
+            }
+            _ => return Err(input.invalid("cheat order", at)),
+        })
+    }
+}
 
 /// A byte that is 0 (false) or 1 (true), as an action's flag.
 fn flag(input: &mut Reader) -> Result<bool, DecodeError> {
@@ -909,6 +1111,10 @@ impl Action {
                     }
                 }
             }
+            Action::Cheat(order) => {
+                out.u8(CHEAT);
+                order.encode(out);
+            }
         }
     }
 
@@ -1146,6 +1352,7 @@ impl Action {
                     _ => return Err(input.invalid("arena order", at)),
                 })
             }
+            CHEAT => Action::Cheat(CheatOrder::decode(input)?),
             _ => return Err(input.invalid("action", at)),
         })
     }
@@ -1209,6 +1416,7 @@ impl Action {
             | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_)
+            | Action::Cheat(_)
             | Action::PickStance { .. }
             | Action::JoinTalks(_)
             | Action::Screen(_)

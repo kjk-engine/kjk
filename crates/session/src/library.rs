@@ -63,6 +63,21 @@ impl Seeds<'_> {
     }
 }
 
+/// The scripts the console's mod commands run: each resref in the `script`
+/// column of the campaign's `kjkconsole.2da` (`commands::mods`), lowercase.
+/// None when there is no such table or it does not parse.
+fn console_scripts(source: &dyn Source) -> Vec<String> {
+    let Some(table) = source
+        .read("kjkconsole", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
+    else {
+        return Vec::new();
+    };
+    (0..table.cells.len())
+        .filter_map(|row| table.resref(row, "script"))
+        .collect()
+}
+
 /// The module's compiled scripts and conversations: the scripts its hooks
 /// name (the module's, the area's, its objects') and those `hooked` (the
 /// creature templates' hooks), its traps' rows' scripts, the DLGs its objects speak and those of the
@@ -111,6 +126,9 @@ pub(crate) fn script_library(
         .chain(hooked)
         // The engine's own: what it runs as an in-game screen opens.
         .chain(sim::script::ENGINE_SCRIPTS.iter().map(|name| name.to_string()))
+        // The console's mod commands' (`kjkconsole.2da`): a mod's script that
+        // nothing in the module names still runs from the console.
+        .chain(console_scripts(source))
         // The traps' (`traps.2da`'s `trapscript`): a sprung trap without an
         // `OnTrapTriggered` of its own runs its row's.
         .chain(

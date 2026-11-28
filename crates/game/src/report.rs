@@ -682,6 +682,18 @@ fn make(world: &mut World) {
             text: true,
         });
     }
+    // Whether a console command changed the game shown, and the console's
+    // log: a report of a state normal play cannot reach says so.
+    let cheated = world
+        .get_resource::<crate::sim_host::PresentedSnapshot>()
+        .map(|presented| presented.0.current().cheats.used);
+    if let Some(log) = world.get_resource::<crate::console_view::ConsoleLog>() {
+        parts.push(Part {
+            name: "console.txt".into(),
+            bytes: crate::console_view::report_text(cheated, log).into_bytes(),
+            text: true,
+        });
+    }
     let (zipped, dropped) = zip(parts, &me, LIMIT);
     if !dropped.is_empty() {
         warn!(target: "report", ?dropped, "left out of the report to fit");

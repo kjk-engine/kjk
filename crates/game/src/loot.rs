@@ -253,10 +253,16 @@ fn show(
     swap: Option<Res<SceneSwap>>,
     mut ui: ResMut<Ui>,
     (mut pending, mut closing, mut given): (ResMut<Pending>, ResMut<Closing>, ResMut<Given>),
-    mut told: ResMut<Told>,
+    (mut told, console_log): (
+        ResMut<Told>,
+        Option<ResMut<crate::console_view::ConsoleLog>>,
+    ),
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let ui = &mut *ui;
+    if let Some(mut console_log) = console_log {
+        console_log.echo(&told.0);
+    }
     // A level refused is told in a message over the screen open, so the
     // player sees why the level-up screen closed without the level.
     if let Some(refused) = told.0.iter().find(|text| text.starts_with(LEVEL_REFUSED)) {
@@ -640,7 +646,49 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
         // Seen and heard, not words (`made::exploded`).
         Notice::Explosion(explosion) => format!("[mine of row {} exploded]", explosion.row),
+        Notice::Cheat(outcome) => cheat_words(*outcome).into(),
     }
+}
+
+/// Why a console command that changes the game was refused, as the player
+/// reads it. The simulation sends no notice for an order carried out
+/// (`Outcome::Done`): the console has already printed what the command
+/// does.
+const CHEAT_WORDS: [(sim::cheats::Outcome, &str); 6] = {
+    use sim::cheats::Outcome;
+    [
+        (Outcome::Off, "Cheats are disabled in this game."),
+        (
+            Outcome::HostOnly,
+            "Only the host can use cheats in this game.",
+        ),
+        (
+            Outcome::NotYours,
+            "That character belongs to another player.",
+        ),
+        (Outcome::Unknown, "Target, item, or script not found."),
+        (Outcome::Protected, "That character cannot be killed."),
+        (
+            Outcome::ArenaOnly,
+            "Only available on Debug Mode and combat test maps.",
+        ),
+    ]
+};
+
+fn cheat_words(outcome: sim::cheats::Outcome) -> &'static str {
+    CHEAT_WORDS
+        .iter()
+        .find(|(each, _)| *each == outcome)
+        .map_or("", |(_, words)| words)
+}
+
+/// The cheat order's outcome that `text` tells of, if it tells of one
+/// (`console_view::ConsoleLog::echo`).
+pub(crate) fn cheat_outcome(text: &str) -> Option<sim::cheats::Outcome> {
+    CHEAT_WORDS
+        .iter()
+        .find(|(_, words)| *words == text)
+        .map(|(outcome, _)| *outcome)
 }
 
 /// How a refused level's words begin: the game shows them in a message box

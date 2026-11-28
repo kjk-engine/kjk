@@ -6,6 +6,7 @@ mod bark;
 mod block_reticle;
 mod chargen;
 mod clicks;
+mod console;
 mod debug_character;
 mod dialog;
 mod draw;
@@ -73,6 +74,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::new_or_load());
     checks.extend(menus::campaign());
     checks.extend(menus::saves());
+    checks.extend(menus::save_cheats());
     checks.extend(chargen::all());
     checks.extend(clicks::all());
     checks.extend(vm_screens::all());
@@ -87,6 +89,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(floaty::all());
     checks.extend(status_summary::all());
     checks.extend(dialog::all());
+    checks.extend(console::all());
     checks.extend(debug_character::all());
     checks.extend(galaxy::all());
     checks.extend(party::all());

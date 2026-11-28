@@ -815,6 +815,7 @@ pub(crate) fn assemble(
         saber_rules: before.saber_rules,
         targeted_blocks: before.targeted_blocks,
         damage_taken: before.damage_taken,
+        cheats: before.cheats,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

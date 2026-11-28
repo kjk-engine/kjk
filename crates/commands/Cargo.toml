@@ -1,0 +1,21 @@
+[package]
+name = "commands"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The console's table of commands: every command's name, arguments and help, and what it asks the game to do (docs/CONSOLE.md)."
+
+# No Bevy: the launcher's check of `--cmds` lines, `kjk commands` and the
+# documentation page read the table without building the game.
+[dependencies]
+sim.workspace = true
+fmt_odyssey.workspace = true
+
+[features]
+# The probes (`kjk sim probes --only commands`): checks, not the game.
+probes = []
+
+[lints]
+workspace = true

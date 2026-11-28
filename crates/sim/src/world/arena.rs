@@ -17,11 +17,15 @@
 //!   (`Screen::DebugTerminal`), and the page's orders change a party
 //!   member (`edits`). A seat changes its own character or a
 //!   companion no other seat plays, never another seat's character.
+//! - on a level without arena rules, the console's `spawn`, `god` and the
+//!   character page's orders are carried out for a seat that the cheat
+//!   rule lets cheat (`world::cheats`), and they mark the game as cheated.
 
 pub mod edits;
 
 use script_ncs::vm::ObjectId;
 
+use super::cheats::Outcome;
 use crate::action::{Action, ArenaOrder};
 use crate::combat::Sheet;
 use crate::combat::sheet::{factions, flags};
@@ -89,32 +93,54 @@ pub(super) type SeatBody = (Seat, ObjectId, ObjectId);
 
 /// The arena's orders this step (see the module documentation), in the
 /// order they came, and the terminal's uses (`used`: object, user).
-/// Whether a character page's order changed a character, so that what the
-/// players see of the party is gathered again.
+/// `rules` are the level's arena rules. A level without them takes the
+/// orders that make sense in a story module (`off_arena_refusal`)
+/// from a seat the cheat rule lets cheat (`world::cheats`), and each such
+/// order marks the game as cheated. Whether a character page's order
+/// changed a character, so that what the players see of the party is
+/// gathered again.
 pub(super) fn orders(
     library: &Library,
     view: &View,
     state: &mut State,
     (inputs, used): (&TickInput, &[(SimId, SimId)]),
     seats: &[SeatBody],
-    (rules, out): (&Rules, &mut Out),
+    (rules, cheats, out): (Option<&Rules>, &mut super::cheats::Cheats, &mut Out),
 ) -> bool {
-    place_terminal(library, view, state, rules, out);
-    terminal_uses(view, used, seats, out);
+    if let Some(rules) = rules {
+        place_terminal(library, view, state, rules, out);
+        terminal_uses(view, used, seats, out);
+    }
     let mut edited = false;
     for (seat, action) in inputs.actions() {
         let Action::Arena(order) = action else {
             continue;
         };
-        let Some(&(_, _, acting)) = seats.iter().find(|(of, ..)| of == seat) else {
+        let Some(&(_, own, acting)) = seats.iter().find(|(of, ..)| of == seat) else {
             continue;
         };
         let Some(body) = view.thing(acting) else {
             continue;
         };
-        if edit(library, view, state, *seat, order, out) {
-            edited = true;
+        if rules.is_none()
+            && let Some(refused) = off_arena_refusal(library, view, cheats, *seat, order)
+        {
+            super::cheats::tell(out, own, refused);
             continue;
+        }
+        match edit(library, view, state, *seat, order, out) {
+            Some(true) => {
+                cheats.used |= rules.is_none();
+                edited = true;
+                continue;
+            }
+            Some(false) => {
+                if rules.is_none() {
+                    super::cheats::tell(out, own, Outcome::Unknown);
+                }
+                continue;
+            }
+            None => {}
         }
         match order {
             ArenaOrder::Spawn(template) => {
@@ -130,6 +156,7 @@ pub(super) fn orders(
                 let Some(made) = script::make(library, view, state, out, &template, at, yaw) else {
                     continue;
                 };
+                cheats.used |= rules.is_none();
                 if let Some(put) = out.made.iter_mut().find(|put| put.id == made) {
                     put.reach = crate::install::ARENA;
                 }
@@ -156,6 +183,7 @@ pub(super) fn orders(
                 let Some(character) = body.character else {
                     continue;
                 };
+                cheats.used |= rules.is_none();
                 let mut sheet = out.sheet(body.id, character.worn);
                 sheet.flags ^= flags::IMMORTAL;
                 out.changes.push(Change::Sheet {
@@ -169,6 +197,41 @@ pub(super) fn orders(
         }
     }
     edited
+}
+
+/// Why an arena order from `seat` is refused on a level without arena
+/// rules, or `None` when it is carried out. `Clear` removes every creature
+/// outside the party, quest characters too, and `Restore` and `Down` belong
+/// to the Debug Mode map, so those three stay on arena levels.
+fn off_arena_refusal(
+    library: &Library,
+    view: &View,
+    cheats: &super::cheats::Cheats,
+    seat: Seat,
+    order: &ArenaOrder,
+) -> Option<Outcome> {
+    let who = match order {
+        ArenaOrder::Clear | ArenaOrder::Restore { .. } | ArenaOrder::Down(_) => {
+            return Some(Outcome::ArenaOnly);
+        }
+        ArenaOrder::Spawn(template)
+            if library
+                .creature(&script::key(template))
+                .and_then(|facts| facts.sheet)
+                .is_none() =>
+        {
+            return cheats.refusal(seat).or(Some(Outcome::Unknown));
+        }
+        ArenaOrder::Spawn(_) | ArenaOrder::God => None,
+        ArenaOrder::Rebuild { who, .. }
+        | ArenaOrder::Ability { who, .. }
+        | ArenaOrder::Skill { who, .. }
+        | ArenaOrder::Alignment { who, .. } => Some(ObjectId(who.0)),
+    };
+    cheats.refusal(seat).or_else(|| {
+        who.filter(|who| !super::cheats::may_change(view, seat, *who))
+            .map(|_| Outcome::NotYours)
+    })
 }
 
 /// The Debug Mode terminal made where the rules place it, on a level that
@@ -209,20 +272,9 @@ fn terminal_uses(view: &View, used: &[(SimId, SimId)], seats: &[SeatBody], out: 
     }
 }
 
-/// Whether `seat` may change party member `who`: its own character or the
-/// companion it leads, or a companion no other seat plays.
-fn may_change(view: &View, seat: Seat, who: ObjectId) -> bool {
-    view.thing(who)
-        .and_then(|thing| thing.character)
-        .is_some_and(|character| {
-            character.party && character.driver.is_none_or(|driver| driver == seat)
-        })
-}
-
-/// The terminal's order `order` from `seat` carried out (`edits`): whether
-/// it was one of the terminal's. An order naming a character the seat may
-/// not change, or numbers no character can have, changes nothing, and so
-/// does a restore naming anyone but a player's own character.
+/// The terminal's order `order` from `seat` carried out (`edits`): `None`
+/// if it is not a character edit, `Some(true)` if it changed a character,
+/// `Some(false)` if it was ignored/invalid.
 fn edit(
     library: &Library,
     view: &View,
@@ -230,7 +282,7 @@ fn edit(
     seat: Seat,
     order: &ArenaOrder,
     out: &mut Out,
-) -> bool {
+) -> Option<bool> {
     let who = match order {
         ArenaOrder::Rebuild { who, .. }
         | ArenaOrder::Ability { who, .. }
@@ -238,14 +290,14 @@ fn edit(
         | ArenaOrder::Alignment { who, .. }
         | ArenaOrder::Restore { who, .. } => ObjectId(who.0),
         ArenaOrder::Spawn(_) | ArenaOrder::Clear | ArenaOrder::God | ArenaOrder::Down(_) => {
-            return false;
+            return None;
         }
     };
     let Some(character) = view.thing(who).and_then(|thing| thing.character) else {
-        return true;
+        return Some(false);
     };
-    if !may_change(view, seat, who) {
-        return true;
+    if !super::cheats::may_change(view, seat, who) {
+        return Some(false);
     }
     let sheet = out.sheet(who, character.worn);
     let changed = match order {
@@ -262,7 +314,7 @@ fn edit(
             let Some((made, career, banked)) =
                 edits::rebuild(classes, &sheet, *class, *level, *second)
             else {
-                return true;
+                return Some(false);
             };
             state.careers.insert(who.0, career);
             if banked > 0 {
@@ -276,26 +328,28 @@ fn edit(
                 state.set_xp(party, needed);
             }
             whole(library, state, out, who, made);
-            return true;
+            return Some(true);
         }
         // The starting character is a player's: a companion has none the
         // terminal keeps, so it is left as it is.
         ArenaOrder::Restore { .. } if view.thing(who).is_some_and(|thing| thing.kind.is_some()) => {
-            return true;
+            return Some(false);
         }
         ArenaOrder::Restore { sheet: start, .. } => {
             // The starting character has no career of its own.
             state.careers.remove(&who.0);
             state.unspent.remove(&who.0);
             whole(library, state, out, who, edits::kept(**start, &sheet));
-            return true;
+            return Some(true);
         }
         _ => None,
     };
     if let Some(sheet) = changed {
         out.changes.push(Change::Sheet { who, sheet });
+        Some(true)
+    } else {
+        Some(false)
     }
-    true
 }
 
 /// `who` as `made`, dressed again by what it wears, with full hit points

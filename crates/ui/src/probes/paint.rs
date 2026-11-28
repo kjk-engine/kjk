@@ -17,7 +17,7 @@ use crate::skin::Source;
 /// is the 2 × 2 test font. The layouts named in `mods` are a mod's.
 pub(super) struct Fake {
     names: BTreeMap<String, TextureId>,
-    font: Arc<Font>,
+    pub(super) font: Arc<Font>,
     pub(super) layouts: BTreeMap<&'static str, Gui>,
     pub(super) mods: BTreeSet<&'static str>,
     /// The text size of each sizing set (`Textures::set_sizing`), in order.
@@ -37,6 +37,9 @@ pub(super) struct Fake {
     /// The words of each strref a probe gives (`Textures::text`); every
     /// other strref has none.
     pub(super) texts: BTreeMap<u32, Vec<u8>>,
+    /// More font names that the test font answers for, which a probe adds
+    /// (the console's own font).
+    pub(super) fonts: BTreeSet<&'static str>,
 }
 
 impl Fake {
@@ -53,6 +56,7 @@ impl Fake {
             text_scale: 1.0,
             scales: (1.0, 1.0),
             texts: BTreeMap::new(),
+            fonts: BTreeSet::new(),
         }
     }
 
@@ -83,7 +87,8 @@ impl Textures for Fake {
 
     fn font(&mut self, _: Source, name: &str) -> Option<(TextureId, Arc<Font>)> {
         // The floating words' own font too (`screens::floaty`).
-        matches!(name, "grid" | "fnt_d16x16").then(|| (TextureId(99), self.font.clone()))
+        (matches!(name, "grid" | "fnt_d16x16") || self.fonts.contains(name))
+            .then(|| (TextureId(99), self.font.clone()))
     }
 
     fn text(&self, _: Source, strref: u32) -> Option<Vec<u8>> {
