@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use fmt_odyssey::gui::Gui;
+use fmt_odyssey::gui::{Gui, Kind};
 
 use crate::assets::GuiAssets;
-use crate::draw::{DrawList, Quad, Sizing, Textures, fit};
+use crate::draw::{DrawList, Mark, Quad, Sizing, Textures, fit};
 use crate::screens::hud;
 use crate::skin::Source;
 use crate::vm::ViewModel;
@@ -478,6 +478,13 @@ impl Hud {
             1.0 / (scale(gui, window) * frame.scale_factor).max(f32::EPSILON)
         });
         let crosshair = vm.crosshair && !banner;
+        let marked = frame.brush.marks();
+        let drawn = |tag: &str, quads: Vec<Quad>, out: &mut DrawList| {
+            if marked {
+                out.marks.extend(Mark::drawn(tag, Kind::Label, &quads));
+            }
+            out.quads.extend(quads);
+        };
         if let (Some(frame_at), true) = (frame_at, crosshair) {
             use hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
             let height = frame_at.1 as f32;
@@ -487,22 +494,26 @@ impl Hud {
             // While the main character blocks with targeted blocks on, the arcs of
             // targeted blocks take the crosshair's place.
             if let (Some(shown), None) = (vm.reticle, vm.block_reticle) {
-                out.quads
-                    .extend(reticle(frame_at, shown.family, gap, pixel, tint));
+                let quads = reticle(frame_at, shown.family, gap, pixel, tint);
+                drawn("RETICLE", quads, &mut out);
             }
             // A landed shot's mark about it.
             if let Some((mark, age_ms)) = vm.hitmark {
-                out.quads.extend(hitmarker(frame_at, mark, gap, age_ms));
+                drawn(
+                    "HIT_MARKER",
+                    hitmarker(frame_at, mark, gap, age_ms),
+                    &mut out,
+                );
             }
             if let Some(view) = vm.block_reticle {
-                out.quads.extend(block_arcs(frame_at, view));
+                drawn("BLOCK_ARCS", block_arcs(frame_at, view), &mut out);
             }
         }
         // The perfect block mark, as a ring wherever no arcs show it: also
         // while the crosshair is down, as it is under a side camera.
         let arcs = crosshair && vm.block_reticle.is_some();
         if let (Some(frame_at), true, false, false) = (frame_at, vm.perfect_mark, arcs, banner) {
-            out.quads.extend(hud::perfect_ring(frame_at));
+            drawn("PERFECT_BLOCK", hud::perfect_ring(frame_at), &mut out);
         }
         Some(Layer {
             list: out,

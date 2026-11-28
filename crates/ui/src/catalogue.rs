@@ -219,6 +219,25 @@ pub enum Step {
     FeedOn,
     /// Photo mode on, its corner lines as it first shows them.
     PhotoOn,
+    /// A blaster of this family held, its reticle about the crosshair.
+    Reticle(crate::screens::hud::Family),
+    /// A blaster shot landed this moment, its mark about the crosshair.
+    Hit(crate::screens::hud::HitMark),
+    /// The main character blocking with targeted blocks on, a swing
+    /// coming from the left and the camera turned to it.
+    BlockArcs,
+    /// The perfect block mark on: a ring, or the arcs in the confirm
+    /// colour while they show.
+    PerfectBlock,
+    /// The health and Stamina bars over the heads of two enemies.
+    DuelBars,
+    /// The host's request card: a guest asking the host into a
+    /// conversation.
+    RequestCard,
+    /// The conversation's reply of this number, from 1, focused, as the
+    /// arrows or the pad focus it.
+    Reply(u8),
+    Banner(Banner),
     /// The member a character of this `classes.2da` row and level, with the
     /// experience for the next level, so `levelup` opens on the level
     /// after. It is set before the screen opens.
@@ -243,6 +262,9 @@ pub enum Step {
     /// Wheel notches down where the pointer is, the window's middle at
     /// first.
     Scroll(f32),
+    /// Seconds of the screens' clock gone by in one frame, as for the
+    /// credits rising.
+    Wait(f32),
 }
 
 /// A lobby the lobby screen shows (`Step::Lobby`).
@@ -263,6 +285,40 @@ pub enum Lobby {
     /// The host's view of the checkpoint at this path.
     Checkpoint(String),
 }
+
+/// The banner over every screen (`Step::Banner`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Banner {
+    /// A break the second player called.
+    Break,
+    /// A ready check the second player asked for, the third not ready.
+    Ready,
+}
+
+/// The blaster families by the names a `reticle` step gives them.
+const FAMILIES: [(&str, crate::screens::hud::Family); 6] = {
+    use crate::screens::hud::Family::*;
+    [
+        ("cross", Cross),
+        ("prongs", Prongs),
+        ("brackets", Brackets),
+        ("lines", Lines),
+        ("ring", Ring),
+        ("dashes", Dashes),
+    ]
+};
+
+/// The hit marks by the names a `hit` step gives them.
+const HITS: [(&str, crate::screens::hud::HitMark); 5] = {
+    use crate::screens::hud::HitMark::*;
+    [
+        ("turned", Turned),
+        ("hit", Hit),
+        ("strong", Strong),
+        ("kill", Kill { strong: false }),
+        ("strong-kill", Kill { strong: true }),
+    ]
+};
 
 /// A step on an open power wheel (`Step::Wheel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -300,7 +356,7 @@ type Reads = fn(&str) -> Option<Step>;
 impl Step {
     /// Every form a step takes, and how the words after its verb read. A
     /// step is read with the first form of its verb that reads it.
-    pub const FORMS: [(&'static str, Reads); 18] = [
+    pub const FORMS: [(&'static str, Reads); 27] = [
         ("press TAG", |tag| Some(Step::Press(words(tag)?))),
         ("set KEY VALUE", |set| {
             let (key, value) = set.split_once(' ')?;
@@ -350,6 +406,41 @@ impl Step {
         }),
         ("feed on", |on| (on == "on").then_some(Step::FeedOn)),
         ("photo on", |on| (on == "on").then_some(Step::PhotoOn)),
+        (
+            "reticle cross|prongs|brackets|lines|ring|dashes",
+            |family| {
+                (FAMILIES.into_iter())
+                    .find(|(name, _)| *name == family)
+                    .map(|(_, family)| Step::Reticle(family))
+            },
+        ),
+        ("hit turned|hit|strong|kill|strong-kill", |mark| {
+            (HITS.into_iter())
+                .find(|(name, _)| *name == mark)
+                .map(|(_, mark)| Step::Hit(mark))
+        }),
+        ("block arcs", |arcs| {
+            (arcs == "arcs").then_some(Step::BlockArcs)
+        }),
+        ("perfect block", |block| {
+            (block == "block").then_some(Step::PerfectBlock)
+        }),
+        ("duel bars", |bars| {
+            (bars == "bars").then_some(Step::DuelBars)
+        }),
+        ("request card", |card| {
+            (card == "card").then_some(Step::RequestCard)
+        }),
+        ("reply N", |nth| {
+            (nth.parse().ok())
+                .filter(|nth: &u8| *nth > 0)
+                .map(Step::Reply)
+        }),
+        ("banner break|ready", |banner| match banner {
+            "break" => Some(Step::Banner(Banner::Break)),
+            "ready" => Some(Step::Banner(Banner::Ready)),
+            _ => None,
+        }),
         ("level CLASS N", |level| {
             let (class, level) = level.split_once(' ')?;
             Some(Step::Level {
@@ -376,6 +467,11 @@ impl Step {
             Some(Step::Point([x.parse().ok()?, y.parse().ok()?]))
         }),
         ("scroll N", |notches| notches.parse().ok().map(Step::Scroll)),
+        ("wait SECONDS", |seconds| {
+            (seconds.parse().ok())
+                .filter(|seconds: &f32| *seconds >= 0.0)
+                .map(Step::Wait)
+        }),
     ];
 }
 
@@ -439,6 +535,21 @@ impl std::fmt::Display for Step {
             Step::Wheel(Wheel::Close) => write!(f, "wheel close"),
             Step::FeedOn => write!(f, "feed on"),
             Step::PhotoOn => write!(f, "photo on"),
+            Step::Reticle(family) => {
+                let name = (FAMILIES.iter()).find(|(_, of)| of == family);
+                write!(f, "reticle {}", name.map_or("?", |(name, _)| name))
+            }
+            Step::Hit(mark) => {
+                let name = (HITS.iter()).find(|(_, of)| of == mark);
+                write!(f, "hit {}", name.map_or("?", |(name, _)| name))
+            }
+            Step::BlockArcs => write!(f, "block arcs"),
+            Step::PerfectBlock => write!(f, "perfect block"),
+            Step::DuelBars => write!(f, "duel bars"),
+            Step::RequestCard => write!(f, "request card"),
+            Step::Reply(nth) => write!(f, "reply {nth}"),
+            Step::Banner(Banner::Break) => write!(f, "banner break"),
+            Step::Banner(Banner::Ready) => write!(f, "banner ready"),
             Step::Level { class, level } => write!(f, "level {class} {level}"),
             Step::Stands(folder) => write!(f, "stands {folder}"),
             Step::Type(text) => write!(f, "type {text}"),
@@ -450,6 +561,7 @@ impl std::fmt::Display for Step {
             }
             Step::Point([x, y]) => write!(f, "point {x} {y}"),
             Step::Scroll(notches) => write!(f, "scroll {notches}"),
+            Step::Wait(seconds) => write!(f, "wait {seconds}"),
         }
     }
 }
@@ -648,7 +760,32 @@ pub struct Capture {
     pub game: vfs::Game,
     pub window: [f32; 2],
     pub scale_factor: f32,
+    /// The screens of the stack when it was taken, bottom first, as
+    /// `screens::open` names them. They choose which pages' fields it keeps
+    /// (`Capture::of`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screens: Vec<String>,
     pub view: crate::vm::ViewModel,
+}
+
+/// The pages that draw the whole of the member shown. The other pages of
+/// the in-game menu draw only what the tab bar shows of it
+/// (`tab_bar_part`).
+const WHOLE_MEMBER: [&str; 4] = ["equip", "inventory", "character", "abilities"];
+
+/// What the tab bar of the in-game menu shows of the member shown
+/// (`screens::tabs`): its portrait, health, Force points, name, classes
+/// and level.
+fn tab_bar_part(member: &crate::vm::CharacterView) -> crate::vm::CharacterView {
+    crate::vm::CharacterView {
+        portrait: member.portrait.clone(),
+        hp: member.hp,
+        fp: member.fp,
+        name: member.name.clone(),
+        classes: member.classes.clone(),
+        level: member.level,
+        ..crate::vm::CharacterView::default()
+    }
 }
 
 /// The settings a capture keeps, by the start of their keys. The display's
@@ -658,26 +795,42 @@ const SETTINGS_KEPT: [&str; 2] = ["display.", "feedback."];
 
 impl Capture {
     /// `view` of `game` as drawn in a window of `window` logical pixels, on
-    /// a display of `scale_factor` physical pixels to each. It keeps only
-    /// what the stories of captures draw: what stands over play, the
-    /// galaxy map, the pad in use and the settings of `SETTINGS_KEPT`. The
-    /// character's pages, the party, the key bindings, the logs and the
-    /// saves on disk are left out. A story that needs another field adds
-    /// it here.
+    /// a display of `scale_factor` physical pixels to each, with `screens`
+    /// open. It keeps only what the stories of captures draw: what stands
+    /// over play, the galaxy map, the pad in use and the settings of
+    /// `SETTINGS_KEPT`, and what the screens open draw of the pages of the
+    /// in-game menu, the store, a container, a computer and the benches.
+    /// The key bindings, the logs and the saves on disk are left out. A
+    /// story that needs another field adds it here.
     pub fn of(
         view: &crate::vm::ViewModel,
         game: vfs::Game,
         window: [f32; 2],
         scale_factor: f32,
+        screens: &[String],
     ) -> Capture {
         let settings = (view.settings.iter())
             .filter(|(key, _)| SETTINGS_KEPT.iter().any(|start| key.starts_with(start)))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
+        let open = |names: &[&str]| {
+            screens
+                .iter()
+                .any(|screen| names.contains(&screen.as_str()))
+        };
+        let pages = screens
+            .iter()
+            .any(|screen| crate::screens::tabs::under_tabs(screen));
+        let character = match (open(&WHOLE_MEMBER), pages) {
+            (true, _) => view.character.clone(),
+            (false, true) => view.character.as_ref().map(tab_bar_part),
+            (false, false) => None,
+        };
         Capture {
             game,
             window,
             scale_factor,
+            screens: screens.to_vec(),
             view: crate::vm::ViewModel {
                 settings,
                 session_rules: view.session_rules.clone(),
@@ -707,6 +860,37 @@ impl Capture {
                 galaxy: view.galaxy.clone(),
                 pages: view.pages.clone(),
                 pages_datapad: view.pages_datapad,
+                character,
+                party: if pages {
+                    view.party.clone()
+                } else {
+                    Vec::new()
+                },
+                viewed: if pages { view.viewed } else { 0 },
+                map: open(&["map"]).then(|| view.map.clone()).flatten(),
+                journal: if open(&["journal"]) {
+                    view.journal.clone()
+                } else {
+                    Vec::new()
+                },
+                bar_setup: open(&["action_bar"])
+                    .then(|| view.bar_setup.clone())
+                    .flatten(),
+                store: open(&["store"]).then(|| view.store.clone()).flatten(),
+                loot: open(&["container"]).then(|| view.loot.clone()).flatten(),
+                computer: open(&["computer"]).then(|| view.computer.clone()).flatten(),
+                upgrades: if open(&["upgrade", "upgrade_select"]) {
+                    view.upgrades.clone()
+                } else {
+                    Vec::new()
+                },
+                workbench: open(&["upgrade", "upgrade_select", "workbench", "chemical"])
+                    .then(|| view.workbench.clone())
+                    .flatten(),
+                here: open(&["options_in_game"])
+                    .then(|| view.here.clone())
+                    .flatten(),
+                load_in_play: open(&["options_in_game"]) && view.load_in_play,
                 ..crate::vm::ViewModel::default()
             },
         }

@@ -1,6 +1,13 @@
 # The stories of the screens in crates/ui/src/screens/action_bar.rs (docs/UI.md, "UI catalogue").
 status = "not started"
+notes = "Its story starts from captures of play: the K1 route's Dantooine save, and the Telos crew quarters in KOTOR 2."
 
 [[story]]
 name = "At rest"
 screen = "action_bar"
+
+[[story]]
+name = "A member's abilities"
+screen = "action_bar"
+capture = { k1 = "dantooine-action-bar", tsl = "telos-action-bar" }
+pad_capture = { k1 = "dantooine-action-bar-pad", tsl = "telos-action-bar-pad" }

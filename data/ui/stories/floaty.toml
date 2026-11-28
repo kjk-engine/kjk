@@ -1,9 +1,16 @@
 # The stories of the screens in crates/ui/src/screens/floaty.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: a Sith trooper spawned in the arena (`arena@tar_m03ae`, `arena@301nar`) has just shot the main character."
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: a Sith trooper spawned in the arena (`arena@tar_m03ae`, `arena@301nar`) has just shot the main character. The health and Stamina bars over enemies' heads come from the step `duel bars`, because the captures have none. The game shows them only under the Advanced combat rules with the \"Overhead Stamina bars\" option on, over an enemy fighting the party."
 
 [[story]]
 name = "Damage taken in the arena"
 screen = "play"
 capture = { k1 = "taris-arena-fight", tsl = "nar-shaddaa-arena-fight" }
 pad_capture = { k1 = "taris-arena-fight-pad", tsl = "nar-shaddaa-arena-fight-pad" }
+
+[[story]]
+name = "Stamina bars over enemies"
+screen = "play"
+capture = { k1 = "taris-arena-fight", tsl = "nar-shaddaa-arena-fight" }
+pad_capture = { k1 = "taris-arena-fight-pad", tsl = "nar-shaddaa-arena-fight-pad" }
+steps = ["duel bars"]

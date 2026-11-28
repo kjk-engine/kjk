@@ -1,6 +1,6 @@
 # The stories of the screens in crates/ui/src/screens/pages.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "The inventory has full stories, as one of the five screens. Its stories show no items yet, because `kjk gui screen` fills no inventory."
+notes = "The inventory has full stories, as one of the five screens. Its stories at rest show no items, because `kjk gui screen` fills no inventory. The story with many items starts from captures of play: the K1 route's Dantooine save, and the Telos crew quarters in KOTOR 2 with 14 kinds of item given by `--item`."
 
 [[story]]
 name = "Inventory, at rest"
@@ -31,3 +31,9 @@ screen = "abilities"
 [[story]]
 name = "Messages, at rest"
 screen = "messages"
+
+[[story]]
+name = "Inventory, many items"
+screen = "inventory"
+capture = { k1 = "dantooine-inventory", tsl = "telos-inventory" }
+pad_capture = { k1 = "dantooine-inventory-pad", tsl = "telos-inventory-pad" }

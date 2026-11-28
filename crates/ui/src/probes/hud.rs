@@ -250,7 +250,7 @@ pub(super) fn duel() -> Vec<Check> {
         bars: DuelBars { points: bar(0.25) },
         health: bar(0.5),
     };
-    let lying = bars(&[head], OverheadArt { upper: art }, (200.0, 200.0)).quads;
+    let lying = bars(&[head], OverheadArt { upper: art }, (200.0, 200.0), false).quads;
     // The Stamina bar stands 4 pixels over the head and the health bar
     // right over it, a pixel between them.
     let lies = lying.len() == 4

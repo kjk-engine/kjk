@@ -4,3 +4,13 @@ status = "not started"
 [[story]]
 name = "At rest"
 screen = "options_keymap"
+
+[[story]]
+name = "Second action focused"
+screen = "options_keymap"
+steps = ["key Down"]
+
+[[story]]
+name = "A new key asked"
+screen = "options_keymap"
+steps = ["key Down", "key Activate"]

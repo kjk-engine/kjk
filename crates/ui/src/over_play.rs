@@ -74,6 +74,7 @@ impl OverPlay {
         if vm.floaties.is_empty() && vm.overhead.is_empty() {
             return None;
         }
+        let marked = frame.brush.marks();
         let mut painter = frame.painter(Source::Campaign);
         // The Stamina bar wears the HUD's portrait bar art, in its layout's
         // source.
@@ -85,7 +86,7 @@ impl OverPlay {
             })
         });
         let mut out = match art {
-            Some(art) => floaty::bars(&vm.overhead, art, window),
+            Some(art) => floaty::bars(&vm.overhead, art, window, marked),
             None => DrawList {
                 size: window,
                 ..DrawList::default()

@@ -4,3 +4,8 @@ status = "not started"
 [[story]]
 name = "At rest"
 screen = "report"
+
+[[story]]
+name = "What went wrong typed"
+screen = "report"
+steps = ["type The door to the Lower City does not open."]

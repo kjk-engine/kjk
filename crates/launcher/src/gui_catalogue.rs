@@ -338,7 +338,7 @@ pub fn captures(discovery: &Discovery, rewrite: bool) -> ExitCode {
                     .find(|(game, _)| game.key() == key)
                     .ok_or(format!("{name}: {key} is not installed"))?;
                 let old = read_capture(&folder, name, talk)?;
-                let new = Capture::of(&old.view, *game, old.window, old.scale_factor);
+                let new = Capture::of(&old.view, *game, old.window, old.scale_factor, &old.screens);
                 write_capture(&folder, name, &new, talk).map_err(|why| format!("{name}: {why}"))?;
             }
             let text = std::fs::read_to_string(&path)

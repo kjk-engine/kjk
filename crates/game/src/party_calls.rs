@@ -103,21 +103,31 @@ pub fn banner(snapshot: &Snapshot) -> Option<String> {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let mut line = format!(
-        "{} wants to go to {}. Ready: {}",
-        seat_name(check.asked_by),
-        check.module,
-        names(true)
-    );
-    let waiting = names(false);
+    Some(ready_line(
+        &seat_name(check.asked_by),
+        &check.module,
+        (&names(true), &names(false)),
+        snapshot.in_combat,
+    ))
+}
+
+/// The ready check's prompt: who asked, the module they want to go to,
+/// the seats ready and the seats waited for, and whether enemies are near.
+pub(crate) fn ready_line(
+    asked_by: &str,
+    module: &str,
+    (ready, waiting): (&str, &str),
+    in_combat: bool,
+) -> String {
+    let mut line = format!("{asked_by} wants to go to {module}. Ready: {ready}");
     if !waiting.is_empty() {
         line.push_str(&format!("; waiting for {waiting}"));
     }
     line.push('.');
-    if snapshot.in_combat {
+    if in_combat {
         line.push_str(" Enemies nearby.");
     }
-    Some(line)
+    line
 }
 
 /// What the menu's break button does for `seat`.

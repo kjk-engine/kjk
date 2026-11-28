@@ -1,0 +1,382 @@
+{
+  "game": "k1",
+  "scale_factor": 1.0,
+  "view": {
+    "dialog": {
+      "focus": 0,
+      "host_only": [],
+      "leave": null,
+      "leave_key": [
+        76
+      ],
+      "marks": null,
+      "replies": [
+        {
+          "$parts": [
+            "1. ",
+            {
+              "$talk": 48340
+            }
+          ]
+        },
+        {
+          "$parts": [
+            "2. ",
+            {
+              "$talk": 48343
+            }
+          ]
+        }
+      ],
+      "said": {
+        "$talk": 10313
+      }
+    },
+    "hud": {
+      "bar": [
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              49
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              50
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              51
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              52
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              53
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": null,
+            "words": [
+              54
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        }
+      ],
+      "bar_label": null,
+      "busy": null,
+      "duel": null,
+      "feat": null,
+      "form": null,
+      "fp": [
+        0,
+        0
+      ],
+      "hp": [
+        12,
+        12
+      ],
+      "lit": [],
+      "minimap": {
+        "at": [
+          0.08757295459508896,
+          0.32613688707351685
+        ],
+        "fog": {
+          "cells": [
+            15,
+            8
+          ],
+          "explored": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "picture": "lbl_mapm01aa",
+        "spin": 3.1415927410125732,
+        "used": 0.859375
+      },
+      "poisoned": false,
+      "portrait": "po_pmha1",
+      "solo": false,
+      "stealth": false
+    },
+    "pad_kind": "xbox",
+    "pad_names": [
+      [
+        "South",
+        "A"
+      ],
+      [
+        "East",
+        "B"
+      ],
+      [
+        "West",
+        "X"
+      ],
+      [
+        "North",
+        "Y"
+      ],
+      [
+        "LeftTrigger",
+        "LB"
+      ],
+      [
+        "RightTrigger",
+        "RB"
+      ],
+      [
+        "LeftTrigger2",
+        "LT"
+      ],
+      [
+        "RightTrigger2",
+        "RT"
+      ],
+      [
+        "Select",
+        "View"
+      ],
+      [
+        "Start",
+        "Menu"
+      ],
+      [
+        "LeftThumb",
+        "LS"
+      ],
+      [
+        "RightThumb",
+        "RS"
+      ],
+      [
+        "DPadUp",
+        "Up"
+      ],
+      [
+        "DPadDown",
+        "Down"
+      ],
+      [
+        "DPadLeft",
+        "Left"
+      ],
+      [
+        "DPadRight",
+        "Right"
+      ],
+      [
+        "Mode",
+        "Guide"
+      ]
+    ],
+    "session_rules": "ja",
+    "settings": {
+      "display.ambient_occlusion": "on",
+      "display.anisotropy": "16",
+      "display.corner_notices": "true",
+      "display.effects": "high",
+      "display.frame_limit": "0",
+      "display.gamma": "0.50",
+      "display.grass": "true",
+      "display.image_aspect": "true",
+      "display.lighting": "enhanced",
+      "display.menu_width": "16x9",
+      "display.mode": "window",
+      "display.msaa": "taa_balanced",
+      "display.shadows": "low",
+      "display.size": "",
+      "display.small_fonts": "auto",
+      "display.target_top": "true",
+      "display.text_scale": "100",
+      "display.vsync": "true",
+      "feedback.floating_numbers": "true",
+      "feedback.hide_menu_buttons": "false",
+      "feedback.hide_unequippable": "false",
+      "feedback.minimap": "true",
+      "feedback.status_summary": "true",
+      "feedback.tooltips": "true",
+      "feedback.tutorials": "true"
+    }
+  },
+  "window": [
+    1920.0,
+    1080.0
+  ]
+}

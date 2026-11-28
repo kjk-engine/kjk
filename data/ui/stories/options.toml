@@ -25,3 +25,8 @@ steps = ["press BTN_GRAPHICS"]
 name = "Sound page"
 screen = "options"
 steps = ["press BTN_SOUND"]
+
+[[story]]
+name = "Sound page, a slider focused"
+screen = "options"
+steps = ["press BTN_SOUND", "key Down", "key Down"]

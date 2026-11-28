@@ -1,6 +1,12 @@
 # The stories of the screens in crates/ui/src/screens/resolution.rs (docs/UI.md, "UI catalogue").
 status = "not started"
+notes = "Its stories offer the sizes of a 1920 x 1080 screen at 60 Hz, the window at its first size of 1280 x 720, as the game offers them on such a screen."
 
 [[story]]
-name = "At rest"
+name = "Sizes of a 1920 x 1080 screen"
 screen = "options_resolution"
+
+[[story]]
+name = "Second size focused"
+screen = "options_resolution"
+steps = ["key Down"]

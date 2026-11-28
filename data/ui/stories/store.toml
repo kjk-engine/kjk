@@ -1,6 +1,6 @@
 # The stories of the screens in crates/ui/src/screens/store.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "One of the five screens with full stories. Its stories show no items yet, because `kjk gui screen` fills no store."
+notes = "One of the five screens with full stories. Its stories at rest show no items, because `kjk gui screen` fills no store. The stories of a store with wares start from captures of play with no credits: Larrim's store on Taris in KOTOR 1, and a store of the Telos entertainment promenade in KOTOR 2 (its script a_m_202_003)."
 
 [[story]]
 name = "At rest"
@@ -15,3 +15,17 @@ steps = ["press BTN_WEAPONS"]
 name = "Close focused"
 screen = "store"
 steps = ["key Down"]
+
+[[story]]
+name = "Nothing affordable"
+screen = "store"
+capture = { k1 = "taris-store-poor", tsl = "telos-store-poor" }
+pad_capture = { k1 = "taris-store-poor-pad", tsl = "telos-store-poor-pad" }
+steps = ["key Down", "key Up"]
+
+[[story]]
+name = "Buying with no credits"
+screen = "store"
+capture = { k1 = "taris-store-poor", tsl = "telos-store-poor" }
+pad_capture = { k1 = "taris-store-poor-pad", tsl = "telos-store-poor-pad" }
+steps = ["key Down", "key Up", "press BTN_Accept"]

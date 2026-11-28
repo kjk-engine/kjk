@@ -1,6 +1,7 @@
 # The stories of the screens in crates/ui/src/screens/lost.rs (docs/UI.md, "UI catalogue").
 status = "not started"
+notes = "Its story is the box a game played alone shows, whose player is its host: the party has fallen, and Load loads the latest save. A guest's box, which waits for the host, has no story yet."
 
 [[story]]
-name = "At rest"
+name = "The party fallen"
 screen = "lost"

@@ -729,7 +729,12 @@ Running and checking:
   - `layers`: each open screen, bottom first, with its `screen`, its
     `layout`, its `scale` (window pixels to a layout pixel) and its
     `controls`, in paint order. A hidden control is not listed.
-  - A control: `tag`, `id` (-1 for the layout's root), `kind`, `rect` (left,
+  - A control: `tag`, `id` (-1 for the layout's root, and for what kjk
+    draws itself outside any layout: the reticle `RETICLE`, the hit marker
+    `HIT_MARKER`, the arcs of a targeted block `BLOCK_ARCS`, the perfect
+    block mark `PERFECT_BLOCK`, the bars over an enemy's head
+    `STAMINA_BAR` and `HEALTH_BAR`, and the host's request card
+    `REQUEST_CARD`), `kind`, `rect` (left,
     top, width, height in window pixels), `focused`, `disabled`, `strref`
     (the talk-table entry its words come from, if any), `focusable` and
     `moves`. `moves` gives the control that up, down, left and right lead
@@ -780,7 +785,9 @@ Running and checking:
   `kjk-artifacts/gui/catalogue/<game>/<module>/<story>/<size>-<input>.png`.
   The steps a story takes and the stand-in view models live in
   `kjk_game::story_stage`, so that the in-game catalogue can stage
-  stories as the shell does.
+  stories as the shell does. The step `wait SECONDS` lets that many
+  seconds of the screens' clock go by in one frame, so that the credits
+  have risen.
 - **Captures of play** (`ui::catalogue::Capture`, `data/ui/captures`). A
   capture is part of the UI's view model at one moment of a real run,
   written as JSON with the window it was drawn in. It holds numbers, the
@@ -790,12 +797,20 @@ Running and checking:
   - **What it keeps.** A capture keeps only what the stories of captures
     draw (`Capture::of`). It keeps what stands over play, the galaxy map,
     the pad in use and the settings of the display and the feedback. It
-    leaves out the character's pages, the party, the key bindings, the
-    camera's and the sound's settings, the dialog and combat logs, the new
-    game's row and the saves on disk. A story that needs another field adds
-    it to `Capture::of`. The fields that are as a new view model's are not
-    written. The 38 captures took 15.2 MB before 2026-11-28 and take
-    0.43 MB since.
+    also records the screens open when it was taken (`screens`), and keeps
+    what those screens draw. The pages of the in-game menu keep the party.
+    The equipment, inventory, character and abilities pages keep the whole
+    of the member shown. The other pages keep only what the tab bar shows
+    of that member: the portrait, health, Force points, name, classes and
+    level. The journal keeps the quests, the map page its map, the action
+    bar page its setup, the store its wares, a container its items, a
+    computer its words, and the upgrade bench the items and the bench. A
+    capture leaves out the key bindings, the camera's and the sound's
+    settings, the dialog and combat logs, the new game's row and the saves
+    on disk. A story that needs another field adds it to `Capture::of`.
+    The fields that are as a new view model's are not written. The 38
+    captures of play took 15.2 MB before 2026-11-28 and took 0.43 MB
+    after.
   - **The game's words.** The view model holds the game's words as bytes,
     and kjk's own words as text. The text fields `area` and `name` of a
     save's summary and the lines of the logs also hold the game's words.
@@ -875,7 +890,22 @@ Running and checking:
     and its own lines. The stories of play start from a capture. The
     step `feed on` turns a terminal's camera feed on, as the game does
     while a computer conversation shows a camera. The step `photo on`
-    turns photo mode on, with the corner lines it first shows. The wheel takes three
+    turns photo mode on, with the corner lines it first shows. Some layers
+    last a fraction of a second in play, or need a second player, so no
+    capture holds them. Steps fill them as the game does, with stand-in
+    values. `reticle cross` shows a blaster's reticle; the other families
+    are `prongs`, `brackets`, `lines`, `ring` and `dashes`. `hit kill`
+    flashes the hit marker of a kill; the other marks are `turned`, `hit`,
+    `strong` and `strong-kill`. `block arcs` shows the arcs of a targeted
+    block against a swing from the left, with the camera turned to it.
+    `perfect block` turns the perfect block mark on. `duel bars` puts the
+    health and Stamina bars over the heads of two enemies. `request card`
+    shows the host's card for the second player asking the host into a
+    conversation with the game's first companion. `banner break` shows the
+    banner of a break the second player called, and `banner ready` the
+    banner of a ready check the second player asked for. `reply N`
+    focuses the conversation's Nth reply, counting from 1, as the arrows or
+    the pad do. The wheel takes three
     steps of its own. `wheel at N` highlights entry N, counting from 0.
     `wheel pick NAME` highlights the first entry whose name holds NAME,
     such as `wheel pick Stun`. `wheel close` shuts the wheel. The pointer

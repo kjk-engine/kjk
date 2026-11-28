@@ -390,6 +390,11 @@ impl Brush {
         self.pulsing
     }
 
+    /// Each control drawn leaves a mark for a control tree.
+    pub fn marks(self) -> bool {
+        self.marked
+    }
+
     /// The same brush with what pulses at full alpha, for a list kept over
     /// frames that is dimmed by each frame's pulse (`Painter::pulses`).
     pub fn steady(self) -> Brush {
@@ -754,6 +759,39 @@ impl<'a> Painter<'a> {
             color,
             out,
         );
+    }
+
+    /// What it paints next is `tag`, a control of kjk's own that no
+    /// layout holds, of `kind` at `rect`: its mark, when it leaves marks,
+    /// takes the words set until `close_own`, which is given what this
+    /// returns.
+    pub fn own(
+        &mut self,
+        tag: &str,
+        kind: Kind,
+        rect: [f32; 4],
+        out: &mut DrawList,
+    ) -> Option<usize> {
+        let outer = self.marking;
+        if self.marked {
+            self.marking = Some(out.marks.len());
+            out.marks.push(Mark {
+                tag: tag.to_string(),
+                id: -1,
+                kind,
+                rect,
+                focused: false,
+                disabled: false,
+                strref: None,
+                words: Vec::new(),
+            });
+        }
+        outer
+    }
+
+    /// The control `own` opened closed.
+    pub fn close_own(&mut self, outer: Option<usize>) {
+        self.marking = outer;
     }
 
     pub fn text(

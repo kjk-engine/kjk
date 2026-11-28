@@ -1,6 +1,13 @@
 # The stories of the screens in crates/ui/src/screens/journal.rs (docs/UI.md, "UI catalogue").
 status = "not started"
+notes = "Its story starts from captures of play: the K1 route's Dantooine save with four quests, and the Ebon Hawk's prologue in KOTOR 2 with the four quests its scripts give."
 
 [[story]]
 name = "At rest"
 screen = "journal"
+
+[[story]]
+name = "Active quests"
+screen = "journal"
+capture = { k1 = "dantooine-journal", tsl = "ebon-hawk-journal" }
+pad_capture = { k1 = "dantooine-journal-pad", tsl = "ebon-hawk-journal-pad" }

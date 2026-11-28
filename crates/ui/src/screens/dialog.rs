@@ -33,7 +33,7 @@
 //!   corner, and there over the HUD while the host walks (`Dialog::card`).
 
 use fmt_odyssey::gui::align;
-use fmt_odyssey::gui::{Control, Gui, Rect};
+use fmt_odyssey::gui::{Control, Gui, Kind, Rect};
 
 use crate::assets::GuiAssets;
 use crate::draw::{DrawList, Quad, Textures, fill, window_to_layout};
@@ -325,6 +325,7 @@ impl Card {
         out.size = self.frame;
         out.fill = true;
         out.quads.push(Quad::solid(self.rect, CARD_BACKING));
+        let outer = painter.own("REQUEST_CARD", Kind::Label, self.rect, out);
         painter.source = source;
         let [x, y, width, _] = self.rect;
         let pad = PAD as f32;
@@ -349,6 +350,7 @@ impl Card {
             );
             top += height;
         }
+        painter.close_own(outer);
     }
 }
 

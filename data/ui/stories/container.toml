@@ -1,6 +1,13 @@
 # The stories of the screens in crates/ui/src/screens/container.rs (docs/UI.md, "UI catalogue").
 status = "not started"
+notes = "Its story starts from captures of play: a Twi'lek's remains in the Taris lower city in KOTOR 1, and a footlocker of the Telos military housing in KOTOR 2."
 
 [[story]]
 name = "At rest"
 screen = "container"
+
+[[story]]
+name = "Items to take"
+screen = "container"
+capture = { k1 = "taris-container", tsl = "telos-container" }
+pad_capture = { k1 = "taris-container-pad", tsl = "telos-container-pad" }

@@ -1,0 +1,3598 @@
+{
+  "game": "k1",
+  "scale_factor": 1.0,
+  "screens": [
+    "upgrade_select"
+  ],
+  "view": {
+    "hud": {
+      "bar": [
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": "kjkpad_xbox_lb+south",
+            "words": [
+              49
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": "kjkpad_xbox_lb+east",
+            "words": [
+              50
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": "kjkpad_xbox_lb+west",
+            "words": [
+              51
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {
+            "badge": "kjkpad_xbox_lb+north",
+            "words": [
+              52
+            ]
+          },
+          "kinds": 0,
+          "lit": false
+        }
+      ],
+      "bar_label": null,
+      "busy": null,
+      "duel": null,
+      "feat": null,
+      "form": null,
+      "fp": [
+        0,
+        0
+      ],
+      "hp": [
+        12,
+        12
+      ],
+      "lit": [],
+      "minimap": {
+        "at": [
+          0.3115518391132355,
+          0.5283060669898987
+        ],
+        "fog": {
+          "cells": [
+            32,
+            18
+          ],
+          "explored": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "picture": "lbl_mapm02ab",
+        "spin": 1.5707963705062866,
+        "used": 0.859375
+      },
+      "poisoned": false,
+      "portrait": "po_pmha1",
+      "solo": false,
+      "stealth": false
+    },
+    "pad_kind": "xbox",
+    "pad_names": [
+      [
+        "South",
+        "A"
+      ],
+      [
+        "East",
+        "B"
+      ],
+      [
+        "West",
+        "X"
+      ],
+      [
+        "North",
+        "Y"
+      ],
+      [
+        "LeftTrigger",
+        "LB"
+      ],
+      [
+        "RightTrigger",
+        "RB"
+      ],
+      [
+        "LeftTrigger2",
+        "LT"
+      ],
+      [
+        "RightTrigger2",
+        "RT"
+      ],
+      [
+        "Select",
+        "View"
+      ],
+      [
+        "Start",
+        "Menu"
+      ],
+      [
+        "LeftThumb",
+        "LS"
+      ],
+      [
+        "RightThumb",
+        "RS"
+      ],
+      [
+        "DPadUp",
+        "Up"
+      ],
+      [
+        "DPadDown",
+        "Down"
+      ],
+      [
+        "DPadLeft",
+        "Left"
+      ],
+      [
+        "DPadRight",
+        "Right"
+      ],
+      [
+        "Mode",
+        "Guide"
+      ]
+    ],
+    "pad_playing": true,
+    "session_rules": "ja",
+    "settings": {
+      "display.ambient_occlusion": "on",
+      "display.anisotropy": "16",
+      "display.corner_notices": "true",
+      "display.effects": "high",
+      "display.frame_limit": "0",
+      "display.gamma": "0.50",
+      "display.grass": "true",
+      "display.image_aspect": "true",
+      "display.lighting": "enhanced",
+      "display.menu_width": "16x9",
+      "display.mode": "window",
+      "display.msaa": "taa_balanced",
+      "display.shadows": "low",
+      "display.size": "",
+      "display.small_fonts": "auto",
+      "display.target_top": "true",
+      "display.text_scale": "100",
+      "display.vsync": "true",
+      "feedback.floating_numbers": "true",
+      "feedback.hide_menu_buttons": "false",
+      "feedback.hide_unequippable": "false",
+      "feedback.minimap": "true",
+      "feedback.status_summary": "true",
+      "feedback.tooltips": "true",
+      "feedback.tutorials": "true"
+    },
+    "upgrades": [
+      {
+        "id": 2080374817,
+        "item": {
+          "count": 1,
+          "description": {
+            "$parts": [
+              {
+                "$talk": 38536
+              },
+              ":\nWeapon Proficiency -  ",
+              {
+                "$talk": 500
+              },
+              "\n\n",
+              {
+                "$talk": 31385
+              },
+              ": 1-6\n",
+              {
+                "$talk": 38571
+              },
+              ":\n20-20,x2\n",
+              {
+                "$talk": 665
+              },
+              ": 1\n\n",
+              {
+                "$talk": 6019
+              },
+              "\n\nFires one shot every 0.8 ",
+              {
+                "$talk": 47878
+              },
+              ". Dual-wielding pistols alternates hands (firing twice as fast) and grants +3 to ",
+              {
+                "$talk": 1371
+              },
+              " to offset two-weapon penalties.\n\nA weapon's damage starts with its damage ",
+              {
+                "$talk": 42016
+              },
+              ". The weapon's ",
+              {
+                "$talk": 42155,
+                "filled": [
+                  "and"
+                ]
+              },
+              " ",
+              {
+                "$talk": 145
+              },
+              " are added to it. For a melee weapon, the wielder's ",
+              {
+                "$talk": 211
+              },
+              " modifier is also added. A ",
+              {
+                "$talk": 1390
+              },
+              " multiplies this total. ",
+              {
+                "$talk": 742
+              },
+              " damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",
+              {
+                "$talk": 48484
+              },
+              " is multiplied by the attacker's ",
+              {
+                "$talk": 38574
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " and by the time between the attacker's attacks (see ",
+              {
+                "$talk": 31385
+              },
+              " per Round).\n\nA weapon's damage ",
+              {
+                "$talk": 42016
+              },
+              ", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",
+              {
+                "$talk": 1371
+              },
+              " is multiplied by the ",
+              {
+                "$talk": 38574
+              },
+              " that a KOTOR attack ",
+              {
+                "$talk": 42016
+              },
+              " would have ",
+              {
+                "$talk": 1371
+              },
+              ". That ",
+              {
+                "$talk": 38574
+              },
+              " is (21 + attack bonus - ",
+              {
+                "$talk": 1059
+              },
+              ") divided by 20. A strong attacker against a low ",
+              {
+                "$talk": 1059
+              },
+              " deals nearly full damage. A weak attacker against a high ",
+              {
+                "$talk": 1059
+              },
+              " deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",
+              {
+                "$talk": 1371
+              },
+              " to the head deals more damage. A ",
+              {
+                "$talk": 1371
+              },
+              " to an arm, a leg, a hand or a foot deals less damage. ",
+              {
+                "$talk": 31385
+              },
+              " from ",
+              {
+                "$talk": 1060
+              },
+              " powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",
+              {
+                "$talk": 144
+              },
+              " grants +1 to ",
+              {
+                "$talk": 1371
+              },
+              " with that weapon type; ",
+              {
+                "$talk": 145
+              },
+              " grants +2 to damage.\n\nA weapon with the ",
+              {
+                "$talk": 690
+              },
+              " property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",
+              {
+                "$talk": 1371
+              },
+              " deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",
+              {
+                "$talk": 31385
+              },
+              " against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",
+              {
+                "$talk": 47878
+              },
+              ". Then the character raises the next weapon, which takes 0.25 ",
+              {
+                "$talk": 47878
+              },
+              ". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",
+              {
+                "$talk": 1371
+              },
+              " pushes its target back. The more damage the ",
+              {
+                "$talk": 1371
+              },
+              " deals, the harder it pushes. ",
+              {
+                "$talk": 435
+              },
+              " hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",
+              {
+                "$talk": 47878
+              },
+              " after the player presses [Aim].\n\nA character stops aiming 0.15 ",
+              {
+                "$talk": 47878
+              },
+              " after the player lets go of [Aim].\n\nPress [Saber ",
+              {
+                "$talk": 7359
+              },
+              "/kata/ranged feat] with a ranged weapon to use your selected feat attack (",
+              {
+                "$talk": 179
+              },
+              ", ",
+              {
+                "$talk": 180
+              },
+              ", or ",
+              {
+                "$talk": 181
+              },
+              "), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",
+              {
+                "$talk": 42487
+              },
+              " attack penalties last one round (3 ",
+              {
+                "$talk": 47878
+              },
+              "). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",
+              {
+                "$talk": 16825277
+              },
+              ") up to +8 (",
+              {
+                "$talk": 16825284
+              },
+              ") to ",
+              {
+                "$talk": 1371
+              },
+              " with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",
+              {
+                "$talk": 16825306
+              },
+              ") or +2 (Improved) to ",
+              {
+                "$talk": 1371
+              },
+              " with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",
+              {
+                "$talk": 42017
+              },
+              ". The bolt ",
+              {
+                "$talk": 42017
+              },
+              " starts at the character's defense ",
+              {
+                "$talk": 42017
+              },
+              ". The lightsaber's deflection bonus raises or lowers it. The bolt ",
+              {
+                "$talk": 42017
+              },
+              " is 1 lower while the character jumps or moves backward. At bolt ",
+              {
+                "$talk": 42017
+              },
+              " 1 the blade absorbs the bolt. At ",
+              {
+                "$talk": 42017
+              },
+              " 2 the blade deflects the bolt in the direction the character is looking. At ",
+              {
+                "$talk": 42017
+              },
+              " 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",
+              {
+                "$talk": 47878
+              },
+              ", less 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " per bolt ",
+              {
+                "$talk": 42017
+              },
+              ". At ",
+              {
+                "$talk": 42017
+              },
+              " 3 there is no delay.\n\nEach bolt ",
+              {
+                "$talk": 42017
+              },
+              " shortens the delay between bolt blocks by 0.1 ",
+              {
+                "$talk": 47878
+              },
+              ".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              " counts toward the Overwhelmed rule. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              ", the next bolt has a ",
+              {
+                "$talk": 38574
+              },
+              " to get past the NPC's lightsaber and ",
+              {
+                "$talk": 1371
+              },
+              " them. The ",
+              {
+                "$talk": 38574
+              },
+              " for each deflected bolt is 16% with ",
+              {
+                "$talk": 156
+              },
+              ", 12% with ",
+              {
+                "$talk": 148
+              },
+              " and 8% with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat has a ",
+              {
+                "$talk": 38574
+              },
+              " of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",
+              {
+                "$talk": 156
+              },
+              ", 0.15 with ",
+              {
+                "$talk": 148
+              },
+              " and 0.1 with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",
+              {
+                "$talk": 47878
+              },
+              " for its blaster bolt to reach the target. After that, the shot hits without the bolt.\n\nHold [Saber ",
+              {
+                "$talk": 7359
+              },
+              "/kata/ranged feat] to charge (up to 5 steps of 0.2 ",
+              {
+                "$talk": 47878
+              },
+              "; auto-fires at 5 ",
+              {
+                "$talk": 47878
+              },
+              "), then release to ",
+              {
+                "$talk": 1444,
+                "filled": [
+                  "a"
+                ]
+              },
+              " single charged shot. Grants +5 (",
+              {
+                "$talk": 179
+              },
+              "), +8 (Improved), or +10 (",
+              {
+                "$talk": 45678
+              },
+              ") damage at a -3 penalty to ",
+              {
+                "$talk": 1371
+              },
+              "."
+            ]
+          },
+          "icon": "iw_blstrpstl_005",
+          "kind": "Weapon",
+          "name": {
+            "$talk": 6018
+          }
+        },
+        "kind": "Ranged",
+        "slots": [
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_scope",
+            "keyed": 16,
+            "name": {
+              "$talk": 32487
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_energy",
+            "keyed": 17,
+            "name": {
+              "$talk": 32488
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_beam",
+            "keyed": 18,
+            "name": {
+              "$talk": 32489
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_hair",
+            "keyed": 19,
+            "name": {
+              "$talk": 32490
+            }
+          }
+        ],
+        "template": "g_w_blstrpstl005",
+        "text": {
+          "critical": [
+            {
+              "heading": {
+                "$talk": 38571
+              },
+              "multiplier": 2,
+              "threat": 1
+            },
+            []
+          ],
+          "fitted": 0,
+          "head": [],
+          "requirements": [
+            {
+              "heading": {
+                "$talk": 38536
+              },
+              "lines": [
+                {
+                  "line": {
+                    "$parts": [
+                      "Weapon Proficiency -  ",
+                      {
+                        "$talk": 500
+                      }
+                    ]
+                  },
+                  "upgrade": null
+                }
+              ]
+            }
+          ],
+          "stats": [
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 31385
+                  },
+                  ": 1-6"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": 19
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": 16
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 1"
+                ]
+              },
+              "upgrade": 18
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 2"
+                ]
+              },
+              "upgrade": 17
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 665
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": null
+            }
+          ],
+          "text": {
+            "$talk": 6019
+          }
+        }
+      },
+      {
+        "id": 2080374818,
+        "item": {
+          "count": 1,
+          "description": {
+            "$parts": [
+              {
+                "$talk": 38536
+              },
+              ":\nWeapon Proficiency -  ",
+              {
+                "$talk": 567
+              },
+              "\n\n",
+              {
+                "$talk": 31385
+              },
+              ": 1-8\n",
+              {
+                "$talk": 38571
+              },
+              ":\n19-20,x2\n",
+              {
+                "$talk": 700
+              },
+              ": 3\n",
+              {
+                "$talk": 674
+              },
+              ": ",
+              {
+                "$talk": 12331
+              },
+              " ",
+              {
+                "$talk": 802
+              },
+              " ",
+              {
+                "$talk": 739
+              },
+              "\n\n",
+              {
+                "$talk": 6033
+              },
+              "\n\nFires a steady stream of bolts (one every 0.35 ",
+              {
+                "$talk": 47878
+              },
+              ").\n\nA weapon's damage starts with its damage ",
+              {
+                "$talk": 42016
+              },
+              ". The weapon's ",
+              {
+                "$talk": 42155,
+                "filled": [
+                  "and"
+                ]
+              },
+              " ",
+              {
+                "$talk": 145
+              },
+              " are added to it. For a melee weapon, the wielder's ",
+              {
+                "$talk": 211
+              },
+              " modifier is also added. A ",
+              {
+                "$talk": 1390
+              },
+              " multiplies this total. ",
+              {
+                "$talk": 742
+              },
+              " damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",
+              {
+                "$talk": 48484
+              },
+              " is multiplied by the attacker's ",
+              {
+                "$talk": 38574
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " and by the time between the attacker's attacks (see ",
+              {
+                "$talk": 31385
+              },
+              " per Round).\n\nA weapon's damage ",
+              {
+                "$talk": 42016
+              },
+              ", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",
+              {
+                "$talk": 1371
+              },
+              " is multiplied by the ",
+              {
+                "$talk": 38574
+              },
+              " that a KOTOR attack ",
+              {
+                "$talk": 42016
+              },
+              " would have ",
+              {
+                "$talk": 1371
+              },
+              ". That ",
+              {
+                "$talk": 38574
+              },
+              " is (21 + attack bonus - ",
+              {
+                "$talk": 1059
+              },
+              ") divided by 20. A strong attacker against a low ",
+              {
+                "$talk": 1059
+              },
+              " deals nearly full damage. A weak attacker against a high ",
+              {
+                "$talk": 1059
+              },
+              " deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",
+              {
+                "$talk": 1371
+              },
+              " to the head deals more damage. A ",
+              {
+                "$talk": 1371
+              },
+              " to an arm, a leg, a hand or a foot deals less damage. ",
+              {
+                "$talk": 31385
+              },
+              " from ",
+              {
+                "$talk": 1060
+              },
+              " powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",
+              {
+                "$talk": 144
+              },
+              " grants +1 to ",
+              {
+                "$talk": 1371
+              },
+              " with that weapon type; ",
+              {
+                "$talk": 145
+              },
+              " grants +2 to damage.\n\nA weapon with the ",
+              {
+                "$talk": 690
+              },
+              " property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",
+              {
+                "$talk": 1371
+              },
+              " deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",
+              {
+                "$talk": 31385
+              },
+              " against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",
+              {
+                "$talk": 47878
+              },
+              ". Then the character raises the next weapon, which takes 0.25 ",
+              {
+                "$talk": 47878
+              },
+              ". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",
+              {
+                "$talk": 1371
+              },
+              " pushes its target back. The more damage the ",
+              {
+                "$talk": 1371
+              },
+              " deals, the harder it pushes. ",
+              {
+                "$talk": 435
+              },
+              " hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",
+              {
+                "$talk": 47878
+              },
+              " after the player presses [Aim].\n\nA character stops aiming 0.15 ",
+              {
+                "$talk": 47878
+              },
+              " after the player lets go of [Aim].\n\nPress [Saber ",
+              {
+                "$talk": 7359
+              },
+              "/kata/ranged feat] with a ranged weapon to use your selected feat attack (",
+              {
+                "$talk": 179
+              },
+              ", ",
+              {
+                "$talk": 180
+              },
+              ", or ",
+              {
+                "$talk": 181
+              },
+              "), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",
+              {
+                "$talk": 42487
+              },
+              " attack penalties last one round (3 ",
+              {
+                "$talk": 47878
+              },
+              "). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",
+              {
+                "$talk": 16825277
+              },
+              ") up to +8 (",
+              {
+                "$talk": 16825284
+              },
+              ") to ",
+              {
+                "$talk": 1371
+              },
+              " with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",
+              {
+                "$talk": 16825306
+              },
+              ") or +2 (Improved) to ",
+              {
+                "$talk": 1371
+              },
+              " with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",
+              {
+                "$talk": 42017
+              },
+              ". The bolt ",
+              {
+                "$talk": 42017
+              },
+              " starts at the character's defense ",
+              {
+                "$talk": 42017
+              },
+              ". The lightsaber's deflection bonus raises or lowers it. The bolt ",
+              {
+                "$talk": 42017
+              },
+              " is 1 lower while the character jumps or moves backward. At bolt ",
+              {
+                "$talk": 42017
+              },
+              " 1 the blade absorbs the bolt. At ",
+              {
+                "$talk": 42017
+              },
+              " 2 the blade deflects the bolt in the direction the character is looking. At ",
+              {
+                "$talk": 42017
+              },
+              " 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",
+              {
+                "$talk": 47878
+              },
+              ", less 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " per bolt ",
+              {
+                "$talk": 42017
+              },
+              ". At ",
+              {
+                "$talk": 42017
+              },
+              " 3 there is no delay.\n\nEach bolt ",
+              {
+                "$talk": 42017
+              },
+              " shortens the delay between bolt blocks by 0.1 ",
+              {
+                "$talk": 47878
+              },
+              ".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              " counts toward the Overwhelmed rule. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              ", the next bolt has a ",
+              {
+                "$talk": 38574
+              },
+              " to get past the NPC's lightsaber and ",
+              {
+                "$talk": 1371
+              },
+              " them. The ",
+              {
+                "$talk": 38574
+              },
+              " for each deflected bolt is 16% with ",
+              {
+                "$talk": 156
+              },
+              ", 12% with ",
+              {
+                "$talk": 148
+              },
+              " and 8% with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat has a ",
+              {
+                "$talk": 38574
+              },
+              " of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",
+              {
+                "$talk": 156
+              },
+              ", 0.15 with ",
+              {
+                "$talk": 148
+              },
+              " and 0.1 with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",
+              {
+                "$talk": 47878
+              },
+              " for its blaster bolt to reach the target. After that, the shot hits without the bolt.\n\nPress [Saber ",
+              {
+                "$talk": 7359
+              },
+              "/kata/ranged feat] to ",
+              {
+                "$talk": 1444,
+                "filled": [
+                  "a"
+                ]
+              },
+              " burst of 3 shots (",
+              {
+                "$talk": 180
+              },
+              " / Improved) or 4 shots (",
+              {
+                "$talk": 45678
+              },
+              "), spaced 0.15 ",
+              {
+                "$talk": 47878
+              },
+              " apart. For one round afterward, you take -4 (",
+              {
+                "$talk": 180
+              },
+              "), -2 (Improved), or -1 (",
+              {
+                "$talk": 45678
+              },
+              ") to attack and ",
+              {
+                "$talk": 1059
+              },
+              " (reduced by 1 per equipped item with a ",
+              {
+                "$talk": 180
+              },
+              " bonus)."
+            ]
+          },
+          "icon": "iw_blstrrfl_005",
+          "kind": "Weapon",
+          "name": {
+            "$talk": 6032
+          }
+        },
+        "kind": "Ranged",
+        "slots": [
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_scope",
+            "keyed": 16,
+            "name": {
+              "$talk": 32487
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_energy",
+            "keyed": 17,
+            "name": {
+              "$talk": 32488
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_beam",
+            "keyed": 18,
+            "name": {
+              "$talk": 32489
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_hair",
+            "keyed": 19,
+            "name": {
+              "$talk": 32490
+            }
+          }
+        ],
+        "template": "g_w_blstrrfl005",
+        "text": {
+          "critical": [
+            {
+              "heading": {
+                "$talk": 38571
+              },
+              "multiplier": 2,
+              "threat": 2
+            },
+            []
+          ],
+          "fitted": 0,
+          "head": [],
+          "requirements": [
+            {
+              "heading": {
+                "$talk": 38536
+              },
+              "lines": [
+                {
+                  "line": {
+                    "$parts": [
+                      "Weapon Proficiency -  ",
+                      {
+                        "$talk": 567
+                      }
+                    ]
+                  },
+                  "upgrade": null
+                }
+              ]
+            }
+          ],
+          "stats": [
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 31385
+                  },
+                  ": 1-8"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 16
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " ",
+                  {
+                    "$talk": 801
+                  }
+                ]
+              },
+              "upgrade": 19
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 739
+                  },
+                  " ",
+                  {
+                    "$talk": 801
+                  }
+                ]
+              },
+              "upgrade": 18
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 136
+                  },
+                  " ",
+                  {
+                    "$talk": 801
+                  }
+                ]
+              },
+              "upgrade": 17
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 674
+                  },
+                  ": ",
+                  {
+                    "$talk": 12331
+                  },
+                  " ",
+                  {
+                    "$talk": 802
+                  },
+                  " ",
+                  {
+                    "$talk": 739
+                  }
+                ]
+              },
+              "upgrade": null
+            }
+          ],
+          "text": {
+            "$talk": 6033
+          }
+        }
+      },
+      {
+        "id": 2080374819,
+        "item": {
+          "count": 1,
+          "description": {
+            "$parts": [
+              {
+                "$talk": 38536
+              },
+              ":\nWeapon Proficiency -  ",
+              {
+                "$talk": 435
+              },
+              "\n\n",
+              {
+                "$talk": 31385
+              },
+              ": 2-16\n",
+              {
+                "$talk": 38571
+              },
+              ":\n19-20,x2\n\n",
+              {
+                "$talk": 438
+              },
+              "\n\nA weapon's damage starts with its damage ",
+              {
+                "$talk": 42016
+              },
+              ". The weapon's ",
+              {
+                "$talk": 42155,
+                "filled": [
+                  "and"
+                ]
+              },
+              " ",
+              {
+                "$talk": 145
+              },
+              " are added to it. For a melee weapon, the wielder's ",
+              {
+                "$talk": 211
+              },
+              " modifier is also added. A ",
+              {
+                "$talk": 1390
+              },
+              " multiplies this total. ",
+              {
+                "$talk": 742
+              },
+              " damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",
+              {
+                "$talk": 48484
+              },
+              " is multiplied by the attacker's ",
+              {
+                "$talk": 38574
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " and by the time between the attacker's attacks (see ",
+              {
+                "$talk": 31385
+              },
+              " per Round).\n\nA weapon's damage ",
+              {
+                "$talk": 42016
+              },
+              ", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",
+              {
+                "$talk": 1371
+              },
+              " is multiplied by the ",
+              {
+                "$talk": 38574
+              },
+              " that a KOTOR attack ",
+              {
+                "$talk": 42016
+              },
+              " would have ",
+              {
+                "$talk": 1371
+              },
+              ". That ",
+              {
+                "$talk": 38574
+              },
+              " is (21 + attack bonus - ",
+              {
+                "$talk": 1059
+              },
+              ") divided by 20. A strong attacker against a low ",
+              {
+                "$talk": 1059
+              },
+              " deals nearly full damage. A weak attacker against a high ",
+              {
+                "$talk": 1059
+              },
+              " deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",
+              {
+                "$talk": 1371
+              },
+              " to the head deals more damage. A ",
+              {
+                "$talk": 1371
+              },
+              " to an arm, a leg, a hand or a foot deals less damage. ",
+              {
+                "$talk": 31385
+              },
+              " from ",
+              {
+                "$talk": 1060
+              },
+              " powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",
+              {
+                "$talk": 144
+              },
+              " grants +1 to ",
+              {
+                "$talk": 1371
+              },
+              " with that weapon type; ",
+              {
+                "$talk": 145
+              },
+              " grants +2 to damage.\n\nA weapon with the ",
+              {
+                "$talk": 690
+              },
+              " property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",
+              {
+                "$talk": 1371
+              },
+              " deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",
+              {
+                "$talk": 31385
+              },
+              " against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",
+              {
+                "$talk": 47878
+              },
+              ". Then the character raises the next weapon, which takes 0.25 ",
+              {
+                "$talk": 47878
+              },
+              ". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",
+              {
+                "$talk": 1371
+              },
+              " makes its target flinch for certain only if the ",
+              {
+                "$talk": 1371
+              },
+              " deals at least 60% of the damage of a full cut. A lighter ",
+              {
+                "$talk": 1371
+              },
+              " is a graze. A graze makes the target flinch only by the normal ",
+              {
+                "$talk": 38574
+              },
+              ".\n\nA blaster bolt can be deflected by a lightsaber.\n\nA disruptor's shot cannot be deflected by a lightsaber.\n\nAn ",
+              {
+                "$talk": 1447,
+                "filled": [
+                  "bolt"
+                ]
+              },
+              " cannot be deflected by a lightsaber.\n\nDual-wielding or using a double weapon inflicts a ",
+              {
+                "$talk": 1371
+              },
+              " penalty (-6/-10 untrained, -6/-6 with ",
+              {
+                "$talk": 150
+              },
+              ", -4/-4 Improved, -2/-2 ",
+              {
+                "$talk": 45678
+              },
+              "). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",
+              {
+                "$talk": 41799
+              },
+              "-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",
+              {
+                "$talk": 41858
+              },
+              " instead: +1 / +2 / +3 to ",
+              {
+                "$talk": 1371
+              },
+              " and ",
+              {
+                "$talk": 1059
+              },
+              ".\n\n",
+              {
+                "$talk": 41899
+              },
+              " your ",
+              {
+                "$talk": 212
+              },
+              " modifier instead of ",
+              {
+                "$talk": 211
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " if it is higher (",
+              {
+                "$talk": 211
+              },
+              " still sets damage). ",
+              {
+                "$talk": 16825429
+              },
+              " applies to lightsabers; ",
+              {
+                "$talk": 16825432
+              },
+              " applies to all other melee weapons (not unarmed).\n\nA lightsaber has room for 2 power crystals.\n\nA saber frame lasts 0.025 ",
+              {
+                "$talk": 47878
+              },
+              ". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",
+              {
+                "$talk": 48485
+              },
+              " hand. A second lightsaber goes in the ",
+              {
+                "$talk": 48484
+              },
+              " hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nThe blade of a short lightsaber is 83.4% as long as the blade of a regular lightsaber. This counts for how the blade looks and for what it hits and blocks.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",
+              {
+                "$talk": 42016
+              },
+              " of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",
+              {
+                "$talk": 42016
+              },
+              ". Any cut deals at least 50% of the damage ",
+              {
+                "$talk": 42016
+              },
+              ". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",
+              {
+                "$talk": 42016
+              },
+              ".\n\nA blade's first cut on a target deals at least 50% of the damage ",
+              {
+                "$talk": 42016
+              },
+              ". Further cuts in the same attack add the rest, up to the full ",
+              {
+                "$talk": 42016
+              },
+              ".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",
+              {
+                "$talk": 47878
+              },
+              " of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",
+              {
+                "$talk": 42488
+              },
+              " is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",
+              {
+                "$talk": 42017
+              },
+              " multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",
+              {
+                "$talk": 375
+              },
+              " power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",
+              {
+                "$talk": 42017
+              },
+              " 1, the medium style ",
+              {
+                "$talk": 42017
+              },
+              " 2 and the strong style ",
+              {
+                "$talk": 42017
+              },
+              " 3. Two weapons and a double-bladed lightsaber count as medium.\n\nThe three single-lightsaber katas gain +1 power in a clash.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA super-break that wins a saber lock deals damage at power 5 and cuts through the loser's blade. Some super-breaks deal damage only in the middle of the move. Their timing depends on the two fighters' weapons and on whether the lock is high or to the side. The super-breaks not listed here deal damage for their whole move.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",
+              {
+                "$talk": 42017
+              },
+              ". It is also wider against blades than against bolts. A character with no defense ",
+              {
+                "$talk": 42017
+              },
+              " does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",
+              {
+                "$talk": 42017
+              },
+              " 1, 0.6 at ",
+              {
+                "$talk": 42017
+              },
+              " 2 and 0.3 at ",
+              {
+                "$talk": 42017
+              },
+              " 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",
+              {
+                "$talk": 42017
+              },
+              ". The bolt ",
+              {
+                "$talk": 42017
+              },
+              " starts at the character's defense ",
+              {
+                "$talk": 42017
+              },
+              ". The lightsaber's deflection bonus raises or lowers it. The bolt ",
+              {
+                "$talk": 42017
+              },
+              " is 1 lower while the character jumps or moves backward. At bolt ",
+              {
+                "$talk": 42017
+              },
+              " 1 the blade absorbs the bolt. At ",
+              {
+                "$talk": 42017
+              },
+              " 2 the blade deflects the bolt in the direction the character is looking. At ",
+              {
+                "$talk": 42017
+              },
+              " 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nEvery 5 points of deflection bonus on a lightsaber raises its bolt ",
+              {
+                "$talk": 42017
+              },
+              " by 1. A penalty lowers it.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",
+              {
+                "$talk": 47878
+              },
+              ", less 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " per bolt ",
+              {
+                "$talk": 42017
+              },
+              ". At ",
+              {
+                "$talk": 42017
+              },
+              " 3 there is no delay.\n\nEach bolt ",
+              {
+                "$talk": 42017
+              },
+              " shortens the delay between bolt blocks by 0.1 ",
+              {
+                "$talk": 47878
+              },
+              ".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              " counts toward the Overwhelmed rule. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",
+              {
+                "$talk": 47878
+              },
+              ", the next bolt has a ",
+              {
+                "$talk": 38574
+              },
+              " to get past the NPC's lightsaber and ",
+              {
+                "$talk": 1371
+              },
+              " them. The ",
+              {
+                "$talk": 38574
+              },
+              " for each deflected bolt is 16% with ",
+              {
+                "$talk": 156
+              },
+              ", 12% with ",
+              {
+                "$talk": 148
+              },
+              " and 8% with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat has a ",
+              {
+                "$talk": 38574
+              },
+              " of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",
+              {
+                "$talk": 156
+              },
+              ", 0.15 with ",
+              {
+                "$talk": 148
+              },
+              " and 0.1 with ",
+              {
+                "$talk": 174
+              },
+              ". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",
+              {
+                "$talk": 5596
+              },
+              " Academy rules and the Advanced rules.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nA swinging blade can knock a thrown lightsaber out of the air. The thrown lightsaber flies off in the direction the striking character faces, at 5.1 meters per second. A spin, a kata or the jump attack of two weapons always knocks it away. Any other swing knocks it away only when the stroke is strong enough.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",
+              {
+                "$talk": 47878
+              },
+              " in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " for that player's block.\n\nA blade's ",
+              {
+                "$talk": 1371
+              },
+              " on a player on another machine waits up to 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks.\n\nSome saber moves take control of the character's movement while they play. The character stands still during a back stab, the stab of a flip, and a kick. Before a stab down, the character creeps forward onto the enemy lying on the ",
+              {
+                "$talk": 38008
+              },
+              ". A lunge pushes the character forward. A kata makes the character step or hop. A jump attack or a butterfly throws the character through the air. Each time below counts from the start of the move or back from its end, as the rule says."
+            ]
+          },
+          "icon": "iw_lghtsbr_001",
+          "kind": "Weapon",
+          "name": {
+            "$talk": 435
+          }
+        },
+        "kind": "Lightsaber",
+        "slots": [
+          {
+            "at": null,
+            "choices": [],
+            "fitted": [
+              null,
+              {
+                "edges": [],
+                "entry": {
+                  "count": null,
+                  "description": {
+                    "$talk": 32502
+                  },
+                  "icon": "iw_sbrcrstl_014",
+                  "kind": "Misc",
+                  "name": {
+                    "$talk": 32501
+                  }
+                },
+                "row": null,
+                "stats": []
+              }
+            ],
+            "icon": "i_colorc",
+            "keyed": null,
+            "name": {
+              "$talk": 36978
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_powerc",
+            "keyed": 0,
+            "name": {
+              "$talk": 36977
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_powerc",
+            "keyed": 1,
+            "name": {
+              "$talk": 36977
+            }
+          }
+        ],
+        "template": "g_w_lghtsbr01",
+        "text": {
+          "critical": [
+            {
+              "heading": {
+                "$talk": 38571
+              },
+              "multiplier": 2,
+              "threat": 2
+            },
+            [
+              {
+                "massive": null,
+                "upgrade": 4
+              },
+              {
+                "massive": [
+                  2,
+                  12
+                ],
+                "upgrade": 5
+              }
+            ]
+          ],
+          "fitted": 0,
+          "head": [],
+          "requirements": [
+            {
+              "heading": {
+                "$talk": 38536
+              },
+              "lines": [
+                {
+                  "line": {
+                    "$parts": [
+                      "Weapon Proficiency -  ",
+                      {
+                        "$talk": 435
+                      }
+                    ]
+                  },
+                  "upgrade": null
+                }
+              ]
+            }
+          ],
+          "stats": [
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 31385
+                  },
+                  ": 2-16"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 705
+                  },
+                  ": ",
+                  {
+                    "$talk": 727
+                  }
+                ]
+              },
+              "upgrade": 24
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": 1
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 9
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": 22
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 8
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": 4
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 3
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": 11
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": 24
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 700
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": 12
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 1053
+                  },
+                  " +5"
+                ]
+              },
+              "upgrade": 6
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 137
+                  },
+                  " 3"
+                ]
+              },
+              "upgrade": 23
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 2"
+                ]
+              },
+              "upgrade": 6
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 2"
+                ]
+              },
+              "upgrade": 22
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 3"
+                ]
+              },
+              "upgrade": 5
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 3"
+                ]
+              },
+              "upgrade": 3
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " ",
+                  {
+                    "$talk": 802
+                  }
+                ]
+              },
+              "upgrade": 11
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " ",
+                  {
+                    "$talk": 803
+                  }
+                ]
+              },
+              "upgrade": 12
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 136
+                  },
+                  " ",
+                  {
+                    "$talk": 802
+                  }
+                ]
+              },
+              "upgrade": 7
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 136
+                  },
+                  " 3"
+                ]
+              },
+              "upgrade": 24
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 673
+                  },
+                  ": ",
+                  {
+                    "$talk": 728
+                  },
+                  " ",
+                  {
+                    "$talk": 803
+                  },
+                  " ",
+                  {
+                    "$talk": 727
+                  }
+                ]
+              },
+              "upgrade": 24
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 674
+                  },
+                  ": ",
+                  {
+                    "$talk": 12331
+                  },
+                  " ",
+                  {
+                    "$talk": 805
+                  },
+                  " ",
+                  {
+                    "$talk": 1385
+                  }
+                ]
+              },
+              "upgrade": 9
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 674
+                  },
+                  ": ",
+                  {
+                    "$talk": 12331
+                  },
+                  " ",
+                  {
+                    "$talk": 802
+                  },
+                  " ",
+                  {
+                    "$talk": 1385
+                  }
+                ]
+              },
+              "upgrade": 8
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 674
+                  },
+                  ": ",
+                  {
+                    "$talk": 12331
+                  },
+                  " ",
+                  {
+                    "$talk": 802
+                  },
+                  " ",
+                  {
+                    "$talk": 137
+                  }
+                ]
+              },
+              "upgrade": 23
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 665
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 2
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 665
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": 0
+            },
+            {
+              "line": {
+                "$talk": 690
+              },
+              "upgrade": 4
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 712
+                  },
+                  ": ",
+                  {
+                    "$talk": 805
+                  }
+                ]
+              },
+              "upgrade": 5
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 694
+                  },
+                  ": ",
+                  {
+                    "$talk": 305
+                  },
+                  " ",
+                  {
+                    "$talk": 806
+                  }
+                ]
+              },
+              "upgrade": 10
+            }
+          ],
+          "text": {
+            "$talk": 438
+          }
+        }
+      },
+      {
+        "id": 2080374820,
+        "item": {
+          "count": 1,
+          "description": {
+            "$parts": [
+              {
+                "$talk": 38536
+              },
+              ":\nWeapon Proficiency -  ",
+              {
+                "$talk": 42297
+              },
+              " Weapons\n\n",
+              {
+                "$talk": 31385
+              },
+              ": 2-12\n",
+              {
+                "$talk": 38571
+              },
+              ":\n19-20,x2\n",
+              {
+                "$talk": 672
+              },
+              ": ",
+              {
+                "$talk": 1385
+              },
+              " 4\n",
+              {
+                "$talk": 665
+              },
+              ": 2\n\n",
+              {
+                "$talk": 31906
+              },
+              "\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA weapon's damage starts with its damage ",
+              {
+                "$talk": 42016
+              },
+              ". The weapon's ",
+              {
+                "$talk": 42155,
+                "filled": [
+                  "and"
+                ]
+              },
+              " ",
+              {
+                "$talk": 145
+              },
+              " are added to it. For a melee weapon, the wielder's ",
+              {
+                "$talk": 211
+              },
+              " modifier is also added. A ",
+              {
+                "$talk": 1390
+              },
+              " multiplies this total. ",
+              {
+                "$talk": 742
+              },
+              " damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",
+              {
+                "$talk": 48484
+              },
+              " is multiplied by the attacker's ",
+              {
+                "$talk": 38574
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " and by the time between the attacker's attacks (see ",
+              {
+                "$talk": 31385
+              },
+              " per Round).\n\nA weapon's damage ",
+              {
+                "$talk": 42016
+              },
+              ", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",
+              {
+                "$talk": 1371
+              },
+              " is multiplied by the ",
+              {
+                "$talk": 38574
+              },
+              " that a KOTOR attack ",
+              {
+                "$talk": 42016
+              },
+              " would have ",
+              {
+                "$talk": 1371
+              },
+              ". That ",
+              {
+                "$talk": 38574
+              },
+              " is (21 + attack bonus - ",
+              {
+                "$talk": 1059
+              },
+              ") divided by 20. A strong attacker against a low ",
+              {
+                "$talk": 1059
+              },
+              " deals nearly full damage. A weak attacker against a high ",
+              {
+                "$talk": 1059
+              },
+              " deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",
+              {
+                "$talk": 1371
+              },
+              " to the head deals more damage. A ",
+              {
+                "$talk": 1371
+              },
+              " to an arm, a leg, a hand or a foot deals less damage. ",
+              {
+                "$talk": 31385
+              },
+              " from ",
+              {
+                "$talk": 1060
+              },
+              " powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",
+              {
+                "$talk": 144
+              },
+              " grants +1 to ",
+              {
+                "$talk": 1371
+              },
+              " with that weapon type; ",
+              {
+                "$talk": 145
+              },
+              " grants +2 to damage.\n\nA weapon with the ",
+              {
+                "$talk": 690
+              },
+              " property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",
+              {
+                "$talk": 1371
+              },
+              " deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",
+              {
+                "$talk": 31385
+              },
+              " against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",
+              {
+                "$talk": 47878
+              },
+              ". Then the character raises the next weapon, which takes 0.25 ",
+              {
+                "$talk": 47878
+              },
+              ". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",
+              {
+                "$talk": 1371
+              },
+              " makes its target flinch for certain only if the ",
+              {
+                "$talk": 1371
+              },
+              " deals at least 60% of the damage of a full cut. A lighter ",
+              {
+                "$talk": 1371
+              },
+              " is a graze. A graze makes the target flinch only by the normal ",
+              {
+                "$talk": 38574
+              },
+              ".\n\nDual-wielding or using a double weapon inflicts a ",
+              {
+                "$talk": 1371
+              },
+              " penalty (-6/-10 untrained, -6/-6 with ",
+              {
+                "$talk": 150
+              },
+              ", -4/-4 Improved, -2/-2 ",
+              {
+                "$talk": 45678
+              },
+              "). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",
+              {
+                "$talk": 41799
+              },
+              "-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",
+              {
+                "$talk": 41858
+              },
+              " instead: +1 / +2 / +3 to ",
+              {
+                "$talk": 1371
+              },
+              " and ",
+              {
+                "$talk": 1059
+              },
+              ".\n\n",
+              {
+                "$talk": 41899
+              },
+              " your ",
+              {
+                "$talk": 212
+              },
+              " modifier instead of ",
+              {
+                "$talk": 211
+              },
+              " to ",
+              {
+                "$talk": 1371
+              },
+              " if it is higher (",
+              {
+                "$talk": 211
+              },
+              " still sets damage). ",
+              {
+                "$talk": 16825429
+              },
+              " applies to lightsabers; ",
+              {
+                "$talk": 16825432
+              },
+              " applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",
+              {
+                "$talk": 47878
+              },
+              ". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",
+              {
+                "$talk": 48485
+              },
+              " hand. A second lightsaber goes in the ",
+              {
+                "$talk": 48484
+              },
+              " hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",
+              {
+                "$talk": 42016
+              },
+              " of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",
+              {
+                "$talk": 42016
+              },
+              ". Any cut deals at least 50% of the damage ",
+              {
+                "$talk": 42016
+              },
+              ". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",
+              {
+                "$talk": 42016
+              },
+              ".\n\nA blade's first cut on a target deals at least 50% of the damage ",
+              {
+                "$talk": 42016
+              },
+              ". Further cuts in the same attack add the rest, up to the full ",
+              {
+                "$talk": 42016
+              },
+              ".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",
+              {
+                "$talk": 47878
+              },
+              " of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",
+              {
+                "$talk": 42488
+              },
+              " is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",
+              {
+                "$talk": 42017
+              },
+              " multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",
+              {
+                "$talk": 375
+              },
+              " power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",
+              {
+                "$talk": 42017
+              },
+              " 1, the medium style ",
+              {
+                "$talk": 42017
+              },
+              " 2 and the strong style ",
+              {
+                "$talk": 42017
+              },
+              " 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",
+              {
+                "$talk": 42017
+              },
+              ". It is also wider against blades than against bolts. A character with no defense ",
+              {
+                "$talk": 42017
+              },
+              " does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",
+              {
+                "$talk": 42017
+              },
+              " 1, 0.6 at ",
+              {
+                "$talk": 42017
+              },
+              " 2 and 0.3 at ",
+              {
+                "$talk": 42017
+              },
+              " 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",
+              {
+                "$talk": 47878
+              },
+              " in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " for that player's block.\n\nA blade's ",
+              {
+                "$talk": 1371
+              },
+              " on a player on another machine waits up to 0.1 ",
+              {
+                "$talk": 47878
+              },
+              " for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."
+            ]
+          },
+          "icon": "iw_vbroswrd_005",
+          "kind": "Weapon",
+          "name": {
+            "$talk": 6238
+          }
+        },
+        "kind": "Melee",
+        "slots": [
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_vcell",
+            "keyed": 13,
+            "name": {
+              "$talk": 32493
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_durasteel",
+            "keyed": 14,
+            "name": {
+              "$talk": 32494
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_imp_eng",
+            "keyed": 15,
+            "name": {
+              "$talk": 32495
+            }
+          }
+        ],
+        "template": "g_w_vbroswrd05",
+        "text": {
+          "critical": [
+            {
+              "heading": {
+                "$talk": 38571
+              },
+              "multiplier": 2,
+              "threat": 2
+            },
+            [
+              {
+                "massive": [
+                  2,
+                  12
+                ],
+                "upgrade": 14
+              }
+            ]
+          ],
+          "fitted": 0,
+          "head": [],
+          "requirements": [
+            {
+              "heading": {
+                "$talk": 38536
+              },
+              "lines": [
+                {
+                  "line": {
+                    "$parts": [
+                      "Weapon Proficiency -  ",
+                      {
+                        "$talk": 42297
+                      },
+                      " Weapons"
+                    ]
+                  },
+                  "upgrade": null
+                }
+              ]
+            }
+          ],
+          "stats": [
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 31385
+                  },
+                  ": 2-12"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 672
+                  },
+                  ": ",
+                  {
+                    "$talk": 1385
+                  },
+                  " 4"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 674
+                  },
+                  ": ",
+                  {
+                    "$talk": 12331
+                  },
+                  " ",
+                  {
+                    "$talk": 805
+                  },
+                  " ",
+                  {
+                    "$talk": 137
+                  }
+                ]
+              },
+              "upgrade": 15
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 665
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 665
+                  },
+                  ": 2"
+                ]
+              },
+              "upgrade": 13
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 712
+                  },
+                  ": ",
+                  {
+                    "$talk": 805
+                  }
+                ]
+              },
+              "upgrade": 14
+            }
+          ],
+          "text": {
+            "$talk": 31906
+          }
+        }
+      },
+      {
+        "id": 2080374821,
+        "item": {
+          "count": 1,
+          "description": {
+            "$parts": [
+              {
+                "$talk": 38536
+              },
+              ":\n",
+              {
+                "$talk": 42298
+              },
+              " Proficiency -  ",
+              {
+                "$talk": 691
+              },
+              "\n\n",
+              {
+                "$talk": 1059
+              },
+              ": +5\n",
+              {
+                "$talk": 660
+              },
+              ": 1\n",
+              {
+                "$talk": 707
+              },
+              ": ",
+              {
+                "$talk": 142
+              },
+              "\n\n",
+              {
+                "$talk": 5661
+              }
+            ]
+          },
+          "icon": "ia_class5_007",
+          "kind": "Armour",
+          "name": {
+            "$talk": 5658
+          }
+        },
+        "kind": "Armour",
+        "slots": [
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_armorrein",
+            "keyed": 20,
+            "name": {
+              "$talk": 32491
+            }
+          },
+          {
+            "at": null,
+            "choices": [],
+            "fitted": null,
+            "icon": "i_armorrein",
+            "keyed": 21,
+            "name": {
+              "$talk": 32492
+            }
+          }
+        ],
+        "template": "g_a_class5007",
+        "text": {
+          "critical": null,
+          "fitted": 0,
+          "head": [],
+          "requirements": [
+            {
+              "heading": {
+                "$talk": 38536
+              },
+              "lines": [
+                {
+                  "line": {
+                    "$parts": [
+                      {
+                        "$talk": 42298
+                      },
+                      " Proficiency -  ",
+                      {
+                        "$talk": 691
+                      }
+                    ]
+                  },
+                  "upgrade": null
+                }
+              ]
+            }
+          ],
+          "stats": [
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 1059
+                  },
+                  ": +5"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 678
+                  },
+                  ": ",
+                  {
+                    "$talk": 733
+                  },
+                  " ",
+                  {
+                    "$talk": 946
+                  }
+                ]
+              },
+              "upgrade": 21
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 660
+                  },
+                  ": 1"
+                ]
+              },
+              "upgrade": null
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 660
+                  },
+                  ": 3"
+                ]
+              },
+              "upgrade": 20
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 686
+                  },
+                  ": ",
+                  {
+                    "$talk": 751
+                  }
+                ]
+              },
+              "upgrade": 21
+            },
+            {
+              "line": {
+                "$parts": [
+                  {
+                    "$talk": 707
+                  },
+                  ": ",
+                  {
+                    "$talk": 142
+                  }
+                ]
+              },
+              "upgrade": null
+            }
+          ],
+          "text": {
+            "$talk": 5661
+          }
+        }
+      }
+    ]
+  },
+  "window": [
+    1920.0,
+    1080.0
+  ]
+}

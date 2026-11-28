@@ -4,7 +4,7 @@
 //! in-game catalogue will show it.
 
 use ui::assets::GuiAssets;
-use ui::catalogue::{Lobby, Size, Step, Wheel};
+use ui::catalogue::{Banner, Lobby, Size, Step, Wheel};
 use ui::over_play::Shown;
 use ui::render::Render;
 use vfs::{Discovery, Game};
@@ -241,6 +241,61 @@ impl Staged {
                 *photo = Some(crate::photo_mode::first_lines(device));
                 None
             }
+            Step::Reticle(family) => {
+                vm.reticle = Some(ui::vm::ReticleView {
+                    family: *family,
+                    cone: 2.0,
+                    fov: 55.0,
+                });
+                None
+            }
+            Step::Hit(mark) => {
+                vm.hitmark = Some((*mark, 0.0));
+                None
+            }
+            Step::BlockArcs => {
+                use ui::vm::{Side, Swing};
+                vm.block_reticle = Some(ui::vm::BlockReticleView {
+                    aim: Some(270.0),
+                    turned: Some(Side::Left),
+                    swing: Some(Swing::Side(Side::Left)),
+                    marked: vm.perfect_mark,
+                    unguarded: false,
+                });
+                None
+            }
+            Step::PerfectBlock => {
+                vm.perfect_mark = true;
+                if let Some(arcs) = vm.block_reticle.as_mut() {
+                    arcs.marked = true;
+                }
+                None
+            }
+            Step::DuelBars => {
+                vm.overhead = stand_in_overhead();
+                None
+            }
+            Step::RequestCard => {
+                vm.requests = Some(stand_in_requests(
+                    assets,
+                    game,
+                    vm.pad_playing.then_some(*pad),
+                ));
+                None
+            }
+            Step::Reply(nth) => {
+                let talk = vm.dialog.as_mut().ok_or("reply: no conversation is up")?;
+                let offered = talk.replies.len();
+                if usize::from(*nth) > offered {
+                    return Err(format!("reply {nth}: the line offers {offered} replies"));
+                }
+                talk.focus = nth - 1;
+                None
+            }
+            Step::Banner(banner) => {
+                vm.calls.banner = Some(stand_in_banner(*banner, game));
+                None
+            }
             Step::Level { .. } => None,
             Step::Stands(folder) => {
                 if let Some(me) = vm.character.as_mut() {
@@ -277,6 +332,10 @@ impl Staged {
                     ..quiet.clone()
                 })
             }
+            Step::Wait(seconds) => Some(ui::input::UiInput {
+                dt: *seconds,
+                ..quiet.clone()
+            }),
             Step::Scroll(notches) => Some(ui::input::UiInput {
                 pointer: Some(*pointer),
                 moved: true,
@@ -302,6 +361,77 @@ impl Staged {
             outln!("{step}: {intent:?}");
         }
         Ok(())
+    }
+}
+
+/// The bars over two enemies' heads (`duel_view`), to either side of the
+/// window's middle: one hurt with most of its Stamina, one with little of
+/// either, both of a level 8 character.
+fn stand_in_overhead() -> Vec<ui::vm::OverheadView> {
+    use crate::duel_view::{HEALTH, bar, points};
+    let cap = sim::combat::saber::duel::standing::cap(8);
+    [([0.4, 0.36], 0.8, cap), ([0.6, 0.34], 0.3, cap / 5)]
+        .into_iter()
+        .map(|(over, health, stamina)| ui::vm::OverheadView {
+            over,
+            alpha: 1.0,
+            bars: ui::vm::DuelBars {
+                points: points(stamina, cap, 0.0),
+            },
+            health: bar(health, HEALTH, true),
+        })
+        .collect()
+}
+
+/// The host's request card (`dialogue_view::requests`): the second player
+/// asking the host into a conversation with the game's first companion,
+/// with the keys of the input in use (`pad` while a pad plays).
+fn stand_in_requests(
+    assets: &mut GuiAssets,
+    game: Game,
+    pad: Option<crate::pad::PadKind>,
+) -> ui::vm::RequestsView {
+    use crate::settings::{Action, KeyMap};
+    let template = stand_in_roster(game, false)[0].1;
+    let owner = (assets.template_name(template, fmt_odyssey::ResType::UTC))
+        .unwrap_or_else(|| template.as_bytes().to_vec());
+    let shown = |action: Action| {
+        let chord = crate::pad::PadMap::defaults().chord(action);
+        match (pad, chord) {
+            (Some(kind), Some(chord)) => kind.chord(chord).into_bytes(),
+            _ => KeyMap::defaults().shown(action),
+        }
+    };
+    ui::vm::RequestsView {
+        asks: vec![(
+            crate::party_calls::seat_name(sim::Seat(1)).into_bytes(),
+            owner,
+        )],
+        accept: shown(Action::AcceptCall),
+        end: shown(Action::EndCall),
+        waiting: None,
+    }
+}
+
+/// The banner over every screen (`party_calls::banner`) in a game of three
+/// players: a break the second called, or a ready check the second asked
+/// for to the Taris upper city (KOTOR 2's Telos crew quarters), the third
+/// not ready.
+fn stand_in_banner(banner: Banner, game: Game) -> String {
+    use crate::party_calls::{ready_line, seat_name};
+    let [first, second, third] = [0, 1, 2].map(|seat| seat_name(sim::Seat(seat)));
+    match banner {
+        Banner::Break => format!("Paused by {second}"),
+        Banner::Ready => ready_line(
+            &second,
+            if game == Game::Kotor2 {
+                "152har"
+            } else {
+                "tar_m02aa"
+            },
+            (&format!("{first}, {second}"), &third),
+            false,
+        ),
     }
 }
 
@@ -421,6 +551,19 @@ fn stand_ins(
     if name == "pazaak_game" {
         vm.pazaak = Some(stand_in_pazaak());
     }
+    if name == "credits" {
+        vm.credits = crate::script_screens::credits(assets);
+    }
+    if name == "options_resolution" {
+        vm.displays = stand_in_displays();
+    }
+    if name == "loading" {
+        vm.session = stand_in_loading(game);
+    }
+    // A game played alone, whose player is its host.
+    if name == "lost" {
+        vm.lost = Some(ui::vm::LostView { host: true });
+    }
     // The in-game menu of a game played alone, with a party of three,
     // where the player may save and load.
     if ui::screens::tabs::under_tabs(name) {
@@ -434,6 +577,37 @@ fn stand_ins(
         }
     }
     Ok(vm)
+}
+
+/// The sizes the resolution screen offers on a 1920 x 1080 screen at 60
+/// Hz, the window at its first size (1280 x 720).
+fn stand_in_displays() -> Vec<ui::vm::DisplayChoice> {
+    let monitor = bevy::window::Monitor {
+        name: None,
+        physical_height: 1080,
+        physical_width: 1920,
+        physical_position: bevy::math::IVec2::ZERO,
+        refresh_rate_millihertz: Some(60_000),
+        scale_factor: 1.0,
+        video_modes: Vec::new(),
+    };
+    crate::display::choices(&monitor, &bevy::window::Window::default(), false)
+}
+
+/// A save loading: the K1 route's save of the Taris lower city, or the
+/// TSL route's of Peragus (`data/routes/<game>/saves.list`), its module's
+/// loading image, 60% of the way.
+fn stand_in_loading(game: Game) -> ui::vm::SessionView {
+    let (save, module) = match game {
+        Game::Kotor2 => ("Peragus", "101per"),
+        _ => ("Taris: the Lower City", "tar_m03aa"),
+    };
+    ui::vm::SessionView {
+        status: format!("Loading {save}"),
+        image: Some(format!("load_{module}")),
+        progress: Some(0.6),
+        ..ui::vm::SessionView::default()
+    }
 }
 
 /// The save id the `lobby checkpoint PATH` step opens: the checkpoint at

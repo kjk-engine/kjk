@@ -633,7 +633,11 @@ fn requests(
                     .assets
                     .as_ref()
                     .map_or(vfs::Game::Kotor1, |assets| assets.game);
-                let capture = ui::catalogue::Capture::of(&ui.vm, game, window, ui.scale_factor);
+                let screens: Vec<String> = (ui.stack.screens())
+                    .map(|screen| screen.0.to_string())
+                    .collect();
+                let capture =
+                    ui::catalogue::Capture::of(&ui.vm, game, window, ui.scale_factor, &screens);
                 let written = (ui.assets.as_ref().and_then(GuiAssets::talk))
                     .ok_or("no talk table to name the game's words by".to_string())
                     .and_then(|tlk| {

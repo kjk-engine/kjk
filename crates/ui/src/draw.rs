@@ -119,6 +119,30 @@ pub struct Mark {
     pub words: Vec<Words>,
 }
 
+impl Mark {
+    /// The mark of a drawing of kjk's own that no layout holds, such as the
+    /// reticle: `tag`, the id -1, `kind` and the rect about `quads`. None
+    /// when nothing was drawn.
+    pub fn drawn(tag: &str, kind: fmt_odyssey::gui::Kind, quads: &[Quad]) -> Option<Mark> {
+        let [left, top, right, bottom] = (quads.iter()).map(|quad| quad.rect).fold(
+            [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+            |[left, top, right, bottom], [x, y, w, h]| {
+                [left.min(x), top.min(y), right.max(x + w), bottom.max(y + h)]
+            },
+        );
+        (!quads.is_empty()).then(|| Mark {
+            tag: tag.to_string(),
+            id: -1,
+            kind,
+            rect: [left, top, right - left, bottom - top],
+            focused: false,
+            disabled: false,
+            strref: None,
+            words: Vec::new(),
+        })
+    }
+}
+
 /// Words as the painter set them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Words {

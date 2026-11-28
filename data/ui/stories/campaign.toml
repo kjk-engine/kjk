@@ -4,3 +4,8 @@ status = "not started"
 [[story]]
 name = "At rest"
 screen = "campaign:solo"
+
+[[story]]
+name = "The Sith Lords focused"
+screen = "campaign:solo"
+steps = ["key Down"]
