@@ -1,0 +1,87 @@
+# A kjk screen with no KOTOR layout under it, built from KOTOR's parts. The
+# screen crates/ui/src/screens/layout_test.rs names it as "kjk:layout_test".
+# docs/UI.md, "Layout files", describes the format.
+layout = "layout_test"
+frame = [800, 600]
+
+# The root takes KOTOR 2's options frame: its border and colour.
+[root]
+like = "optionsmain"
+
+[[control]]
+tag = "LBL_TITLE"
+part = "optionsmain:LBL_TITLE"
+text = "Layout test"
+
+[[control]]
+tag = "LBL_BAR1"
+part = "optionsmain:LBL_BAR1"
+
+[[control]]
+tag = "LBL_BAR2"
+part = "optionsmain:LBL_BAR2"
+
+[[control]]
+tag = "LBL_BAR3"
+part = "optionsmain:LBL_BAR3"
+
+# The list box, with its rows and its scroll bar, is the save list's.
+[[control]]
+tag = "LB_ITEMS"
+part = "saveload:LB_GAMES"
+left = 78
+top = 134
+width = 340
+height = 364
+move_to = { right = "SLI_FIRST", down = "BTN_BACK" }
+
+[[control]]
+tag = "LBL_FIRST"
+part = "optsound:LBL_MUSIC"
+left = 440
+top = 138
+text = "First slider"
+
+[[control]]
+tag = "SLI_FIRST"
+part = "optsound:SLI_MUSIC"
+left = 440
+top = 162
+move_to = { up = "none", down = "SLI_SECOND", left = "LB_ITEMS" }
+
+[[control]]
+tag = "LBL_SECOND"
+part = "optsound:LBL_MUSIC"
+left = 440
+top = 214
+text = "Second slider"
+
+[[control]]
+tag = "SLI_SECOND"
+part = "optsound:SLI_MUSIC"
+left = 440
+top = 238
+move_to = { up = "SLI_FIRST", down = "CB_OPTION", left = "LB_ITEMS" }
+
+[[control]]
+tag = "CB_OPTION"
+part = "optgameplay:CB_AUTOSAVE"
+left = 440
+top = 300
+text = "A check box"
+move_to = { up = "SLI_SECOND", down = "BTN_OK", left = "LB_ITEMS" }
+
+[[control]]
+tag = "BTN_BACK"
+part = "optionsmain:BTN_BACK"
+left = 75
+top = 516
+move_to = { up = "LB_ITEMS", right = "BTN_OK" }
+
+[[control]]
+tag = "BTN_OK"
+part = "optionsmain:BTN_BACK"
+left = 205
+top = 516
+text = "OK"
+move_to = { up = "CB_OPTION", left = "BTN_BACK" }

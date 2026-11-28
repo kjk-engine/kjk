@@ -73,6 +73,26 @@ impl<'a> Render<'a> {
         }
     }
 
+    /// `layers`, a frame of a stack whose focus moves by `links` and stands
+    /// on `focus`, without what Back does.
+    pub fn unstacked(
+        assets: &'a GuiAssets,
+        layers: Vec<Shown>,
+        shown: Value,
+        window: (u32, u32),
+        (links, focus): (Vec<FocusLink>, Option<String>),
+    ) -> Render<'a> {
+        Render {
+            assets,
+            shown,
+            window,
+            layers,
+            links,
+            focus,
+            back: None,
+        }
+    }
+
     /// The layout `name` at rest, every control as the layout has it, at
     /// its own size.
     pub fn at_rest(assets: &'a mut GuiAssets, name: &str) -> Result<Render<'a>, String> {

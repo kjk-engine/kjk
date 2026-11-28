@@ -10,3 +10,9 @@ name = "Solo, quick character"
 screen = "chargen:solo"
 steps = ["press BTN_SEL3", "press QUICK_CHAR_BTN"]
 games = ["tsl"]
+
+[[story]]
+name = "Solo, quick character, portrait"
+screen = "chargen:solo"
+steps = ["press BTN_SEL3", "press QUICK_CHAR_BTN"]
+games = ["k1"]

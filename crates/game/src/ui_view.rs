@@ -370,6 +370,11 @@ pub(crate) struct Drawn {
 }
 
 impl Drawn {
+    /// Whether a shown run shows a 3D view, which moves of itself.
+    pub(crate) fn live(&self) -> bool {
+        self.live
+    }
+
     /// Whether the meshes on the GPU side were made from `ui`'s layers as
     /// they are now.
     pub(crate) fn shows(&self, ui: &Ui) -> bool {
@@ -807,7 +812,7 @@ fn member(vm: &ui::vm::ViewModel, n: &str) -> Option<u32> {
 /// Y` moves the held pointer, and `ui up X Y` lets the button go there. The
 /// pointer stays where the button is held, frame after frame, until `ui up`
 /// (`held`), so a drag can be pictured halfway.
-fn console_input(
+pub(crate) fn console_input(
     pending: &[Vec<String>],
     input: &mut ui::input::UiInput,
     held: &mut Option<[f32; 2]>,
@@ -1662,142 +1667,213 @@ fn draw(
     }
     // The textures the assets let go, let go here too.
     if let Some(assets) = &ui.assets
-        && assets.released() != drawn.released
+        && drawn.forget_released(assets)
     {
-        drawn.released = assets.released();
+        drawn.fresh = REDRAWN;
+    }
+    // A minimized window keeps the screens' meshes made for the last size
+    // it had, rather than laying them out 0 points wide.
+    if minimized(pixels) || !drawn.remake(&ui.layers, size) {
+        return;
+    }
+    drawn.fresh = REDRAWN;
+    let Some(assets) = &ui.assets else {
+        return;
+    };
+    drawn.paint_runs(
+        &mut commands,
+        &ui.layers,
+        (size, assets),
+        (&mut *meshes, &mut *materials, &mut *images),
+        Some(&mut *scenes),
+        &mut visibility,
+        LAYER,
+    );
+}
+
+impl Drawn {
+    /// Every image and material forgotten, and the meshes made again: the
+    /// assets they were made from were replaced by others.
+    pub(crate) fn forget_all(&mut self) {
+        self.images.clear();
+        self.materials.clear();
+        self.layers.clear();
+    }
+
+    /// The images and materials of the textures `assets` let go, let go
+    /// here too. Whether any were.
+    pub(crate) fn forget_released(&mut self, assets: &GuiAssets) -> bool {
+        if assets.released() == self.released {
+            return false;
+        }
+        self.released = assets.released();
         let kept = |id: &TextureId| {
             *id == TextureId::WHITE
                 || assets.scene_of(*id).is_some()
                 || assets.pixels(*id).is_some()
         };
-        drawn.images.retain(|id, _| kept(id));
-        drawn.materials.retain(|(id, ..), _| kept(id));
-        drawn.fresh = REDRAWN;
+        self.images.retain(|id, _| kept(id));
+        self.materials.retain(|(id, ..), _| kept(id));
+        true
     }
-    // A minimized window keeps the screens' meshes made for the last size
-    // it had, rather than laying them out 0 points wide.
-    if minimized(pixels) || (drawn.layers == ui.layers && drawn.size == size) {
-        return;
+
+    /// Whether `layers` in a window of `size` are not what the meshes were
+    /// made from. They are taken as what the meshes are made from next.
+    pub(crate) fn remake<L: std::borrow::Borrow<DrawList>>(
+        &mut self,
+        layers: &[L],
+        size: Vec2,
+    ) -> bool {
+        let same = self.layers.len() == layers.len()
+            && self.layers.iter().zip(layers).all(|(a, b)| a == b.borrow());
+        if same && self.size == size {
+            return false;
+        }
+        self.layers = layers.iter().map(|layer| layer.borrow().clone()).collect();
+        self.size = size;
+        true
     }
-    drawn.fresh = REDRAWN;
-    drawn.layers = ui.layers.clone();
-    drawn.size = size;
-    let Some(assets) = &ui.assets else {
-        return;
-    };
-    let mut runs: Vec<Run> = Vec::new();
-    for layer in &ui.layers {
-        for quad in &layer.quads {
-            let Some(corners) = corners(quad, layer, size) else {
-                continue;
-            };
-            let key = (quad.texture, quad.additive, quad.grey);
-            if runs.last().is_none_or(|run| run.key != key) {
-                runs.push(Run {
-                    key,
-                    positions: Vec::new(),
-                    uvs: Vec::new(),
-                    colors: Vec::new(),
+
+    /// `layers`, laid out in a window of `size` logical pixels, as runs of
+    /// quads on the render layer `layer`. Their meshes, materials and
+    /// textures are made as they are first needed, and those of the frame
+    /// before are kept when unchanged. Without `scenes`, a 3D view is
+    /// drawn as nothing.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub(crate) fn paint_runs<L: std::borrow::Borrow<DrawList>>(
+        &mut self,
+        commands: &mut Commands,
+        layers: &[L],
+        (size, assets): (Vec2, &GuiAssets),
+        (meshes, materials, images): (
+            &mut Assets<Mesh>,
+            &mut Assets<UiMaterial>,
+            &mut Assets<Image>,
+        ),
+        mut scenes: Option<&mut crate::gui_scene::GuiScenes>,
+        visibility: &mut Query<&mut Visibility>,
+        layer: usize,
+    ) {
+        let drawn = self;
+        let mut runs: Vec<Run> = Vec::new();
+        for placed in layers.iter().map(std::borrow::Borrow::borrow) {
+            for quad in &placed.quads {
+                if scenes.is_none() && assets.scene_of(quad.texture).is_some() {
+                    continue;
+                }
+                let Some(corners) = corners(quad, placed, size) else {
+                    continue;
+                };
+                let key = (quad.texture, quad.additive, quad.grey);
+                if runs.last().is_none_or(|run| run.key != key) {
+                    runs.push(Run {
+                        key,
+                        positions: Vec::new(),
+                        uvs: Vec::new(),
+                        colors: Vec::new(),
+                    });
+                }
+                let z = runs.len() as f32 * 0.01;
+                let color = quad.color;
+                let run = runs.last_mut().expect("pushed above");
+                for (position, uv) in corners {
+                    run.positions.push([position[0], position[1], z]);
+                    run.uvs.push(uv);
+                    run.colors.push(color);
+                }
+            }
+        }
+        let count = runs.len();
+        drawn.live = runs.iter().any(|run| assets.scene_of(run.key.0).is_some());
+        for (at, run) in runs.into_iter().enumerate() {
+            let Run {
+                key,
+                positions,
+                uvs,
+                colors,
+            } = run;
+            let geometry = (positions, uvs, colors);
+            if !drawn.materials.contains_key(&key) {
+                let scene = assets.scene_of(key.0).is_some();
+                let texture = if key.0 == TextureId::WHITE {
+                    None
+                } else if scene {
+                    scenes
+                        .as_deref_mut()
+                        .map(|scenes| scenes.image(key.0, images))
+                } else {
+                    if !drawn.images.contains_key(&key.0)
+                        && let Some(image) = upload(assets, key.0, images)
+                    {
+                        drawn.images.insert(key.0, image);
+                    }
+                    drawn.images.get(&key.0).cloned()
+                };
+                let pixels = (key.0 != TextureId::WHITE)
+                    .then(|| assets.pixels(key.0))
+                    .flatten();
+                let material = materials.add(UiMaterial {
+                    params: UiParams {
+                        size: pixels.map_or(Vec2::ONE, |pixels| {
+                            Vec2::new(pixels.width as f32, pixels.height as f32)
+                        }),
+                        shape: u32::from(pixels.is_some_and(|pixels| pixels.shape)),
+                        view: u32::from(scene),
+                        grey: u32::from(key.2),
+                    },
+                    texture,
+                    additive: key.1,
                 });
+                drawn.materials.insert(key, material);
             }
-            let z = runs.len() as f32 * 0.01;
-            let color = quad.color;
-            let run = runs.last_mut().expect("pushed above");
-            for (position, uv) in corners {
-                run.positions.push([position[0], position[1], z]);
-                run.uvs.push(uv);
-                run.colors.push(color);
+            let material = drawn.materials[&key].clone();
+            match drawn.runs.get_mut(at) {
+                Some(run) => {
+                    if run.geometry != geometry
+                        && let Some(mut slot) = meshes.get_mut(&run.mesh)
+                    {
+                        *slot = run_mesh(&geometry);
+                        run.geometry = geometry;
+                    }
+                    if run.key != key {
+                        commands.entity(run.entity).insert(MeshMaterial3d(material));
+                        run.key = key;
+                    }
+                    if !run.shown
+                        && let Ok(mut shown) = visibility.get_mut(run.entity)
+                    {
+                        *shown = Visibility::Inherited;
+                        run.shown = true;
+                    }
+                }
+                None => {
+                    let handle = meshes.add(run_mesh(&geometry));
+                    let entity = commands
+                        .spawn((
+                            Mesh3d(handle.clone()),
+                            MeshMaterial3d(material),
+                            Transform::IDENTITY,
+                            RenderLayers::layer(layer),
+                            // Only the screens' camera draws this layer, so culling would save nothing,
+                            // and Bevy would work the box out again each time the text changes.
+                            NoFrustumCulling,
+                        ))
+                        .id();
+                    drawn.runs.push(Shown {
+                        entity,
+                        mesh: handle,
+                        geometry,
+                        key,
+                        shown: true,
+                    });
+                }
             }
         }
-    }
-    let count = runs.len();
-    drawn.live = runs.iter().any(|run| assets.scene_of(run.key.0).is_some());
-    for (at, run) in runs.into_iter().enumerate() {
-        let Run {
-            key,
-            positions,
-            uvs,
-            colors,
-        } = run;
-        let geometry = (positions, uvs, colors);
-        if !drawn.materials.contains_key(&key) {
-            let scene = assets.scene_of(key.0).is_some();
-            let texture = if key.0 == TextureId::WHITE {
-                None
-            } else if scene {
-                Some(scenes.image(key.0, &mut images))
-            } else {
-                if !drawn.images.contains_key(&key.0)
-                    && let Some(image) = upload(assets, key.0, &mut images)
-                {
-                    drawn.images.insert(key.0, image);
-                }
-                drawn.images.get(&key.0).cloned()
-            };
-            let pixels = (key.0 != TextureId::WHITE)
-                .then(|| assets.pixels(key.0))
-                .flatten();
-            let material = materials.add(UiMaterial {
-                params: UiParams {
-                    size: pixels.map_or(Vec2::ONE, |pixels| {
-                        Vec2::new(pixels.width as f32, pixels.height as f32)
-                    }),
-                    shape: u32::from(pixels.is_some_and(|pixels| pixels.shape)),
-                    view: u32::from(scene),
-                    grey: u32::from(key.2),
-                },
-                texture,
-                additive: key.1,
-            });
-            drawn.materials.insert(key, material);
-        }
-        let material = drawn.materials[&key].clone();
-        match drawn.runs.get_mut(at) {
-            Some(run) => {
-                if run.geometry != geometry
-                    && let Some(mut slot) = meshes.get_mut(&run.mesh)
-                {
-                    *slot = run_mesh(&geometry);
-                    run.geometry = geometry;
-                }
-                if run.key != key {
-                    commands.entity(run.entity).insert(MeshMaterial3d(material));
-                    run.key = key;
-                }
-                if !run.shown
-                    && let Ok(mut shown) = visibility.get_mut(run.entity)
-                {
-                    *shown = Visibility::Inherited;
-                    run.shown = true;
-                }
+        for run in drawn.runs.iter_mut().skip(count).filter(|run| run.shown) {
+            if let Ok(mut shown) = visibility.get_mut(run.entity) {
+                *shown = Visibility::Hidden;
+                run.shown = false;
             }
-            None => {
-                let handle = meshes.add(run_mesh(&geometry));
-                let entity = commands
-                    .spawn((
-                        Mesh3d(handle.clone()),
-                        MeshMaterial3d(material),
-                        Transform::IDENTITY,
-                        RenderLayers::layer(LAYER),
-                        // Only the screens' camera draws this layer, so culling would save nothing,
-                        // and Bevy would work the box out again each time the text changes.
-                        NoFrustumCulling,
-                    ))
-                    .id();
-                drawn.runs.push(Shown {
-                    entity,
-                    mesh: handle,
-                    geometry,
-                    key,
-                    shown: true,
-                });
-            }
-        }
-    }
-    for run in drawn.runs.iter_mut().skip(count).filter(|run| run.shown) {
-        if let Ok(mut shown) = visibility.get_mut(run.entity) {
-            *shown = Visibility::Hidden;
-            run.shown = false;
         }
     }
 }

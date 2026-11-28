@@ -1,0 +1,11 @@
+# The stories of the screens in crates/ui/src/screens/catalogue_list.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "catalogue_list"
+
+[[story]]
+name = "A story pointed at"
+screen = "catalogue_list"
+steps = ["key Down", "key Down"]

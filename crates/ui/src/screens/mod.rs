@@ -6,6 +6,7 @@ pub mod arena_line;
 pub mod arena_panel;
 pub mod bark;
 pub mod campaign;
+pub mod catalogue_list;
 pub mod chargen;
 pub mod companion_places;
 pub mod computer;
@@ -20,6 +21,7 @@ pub mod hud;
 pub mod join;
 pub mod journal;
 pub mod key_mapping;
+pub mod layout_test;
 pub mod loading;
 pub mod lobby;
 pub mod lost;
@@ -53,6 +55,9 @@ use crate::vm::ViewModel;
 pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(page) = options::page(name, vm) {
         return Some(page);
+    }
+    if let Some(then) = name.strip_prefix("catalogue_list:") {
+        return Some(Box::new(catalogue_list::CatalogueList::new(then, vm)));
     }
     if let Some(then) = name.strip_prefix("campaign:") {
         return Some(Box::new(campaign::Campaign::new(then)));
@@ -107,6 +112,8 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "options_keymap" => Box::new(key_mapping::KeyMapping::new(vm)),
         "options_resolution" => Box::new(resolution::Resolution::new(vm)),
         "main_menu" => Box::new(main_menu::MainMenu),
+        "catalogue_list" => Box::new(catalogue_list::CatalogueList::new("", vm)),
+        "layout_test" => Box::new(layout_test::LayoutTest::new()),
         "join" => Box::new(join::Join::new()),
         "container" => Box::new(container::Container::default()),
         "computer" => Box::new(computer::Computer),

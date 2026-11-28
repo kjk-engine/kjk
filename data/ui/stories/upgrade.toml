@@ -1,6 +1,6 @@
 # The stories of the screens in crates/ui/src/screens/upgrade.rs (docs/UI.md, "UI catalogue").
 status = "not started"
-notes = "Its stories start from captures of play: the bench a script opens, with five items the party carries that take upgrades. On the bench, the white panel stands where play draws the item's 3D model, which the catalogue does not draw."
+notes = "Its stories start from captures of play: the bench a script opens, with five items the party carries that take upgrades. The pistol and the lightsaber on the bench start from stand-ins. In the pictures of `kjk gui story`, a white panel stands where play draws the item's 3D model. The catalogue in the game draws the model."
 
 [[story]]
 name = "At rest"
@@ -25,3 +25,11 @@ screen = "upgrade_select"
 capture = { k1 = "taris-upgrade", tsl = "telos-upgrade" }
 pad_capture = { k1 = "taris-upgrade-pad", tsl = "telos-upgrade-pad" }
 steps = ["key Activate", "press BTN_UPGRADEITEMS"]
+
+[[story]]
+name = "Pistol on the bench"
+screen = "upgrade:7"
+
+[[story]]
+name = "Lightsaber on the bench"
+screen = "upgrade:9"

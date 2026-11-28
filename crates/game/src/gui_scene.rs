@@ -54,7 +54,8 @@ use bevy::render::render_resource::{Extent3d, TextureFormat};
 use bevy::render::storage::ShaderBuffer;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use fmt_odyssey::mdl;
-use ui::draw::TextureId;
+use ui::assets::GuiAssets;
+use ui::draw::{DrawList, TextureId};
 use ui::vm::SceneView;
 use vfs::Game;
 use vfs::resolver::Resolver;
@@ -101,6 +102,33 @@ const STAGE_HOOKS: [(&str, &str); 3] = [
 const STAGE_WARM: f32 = 4.0;
 
 pub struct GuiScenePlugin;
+
+/// The systems that keep the catalogue's 3D views going each frame, after
+/// `want_staged` has spawned them (the catalogue's own system calls it).
+pub(crate) struct StagedViewsPlugin;
+
+/// The catalogue's views' systems, so the catalogue can order its own
+/// around them.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct StagedViews;
+
+impl Plugin for StagedViewsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<GuiScenes>()
+            .add_systems(
+                Update,
+                (
+                    layer,
+                    view_samples,
+                    crate::emitter_view::step,
+                    particle_facts,
+                )
+                    .chain()
+                    .in_set(StagedViews),
+            )
+            .add_systems(PostUpdate, light_views);
+    }
+}
 
 impl Plugin for GuiScenePlugin {
     fn build(&self, app: &mut App) {
@@ -1055,6 +1083,45 @@ fn member(
     })
 }
 
+/// The character sheet's figure when no game runs (the catalogue): the body
+/// and head of the player portrait `portrait` (its texture) gives `class`,
+/// else the default main character's, in plain clothes, on the sheet's stage
+/// in `alignment`'s pose.
+fn stand_in_figure(
+    resolver: Resolver,
+    game: Game,
+    (portrait, class): (Option<String>, u8),
+    alignment: u8,
+) -> Task<Result<Ready, String>> {
+    AsyncComputeTaskPool::get().spawn(async move {
+        let portraits = Portraits::read(&crate::modules::ResolverSource(&resolver))
+            .ok_or("portraits.2da: not read")?;
+        let persona = portrait
+            .and_then(|texture| portraits.persona(sim::Seat(0), &texture, class, ""))
+            .or_else(|| portraits.default(sim::Seat(0), Some(false)))
+            .ok_or("portraits.2da: no player portrait")?;
+        let mut models = Vec::new();
+        clothed(
+            (&resolver, game),
+            persona.appearance,
+            ([0.0; 3], 0.0),
+            &mut models,
+        )?;
+        let (textures, _) = viewer::textures(&resolver, &models);
+        let ready = Ready {
+            models,
+            textures,
+            frame: Frame {
+                eye: Mat4::IDENTITY,
+                half: 1.0,
+                lens: None,
+            },
+            stage: None,
+        };
+        on_stage(&resolver, game, (ready, hooks::CAMERA_HOOK), alignment)
+    })
+}
+
 /// The sheet's hook for the member tagged `tag` (`STAGE_HOOKS`).
 fn stage_hook(tag: &str) -> Option<&'static str> {
     STAGE_HOOKS
@@ -1066,9 +1133,9 @@ fn stage_hook(tag: &str) -> Option<&'static str> {
 /// Each view the screens draw this frame, and its image's size in window
 /// pixels: its quad's, or the size the screen keeps it at
 /// (`DrawList::sized`).
-fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
+fn drawn(layers: &[DrawList], window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
     let mut sizes = BTreeMap::new();
-    for layer in &ui.layers {
+    for layer in layers {
         let (fitted, _) = layer.placed((window.x, window.y));
         for quad in layer
             .quads
@@ -1128,10 +1195,120 @@ fn want(
     if crate::ui_view::minimized(physical) {
         return;
     }
-    let wanted = drawn(&ui, logical, physical.x as f32 / logical.x.max(1.0));
     let Some(gui) = ui.assets.as_ref() else {
         return;
     };
+    let member = |nth: usize, alignment: u8| {
+        let ready = (|| {
+            let snapshot = presented.as_ref()?.0.current();
+            let body = body.as_ref().and_then(|body| body.0);
+            member(
+                nth,
+                (&content.as_ref()?.0, made.as_deref()),
+                snapshot,
+                (own.as_ref()?.0, body),
+            )
+        })();
+        let hook = (|| {
+            let snapshot = presented.as_ref()?.0.current();
+            let party = crate::cast::pages_of(snapshot, own.as_ref()?.0);
+            let sim::Kind::Object(_, index) = party.get(nth)?.kind else {
+                return None;
+            };
+            let instances = sim::Instances::in_snapshot(&swap.as_ref()?.level, snapshot);
+            stage_hook(instances.tag(index)?)
+        })();
+        match ready {
+            Some(ready) => State::Loading(staged(
+                gui.resolver().clone(),
+                gui.game,
+                (ready, hook.unwrap_or(hooks::CAMERA_HOOK)),
+                alignment,
+            )),
+            None => State::Failed,
+        }
+    };
+    want_views(
+        &mut commands,
+        &mut scenes,
+        (&ui.layers, gui, &ui.vm.campaigns),
+        (logical, physical.x as f32 / logical.x.max(1.0)),
+        &member,
+        (&mut cameras, &mut visibilities, &mut assets),
+    );
+}
+
+/// The catalogue's views (docs/UI.md, "3D views in the catalogue"): those
+/// `layers` of a staged story ask for, drawn in a virtual window of
+/// `window` logical pixels with `scale` physical pixels to each, as play
+/// draws them. The party member the character sheet shows is the story's
+/// stand-in, as no game runs (`stand_in_figure`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn want_staged(
+    commands: &mut Commands,
+    scenes: &mut GuiScenes,
+    (layers, gui, vm): (&[DrawList], &GuiAssets, &ui::vm::ViewModel),
+    (window, scale): (Vec2, f32),
+    (cameras, visibilities, assets): (
+        &mut Query<&mut Camera, Without<UiComposite>>,
+        &mut Query<&mut Visibility>,
+        &mut ModelAssets,
+    ),
+) {
+    let member = |_: usize, alignment: u8| {
+        let portrait = vm.character.as_ref().and_then(|me| me.portrait.clone());
+        let class = vm
+            .character
+            .as_ref()
+            .and_then(|me| me.class_row)
+            .unwrap_or(0);
+        State::Loading(stand_in_figure(
+            gui.resolver().clone(),
+            gui.game,
+            (portrait, class),
+            alignment,
+        ))
+    };
+    want_views(
+        commands,
+        scenes,
+        (layers, gui, &vm.campaigns),
+        (window, scale),
+        &member,
+        (cameras, visibilities, assets),
+    );
+}
+
+/// Every view and its image put away and forgotten, for screens drawn from
+/// other assets (their texture ids name other views).
+pub(crate) fn forget_views(commands: &mut Commands, scenes: &mut GuiScenes) {
+    for state in (scenes.views.values_mut().map(|live| &mut live.state))
+        .chain(scenes.menus.values_mut().map(|scene| &mut scene.state))
+    {
+        if let State::Shown { camera, root, .. } = *state {
+            commands.entity(camera).despawn();
+            commands.entity(root).despawn();
+        }
+    }
+    *scenes = GuiScenes::default();
+}
+
+/// What `want` and `want_staged` share. `member` makes the view of party
+/// member `nth` at an alignment.
+#[allow(clippy::too_many_arguments)]
+fn want_views(
+    commands: &mut Commands,
+    scenes: &mut GuiScenes,
+    (layers, gui, campaigns): (&[DrawList], &GuiAssets, &[Game]),
+    (logical, scale): (Vec2, f32),
+    member: &dyn Fn(usize, u8) -> State,
+    (cameras, visibilities, assets): (
+        &mut Query<&mut Camera, Without<UiComposite>>,
+        &mut Query<&mut Visibility>,
+        &mut ModelAssets,
+    ),
+) {
+    let wanted = drawn(layers, logical, scale);
     let mut taken: BTreeSet<usize> = (scenes.views.values())
         .filter_map(|live| match live.state {
             State::Shown { layer, .. } => Some(layer),
@@ -1159,7 +1336,7 @@ fn want(
     let mut main_menu_live: Option<(Handle<Image>, bool)> = None;
     for (id, live) in &mut scenes.views {
         let Some(size) = wanted.get(id) else {
-            put_away(&mut commands, &mut live.state, &mut taken);
+            put_away(commands, &mut live.state, &mut taken);
             continue;
         };
         let aspect = size.x as f32 / size.y as f32;
@@ -1174,7 +1351,7 @@ fn want(
             });
             // Its camera is made for the image's shape (a wide view's
             // follows the window's).
-            put_away(&mut commands, &mut live.state, &mut taken);
+            put_away(commands, &mut live.state, &mut taken);
             resized = true;
         }
         let Some(view) = gui.scene_of(TextureId(*id)) else {
@@ -1220,37 +1397,7 @@ fn want(
                     gui.game,
                     (portrait.clone(), *class, *head),
                 )),
-                SceneView::Member { nth, alignment } => {
-                    let ready = (|| {
-                        let snapshot = presented.as_ref()?.0.current();
-                        let body = body.as_ref().and_then(|body| body.0);
-                        member(
-                            *nth,
-                            (&content.as_ref()?.0, made.as_deref()),
-                            snapshot,
-                            (own.as_ref()?.0, body),
-                        )
-                    })();
-                    let hook = (|| {
-                        let snapshot = presented.as_ref()?.0.current();
-                        let party = crate::cast::pages_of(snapshot, own.as_ref()?.0);
-                        let sim::Kind::Object(_, index) = party.get(*nth)?.kind else {
-                            return None;
-                        };
-                        let instances =
-                            sim::Instances::in_snapshot(&swap.as_ref()?.level, snapshot);
-                        stage_hook(instances.tag(index)?)
-                    })();
-                    match ready {
-                        Some(ready) => State::Loading(staged(
-                            gui.resolver().clone(),
-                            gui.game,
-                            (ready, hook.unwrap_or(hooks::CAMERA_HOOK)),
-                            *alignment,
-                        )),
-                        None => State::Failed,
-                    }
-                }
+                SceneView::Member { nth, alignment } => member(*nth, *alignment),
             };
         }
         if let State::Loading(task) = &mut live.state
@@ -1259,7 +1406,7 @@ fn want(
             live.state = match (read, free_layer(&taken)) {
                 (Ok(ready), Some(layer)) => {
                     taken.insert(layer);
-                    spawn(&mut commands, &live.image, layer, ready, &mut assets, true)
+                    spawn(commands, &live.image, layer, ready, assets, true)
                 }
                 (Ok(_), None) => {
                     warn!(target: "ui", ?view, "a 3D view is not drawn: no render layer is free");
@@ -1276,16 +1423,16 @@ fn want(
         Some((image, resized)) => {
             if resized {
                 for entry in scenes.menus.values_mut() {
-                    put_away(&mut commands, &mut entry.state, &mut taken);
+                    put_away(commands, &mut entry.state, &mut taken);
                 }
             }
             // Keep the active campaign's menu scene and (when both games are
             // installed) the other campaign's preloaded and spawned so
             // switching is an instant camera/visibility toggle.
-            let games: Vec<Game> = if ui.vm.campaigns.is_empty() {
+            let games: Vec<Game> = if campaigns.is_empty() {
                 vec![gui.game]
             } else {
-                let mut list = ui.vm.campaigns.clone();
+                let mut list = campaigns.to_vec();
                 if !list.contains(&gui.game) {
                     list.push(gui.game);
                 }
@@ -1306,14 +1453,7 @@ fn want(
                     && let Some(read) = block_on(poll_once(task))
                 {
                     entry.state = match read {
-                        Ok(ready) => spawn(
-                            &mut commands,
-                            &image,
-                            entry.layer,
-                            ready,
-                            &mut assets,
-                            active,
-                        ),
+                        Ok(ready) => spawn(commands, &image, entry.layer, ready, assets, active),
                         Err(why) => {
                             warn!(target: "ui", ?game, %why, "a main menu 3D view is not drawn");
                             State::Failed
@@ -1341,7 +1481,7 @@ fn want(
         }
         None => {
             for entry in scenes.menus.values_mut() {
-                put_away(&mut commands, &mut entry.state, &mut taken);
+                put_away(commands, &mut entry.state, &mut taken);
             }
         }
     }

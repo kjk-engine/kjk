@@ -30,6 +30,53 @@ fn finish(result: Result<(), String>) -> ExitCode {
     }
 }
 
+/// What the catalogue in the game opens on (`kjk gui catalogue`): the story
+/// `module/name` (its name or slug), or the first story of the first module,
+/// on `game` (the first the story names), at the size named `at`.
+pub fn start(
+    story: Option<&str>,
+    at: &str,
+    game: Option<&str>,
+) -> Result<kjk_game::catalogue_view::Start, String> {
+    let files = stories()?;
+    let story_given = story;
+    let size = Size::named(at).ok_or(format!("{at}: no such size"))?;
+    let (module, story) = match story {
+        Some(wanted) => {
+            let (module, name) = wanted
+                .split_once('/')
+                .ok_or(format!("{wanted}: name a story as MODULE/STORY"))?;
+            let file = (files.iter().find(|file| file.module == module))
+                .ok_or(format!("{module}: no story file"))?;
+            let story = (file.stories.iter())
+                .find(|story| story.name == name || slug(&story.name) == name)
+                .ok_or(format!("{module}: no story {name:?}"))?;
+            (file.module.clone(), story.clone())
+        }
+        None => files
+            .iter()
+            .find_map(|file| Some((file.module.clone(), file.stories.first()?.clone())))
+            .ok_or("no story to open")?,
+    };
+    let game = match game {
+        Some(key) => Game::from_key(key).ok_or(format!("{key}: use k1 or tsl"))?,
+        None => *story
+            .games
+            .first()
+            .ok_or(format!("{}: no game", story.name))?,
+    };
+    if !story.games.contains(&game) {
+        return Err(format!("{}: not drawn on {}", story.name, game.key()));
+    }
+    Ok(kjk_game::catalogue_view::Start {
+        module,
+        story,
+        game,
+        size: size.name,
+        list: story_given.is_none(),
+    })
+}
+
 /// Every module's status and stories: one line each, or JSON. What breaks
 /// the catalogue's rules (`ui::catalogue::check`) is listed after them, and
 /// fails the verb.
@@ -205,6 +252,18 @@ fn drawn_path(
         .join(module)
         .join(slug(story))
         .join(format!("{}-{}.png", size.name, input.name()))
+}
+
+/// KOTOR's layout `name`, as the text of a kjk layout file on stdout.
+pub fn layout_text(discovery: &Discovery, game: &str, name: &str) -> ExitCode {
+    finish((|| {
+        let game = Game::from_key(game).ok_or(format!("{game}: the game is k1 or tsl"))?;
+        let assets = ui::assets::GuiAssets::open(discovery, game)?;
+        let assets = kjk_game::runtime::skinned(assets, discovery)?;
+        let (gui, _) = assets.screen_layout(name)?;
+        print!("{}", ui::layout_files::export(&gui, name));
+        Ok(())
+    })())
 }
 
 /// What the layouts of each install use, counted: how many layouts, the

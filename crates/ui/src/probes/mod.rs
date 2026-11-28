@@ -27,6 +27,7 @@ mod status_summary;
 mod text;
 mod transition;
 mod tree;
+mod virtual_screen;
 mod vm_screens;
 mod wheel;
 
@@ -76,6 +77,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::saves());
     checks.extend(chargen::all());
     checks.extend(clicks::all());
+    checks.extend(virtual_screen::all());
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
     checks.extend(reticle::all());

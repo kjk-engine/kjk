@@ -198,6 +198,11 @@ impl std::fmt::Display for Status {
 pub enum Step {
     /// The control of this tag pressed.
     Press(String),
+    /// A click on the row of this number, from 0, of the list of this tag.
+    Row {
+        tag: String,
+        row: usize,
+    },
     /// A setting, as `display.grass true`.
     Set {
         key: String,
@@ -259,6 +264,9 @@ pub enum Step {
     /// The pointer moved to this pixel of the frame, which hovers what is
     /// there.
     Point([f32; 2]),
+    /// The pointer moved onto the middle of the top screen's control of
+    /// this tag.
+    Hover(String),
     /// Wheel notches down where the pointer is, the window's middle at
     /// first.
     Scroll(f32),
@@ -331,7 +339,7 @@ pub enum Wheel {
 }
 
 /// The screen moves of `Step::Key`, by their names.
-const MOVES: [(&str, crate::input::Key); 13] = {
+pub const MOVES: [(&str, crate::input::Key); 13] = {
     use crate::input::Key::*;
     [
         ("Up", Up),
@@ -356,8 +364,15 @@ type Reads = fn(&str) -> Option<Step>;
 impl Step {
     /// Every form a step takes, and how the words after its verb read. A
     /// step is read with the first form of its verb that reads it.
-    pub const FORMS: [(&'static str, Reads); 27] = [
+    pub const FORMS: [(&'static str, Reads); 29] = [
         ("press TAG", |tag| Some(Step::Press(words(tag)?))),
+        ("row TAG N", |at| {
+            let (tag, row) = at.rsplit_once(' ')?;
+            Some(Step::Row {
+                tag: words(tag)?,
+                row: row.parse().ok()?,
+            })
+        }),
         ("set KEY VALUE", |set| {
             let (key, value) = set.split_once(' ')?;
             Some(Step::Set {
@@ -466,6 +481,7 @@ impl Step {
             let (x, y) = at.split_once(' ')?;
             Some(Step::Point([x.parse().ok()?, y.parse().ok()?]))
         }),
+        ("hover TAG", |tag| Some(Step::Hover(words(tag)?))),
         ("scroll N", |notches| notches.parse().ok().map(Step::Scroll)),
         ("wait SECONDS", |seconds| {
             (seconds.parse().ok())
@@ -515,6 +531,7 @@ impl std::fmt::Display for Step {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Step::Press(tag) => write!(f, "press {tag}"),
+            Step::Row { tag, row } => write!(f, "row {tag} {row}"),
             Step::Set { key, value } => write!(f, "set {key} {value}"),
             Step::Session(rules) => write!(f, "session {rules}"),
             Step::Lobby(lobby) => match lobby {
@@ -560,6 +577,7 @@ impl std::fmt::Display for Step {
                 write!(f, "key {}", name.map_or("?", |(name, _)| name))
             }
             Step::Point([x, y]) => write!(f, "point {x} {y}"),
+            Step::Hover(tag) => write!(f, "hover {tag}"),
             Step::Scroll(notches) => write!(f, "scroll {notches}"),
             Step::Wait(seconds) => write!(f, "wait {seconds}"),
         }
@@ -682,6 +700,16 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
             };
             if stories.iter().any(|story: &Story| story.name == name) {
                 return Err(why(&format!("two stories named {name}")));
+            }
+            if let Some(same) = stories
+                .iter()
+                .find(|story: &&Story| slug(&story.name) == slug(&name))
+            {
+                return Err(why(&format!(
+                    "the stories {:?} and {name:?} have the same slug {:?}, so `--story` and the list could not tell them apart",
+                    same.name,
+                    slug(&name)
+                )));
             }
             let steps = (list(table.get("steps"), "steps")?
                 .unwrap_or_else(Vec::new)
@@ -1029,9 +1057,11 @@ fn token_parts(words: &[u8]) -> Vec<&[u8]> {
     parts
 }
 
-/// An install's talk table, with its lines looked up by their words.
-pub struct TalkTable<'a> {
-    tlk: &'a fmt_odyssey::tlk::Tlk,
+/// What looking up an install's talk table by words needs, made once from
+/// the table (`TalkTable::with` reuses it, so that a program that stages
+/// many stories does not make it again for each).
+#[derive(Clone)]
+pub struct TalkIndex {
     code_page: fmt_odyssey::text::CodePage,
     lines: std::collections::HashMap<Vec<u8>, TalkLine>,
     /// The lines with tokens, by their words before the first token, with
@@ -1041,11 +1071,11 @@ pub struct TalkTable<'a> {
 
 type Filled = (TalkLine, Vec<Vec<u8>>);
 
-impl TalkTable<'_> {
+impl TalkIndex {
     /// `tlk`'s lines by their words. Where two lines have the same words,
     /// the first one is named. A line's own words are found before another
     /// line's words with braces taken out.
-    pub fn new(tlk: &fmt_odyssey::tlk::Tlk) -> TalkTable<'_> {
+    pub fn new(tlk: &fmt_odyssey::tlk::Tlk) -> TalkIndex {
         let entries = (tlk.entries.iter().enumerate())
             .filter_map(|(strref, entry)| Some((u32::try_from(strref).ok()?, entry)))
             .chain(tlk.lent.iter().map(|(strref, entry)| (*strref, entry)));
@@ -1085,8 +1115,7 @@ impl TalkTable<'_> {
                 }
             }
         }
-        TalkTable {
-            tlk,
+        TalkIndex {
             code_page: fmt_odyssey::text::CodePage::of(tlk),
             lines,
             filled,
@@ -1094,15 +1123,44 @@ impl TalkTable<'_> {
     }
 }
 
+/// An install's talk table, with its lines looked up by their words.
+pub struct TalkTable<'a> {
+    tlk: &'a fmt_odyssey::tlk::Tlk,
+    index: std::borrow::Cow<'a, TalkIndex>,
+}
+
+impl<'a> TalkTable<'a> {
+    pub fn new(tlk: &'a fmt_odyssey::tlk::Tlk) -> TalkTable<'a> {
+        TalkTable {
+            tlk,
+            index: std::borrow::Cow::Owned(TalkIndex::new(tlk)),
+        }
+    }
+
+    /// `tlk` looked up through `index`, which `TalkIndex::new` made from it.
+    pub fn with(tlk: &'a fmt_odyssey::tlk::Tlk, index: &'a TalkIndex) -> TalkTable<'a> {
+        TalkTable {
+            tlk,
+            index: std::borrow::Cow::Borrowed(index),
+        }
+    }
+}
+
 impl Talk for TalkTable<'_> {
     fn line_of(&self, words: &[u8]) -> Option<TalkLine> {
-        self.lines.get(words).copied()
+        self.index.lines.get(words).copied()
     }
 
     fn filled_at(&self, words: &[u8]) -> Option<(usize, TalkLine, Vec<Vec<u8>>)> {
         let mut found: Option<(usize, TalkLine, Vec<Vec<u8>>)> = None;
         for before in MIN_WORDS..=words.len() {
-            for (line, after) in self.filled.get(&words[..before]).into_iter().flatten() {
+            for (line, after) in self
+                .index
+                .filled
+                .get(&words[..before])
+                .into_iter()
+                .flatten()
+            {
                 if let Some((end, fillings)) = fill(words, before, after)
                     && found.as_ref().is_none_or(|(longest, ..)| end > *longest)
                 {
@@ -1123,7 +1181,7 @@ impl Talk for TalkTable<'_> {
     }
 
     fn code_page(&self) -> fmt_odyssey::text::CodePage {
-        self.code_page
+        self.index.code_page
     }
 }
 

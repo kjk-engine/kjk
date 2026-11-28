@@ -33,6 +33,10 @@ pub struct Staged {
     quiet: ui::input::UiInput,
     /// Where the pointer is: the window's middle until `point` moves it.
     pointer: [f32; 2],
+    /// How many times a step changed `vm.settings`. What is drawn over
+    /// play keeps its pictures until this changes
+    /// (`ui::hud_layer::Frame::settings`).
+    settings: u32,
     /// What is drawn over play, for the story screen `play`
     /// (`ui::catalogue::PLAY`).
     over: Option<ui::over_play::OverPlay>,
@@ -42,38 +46,153 @@ pub struct Staged {
     pad: crate::pad::PadKind,
 }
 
+/// A staged frame after the owner's input: its layers, and what the screens
+/// made of the input.
+pub struct Live {
+    pub shown: Vec<Shown>,
+    pub sounds: Vec<ui::intent::GuiSound>,
+    pub intents: Vec<ui::intent::Intent>,
+    pub refusals: Vec<String>,
+}
+
 /// `scene` opened as play opens it, in a window of `size`, and its steps
 /// taken in turn.
 pub fn stage(discovery: &Discovery, scene: Scene, size: Size) -> Result<Staged, String> {
+    stage_with(None, discovery, scene, size)
+}
+
+/// `stage`, with the assets of the games in `kept` used again, when it
+/// has them for the scene's game.
+pub fn stage_with(
+    kept: Option<&mut Kept>,
+    discovery: &Discovery,
+    scene: Scene,
+    size: Size,
+) -> Result<Staged, String> {
     let steps = scene.steps.clone();
-    let mut staged = Staged::open(discovery, scene, size)?;
+    let mut staged = Staged::open_with(kept, discovery, scene, size)?;
     for step in &steps {
         staged.step(discovery, step)?;
     }
     Ok(staged)
 }
 
+/// The assets of each game that a program staging many stories keeps
+/// between them, so that a story of a game it has shown before does not
+/// load them again: their textures, fonts, tables and the items looked up.
+/// The staged screen in use owns its assets. `Kept::reclaim` takes them
+/// back from it, before the next story is staged.
+#[derive(Default)]
+pub struct Kept {
+    spare: std::collections::HashMap<Game, GuiAssets>,
+}
+
+impl Kept {
+    /// The assets of `staged` taken into the keep, for the next staging to
+    /// use. Until `staged` is replaced, or `restore`d, it draws with empty
+    /// assets of its game.
+    pub fn reclaim(&mut self, discovery: &Discovery, staged: &mut Staged) -> Result<(), String> {
+        let install = crate::installs::open(discovery, staged.scene.game)?;
+        let empty = GuiAssets::with(
+            staged.scene.game,
+            install.index.clone(),
+            install.base()?.clone(),
+        );
+        let assets = std::mem::replace(&mut staged.assets, empty);
+        self.spare.insert(staged.scene.game, assets);
+        Ok(())
+    }
+
+    /// The assets `reclaim` took from `staged` given back to it, when
+    /// staging the next story failed.
+    pub fn restore(&mut self, staged: &mut Staged) {
+        if let Some(assets) = self.spare.remove(&staged.scene.game) {
+            staged.assets = assets;
+        }
+    }
+}
+
+/// The index of `game`'s talk table (`ui::catalogue::TalkIndex`), made once
+/// for the program: it takes about as long as a story's whole staging.
+fn talk_index(game: Game, tlk: &fmt_odyssey::tlk::Tlk) -> std::sync::Arc<ui::catalogue::TalkIndex> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    static INDEXES: OnceLock<
+        Mutex<std::collections::HashMap<Game, Arc<ui::catalogue::TalkIndex>>>,
+    > = OnceLock::new();
+    let mut indexes = INDEXES
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    indexes
+        .entry(game)
+        .or_insert_with(|| Arc::new(ui::catalogue::TalkIndex::new(tlk)))
+        .clone()
+}
+
 impl Staged {
+    /// The party selection's stand-in companions given their bodies, which
+    /// the in-game catalogue's 3D view draws. `kjk gui story` does not call
+    /// this, because its pictures show a 3D view as a white box, and the
+    /// party screen shows none without a body.
+    pub fn name_models(&mut self) {
+        let roster = stand_in_roster(self.scene.game, true);
+        let Some(party) = self.vm.party_selection.as_mut() else {
+            return;
+        };
+        for (npc, template) in roster {
+            let Some(Some(companion)) = party.companions.get_mut(usize::from(npc)) else {
+                continue;
+            };
+            if companion.appearance.is_none() {
+                companion.appearance = self.assets.appearance_of(template);
+                companion.armour = self.assets.armour_of(template);
+            }
+        }
+    }
+
     /// The screen opened, before any step but `level`, which sets the
     /// member before the screen opens. The view model is that of the
     /// scene's capture, or else what the game fills for the screen
     /// (character creation's choices, the session's error for `message`).
     pub fn open(discovery: &Discovery, scene: Scene, size: Size) -> Result<Staged, String> {
+        Staged::open_with(None, discovery, scene, size)
+    }
+
+    /// `open`, with the assets of the scene's game that `kept` holds used
+    /// again.
+    pub fn open_with(
+        kept: Option<&mut Kept>,
+        discovery: &Discovery,
+        scene: Scene,
+        size: Size,
+    ) -> Result<Staged, String> {
+        let game = scene.game;
         // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
         // feats lent.
-        let install = crate::installs::open(discovery, scene.game)?;
-        let assets = GuiAssets::with(scene.game, install.index.clone(), install.base()?.clone());
-        let mut assets = crate::runtime::skinned(assets, discovery)?;
+        let kept_assets = kept.and_then(|kept| kept.spare.remove(&game));
+        let mut assets = match kept_assets {
+            Some(assets) => assets,
+            None => {
+                let install = crate::installs::open(discovery, game)?;
+                let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
+                crate::runtime::skinned(assets, discovery)?
+            }
+        };
         let vm = match &scene.capture {
             Some(name) => {
                 let tlk = assets
                     .talk()
                     .ok_or("no talk table to read a capture's words from")?;
-                let talk = ui::catalogue::TalkTable::new(tlk);
+                let index = talk_index(game, tlk);
+                let talk = ui::catalogue::TalkTable::with(tlk, &index);
                 ui::catalogue::read_capture(&ui::catalogue::captures(), name, &talk)?.view
             }
             None => stand_ins(discovery, &scene, &mut assets)?,
         };
+        let mut vm = vm;
+        vm.settings
+            .entry(ui::layout_files::OVERRIDES.to_string())
+            .or_insert_with(|| "true".to_string());
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         stack.mark_controls();
         let play = scene.screen == ui::catalogue::PLAY;
@@ -87,7 +206,10 @@ impl Staged {
             dt: 0.016,
             ..ui::input::UiInput::default()
         };
-        stack.step(&mut assets, &vm, &quiet);
+        let first = stack.step(&mut assets, &vm, &quiet);
+        if !play && stack.screens().next().is_none() && !first.refusals.is_empty() {
+            return Err(format!("{}: {}", scene.screen, first.refusals.join("; ")));
+        }
         Ok(Staged {
             scene,
             size,
@@ -96,6 +218,7 @@ impl Staged {
             stack,
             quiet,
             pointer: [window.0 / 2.0, window.1 / 2.0],
+            settings: 0,
             over: play.then(ui::over_play::OverPlay::default),
             photo: None,
             pad: crate::pad::PadKind::default(),
@@ -126,15 +249,78 @@ impl Staged {
         )
     }
 
-    /// The frame as it stands, bottom layer first, as a frame of play
-    /// stacks it (`ui::over_play::OverPlay::compose`): what is drawn over
-    /// play, the screens of the stack and what stands over them. What a
-    /// screen refused to draw is printed.
-    fn frame(&mut self) -> Vec<Shown> {
-        let frame = self.stack.step(&mut self.assets, &self.vm, &self.quiet);
+    pub fn game(&self) -> Game {
+        self.scene.game
+    }
+
+    pub fn stack(&self) -> &ui::screen::Stack {
+        &self.stack
+    }
+
+    /// The stack, to drive by hand, and the view model it draws from.
+    pub fn stack_mut(&mut self) -> (&mut ui::screen::Stack, &ui::vm::ViewModel) {
+        (&mut self.stack, &self.vm)
+    }
+
+    pub fn vm(&self) -> &ui::vm::ViewModel {
+        &self.vm
+    }
+
+    pub fn assets(&self) -> &GuiAssets {
+        &self.assets
+    }
+
+    pub fn assets_mut(&mut self) -> &mut GuiAssets {
+        &mut self.assets
+    }
+
+    /// Whether the scene is the story screen `play`, what is drawn over
+    /// play.
+    pub fn is_play(&self) -> bool {
+        self.over.is_some()
+    }
+
+    /// The control tree of `layers`, a frame of this stack that `live`
+    /// drew, as `shown` names it. Back is not taken, so the stack is left
+    /// as it is.
+    pub fn tree(&self, layers: Vec<Shown>, shown: serde_json::Value) -> serde_json::Value {
+        let links = self.stack.focus_links(&self.vm);
+        let focus = self.stack.focused().map(str::to_string);
+        Render::unstacked(
+            &self.assets,
+            layers,
+            shown,
+            self.size.pixels,
+            (links, focus),
+        )
+        .tree()
+    }
+
+    /// The setting `key` set to `value` in the view model, which draws
+    /// what stands over play again.
+    pub fn set_setting(&mut self, key: &str, value: String) {
+        self.vm.settings.insert(key.to_string(), value);
+        self.settings += 1;
+    }
+
+    /// The frame as it stands, bottom layer first. What a screen refused
+    /// to draw is printed.
+    pub fn frame(&mut self) -> Vec<Shown> {
+        let quiet = self.quiet.clone();
+        let frame = self.live(&quiet);
         for why in &frame.refusals {
             outln!("refused: {why}");
         }
+        frame.shown
+    }
+
+    /// The frame after `input`, which the catalogue in the game gives it
+    /// (what the owner's mouse, keys and pad did, in the stack's window),
+    /// as a frame of play stacks it (`ui::over_play::OverPlay::compose`):
+    /// what is drawn over play, the screens of the stack and what stands
+    /// over them.
+    pub fn live(&mut self, input: &ui::input::UiInput) -> Live {
+        let frame = self.stack.step(&mut self.assets, &self.vm, input);
         let screens = self.stack.screens().zip(self.stack.layouts());
         let screens = (screens.zip(frame.layers))
             .map(|((screen, layout), list)| Shown {
@@ -143,25 +329,33 @@ impl Staged {
                 list,
             })
             .collect();
-        let Some(over) = self.over.as_mut() else {
-            return screens;
+        let shown = match self.over.as_mut() {
+            None => screens,
+            Some(over) => {
+                let mut drawing = ui::hud_layer::Frame {
+                    assets: &mut self.assets,
+                    vm: &self.vm,
+                    brush: self.stack.brush(),
+                    scale_factor: input.scale_factor,
+                    settings: self.settings,
+                };
+                let state = ui::over_play::PlayState {
+                    talking: self.vm.dialog.is_some(),
+                    photo: self.photo.as_ref(),
+                    corner: ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES),
+                    clock: self.stack.clock(),
+                    ..ui::over_play::PlayState::default()
+                };
+                over.compose(&mut drawing, input.window, state, screens)
+                    .layers
+            }
         };
-        let mut drawing = ui::hud_layer::Frame {
-            assets: &mut self.assets,
-            vm: &self.vm,
-            brush: self.stack.brush(),
-            scale_factor: self.quiet.scale_factor,
-            settings: 0,
-        };
-        let state = ui::over_play::PlayState {
-            talking: self.vm.dialog.is_some(),
-            photo: self.photo.as_ref(),
-            corner: ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES),
-            clock: self.stack.clock(),
-            ..ui::over_play::PlayState::default()
-        };
-        over.compose(&mut drawing, self.quiet.window, state, screens)
-            .layers
+        Live {
+            shown,
+            sounds: frame.sounds,
+            intents: frame.intents,
+            refusals: frame.refusals,
+        }
     }
 
     /// `step` taken, and a quiet frame after it. A raw press and a screen
@@ -175,6 +369,7 @@ impl Staged {
             stack,
             quiet,
             pointer,
+            settings,
             photo,
             pad,
             ..
@@ -186,8 +381,13 @@ impl Staged {
                 stack.press(tag);
                 None
             }
+            Step::Row { tag, row } => {
+                stack.click_row(tag, *row);
+                None
+            }
             Step::Set { key, value } => {
                 vm.settings.insert(key.clone(), value.clone());
+                *settings += 1;
                 Some(quiet.clone())
             }
             Step::Session(rules) => {
@@ -328,6 +528,27 @@ impl Staged {
                 *pointer = *at;
                 Some(ui::input::UiInput {
                     pointer: Some(*at),
+                    moved: true,
+                    ..quiet.clone()
+                })
+            }
+            Step::Hover(tag) => {
+                let frame = stack.step(assets, vm, quiet);
+                let list = frame
+                    .layers
+                    .last()
+                    .ok_or(format!("{step}: no screen is open"))?;
+                let mark = (list.marks.iter().rev())
+                    .find(|mark| mark.tag == *tag)
+                    .ok_or(format!("{step}: the top screen has no control {tag}"))?;
+                let (scale, [x, y]) = list.placed(quiet.window);
+                let [left, top, width, height] = mark.rect;
+                *pointer = [
+                    x + (left + width / 2.0) * scale,
+                    y + (top + height / 2.0) * scale,
+                ];
+                Some(ui::input::UiInput {
+                    pointer: Some(*pointer),
                     moved: true,
                     ..quiet.clone()
                 })
@@ -541,6 +762,12 @@ fn stand_ins(
                 (folder, title)
             })
             .collect();
+    }
+    if name.split(':').next() == Some("catalogue_list") {
+        vm.catalogue = catalogue_list()?;
+    }
+    if name.starts_with("upgrade:") {
+        vm.upgrades = stand_in_upgrades(assets, game);
     }
     if name == "lobby" {
         vm.lobby = Some(stand_in_lobby(assets, game, 0, 0, false));
@@ -916,6 +1143,40 @@ fn stand_in_pazaak() -> ui::vm::PazaakView {
     }
 }
 
+/// The items the upgrade bench opens on (`upgrade:7`, `upgrade:9`): the
+/// game's first blaster pistol (item 7) and the lightsaber the player starts
+/// with (item 9), each with no slots, so that the bench's 3D view has a
+/// model to show.
+fn stand_in_upgrades(assets: &mut GuiAssets, game: Game) -> Vec<ui::vm::UpgradeItem> {
+    use ui::vm::UpgradeKind;
+    let pistol = if game == Game::Kotor2 {
+        "w_blaste_01"
+    } else {
+        "g_w_blstrpstl001"
+    };
+    [
+        (7, pistol, UpgradeKind::Ranged),
+        (9, "g_w_lghtsbr01", UpgradeKind::Lightsaber),
+    ]
+    .into_iter()
+    .filter_map(|(id, template, kind)| {
+        let look = assets.item(template)?;
+        Some(ui::vm::UpgradeItem {
+            id,
+            item: ui::vm::Entry {
+                name: look.name.clone(),
+                icon: Some(look.icon.clone()),
+                description: look.description.clone(),
+                ..ui::vm::Entry::default()
+            },
+            template: template.into(),
+            kind,
+            ..ui::vm::UpgradeItem::default()
+        })
+    })
+    .collect()
+}
+
 /// The member the character page shows: the first seat's character, whose
 /// stance may be picked, with level 1 and scores of 10.
 fn stand_in_member() -> ui::vm::CharacterView {
@@ -1036,4 +1297,26 @@ fn stand_in_bench(assets: &mut GuiAssets, lab: bool) -> ui::vm::WorkbenchView {
         None,
         (&carried, false),
     )
+}
+
+/// The catalogue's stories as its list shows them.
+fn catalogue_list() -> Result<Vec<ui::vm::CatalogueScreen>, String> {
+    let files = ui::catalogue::read_all(&ui::catalogue::folder())?;
+    Ok(files
+        .into_iter()
+        .map(|file| ui::vm::CatalogueScreen {
+            module: file.module,
+            status: file.status.to_string(),
+            stories: (file.stories.into_iter())
+                .map(|story| ui::vm::CatalogueStory {
+                    name: story.name,
+                    games: story
+                        .games
+                        .iter()
+                        .map(|game| game.key().to_string())
+                        .collect(),
+                })
+                .collect(),
+        })
+        .collect())
 }

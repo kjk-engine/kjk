@@ -1,0 +1,22 @@
+# The stories of the screens in crates/ui/src/screens/layout_test.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "The test screen of the layout files. Its layout is data/ui/layouts/layout_test.toml, which has no KOTOR layout under it (docs/UI.md, \"Layout files\")."
+
+[[story]]
+name = "At rest"
+screen = "layout_test"
+
+[[story]]
+name = "A slider focused"
+screen = "layout_test"
+steps = ["key Right"]
+
+[[story]]
+name = "The check box focused and checked"
+screen = "layout_test"
+steps = ["key Right", "key Down", "key Down", "press CB_OPTION"]
+
+[[story]]
+name = "The OK button focused"
+screen = "layout_test"
+steps = ["key Right", "key Down", "key Down", "key Down"]

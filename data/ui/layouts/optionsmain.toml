@@ -1,0 +1,14 @@
+# An override of KOTOR's optionsmain layout, the main options screen. The
+# Back button moves to the right end of the bottom line, and the title is
+# drawn in the base colour of the text. docs/UI.md, "Layout files", describes the
+# format.
+override = "optionsmain"
+
+[[control]]
+tag = "BTN_BACK"
+left = 605
+top = 516
+
+[[control]]
+tag = "LBL_TITLE"
+text_color = "color.tsl-layout.base"

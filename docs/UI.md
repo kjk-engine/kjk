@@ -919,6 +919,291 @@ Running and checking:
     capture. It needs no game data, so it
     reads each line of the talk table as stand-in words (`talk 1234`,
     `ui::catalogue::StandInTalk`).
+- **The catalogue in the game** (`kjk_game::catalogue_view`,
+  `ui::virtual_screen`). `kjk gui catalogue [--story MODULE/STORY] [--at
+  SIZE] [--game k1|tsl]` opens the game on one story, live. The story is
+  `MODULE/NAME`, where the name may be the story's slug, such as
+  `options/gameplay-page`. Without `--story` it opens on the list of
+  stories (below). `--at` names the size it opens at (`1080p` by default).
+  `--headless --cmds '…'` work as for any run (docs/RUN.md).
+  - **The virtual screen.** The story is staged with
+    `kjk_game::story_stage::Staged` in a window of the chosen size and scale
+    factor from `catalogue::SIZES`, whatever the real window is. A second
+    camera draws its draw list into an image of the device's exact pixel
+    size, through the same material the game uses (`ui_material`). The
+    window shows that image. The screen takes the mouse, the keyboard and a
+    pad. It runs in real time and plays its sounds. When its last screen
+    closes, the catalogue goes back to the list of stories.
+  - **The list of stories** (`ui::screens::catalogue_list`). The list is a
+    screen of KOTOR's own skin, drawn on the save list's layout, so it
+    follows the game that is shown (KOTOR 1 or KOTOR 2) and works with the
+    mouse, the keyboard and a pad. It has a row for each screen module, with
+    the module's status from its story file on the right, and under it a row
+    for each of the module's stories, written after a dash. The panel on the
+    right names the module and its status, and the games the pointed story is
+    drawn on. Open, or the pad's A on a row, opens the story live with its
+    steps taken. Open on a module's row opens the module's first story. A
+    story that is not drawn on the game shown opens on its first game. The
+    list has a story file of its own, `catalogue_list`, as the approved test
+    `ui_catalogue` asks of every screen. The stories come from
+    `ui::catalogue::read_all`, through the view model's `catalogue`.
+  - **Back to the list.** `F8` or the pad chord LB with B (`LB+East`) goes
+    back to the list from any story. The list opens with its cursor on the
+    story that was open. The story that was open stays the one the next
+    chord returns to.
+  - **The three modes.** Fit scales the whole image to fit the window and
+    leaves black bars. Pixel for pixel shows one pixel of the image as one
+    pixel of the display. As seen scales the image so that a pixel of the
+    device looks as big to the owner as it does on the device, seen from the
+    device's usual distance. The scale is the device pixel's apparent size
+    over the display pixel's, where a pixel's apparent size is its width
+    over its distance (`virtual_screen::seen_scale`). The plan gives each
+    size's screen and distance (`virtual_screen::viewing`): 7 inches at 35
+    cm for `deck`, 24 inches at 60 cm for `1080p`, 55 inches at 2.5 m for
+    `4k-tv`, 27 inches at 60 cm for `4k-monitor`, 20 inches at 60 cm for
+    `4x3` and 34 inches at 70 cm for `ultrawide`. On a display of 254 pixels
+    to the inch seen from 60 cm, a Steam Deck pixel covers about 2.02 pixels
+    of the display and a pixel of the 4K TV about 0.76. The owner's distance
+    is the setting `catalogue.distance_cm` (60 by default).
+  - **The display's density** (`kjk_game::display_density`). The catalogue
+    asks the operating system how big the monitor the window is on is, and
+    divides the monitor's pixels by its width. On macOS it reads
+    `CGDisplayScreenSize` and the width in pixels of the display's current
+    mode. On Windows it reads the monitor's raw dpi (`GetDpiForMonitor` with
+    `MDT_RAW_DPI`), which comes from the size the monitor reports. It reads
+    again twice a second, so a window moved to a second monitor takes that
+    monitor's density. The setting `catalogue.display_density` overrides
+    the system's reading when it is set. When the system reports nothing, as
+    in a headless run, or on a platform other than the two, the density is
+    110. `ui catalogue density N` sets the override from a script, and `ui
+    catalogue density system` removes it and reads the main display. A dump
+    shows the density used, the system's reading and the setting.
+  - **Opening a large image.** When the image is larger than the window in
+    pixel for pixel or as seen, the window opens centred on the focused
+    control, or on the middle of the image when nothing has focus. It does
+    the same after a change of size or mode, and when a story opens. Panning
+    starts from there.
+  - **Panning.** When the image is larger than the window, which pixel for
+    pixel and as seen make it on a large device, the right mouse button
+    dragged or the pad's right stick moves the window over it.
+  - **The pointer.** The window's pointer is mapped into the image in all
+    three modes (`virtual_screen::Placement::to_image`) and then into the
+    virtual window's logical pixels, so a click lands on the control it is
+    over. A pointer in the black bars is not over the screen.
+  - **Keys.** `F6` or the pad chord LB with Y (`LB+North`) changes to the
+    next of the six sizes, `F7` or LB with X (`LB+West`) to the next mode,
+    and `F8` or LB with B (`LB+East`) back to the list of stories. `F12` or
+    LB with the d-pad's right (`LB+DPadRight`) hides the status bar or shows
+    it again. A size change keeps the screen as it is: the stack is stepped
+    in the new window and lays itself out again. The keys are the table
+    `KEYS` in `catalogue_view.rs`, one row for each, with a key and a chord.
+  - **The status bar** (`kjk_game::catalogue_view::chrome`). A bar along the
+    bottom of the window always says which story is open and on which game,
+    the size, the mode, the backdrop, and whether the outlines are on. The
+    size is written as the device it stands for, for example "Steam Deck,
+    1280 × 800, held at 35 cm" (`ui::device_frame::describe`). The mode is
+    written in words: "Fit to the window", "Pixel for pixel", or "As seen,
+    2.02 times", which includes the scale. Under that, the bar lists every
+    key of the catalogue with what it does. It lists the keyboard's keys
+    when the keyboard or the mouse was used last, and the pad's chords when
+    the pad was used last, so "LB + Y" stands for the chord `LB+North`. The
+    bar is drawn in the window, in KOTOR's own font taken from the screens
+    on show, and never in the image. It takes room of its own: the image is
+    placed in the window above the bar, and a click on the bar does nothing.
+    Its letters are a whole number of the font's pixels to each display pixel,
+    about 34 display pixels tall, so they stay sharp and readable on a
+    Retina display. The bar does not change the picture, the control trees or
+    the bridge's state of the story.
+  - **Notices.** When the size, the mode or the backdrop changes, whatever
+    the cause, a notice in the middle of the window says what it changed to,
+    stays for 1.8 seconds, and then fades out in 0.6 seconds. Hiding the bar
+    gives a notice that says which key shows it again. `ui catalogue bar
+    show|hide|toggle` does the same from a script, and `ui nav` or a pad
+    chord switches the bar to the pad's chords.
+  - **The device frame** (`ui::device_frame`). In fit and as seen, the window
+    draws an outline of the device around the image: a Steam Deck's body of
+    298 × 117 mm with its d-pad, two sticks, four buttons and two trackpads,
+    a monitor with its bezel and stand, a TV with a thin bezel and two feet,
+    a 4:3 monitor with a wide bezel, or an ultrawide monitor. Each part is
+    measured in millimetres from the screen's corner, and the screen is the
+    size of the device's typical screen (`virtual_screen::viewing`), so the
+    body has the same scale as the image in as seen. The drawing is flat
+    shapes and outlines in neutral grey. Fit scales the image so that the
+    whole frame fits the window (`virtual_screen::View::margin`). As seen
+    keeps the real scale, so a frame larger than the window is cut by the
+    window's edge. Pixel for pixel draws no frame. A click on the frame is
+    not a click on the image, because the mapping only accepts points inside
+    the image.
+  - **A pad alone.** Every step works with a pad and nothing else. The d-pad
+    moves through the list, A opens a story, the screen takes the pad as in
+    play, LB with Y changes size, LB with X changes mode, the right stick pans
+    an image larger than the window, and LB with B goes back to the list. A
+    headless run does this with `ui nav up|down|activate` for the d-pad and A,
+    and `ui raw Pad:LB+North` (or `LB+West`, `LB+East`) for the chords.
+  - **Console.** `ui catalogue size NAME|next`, `ui catalogue mode
+    fit|pixel|seen|next`, `ui catalogue bar show|hide|toggle`, `ui catalogue
+    pan X Y`, `ui catalogue density N` and `ui catalogue distance CM` do the
+    same from a script. The `ui`
+    commands that move the pointer (`ui pointer X Y`, `ui click X Y`, `ui
+    down`, `ui drag`, `ui up`) take points of the window, and the catalogue
+    maps them as it maps the mouse. `ui press TAG`, `ui nav`, `ui raw`, `ui
+    type` and `ui back` reach the screens. A dump has the fact `catalogue`,
+    with the size, the mode, where the image stands in the window and the
+    focused control.
+- **3D views in the catalogue** (`kjk_game::gui_scene`, `want_staged`). Some
+  screens draw a 3D model inside a control: the main menu's figure, the
+  character sheet's party member, the upgrade bench's item, the party
+  selection's companion, character creation's class tiles and its character
+  figure, and the galaxy map's planets. The catalogue draws them with the
+  same code as play. Each view gets an image of the control's size in the
+  virtual screen's pixels, and a camera of its own on a render layer that
+  the catalogue's cameras do not draw (layers 14 and up). The views move in
+  real time, and they are made again when the size changes, when another
+  story opens, and after a hot reload. Going back to the list puts them away.
+  - **Stand-ins.** With no game running, the character sheet shows the
+    default main character in plain clothes on the sheet's stage. The party
+    selection shows its companions in their own bodies. The upgrade bench
+    stories `upgrade:7` (a blaster pistol) and `upgrade:9` (a lightsaber)
+    open on an item with a model.
+  - **Seeing a story's 3D view without a window.** `kjk gui story` draws on
+    the CPU and shows a 3D view as a white box. A headless catalogue run
+    draws it: `kjk gui catalogue --story main_menu/at-rest --at deck --game
+    k1 --headless --size 1280x800 --cmds 'ui catalogue bar hide; ui
+    catalogue mode pixel; wait 300f; screenshot; quit'`.
+- **Working with the catalogue** (`kjk_game::catalogue_view`, its module
+  `collab`). Five things let an agent and the owner work on a story together.
+  - **The agent bridge.** When the catalogue starts, it creates three files
+    in a folder of its own and prints their paths. The folder is the run's
+    folder, under `catalogue/`, or `kjk-artifacts/catalogue/PID/` when the run
+    has none, with the catalogue's process id, so two catalogues never share
+    a file. The state file `state.json` is kept up to date while the
+    catalogue runs. The command file `commands.txt` is read by the catalogue
+    about ten times a second. The log `log.jsonl` has one line for each
+    change. Each catalogue also writes a pointer, the file
+    `kjk-artifacts/catalogue-bridges/PID.json`, named with its process id. The
+    pointer holds the paths `state`, `commands` and `log` and the `pid`. The
+    catalogue removes its pointer when it exits. When it opens, it also
+    removes the pointers of processes that are not running any more, which a
+    crash leaves behind. An agent that finds one pointer drives that
+    catalogue. An agent that finds several picks the one whose `pid` it
+    started, or whose state file shows the story it wants, and never writes
+    to the others. The agent never touches the window. It reads the state
+    file and appends lines to the command file.
+  - **The state file** is one JSON object. The state file is written whole
+    and renamed into place, so a reader never sees half of it. It is written
+    again only when something in it changed, and the words of the controls
+    count as something: a credit count that changes alone writes the file
+    again. Its `revision` counts the
+    writes. Its fields are `story` (`MODULE/NAME`), `game`, `size`, `device`
+    (the size's pixels), `factor`, `mode`, `focus` (the focused control's
+    tag), `screens` (the open screens, bottom first), `outlines`,
+    `backdrop`, `backdrop_still` (`making`, `ready` or `failed: WHY` while the
+    backdrop is `play`, else null), `recording` (its `steps` so far and the `saved` stories),
+    `commands_read` (how many command lines the catalogue has read),
+    `last_command` (the last line, with `ok` and an `error` when it failed)
+    `tree_current` and `tree`. The `tree` is the control tree of a recent
+    frame in the format of "Control trees", with one difference: `back` is
+    null, because asking what Back does would close a screen. It is built
+    again when the frame's controls have changed and then stayed as they are
+    for 0.3 seconds. It draws the screens a second time to read the colours
+    behind the words, so it is not built while the controls keep changing.
+    The catalogue tells whether the controls changed from a number it works
+    out for each frame, without writing any text for them. `tree_current` is
+    true when the tree is of the frame the other fields describe. An agent
+    that needs the tree of a change reads the state file again until
+    `tree_current` is true. The colours of the words can be a moment old
+    while a control's focus pulses.
+  - **The command file** takes one command on each line. The catalogue reads
+    a line only when it ends with a newline, and ignores empty lines and
+    lines that start with `#`. The commands are `open MODULE/STORY`, `size
+    NAME`, `mode fit|pixel|seen`, `step STEP` (any step of `Staged::step`, such
+    as `step press BTN_GAMEPLAY`), `outlines on|off`, `backdrop
+    plain|stripes|play` and `save [NAME]`. A command that fails does not stop the
+    others. The state file's `last_command` and a line of the log with the
+    change `refused` say why.
+  - **The log** has one JSON object on each line, with `n` (the line's
+    number), `seconds` (since the catalogue started), `source`, `change` and
+    `detail`. The sources are `keyboard`, `mouse`, `pad`, `console` (a `ui`
+    command of a run's script), `agent` (the command file) and `disk` (a
+    reload). The changes are `story`, `size`, `mode`, `backdrop`, `outlines`,
+    `step` (a step taken, whether the owner's input made it or an agent
+    asked for it), `save`, `reload` and `refused`.
+  - **Saving a tryout as a story.** The input of the owner on the live
+    screen is recorded as steps, from the moment the story opened. A key
+    press becomes `key Down` and the other moves of `Staged::step`. Enter
+    on the focused control becomes `press TAG`, with the tag of that
+    control. A click becomes `press TAG`, with the tag of the focusable
+    control under the pointer, and a click on nothing is not recorded. The
+    wheel becomes `hover TAG` and `scroll N`, where the control is the one
+    under the pointer. Typing becomes `type TEXT`. When the pointer moved the
+    focus onto a control and a later key depends on it, a `hover TAG` step
+    comes first. A step that an agent asked for is recorded too, so the
+    replay matches the screen. A click on a row of a
+    list becomes `row TAG N`, with the tag of the list and the number of
+    the row from 0 that the click moved the list's cursor to, and the step
+    clicks that row again. A raw key, mouse button or pad chord that no
+    key move comes with, such as `MouseBack`, becomes `raw NAME`. A raw name
+    that comes with a key move is not recorded, because the key's own step
+    makes the same move. A click on the main button is never recorded as raw.
+    `F11` or LB with the D-pad's down button, or the command `save`,
+    appends the recording to the end of the story file of the open story's
+    module, as a new story called `Tryout 2026-11-27 21:04` (UTC). The new story has the open story's screen,
+    games, captures and error, and its steps are the open story's steps
+    followed by the recorded ones. The owner can rename it in the file
+    later. Before it writes the story, the catalogue stages it again from its
+    steps and compares the controls with those on screen (their tags, places,
+    focus and words). The line of the log for `save` says `replays`. When the replay differs,
+    nothing is written, and the log's line says the first difference. The recording goes on after a save, and it ends when
+    the story opens again. `hover TAG` is a step of `Staged::step` that
+    moves the pointer to the middle of a control.
+  - **Hot reload.** The catalogue looks every half second at the open
+    story's file in `data/ui/stories`, the folder `data/ui/captures` and
+    `data/ui/tokens.json`. When one changed, it reads the story again, stages
+    it again at the same size and takes the steps of the tryout once more.
+    The window shows the result. A story file that does not parse, or that
+    no longer has the story, is reported in the log as `reload refused` and
+    the old screen stays, and a notice says why. Saving a tryout does not
+    reload. The files watched are listed in `sources` in `collab/reload.rs`.
+    They include the folder of the layout files, "Layout files" below. The
+    tokens file changes what a layout file draws where the file names a
+    token. The screens read their palettes from the code, so a change there
+    only stages the story again.
+  - **Outlines.** `F9` or LB with A (`LB+South`), or `outlines on|off`,
+    draws a frame around every control of the current frame, each with its
+    tag in a black box. The frames of each open screen have their own
+    colour, and the focused control's frame is orange and twice as thick. The
+    frames are drawn from the same marks as the control tree. Their lines
+    and tags are sized in the window's pixels, so they read the same in
+    every mode. The text beside a frame comes from `label` in
+    `collab/outline.rs`, where the lint of
+    https://github.com/kjk-engine/roadmap/issues/24 adds the numbers of the
+    rules a control breaks.
+  - **Backdrops.** `F10` or LB with the D-pad's up button, or `backdrop
+    plain|stripes|play`, changes the backdrop behind the screens. Plain is
+    black, as the catalogue has always been. Stripes are diagonal bands of two
+    greys. Play is a frame of the game world, so that the see-through parts of
+    a KOTOR panel, and a HUD, show what the player sees behind them.
+  - **The still behind the play backdrop** is a picture of the world with
+    the HUD hidden, made by kjk itself. The catalogue runs `kjk play --stage
+    STAGE --headless --size WxH` with `wait world; ui hotkey hide_interface;
+    wait 240f; screenshot still; quit`, where `WxH` is the device's pixels of
+    the chosen size. A thread starts the run, so the catalogue never waits
+    for it. The screens show the plain backdrop until the picture is ready,
+    and the state file's `backdrop_still` says `making`, `ready` or `failed:
+    WHY`. The picture is kept in `kjk-artifacts/catalogue-stills/STAGE-WxH.png`,
+    so each is made once for each stage and size. It is never committed,
+    because it holds the game's art. The stage comes from the start of the
+    name of the story's capture for the game: `endar-spire` is `end_m01aa`,
+    `taris-apartment` is `tar_m02af`, `taris` is `tar_m03ae`, `nar-shaddaa`
+    is `301nar`, `telos` is `202tel` and `floors-stage` is `floors`. A story
+    without a capture of that kind uses `tar_m03ae` on KOTOR 1 and `301nar` on
+    KOTOR 2. The table is `stage_for` in `collab/backdrop.rs`. A still that
+    failed is not tried again until the catalogue starts again. The folder
+    of the failed run stays next to the picture's place, named
+    `making-STAGE-PID`, so that its log can be read. A headless run turns to
+    the play backdrop with the console's `ui raw F10`, pressed twice from
+    plain, and takes its picture with `screenshot` once the state file's
+    `backdrop_still` says `ready`.
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
   2025.10). They hold the screens' palettes. The ui crate's build script
   writes the palettes of the code from this file, so it is the only source
@@ -928,6 +1213,219 @@ Running and checking:
   `data/ui/census.json`: the layouts, the controls of each kind, and the
   controls that use each font, text colour and border texture. It is the
   "before" the tokens are measured against.
+- **Layout files** (`ui::layout_files`, `data/ui/layouts`). kjk has layouts
+  of its own, written as TOML text by hand. A file is one of two kinds. An
+  override changes a KOTOR layout. A standalone layout builds a whole screen
+  with no KOTOR layout under it. Both are read into the same `Gui` that a
+  `.gui` is read into, so `ui::paint`, the stack, the headless renders, the
+  GPU path, the control trees and the catalogue draw them without any special
+  case.
+  - **What a file holds.** A file names KOTOR's resources by name only: its
+    textures, its fonts and the parts it copies. It never holds game art or
+    the game's text. A control's words are either kjk's own (`text = "OK"`)
+    or the number of a talk table line (`strref = 1582`), never both.
+  - **An override** is the file `data/ui/layouts/NAME.toml`, where NAME is
+    the KOTOR layout it changes, as a screen names it (`optionsmain`, not
+    `optionsmain_p`). Its first line is `override = "NAME"`. The override is
+    applied right after the `.gui` is read, before the screen's own `shape`.
+    A `[[control]]` table whose `tag` is in the layout changes that control.
+    A table with a tag that is not in the layout adds a control, and it needs
+    a `kind` or a `part`. A table with `remove = true` takes the control
+    away, together with the focus links that led to it. A control that is
+    not named stays as KOTOR has it. This is the example in the repository:
+    it moves the Back button of the options screen to the right end of its
+    bottom line, and draws the title in the base colour of the text.
+
+    ```toml
+    # An override of KOTOR's optionsmain layout, the main options screen. The
+    # Back button moves to the right end of the bottom line, and the title is
+    # drawn in the base colour of the text. docs/UI.md, "Layout files", describes the
+    # format.
+    override = "optionsmain"
+
+    [[control]]
+    tag = "BTN_BACK"
+    left = 605
+    top = 516
+
+    [[control]]
+    tag = "LBL_TITLE"
+    text_color = "color.tsl-layout.base"
+    ```
+
+  - **A standalone layout** is the file `data/ui/layouts/NAME.toml` with
+    `layout = "NAME"` and, usually, `frame = [800, 600]` (the frame of
+    KOTOR 2's full-screen layouts, which it has when `frame` is left out). A
+    screen names it with the prefix `kjk:`, so `fn layout(&self) -> &str`
+    returns `"kjk:layout_test"`. Its controls are all in the file, each in
+    a `[[control]]` table. The `[root]` table gives the frame the screen is
+    drawn in: `like = "optionsmain"` takes the border and the colour of that
+    KOTOR layout's root, and `border` and `color` set them directly. A
+    standalone layout is read from KOTOR 2's art and layouts, like every
+    screen is. On a KOTOR 1 campaign the stack recolours it to KOTOR 1's blue
+    as it does for any screen, so one file serves both skins. The screen
+    module needs a story file in `data/ui/stories`, as every module does. This
+    is the test screen of the repository, `layout_test`, which has a title,
+    a list box, two sliders, a check box and two buttons:
+
+    ```toml
+    # A kjk screen with no KOTOR layout under it, built from KOTOR's parts. The
+    # screen crates/ui/src/screens/layout_test.rs names it as "kjk:layout_test".
+    # docs/UI.md, "Layout files", describes the format.
+    layout = "layout_test"
+    frame = [800, 600]
+
+    # The root takes KOTOR 2's options frame: its border and colour.
+    [root]
+    like = "optionsmain"
+
+    [[control]]
+    tag = "LBL_TITLE"
+    part = "optionsmain:LBL_TITLE"
+    text = "Layout test"
+
+    [[control]]
+    tag = "LBL_BAR1"
+    part = "optionsmain:LBL_BAR1"
+
+    [[control]]
+    tag = "LBL_BAR2"
+    part = "optionsmain:LBL_BAR2"
+
+    [[control]]
+    tag = "LBL_BAR3"
+    part = "optionsmain:LBL_BAR3"
+
+    # The list box, with its rows and its scroll bar, is the save list's.
+    [[control]]
+    tag = "LB_ITEMS"
+    part = "saveload:LB_GAMES"
+    left = 78
+    top = 134
+    width = 340
+    height = 364
+    move_to = { right = "SLI_FIRST", down = "BTN_BACK" }
+
+    [[control]]
+    tag = "LBL_FIRST"
+    part = "optsound:LBL_MUSIC"
+    left = 440
+    top = 138
+    text = "First slider"
+
+    [[control]]
+    tag = "SLI_FIRST"
+    part = "optsound:SLI_MUSIC"
+    left = 440
+    top = 162
+    move_to = { up = "none", down = "SLI_SECOND", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "LBL_SECOND"
+    part = "optsound:LBL_MUSIC"
+    left = 440
+    top = 214
+    text = "Second slider"
+
+    [[control]]
+    tag = "SLI_SECOND"
+    part = "optsound:SLI_MUSIC"
+    left = 440
+    top = 238
+    move_to = { up = "SLI_FIRST", down = "CB_OPTION", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "CB_OPTION"
+    part = "optgameplay:CB_AUTOSAVE"
+    left = 440
+    top = 300
+    text = "A check box"
+    move_to = { up = "SLI_SECOND", down = "BTN_OK", left = "LB_ITEMS" }
+
+    [[control]]
+    tag = "BTN_BACK"
+    part = "optionsmain:BTN_BACK"
+    left = 75
+    top = 516
+    move_to = { up = "LB_ITEMS", right = "BTN_OK" }
+
+    [[control]]
+    tag = "BTN_OK"
+    part = "optionsmain:BTN_BACK"
+    left = 205
+    top = 516
+    text = "OK"
+    move_to = { up = "CB_OPTION", left = "BTN_BACK" }
+    ```
+
+  - **The fields of a control.**
+    - `tag` names the control. Two controls of one file never share a tag.
+      Tags are compared without regard to case.
+    - `kind` is one of `panel`, `label`, `button`, `check_box`, `slider`,
+      `scroll_bar`, `progress` and `list_box`.
+    - `part = "LAYOUT:TAG"` starts the control as a copy of that control of
+      a KOTOR layout, with its borders, its font, its rows and its scroll
+      bar. LAYOUT is a name as screens give it (`optsound`), and KOTOR 2's
+      `optsound_p` is read in its place. The fields in the file are applied
+      to the copy. `kjk gui layout-text GAME LAYOUT` writes a KOTOR layout
+      out as the text of a layout file, to see what a part holds. It leaves
+      the game's words out and keeps the numbers of the talk table lines.
+    - `parent = "TAG"` puts a new control inside another, so it is drawn
+      with it. Without it a new control is on the layout's root.
+    - `left`, `top`, `width` and `height` are in layout pixels, counted from
+      the root's top left, as in KOTOR's own layouts. Nothing else anchors a
+      control. The stack scales the whole layout to the window as it scales a
+      KOTOR layout, so a file looks the same at the six sizes of the
+      catalogue. A control that moves with `left` or `top` takes the controls
+      inside it along, such as a list box's rows and its scroll bar. A
+      change of `width` or `height` does not resize them.
+    - `text` and `strref` give the words. `font` is a font token (`font.body`
+      from `data/ui/tokens.json`) or the name of KOTOR's font resource
+      (`dialogfont16x16`). `align` is some of `left`, `centre`, `right`,
+      `top`, `middle` and `bottom`, as `"centre middle"`. `text_color` is the
+      colour of the words.
+    - `border`, `hilight`, `selected` and `hilight_selected` are the four
+      frames of a control: at rest, focused, chosen, and both. Each is a
+      table of `corner`, `edge` and `fill` (texture names), `fill_style`,
+      `dimension`, `inner_offset`, `color` and `pulsing`. A field that is
+      given replaces the one of the frame being changed.
+    - `move_to = { up = "TAG", down = "TAG", left = "TAG", right = "TAG" }`
+      sets where the pad and the arrow keys move the focus from this
+      control. A direction left out keeps what the control had. `"none"`
+      says that there is no control that way. Every tag is checked.
+    - `looping` and `padding` set the same fields of a list box as KOTOR's.
+    - `remove = true` takes the control out (an override only).
+  - **Colours and fonts.** A colour is written as a token of
+    `data/ui/tokens.json` (`color.tsl-layout.base`), as a hex colour
+    (`"#1ab28c"`), or as three numbers from 0 to 1 (`[0.1, 0.7, 0.55]`). The
+    tokens of KOTOR 2's layouts (`color.tsl-layout.*`) are recoloured for a
+    KOTOR 1 campaign with the rest of its art. The file `tokens.json` is
+    read each time a layout file is read, so a change to it shows at once.
+  - **Errors.** A file that cannot be read never panics and never draws
+    half a screen. The error names the file, the control and the cause, and
+    lists the choices: the fields of a control, the tags of the layout, the
+    names of the tokens. An override that fails closes the screen it was
+    meant for, and the log and the catalogue say why. The catalogue keeps the
+    screen it had when a reload fails.
+  - **The switch.** The setting `ui.layout_overrides` (`true` or `false`)
+    turns the overrides on and off. In the game it is off unless it is set,
+    so KOTOR's layouts are drawn. In the catalogue and in `kjk gui screen`
+    it is on unless it is set. The catalogue's key `F5`, or LB with the
+    D-pad's left button, switches between KOTOR's layout and the override
+    while a story is open. The status bar's `Layouts` line says what is
+    drawn: `KOTOR's`, `kjk's override of NAME`, `KOTOR's NAME, override off`
+    or `kjk's NAME` for a standalone layout. A notice says so as well when the
+    key is pressed. `ui catalogue overrides on|off|toggle` does the same from
+    the console, and a story step `set ui.layout_overrides false` turns them
+    off for a headless picture. Standalone layouts are drawn whatever the
+    setting says.
+  - **Hot reload.** The folder `data/ui/layouts` is one of the sources the
+    catalogue watches (`collab/reload.rs`). Saving a file there, adding one or
+    removing one stages the open story again, as a change to the story file
+    does.
+  - **Where the files are read from.** The folder is the one of the checkout
+    the program was built from, as the story files are, so a build that
+    runs away from its checkout has no overrides and no standalone layouts.
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second

@@ -122,7 +122,7 @@ fn level_up(ui: Res<Ui>, mut heard: ResMut<Heard>, mut lit: Local<bool>) {
 
 /// What a sound's label names (`guisounds.2da`), read once.
 #[derive(Default)]
-struct Rows {
+pub(crate) struct Rows {
     resrefs: BTreeMap<GuiSound, Option<String>>,
     /// Those read into the bank.
     read: std::collections::BTreeSet<String>,
@@ -142,8 +142,18 @@ fn screens(
         heard.0.clear();
         return;
     };
-    let rows = &mut *rows;
-    for sound in heard.0.drain(..) {
+    play(assets, heard.0.drain(..), (&mut now, &mut added), &mut rows);
+}
+
+/// `sounds` played now, read from `assets`' install as each is first
+/// played.
+pub(crate) fn play(
+    assets: &mut ui::assets::GuiAssets,
+    sounds: impl Iterator<Item = GuiSound>,
+    (now, added): (&mut Now, &mut Added),
+    rows: &mut Rows,
+) {
+    for sound in sounds {
         let resref = rows
             .resrefs
             .entry(sound)
