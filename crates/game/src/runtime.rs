@@ -51,6 +51,9 @@ pub enum Scene {
     Setup {
         start: bool,
     },
+    /// A story of the UI catalogue on a virtual screen (`kjk gui
+    /// catalogue`).
+    Catalogue(Box<crate::catalogue_view::Start>),
 }
 
 /// Keeps the Chrome trace writer alive until the app is dropped; dropping it
@@ -104,8 +107,14 @@ pub fn run(options: RunOptions) -> AppExit {
         _ => None,
     };
     let menu = matches!(options.scene, Scene::Empty);
-    let setup = match options.scene {
-        Scene::Setup { start } => Some(crate::setup::SetupPlugin { start }),
+    let setup = match &options.scene {
+        Scene::Setup { start } => Some(crate::setup::SetupPlugin { start: *start }),
+        _ => None,
+    };
+    let catalogue = match &options.scene {
+        Scene::Catalogue(start) => Some(crate::catalogue_view::CataloguePlugin {
+            start: (**start).clone(),
+        }),
         _ => None,
     };
     // A viewer whose scene has thunder to play hears it.
@@ -113,7 +122,7 @@ pub fn run(options: RunOptions) -> AppExit {
         if scene.weather.lightning.as_ref().is_some_and(|lightning| !lightning.thunder.is_empty()));
     let mut launch = None;
     let sim = match options.scene {
-        Scene::Empty | Scene::Setup { .. } => None,
+        Scene::Empty | Scene::Setup { .. } | Scene::Catalogue(_) => None,
         Scene::Launch(launching) => {
             launch = Some(launching);
             None
@@ -198,6 +207,9 @@ pub fn run(options: RunOptions) -> AppExit {
     }
     if let Some(setup) = setup {
         app.add_plugins(setup);
+    }
+    if let Some(catalogue) = catalogue {
+        app.add_plugins((crate::sound::SoundPlugin, catalogue));
     }
     if let Some(setup) = sim {
         app.add_plugins((

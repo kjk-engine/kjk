@@ -1,0 +1,11 @@
+# The stories of the screens in crates/ui/src/screens/campaign.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "campaign:solo"
+
+[[story]]
+name = "The Sith Lords focused"
+screen = "campaign:solo"
+steps = ["key Down"]

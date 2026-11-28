@@ -427,6 +427,13 @@ pub struct Frame {
     pub refusals: Vec<String>,
 }
 
+/// What Back did (`Stack::back`): the screens open after it, top last, and
+/// the intents it raised.
+pub struct Back {
+    pub screens: Vec<ScreenId>,
+    pub intents: Vec<Intent>,
+}
+
 pub type Factory = fn(&str, &ViewModel) -> Option<Box<dyn Screen>>;
 
 pub struct Stack {
@@ -438,14 +445,17 @@ pub struct Stack {
     pub veil_world: bool,
     /// Tags to activate next frame (the console's `ui press`).
     presses: Vec<String>,
-    /// List rows to double-click next frame (the console's `ui double`).
-    doubles: Vec<(String, usize)>,
+    /// List rows to click next frame, and how many times each: once for a
+    /// click, twice for the console's `ui double`.
+    row_clicks: Vec<(String, usize, usize)>,
     /// Wheel motion not yet a whole notch (a trackpad's small steps).
     wheel: f32,
     /// The player is down (`fell`).
     down: bool,
     /// A screen as big as its frame was open after the last step.
     covered: bool,
+    /// Its frames' layers carry each control's mark (`Stack::mark_controls`).
+    marked: bool,
 }
 
 const PULSE: f32 = 1.6;
@@ -942,6 +952,66 @@ fn kept_in_shape(read: Rect, anchor: Rect, by: (f32, f32)) -> Rect {
     }
 }
 
+/// Where `key` moves the focus from `from` among `targets`: along the
+/// control's `MOVETO` link, else to the nearest target that way.
+fn toward<'g>(from: &Control, targets: &[&'g Control], key: Key) -> Option<&'g Control> {
+    let linked = from.moveto.map(|links| match key {
+        Key::Up => links.up,
+        Key::Down => links.down,
+        Key::Left => links.left,
+        _ => links.right,
+    });
+    if let Some(id) = linked.filter(|id| *id >= 0)
+        && let Some(to) = targets.iter().find(|control| control.id == id)
+    {
+        return Some(to);
+    }
+    let direction = match key {
+        Key::Up => [0.0, -1.0],
+        Key::Down => [0.0, 1.0],
+        Key::Left => [-1.0, 0.0],
+        _ => [1.0, 0.0],
+    };
+    let [x, y] = centre(from);
+    targets
+        .iter()
+        .filter(|control| control.tag != from.tag)
+        .filter_map(|control| {
+            let [cx, cy] = centre(control);
+            let (dx, dy) = (cx - x, cy - y);
+            let along = dx * direction[0] + dy * direction[1];
+            let across = (dx * direction[1] - dy * direction[0]).abs();
+            (along > 0.0).then_some((along + 2.0 * across, *control))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, control)| control)
+}
+
+/// A control's tag, and the tags of the controls that up, down, left and
+/// right move the focus to from it.
+pub type FocusLink = (String, [Option<String>; 4]);
+
+/// Where up, down, left and right move the focus from each of `targets`,
+/// by tag, in that order. A list box takes up and down itself row by row
+/// before these apply.
+fn links_among(targets: &[&Control]) -> Vec<FocusLink> {
+    let keys = [Key::Up, Key::Down, Key::Left, Key::Right];
+    targets
+        .iter()
+        .map(|from| {
+            let to = keys.map(|key| toward(from, targets, key).map(|to| to.tag.clone()));
+            (from.tag.clone(), to)
+        })
+        .collect()
+}
+
+/// The focus links (`links_among`) of a layout at rest: every control
+/// the focus can rest on, none hidden or disabled.
+pub fn layout_links(gui: &Gui) -> Vec<FocusLink> {
+    let targets: Vec<&Control> = gui.walk().filter(|control| focusable(control)).collect();
+    links_among(&targets)
+}
+
 fn centre(control: &Control) -> [f32; 2] {
     let e = control.extent;
     [
@@ -967,10 +1037,11 @@ impl Stack {
             palette: Palette::K1,
             veil_world: false,
             presses: Vec::new(),
-            doubles: Vec::new(),
+            row_clicks: Vec::new(),
             wheel: 0.0,
             down: false,
             covered: false,
+            marked: false,
         }
     }
 
@@ -1083,6 +1154,11 @@ impl Stack {
         self.entries.iter().map(|entry| entry.screen.id())
     }
 
+    /// Each open screen's layout, bottom first, as `Frame::layers` are.
+    pub fn layouts(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|entry| entry.screen.layout())
+    }
+
     pub fn is_open(&self) -> bool {
         !self.entries.is_empty()
     }
@@ -1109,6 +1185,31 @@ impl Stack {
         entry.screen.edit(tag).map(|edit| edit.text.clone())
     }
 
+    /// The focus links (`links_among`) of the top screen as it is now.
+    pub fn focus_links(&self, vm: &ViewModel) -> Vec<FocusLink> {
+        let Some(entry) = self.entries.last() else {
+            return Vec::new();
+        };
+        let Some(gui) = entry.shown() else {
+            return Vec::new();
+        };
+        links_among(&entry.focusables(gui, vm))
+    }
+
+    /// Back pressed on the top screen for one frame of `quiet` input. The
+    /// stack is left as Back left it.
+    pub fn back(&mut self, assets: &mut dyn Assets, vm: &ViewModel, quiet: &UiInput) -> Back {
+        let pressed = UiInput {
+            keys: vec![Key::Back],
+            ..quiet.clone()
+        };
+        let frame = self.step(assets, vm, &pressed);
+        Back {
+            screens: self.screens().collect(),
+            intents: frame.intents,
+        }
+    }
+
     /// Activates `tag` on the top screen next frame.
     pub fn press(&mut self, tag: &str) {
         self.presses.push(tag.to_string());
@@ -1117,7 +1218,13 @@ impl Stack {
     /// Double-clicks row `row` of the top screen's list `tag` next frame,
     /// as two clicks on it soon after each other.
     pub fn double(&mut self, tag: &str, row: usize) {
-        self.doubles.push((tag.to_string(), row));
+        self.row_clicks.push((tag.to_string(), row, 2));
+    }
+
+    /// Clicks row `row` of the top screen's list `tag` next frame, as one
+    /// click on it.
+    pub fn click_row(&mut self, tag: &str, row: usize) {
+        self.row_clicks.push((tag.to_string(), row, 1));
     }
 
     /// How the top screen shows `tag` now, before the focus.
@@ -1130,6 +1237,13 @@ impl Stack {
     /// The first row the top screen's list `tag` shows, and its cursor row.
     pub fn list_at(&self, tag: &str) -> Option<(usize, usize)> {
         let cursor = self.entries.last()?.lists.get(tag)?;
+        Some((cursor.first, cursor.row))
+    }
+
+    /// The first row shown and the cursor row of the list `tag` of the
+    /// screen at place `at` from the bottom of the stack.
+    pub fn list_at_in(&self, at: usize, tag: &str) -> Option<(usize, usize)> {
+        let cursor = self.entries.get(at)?.lists.get(tag)?;
         Some((cursor.first, cursor.row))
     }
 
@@ -1195,6 +1309,18 @@ impl Stack {
             2.0 - phase * 2.0
         };
         0.2 + 0.8 * rise
+    }
+
+    /// From now on each control drawn leaves a mark for a control tree
+    /// (`DrawList::marks`), as the headless renders want.
+    pub fn mark_controls(&mut self) {
+        self.marked = true;
+    }
+
+    /// What this frame's painters paint with: the palette, the pulse and
+    /// the marks (`crate::paint::Brush`).
+    pub fn brush(&self) -> crate::paint::Brush {
+        crate::paint::Brush::new(self.palette, self.pulsing(), self.marked)
     }
 
     /// A pulsing border's alpha now (`ControlState::pulsing`): KOTOR's, 1
@@ -1327,6 +1453,13 @@ impl Stack {
     /// (`TextScale`) multiplies the size of the words, here and outside the
     /// stack too.
     pub fn step(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
+        let overrides = crate::draw::kjk_option(&vm.settings, crate::layout_files::OVERRIDES);
+        if assets.set_overrides(overrides) {
+            for entry in &mut self.entries {
+                entry.gui = None;
+                entry.stretched = None;
+            }
+        }
         let window = input.window;
         let small = vm
             .settings
@@ -1349,7 +1482,7 @@ impl Stack {
         let placed = Placement::of(vm, input.window);
         self.load(assets, placed, &mut frame, true);
         let presses = std::mem::take(&mut self.presses);
-        let doubles = std::mem::take(&mut self.doubles);
+        let row_clicks = std::mem::take(&mut self.row_clicks);
         let mut intents = Vec::new();
         self.wheel += input.wheel;
         let notches = self.wheel.trunc();
@@ -1362,7 +1495,7 @@ impl Stack {
                 vm,
                 input,
                 notches,
-                (&presses, &doubles),
+                (&presses, &row_clicks),
                 &mut intents,
             );
             // As KOTOR 2's panels draw after the frame's input, the screen
@@ -1406,8 +1539,7 @@ impl Stack {
             });
         }
         self.covered = covered;
-        let pulse = self.pulse();
-        let pulsing = self.pulsing();
+        let (pulse, brush) = (self.pulse(), self.brush());
         let blink = self.clock % 1.0 < 0.5;
         let count = self.entries.len();
         let stepped = assets.sizing();
@@ -1428,10 +1560,8 @@ impl Stack {
                 stepped.at(input.window, input.scale_factor, scale).pixel
             });
             assets.set_sizing(Sizing { pixel, ..stepped });
-            let mut painter = Painter::new(assets, self.palette);
+            let mut painter = brush.painter(assets, entry.source);
             painter.pulse = pulse;
-            painter.pulsing = pulsing;
-            painter.source = entry.source;
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
             // A menu narrower or shorter than the window has black bars
             // beside it, and nothing of it shows on them. Nor does anything
@@ -1613,7 +1743,7 @@ impl Entry {
         vm: &ViewModel,
         input: &UiInput,
         notches: f32,
-        (presses, doubles): (&[String], &[(String, usize)]),
+        (presses, row_clicks): (&[String], &[(String, usize, usize)]),
         out: &mut Vec<Intent>,
     ) {
         let Some((gui, read)) = self.take_shown() else {
@@ -1647,8 +1777,8 @@ impl Entry {
             .collect();
         let start = out.len();
         self.respond(&gui, textures, vm, input, notches, presses, out);
-        for (tag, row) in doubles {
-            self.double_row(&gui, vm, tag, *row, out);
+        for (tag, row, clicks) in row_clicks {
+            self.click_row(&gui, vm, tag, (*row, *clicks), out);
         }
         self.roll(&gui, textures, vm, input.dt, out);
         // KOTOR's controls sound as the focus comes to them (each list row
@@ -1761,7 +1891,7 @@ impl Entry {
                 {
                     Some(tag) => {
                         let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
-                        self.double_row(gui, vm, &tag, row, out);
+                        self.click_row(gui, vm, &tag, (row, 2), out);
                         self.clicked = None;
                     }
                     None => {
@@ -1787,7 +1917,7 @@ impl Entry {
                     } else if let Some(tag) = self.focus.clone() {
                         if self.rows(gui, vm, &tag).is_some() {
                             let row = self.lists.get(&tag).map_or(0, |cursor| cursor.row);
-                            self.double_row(gui, vm, &tag, row, out);
+                            self.click_row(gui, vm, &tag, (row, 2), out);
                         } else {
                             self.activate(gui, vm, out);
                             self.screen.double(&tag, vm, out);
@@ -1909,14 +2039,14 @@ impl Entry {
         }
     }
 
-    /// Two clicks on row `row` of the list `tag`, as the pointer makes
-    /// them (the console's `ui double`).
-    fn double_row(
+    /// `clicks` clicks on row `row` of the list `tag`, as the pointer makes
+    /// them (the console's `ui double` makes two).
+    fn click_row(
         &mut self,
         gui: &Gui,
         vm: &ViewModel,
         tag: &str,
-        row: usize,
+        (row, clicks): (usize, usize),
         out: &mut Vec<Intent>,
     ) {
         let Some((count, shown)) = self.rows(gui, vm, tag) else {
@@ -1929,7 +2059,7 @@ impl Entry {
         let cursor = self.lists.entry(tag.to_string()).or_default();
         cursor.row = row;
         Entry::keep_in_view(cursor, shown);
-        for _ in 0..2 {
+        for _ in 0..clicks {
             self.sound_click(gui, out);
             self.activate(gui, vm, out);
             self.double_click(gui, vm, tag, out);
@@ -2579,37 +2709,7 @@ impl Entry {
         let Some(from) = self.focus.as_deref().and_then(|tag| gui.find(tag)) else {
             return;
         };
-        let linked = from.moveto.map(|links| match key {
-            Key::Up => links.up,
-            Key::Down => links.down,
-            Key::Left => links.left,
-            _ => links.right,
-        });
-        if let Some(id) = linked.filter(|id| *id >= 0)
-            && let Some(to) = targets.iter().find(|control| control.id == id)
-        {
-            self.focus = Some(to.tag.clone());
-            return;
-        }
-        let direction = match key {
-            Key::Up => [0.0, -1.0],
-            Key::Down => [0.0, 1.0],
-            Key::Left => [-1.0, 0.0],
-            _ => [1.0, 0.0],
-        };
-        let [x, y] = centre(from);
-        let nearest = targets
-            .iter()
-            .filter(|control| control.tag != from.tag)
-            .filter_map(|control| {
-                let [cx, cy] = centre(control);
-                let (dx, dy) = (cx - x, cy - y);
-                let along = dx * direction[0] + dy * direction[1];
-                let across = (dx * direction[1] - dy * direction[0]).abs();
-                (along > 0.0).then_some((along + 2.0 * across, control))
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, to)) = nearest {
+        if let Some(to) = toward(from, targets, key) {
             self.focus = Some(to.tag.clone());
         }
     }

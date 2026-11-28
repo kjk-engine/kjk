@@ -97,6 +97,63 @@ pub struct DrawList {
     /// The 3D views whose image keeps a size other than their quad's
     /// (`ControlState::scene_size`), and that size in layout pixels.
     pub sized: Vec<(TextureId, [f32; 2])>,
+    /// Each control painted, in paint order: what a control tree of the
+    /// screen is made from (`kjk gui screen`).
+    pub marks: Vec<Mark>,
+}
+
+/// A control as the painter drew it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mark {
+    pub tag: String,
+    pub id: i32,
+    pub kind: fmt_odyssey::gui::Kind,
+    /// Left, top, width, height in layout pixels.
+    pub rect: [f32; 4],
+    pub focused: bool,
+    pub disabled: bool,
+    /// The talk-table entry its words come from, when they come from one.
+    pub strref: Option<u32>,
+    /// Its words, one entry for each block set: a list has one for each
+    /// row's.
+    pub words: Vec<Words>,
+}
+
+impl Mark {
+    /// The mark of a drawing of kjk's own that no layout holds, such as the
+    /// reticle: `tag`, the id -1, `kind` and the rect about `quads`. None
+    /// when nothing was drawn.
+    pub fn drawn(tag: &str, kind: fmt_odyssey::gui::Kind, quads: &[Quad]) -> Option<Mark> {
+        let [left, top, right, bottom] = (quads.iter()).map(|quad| quad.rect).fold(
+            [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+            |[left, top, right, bottom], [x, y, w, h]| {
+                [left.min(x), top.min(y), right.max(x + w), bottom.max(y + h)]
+            },
+        );
+        (!quads.is_empty()).then(|| Mark {
+            tag: tag.to_string(),
+            id: -1,
+            kind,
+            rect: [left, top, right - left, bottom - top],
+            focused: false,
+            disabled: false,
+            strref: None,
+            words: Vec::new(),
+        })
+    }
+}
+
+/// Words as the painter set them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Words {
+    pub bytes: Vec<u8>,
+    /// The font's name, and the font at the size drawn.
+    pub font_name: String,
+    pub font: Arc<Font>,
+    pub texture: TextureId,
+    /// The box the words were set in, in layout pixels.
+    pub rect: [f32; 4],
+    pub color: [f32; 4],
 }
 
 impl DrawList {

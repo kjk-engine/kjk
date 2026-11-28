@@ -1,0 +1,16 @@
+# The stories of the screens in crates/ui/src/screens/galaxy_map.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "Its stories start from captures of play: a script opened the map on Taris in KOTOR 1 and on Nar Shaddaa in KOTOR 2, with seven planets, five of them selectable (`ui script galaxy PLANET 1,2,3,4,5,6,7 1,2,3,4,5`). The 3D views of the planets are not drawn."
+
+[[story]]
+name = "The current planet"
+screen = "galaxymap"
+capture = { k1 = "galaxy-map-taris", tsl = "galaxy-map-nar-shaddaa" }
+pad_capture = { k1 = "galaxy-map-taris-pad", tsl = "galaxy-map-nar-shaddaa-pad" }
+
+[[story]]
+name = "Another planet chosen"
+screen = "galaxymap"
+capture = { k1 = "galaxy-map-taris", tsl = "galaxy-map-nar-shaddaa" }
+pad_capture = { k1 = "galaxy-map-taris-pad", tsl = "galaxy-map-nar-shaddaa-pad" }
+steps = ["key Left", "key Activate"]

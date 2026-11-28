@@ -1,0 +1,10 @@
+# The stories of the screens in crates/ui/src/screens/photo.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "Photo mode's corner lines are drawn over play, outside the screen stack. Photo mode hides the HUD and everything else drawn over play but the power wheel. Its story turns photo mode on by hand (`photo on`) over captures of the Taris lower city and Nar Shaddaa, with a hostile target held, so the HUD the lines replace is in the capture. The lines say what photo mode first says in a world of one, with the keys of the input in use."
+
+[[story]]
+name = "Just turned on"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["photo on"]

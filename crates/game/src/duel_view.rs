@@ -54,7 +54,7 @@ fn lit(now_ms: f64, period_ms: u32) -> bool {
     (now_ms / f64::from(period_ms)).fract() < 0.5
 }
 
-fn bar(share: f32, [r, g, b]: [f32; 3], on: bool) -> Bar {
+pub(crate) fn bar(share: f32, [r, g, b]: [f32; 3], on: bool) -> Bar {
     Bar {
         share,
         color: [r, g, b, if on { 1.0 } else { FLASH_OFF }],
@@ -180,7 +180,7 @@ fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts
 /// (`floaty::BARS_OVER` is a few pixels more).
 const OVER_M: f32 = 0.05;
 /// The health bar's red.
-const HEALTH: [f32; 3] = [0.86, 0.16, 0.12];
+pub(crate) const HEALTH: [f32; 3] = [0.86, 0.16, 0.12];
 
 /// What the bars' decision knows of the fight, as plain data.
 struct Fight {

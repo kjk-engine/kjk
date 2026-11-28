@@ -1,0 +1,16 @@
+# The stories of the screens in crates/ui/src/screens/feed.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is drawn over play, outside the screen stack, while a computer conversation shows a camera. Its stories open the screen `play`. The first starts from captures of a terminal showing a camera: the Endar Spire's starboard transport module in KOTOR 1, and the Peragus mess hall in KOTOR 2. The second turns the feed on by hand (`feed on`) over captures of the Taris lower city and Nar Shaddaa. The feed reads nothing but the window and the clock."
+
+[[story]]
+name = "Turned on over play"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["feed on"]
+
+[[story]]
+name = "A terminal's camera"
+screen = "play"
+capture = { k1 = "endar-spire-camera", tsl = "peragus-camera" }
+pad_capture = { k1 = "endar-spire-camera-pad", tsl = "peragus-camera-pad" }

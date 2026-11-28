@@ -1,0 +1,18 @@
+# The stories of the screens in crates/ui/src/screens/chargen.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "Solo, at rest"
+screen = "chargen:solo"
+
+[[story]]
+name = "Solo, quick character"
+screen = "chargen:solo"
+steps = ["press BTN_SEL3", "press QUICK_CHAR_BTN"]
+games = ["tsl"]
+
+[[story]]
+name = "Solo, quick character, portrait"
+screen = "chargen:solo"
+steps = ["press BTN_SEL3", "press QUICK_CHAR_BTN"]
+games = ["k1"]

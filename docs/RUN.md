@@ -47,6 +47,7 @@ kjk movie import k1 01a               # a movie made ours by ffmpeg, in the stor
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
+kjk gui catalogue --story main_menu/at-rest --at deck --headless --cmds 'wait 30f; screenshot; quit'   # a UI story on a virtual screen (UI.md, "The catalogue in the game")
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

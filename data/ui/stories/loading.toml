@@ -1,0 +1,7 @@
+# The stories of the screens in crates/ui/src/screens/loading.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "Its story stands in for a save loading: the K1 route's save of the Taris lower city, or the TSL route's save of Peragus, with its module's loading image and the bar at 60%."
+
+[[story]]
+name = "A save loading"
+screen = "loading"

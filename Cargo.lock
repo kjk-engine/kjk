@@ -6588,6 +6588,8 @@ dependencies = [
  "fmt_odyssey",
  "rules",
  "serde",
+ "serde_json",
+ "toml_edit",
  "vfs",
 ]
 

@@ -787,8 +787,51 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 size.unwrap_or((1280, 960)),
                 (out, file.as_deref()),
             ),
-            GuiVerb::Sweep { game } => gui_verbs::sweep(&discover(), game.as_deref()),
+            GuiVerb::Sweep { game, out } => gui_verbs::sweep(&discover(), game.as_deref(), out),
             GuiVerb::Sheet { game, out } => gui_verbs::sheet(&discover(), &game, out),
+            GuiVerb::Catalogue {
+                story,
+                at,
+                game,
+                cmds,
+                headless,
+            } => match gui_catalogue::start(story.as_deref(), &at, game.as_deref()) {
+                Ok(start) => play(
+                    cmds.as_deref().unwrap_or(""),
+                    headless,
+                    size.unwrap_or(scene::HEADLESS_SIZE),
+                    runtime::Scene::Catalogue(Box::new(start)),
+                ),
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::from(2)
+                }
+            },
+            GuiVerb::Census { out } => gui_catalogue::census(&discover(), out),
+            GuiVerb::Captures { rewrite } => gui_catalogue::captures(&discover(), rewrite),
+            GuiVerb::LayoutText { game, name } => {
+                gui_catalogue::layout_text(&discover(), &game, &name)
+            }
+            GuiVerb::List { json } => gui_catalogue::list(json),
+            GuiVerb::Show { module } => gui_catalogue::show(&module),
+            GuiVerb::Story {
+                module,
+                story,
+                at,
+                input,
+                game,
+                out,
+            } => gui_catalogue::story(
+                &discover(),
+                &gui_catalogue::Choice {
+                    module: &module,
+                    story: story.as_deref(),
+                    size: at,
+                    input,
+                    game,
+                },
+                out,
+            ),
         },
         Verb::Sim { verb } => sim(verb, size.unwrap_or(scene::HEADLESS_SIZE)),
         Verb::Playthrough {
@@ -1314,9 +1357,9 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the player's, or a hand card played away) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
+        /// Steps in turn, each `press TAG`, `row TAG N` (a click on row N of a list, from 0), `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `hover TAG` (the pointer moved onto the middle of that control), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the main character's, or a hand card played away), `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1), or one of the others a wrong step lists
         #[arg(long = "step")]
-        steps: Vec<String>,
+        steps: Vec<ui::catalogue::Step>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
         #[arg(long)]
         out: Option<std::path::PathBuf>,
@@ -1332,6 +1375,87 @@ pub(crate) enum GuiVerb {
     Sweep {
         /// k1 or tsl; both by default
         game: Option<String>,
+        /// Also draw every layout at rest into this folder, one PNG and one
+        /// control tree (JSON) each, under a folder for each game
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// The UI catalogue: every screen module, its status and its stories
+    /// (data/ui/stories)
+    List {
+        /// The modules, stories, sizes and inputs as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// One module's notes and its stories with their steps
+    Show {
+        /// The screen module, as `options` or `pages`
+        module: String,
+    },
+    /// Draw a module's stories, a PNG and a control tree each, at the
+    /// catalogue's sizes and inputs
+    Story {
+        /// The screen module, as `options` or `pages`
+        module: String,
+        /// One story, by name or slug; all by default
+        story: Option<String>,
+        /// One size (`deck`, `1080p`, `4k`, `4x3`,
+        /// `ultrawide`); all five by default. It is not called `size`, which
+        /// is the headless frame size every verb takes.
+        #[arg(long)]
+        at: Option<ui::catalogue::Size>,
+        /// `pad` or `mouse`; both by default
+        #[arg(long)]
+        input: Option<ui::catalogue::Input>,
+        /// k1 or tsl; each the story names by default
+        #[arg(long, value_parser = ui::catalogue::game)]
+        game: Option<Game>,
+        /// Output folder; defaults to kjk-artifacts/gui/catalogue
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Check that no capture of play (data/ui/captures) holds the game's
+    /// words, against the talk table of each game installed
+    Captures {
+        /// Write each capture again first, keeping only what a capture
+        /// keeps today and naming its game's lines
+        #[arg(long)]
+        rewrite: bool,
+    },
+    /// The UI catalogue in the game: a story's screen opened live on a
+    /// virtual screen of one of the five sizes
+    Catalogue {
+        /// The story, as `options/At rest`: its screen module, a slash, and
+        /// its name or slug. The first story by default
+        #[arg(long)]
+        story: Option<String>,
+        /// The size it opens at (`deck`, `1080p`, `4k`, `4x3`, `ultrawide`)
+        #[arg(long, default_value = "1080p")]
+        at: String,
+        /// k1 or tsl; the first game the story names by default
+        #[arg(long)]
+        game: Option<String>,
+        /// Commands to run, e.g. 'wait 30f; screenshot first; quit'
+        #[arg(long)]
+        cmds: Option<String>,
+        /// Run without a window, rendering into an off-screen image
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Count what the layouts of each install use (fonts, colours, border
+    /// textures, control kinds) into data/ui/census.json
+    Census {
+        /// Output file; defaults to the repository's data/ui/census.json
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
+    },
+    /// Write a KOTOR layout out as the text of a kjk layout file, to copy
+    /// its controls from (docs/UI.md, "Layout files")
+    LayoutText {
+        /// k1 or tsl
+        game: String,
+        /// The layout, without `.gui`, as a screen names it (`optionsmain`)
+        name: String,
     },
     /// Every layout of an install on one contact sheet.
     Sheet {

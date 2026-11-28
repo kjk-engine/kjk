@@ -1,0 +1,10 @@
+# The stories of the screens in crates/ui/src/screens/new_or_load.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "Solo"
+screen = "solo"
+
+[[story]]
+name = "Host"
+screen = "host"

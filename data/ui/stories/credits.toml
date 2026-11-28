@@ -1,0 +1,8 @@
+# The stories of the screens in crates/ui/src/screens/credits.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "Its stories fill the credits from the game's own credits.2da, as the game does when a script starts them. The names rise with the frames' time, so its story lets 20 seconds go by."
+
+[[story]]
+name = "The credits rising"
+screen = "credits"
+steps = ["wait 20"]

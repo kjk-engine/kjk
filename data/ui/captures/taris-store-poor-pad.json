@@ -1,0 +1,823 @@
+{
+  "game": "k1",
+  "scale_factor": 1.0,
+  "screens": ["store"],
+  "view": {
+    "dialog": {
+      "focus": 0,
+      "host_only": [],
+      "leave": null,
+      "leave_key": [66],
+      "marks": null,
+      "replies": [],
+      "said": {"$talk":40464}
+    },
+    "hud": {
+      "bar": [
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
+          "kinds": 0,
+          "lit": false
+        }
+      ],
+      "bar_label": null,
+      "busy": null,
+      "duel": null,
+      "feat": null,
+      "form": null,
+      "fp": [0,0],
+      "hp": [12,12],
+      "lit": [],
+      "minimap": {
+        "at": [0.34773576259613037,0.26111698150634766],
+        "fog": {
+          "cells": [24,13],
+          "explored": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        "picture": "lbl_mapm02aa",
+        "spin": 3.7306413650512695,
+        "used": 0.859375
+      },
+      "poisoned": false,
+      "portrait": "po_pmha1",
+      "solo": false,
+      "stealth": false
+    },
+    "pad_kind": "xbox",
+    "pad_names": [
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
+    ],
+    "pad_playing": true,
+    "session_rules": "ja",
+    "settings": {
+      "display.ambient_occlusion": "on",
+      "display.anisotropy": "16",
+      "display.corner_notices": "true",
+      "display.effects": "high",
+      "display.frame_limit": "0",
+      "display.gamma": "0.50",
+      "display.grass": "true",
+      "display.image_aspect": "true",
+      "display.lighting": "enhanced",
+      "display.menu_width": "16x9",
+      "display.mode": "window",
+      "display.msaa": "taa_balanced",
+      "display.shadows": "low",
+      "display.size": "",
+      "display.small_fonts": "auto",
+      "display.target_top": "true",
+      "display.text_scale": "100",
+      "display.vsync": "true",
+      "feedback.floating_numbers": "true",
+      "feedback.hide_menu_buttons": "false",
+      "feedback.hide_unequippable": "false",
+      "feedback.minimap": "true",
+      "feedback.status_summary": "true",
+      "feedback.tooltips": "true",
+      "feedback.tutorials": "true"
+    },
+    "store": {
+      "buys": true,
+      "credits": 0,
+      "offers": [],
+      "sells": true,
+      "stock": [
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\n",{"$talk":42298}," Proficiency -  ",{"$talk":691},"\n\n",{"$talk":1059},": +4\n",{"$talk":707},": ",{"$talk":142},"\n\nEven the most frugal of mercenaries know they need at least some protection from the rigors of combat, although suits of this type are recommended for light skirmishes only."]
+            },
+            "icon": "ia_class4_001",
+            "kind": "Armour",
+            "name": {"$talk":5632}
+          },
+          "item": 2080374799,
+          "price": 55
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\n",{"$talk":42298}," Proficiency -  ",{"$talk":691},"\n\n",{"$talk":1059},": +5\n",{"$talk":707},": ",{"$talk":142},"\n\n",{"$talk":5647}]
+            },
+            "icon": "ia_class5_001",
+            "kind": "Armour",
+            "name": {"$talk":5646}
+          },
+          "item": 2080374800,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\n",{"$talk":42298}," Proficiency -  ",{"$talk":337},"\n\n",{"$talk":1059},": +6\n",{"$talk":707},": ",{"$talk":142},"\n\n",{"$talk":5663}]
+            },
+            "icon": "ia_class6_001",
+            "kind": "Armour",
+            "name": {"$talk":5662}
+          },
+          "item": 2080374801,
+          "price": 165
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":1264}," ",{"$talk":783},"\n\n",{"$talk":5759},"\n\nLasts 120 ",{"$talk":47878}," (only one stim active at a time). Adrenal stims grant +4 (Hyper: +6) to ",{"$talk":211},", ",{"$talk":212},", or ",{"$talk":213},". Battle stimulants grant +1 / +2 / +3 to ",{"$talk":1371}," and damage plus 8 / 16 / 25 temporary ",{"$talk":1061},"."]
+            },
+            "icon": "ii_cmbtshot_001",
+            "kind": "Useable",
+            "name": {"$talk":5758}
+          },
+          "item": 2080374802,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 2,
+            "description": {"$talk":5975},
+            "icon": "ii_progspike_001",
+            "kind": "Misc",
+            "name": {"$talk":717}
+          },
+          "item": 2080374803,
+          "price": 275
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":1103}," ",{"$talk":783},"\n\n",{"$talk":38943},"\n\nHeals 10 (",{"$talk":5962},"), 20 (Advanced), or 30 (",{"$talk":5966},") ",{"$talk":1061},", plus your ",{"$talk":214}," mod and +1 / +2 / +3 per rank in ",{"$talk":257},". Cannot be used by droids. Antidote kits cure ",{"$talk":41902,"filled":["and"]}," restore drained attributes."]
+            },
+            "icon": "ii_medeqpmnt_002",
+            "kind": "Useable",
+            "name": {"$talk":5962}
+          },
+          "item": 2080374804,
+          "price": 44
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":132},": ",{"$talk":1278},"\n\n",{"$talk":32358},"\n\nRecovering a mine works like disarming it, but the DC is 10 higher. If the check falls short of the DC by more than 5, the mine goes off. A recovered mine goes into the party's inventory.\n\n",{"$talk":331}," places the most powerful mine in the party's inventory. Setting a mine takes 2 ",{"$talk":47878},", and the character must stand still. The check is made the same way as for disarming, against the mine's set DC. A character with 5 or more ranks in ",{"$talk":245}," gains a +2 bonus. The total of the check is added to the mine's own detection and disarm DCs, so a well-set mine is harder to find and to disarm. The party may have at most 15 mines set in one area.\n\nEach kind of mine adds its own strength to a blast against a lock. Average frag, plasma and ",{"$talk":1446,"filled":["mines"]}," add +3. Deadly and strong mines add +9. Devastating mines add +12. ",{"$talk":361}," mines add nothing."]
+            },
+            "icon": "ii_trapkit_001",
+            "kind": "Useable",
+            "name": {"$talk":32475}
+          },
+          "item": 2080374805,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":132},": ",{"$talk":1281},"\n\n",{"$talk":32359},"\n\nRecovering a mine works like disarming it, but the DC is 10 higher. If the check falls short of the DC by more than 5, the mine goes off. A recovered mine goes into the party's inventory.\n\n",{"$talk":331}," places the most powerful mine in the party's inventory. Setting a mine takes 2 ",{"$talk":47878},", and the character must stand still. The check is made the same way as for disarming, against the mine's set DC. A character with 5 or more ranks in ",{"$talk":245}," gains a +2 bonus. The total of the check is added to the mine's own detection and disarm DCs, so a well-set mine is harder to find and to disarm. The party may have at most 15 mines set in one area.\n\nEach kind of mine adds its own strength to a blast against a lock. Average frag, plasma and ",{"$talk":1446,"filled":["mines"]}," add +3. Deadly and strong mines add +9. Devastating mines add +12. ",{"$talk":361}," mines add nothing."]
+            },
+            "icon": "ii_trapkit_002",
+            "kind": "Useable",
+            "name": {"$talk":32478}
+          },
+          "item": 2080374806,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":132},": ",{"$talk":1287},"\n\n",{"$talk":32360},"\n\nRecovering a mine works like disarming it, but the DC is 10 higher. If the check falls short of the DC by more than 5, the mine goes off. A recovered mine goes into the party's inventory.\n\n",{"$talk":331}," places the most powerful mine in the party's inventory. Setting a mine takes 2 ",{"$talk":47878},", and the character must stand still. The check is made the same way as for disarming, against the mine's set DC. A character with 5 or more ranks in ",{"$talk":245}," gains a +2 bonus. The total of the check is added to the mine's own detection and disarm DCs, so a well-set mine is harder to find and to disarm. The party may have at most 15 mines set in one area.\n\nEach kind of mine adds its own strength to a blast against a lock. Average frag, plasma and ",{"$talk":1446,"filled":["mines"]}," add +3. Deadly and strong mines add +9. Devastating mines add +12. ",{"$talk":361}," mines add nothing."]
+            },
+            "icon": "ii_trapkit_003",
+            "kind": "Useable",
+            "name": {"$talk":32484}
+          },
+          "item": 2080374807,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":132},": ",{"$talk":1284},"\n\n",{"$talk":32361},"\n\nRecovering a mine works like disarming it, but the DC is 10 higher. If the check falls short of the DC by more than 5, the mine goes off. A recovered mine goes into the party's inventory.\n\n",{"$talk":331}," places the most powerful mine in the party's inventory. Setting a mine takes 2 ",{"$talk":47878},", and the character must stand still. The check is made the same way as for disarming, against the mine's set DC. A character with 5 or more ranks in ",{"$talk":245}," gains a +2 bonus. The total of the check is added to the mine's own detection and disarm DCs, so a well-set mine is harder to find and to disarm. The party may have at most 15 mines set in one area.\n\nEach kind of mine adds its own strength to a blast against a lock. Average frag, plasma and ",{"$talk":1446,"filled":["mines"]}," add +3. Deadly and strong mines add +9. Devastating mines add +12. ",{"$talk":361}," mines add nothing."]
+            },
+            "icon": "ii_trapkit_004",
+            "kind": "Useable",
+            "name": {"$talk":32481}
+          },
+          "item": 2080374808,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 2,
+            "description": {"$talk":32293},
+            "icon": "ii_progspike_002",
+            "kind": "Misc",
+            "name": {"$talk":32472}
+          },
+          "item": 2080374809,
+          "price": 220
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":500},"\n\n",{"$talk":31385},": 1-6\n",{"$talk":38571},":\n20-20,x2\n\n",{"$talk":6011},"\n\nFires one shot every 0.8 ",{"$talk":47878},". Dual-wielding pistols alternates hands (firing twice as fast) and grants +3 to ",{"$talk":1371}," to offset two-weapon penalties.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",{"$talk":1371}," pushes its target back. The more damage the ",{"$talk":1371}," deals, the harder it pushes. ",{"$talk":435}," hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",{"$talk":47878}," after the player presses [Aim].\n\nA character stops aiming 0.15 ",{"$talk":47878}," after the player lets go of [Aim].\n\nPress [Saber ",{"$talk":7359},"/kata/ranged feat] with a ranged weapon to use your selected feat attack (",{"$talk":179},", ",{"$talk":180},", or ",{"$talk":181},"), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",{"$talk":42487}," attack penalties last one round (3 ",{"$talk":47878},"). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",{"$talk":16825277},") up to +8 (",{"$talk":16825284},") to ",{"$talk":1371}," with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",{"$talk":16825306},") or +2 (Improved) to ",{"$talk":1371}," with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",{"$talk":42017},". The bolt ",{"$talk":42017}," starts at the character's defense ",{"$talk":42017},". The lightsaber's deflection bonus raises or lowers it. The bolt ",{"$talk":42017}," is 1 lower while the character jumps or moves backward. At bolt ",{"$talk":42017}," 1 the blade absorbs the bolt. At ",{"$talk":42017}," 2 the blade deflects the bolt in the direction the character is looking. At ",{"$talk":42017}," 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",{"$talk":47878},", less 0.1 ",{"$talk":47878}," per bolt ",{"$talk":42017},". At ",{"$talk":42017}," 3 there is no delay.\n\nEach bolt ",{"$talk":42017}," shortens the delay between bolt blocks by 0.1 ",{"$talk":47878},".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",{"$talk":47878}," counts toward the Overwhelmed rule. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",{"$talk":47878},", the next bolt has a ",{"$talk":38574}," to get past the NPC's lightsaber and ",{"$talk":1371}," them. The ",{"$talk":38574}," for each deflected bolt is 16% with ",{"$talk":156},", 12% with ",{"$talk":148}," and 8% with ",{"$talk":174},". An NPC without the feat has a ",{"$talk":38574}," of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",{"$talk":156},", 0.15 with ",{"$talk":148}," and 0.1 with ",{"$talk":174},". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",{"$talk":47878}," for its blaster bolt to reach the target. After that, the shot hits without the bolt.\n\nHold [Saber ",{"$talk":7359},"/kata/ranged feat] to charge (up to 5 steps of 0.2 ",{"$talk":47878},"; auto-fires at 5 ",{"$talk":47878},"), then release to ",{"$talk":1444,"filled":["a"]}," single charged shot. Grants +5 (",{"$talk":179},"), +8 (Improved), or +10 (",{"$talk":45678},") damage at a -3 penalty to ",{"$talk":1371},"."]
+            },
+            "icon": "iw_blstrpstl_001",
+            "kind": "Weapon",
+            "name": {"$talk":500}
+          },
+          "item": 2080374810,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":500},"\n\n",{"$talk":31385},": 1-4\n",{"$talk":38571},":\n20-20,x2\n",{"$talk":674},": ",{"$talk":12331}," ",{"$talk":804}," ",{"$talk":739},"\n\n",{"$talk":6110},"\n\nFires a wide bolt every 0.5 ",{"$talk":47878}," that cannot be deflected by a lightsaber.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",{"$talk":1371}," pushes its target back. The more damage the ",{"$talk":1371}," deals, the harder it pushes. ",{"$talk":435}," hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",{"$talk":47878}," after the player presses [Aim].\n\nA character stops aiming 0.15 ",{"$talk":47878}," after the player lets go of [Aim].\n\nPress [Saber ",{"$talk":7359},"/kata/ranged feat] with a ranged weapon to use your selected feat attack (",{"$talk":179},", ",{"$talk":180},", or ",{"$talk":181},"), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",{"$talk":42487}," attack penalties last one round (3 ",{"$talk":47878},"). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",{"$talk":16825277},") up to +8 (",{"$talk":16825284},") to ",{"$talk":1371}," with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",{"$talk":16825306},") or +2 (Improved) to ",{"$talk":1371}," with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",{"$talk":42017},". The bolt ",{"$talk":42017}," starts at the character's defense ",{"$talk":42017},". The lightsaber's deflection bonus raises or lowers it. The bolt ",{"$talk":42017}," is 1 lower while the character jumps or moves backward. At bolt ",{"$talk":42017}," 1 the blade absorbs the bolt. At ",{"$talk":42017}," 2 the blade deflects the bolt in the direction the character is looking. At ",{"$talk":42017}," 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",{"$talk":47878},", less 0.1 ",{"$talk":47878}," per bolt ",{"$talk":42017},". At ",{"$talk":42017}," 3 there is no delay.\n\nEach bolt ",{"$talk":42017}," shortens the delay between bolt blocks by 0.1 ",{"$talk":47878},".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",{"$talk":47878}," counts toward the Overwhelmed rule. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",{"$talk":47878},", the next bolt has a ",{"$talk":38574}," to get past the NPC's lightsaber and ",{"$talk":1371}," them. The ",{"$talk":38574}," for each deflected bolt is 16% with ",{"$talk":156},", 12% with ",{"$talk":148}," and 8% with ",{"$talk":174},". An NPC without the feat has a ",{"$talk":38574}," of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",{"$talk":156},", 0.15 with ",{"$talk":148}," and 0.1 with ",{"$talk":174},". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",{"$talk":47878}," for its blaster bolt to reach the target. After that, the shot hits without the bolt."]
+            },
+            "icon": "iw_ionblstr_001",
+            "kind": "Weapon",
+            "name": {"$talk":503}
+          },
+          "item": 2080374811,
+          "price": 220
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":500},"\n\n",{"$talk":31385},": 1-4\n",{"$talk":38571},":\n20-20,x2\n",{"$talk":694},": ",{"$talk":865}," ",{"$talk":1091}," ",{"$talk":212},"\n\n",{"$talk":31885},"\n\nFires a 5-shard spread every 0.7 ",{"$talk":47878}," (damage split evenly across shards).\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",{"$talk":1371}," pushes its target back. The more damage the ",{"$talk":1371}," deals, the harder it pushes. ",{"$talk":435}," hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",{"$talk":47878}," after the player presses [Aim].\n\nA character stops aiming 0.15 ",{"$talk":47878}," after the player lets go of [Aim].\n\nPress [Saber ",{"$talk":7359},"/kata/ranged feat] with a ranged weapon to use your selected feat attack (",{"$talk":179},", ",{"$talk":180},", or ",{"$talk":181},"), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",{"$talk":42487}," attack penalties last one round (3 ",{"$talk":47878},"). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",{"$talk":16825277},") up to +8 (",{"$talk":16825284},") to ",{"$talk":1371}," with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",{"$talk":16825306},") or +2 (Improved) to ",{"$talk":1371}," with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",{"$talk":42017},". The bolt ",{"$talk":42017}," starts at the character's defense ",{"$talk":42017},". The lightsaber's deflection bonus raises or lowers it. The bolt ",{"$talk":42017}," is 1 lower while the character jumps or moves backward. At bolt ",{"$talk":42017}," 1 the blade absorbs the bolt. At ",{"$talk":42017}," 2 the blade deflects the bolt in the direction the character is looking. At ",{"$talk":42017}," 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",{"$talk":47878},", less 0.1 ",{"$talk":47878}," per bolt ",{"$talk":42017},". At ",{"$talk":42017}," 3 there is no delay.\n\nEach bolt ",{"$talk":42017}," shortens the delay between bolt blocks by 0.1 ",{"$talk":47878},".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",{"$talk":47878}," counts toward the Overwhelmed rule. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",{"$talk":47878},", the next bolt has a ",{"$talk":38574}," to get past the NPC's lightsaber and ",{"$talk":1371}," them. The ",{"$talk":38574}," for each deflected bolt is 16% with ",{"$talk":156},", 12% with ",{"$talk":148}," and 8% with ",{"$talk":174},". An NPC without the feat has a ",{"$talk":38574}," of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",{"$talk":156},", 0.15 with ",{"$talk":148}," and 0.1 with ",{"$talk":174},". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",{"$talk":47878}," for its blaster bolt to reach the target. After that, the shot hits without the bolt."]
+            },
+            "icon": "iw_sonicpstl_001",
+            "kind": "Weapon",
+            "name": {"$talk":505}
+          },
+          "item": 2080374812,
+          "price": 220
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":31403}," ",{"$talk":783},"\n\n",{"$talk":31877},"\n\nPoisons targets on a ",{"$talk":1414}," ",{"$talk":953}," save (DC 25), dealing 4 damage every 3 ",{"$talk":47878}," for 30 ",{"$talk":47878},". Blocked by ",{"$talk":41902,"filled":["immunity"]}," (Knight/",{"$talk":295},", ",{"$talk":299},")."]
+            },
+            "icon": "iw_poisngren_001",
+            "kind": "Useable",
+            "name": {"$talk":516}
+          },
+          "item": 2080374813,
+          "price": 165
+        },
+        {
+          "entry": {
+            "count": 2,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":31401}," ",{"$talk":783},"\n\n",{"$talk":31893},"\n\nDeals no damage. Stuns targets on a ",{"$talk":1414}," ",{"$talk":953}," save (DC 15) for up to 3 ",{"$talk":47878},"."]
+            },
+            "icon": "iw_stungren_001",
+            "kind": "Useable",
+            "name": {"$talk":6204}
+          },
+          "item": 2080374814,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":31404}," ",{"$talk":783},"\n\n",{"$talk":31884},"\n\nDeals 20 ",{"$talk":1446,"filled":["damage"]}," and -6 ",{"$talk":212}," for 30 ",{"$talk":47878}," (",{"$talk":953}," save DC 15 for half damage and no ",{"$talk":212}," loss)."]
+            },
+            "icon": "iw_sonicgren_001",
+            "kind": "Useable",
+            "name": {"$talk":518}
+          },
+          "item": 2080374815,
+          "price": 165
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":31400}," ",{"$talk":783},"\n\n",{"$talk":31856},"\n\nDeals 20 piercing damage (",{"$talk":953}," save DC 15 for half)."]
+            },
+            "icon": "iw_fraggren_001",
+            "kind": "Useable",
+            "name": {"$talk":513}
+          },
+          "item": 2080374816,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 1-10\n",{"$talk":38571},":\n19-20,x2\n\n",{"$talk":6220},"\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."]
+            },
+            "icon": "iw_vbroshort_001",
+            "kind": "Weapon",
+            "name": {"$talk":6219}
+          },
+          "item": 2080374817,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 2-12\n",{"$talk":38571},":\n19-20,x2\n\n",{"$talk":6231},"\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."]
+            },
+            "icon": "iw_vbroswrd_001",
+            "kind": "Weapon",
+            "name": {"$talk":6230}
+          },
+          "item": 2080374818,
+          "price": 132
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 1-12\n",{"$talk":38571},":\n20-20,x2\n\n",{"$talk":6124},"\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."]
+            },
+            "icon": "iw_lngswrd_001",
+            "kind": "Weapon",
+            "name": {"$talk":490}
+          },
+          "item": 2080374819,
+          "price": 27
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 1-6\n",{"$talk":38571},":\n20-20,x2\n\n",{"$talk":6176},"\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."]
+            },
+            "icon": "iw_shortswrd_001",
+            "kind": "Weapon",
+            "name": {"$talk":492}
+          },
+          "item": 2080374820,
+          "price": 22
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 1-6\n",{"$talk":38571},":\n20-20,x2\n\n",{"$talk":6138},"\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks."]
+            },
+            "icon": "iw_qtrstaff_001",
+            "kind": "Weapon",
+            "name": {"$talk":6137}
+          },
+          "item": 2080374821,
+          "price": 2
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  ",{"$talk":42297}," Weapons\n\n",{"$talk":31385},": 1-1\n",{"$talk":38571},":\n20-20,x2\n",{"$talk":694},": ",{"$talk":305}," ",{"$talk":806},"\n\n",{"$talk":6194},"\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nUnder the Advanced combat rules, a blade's ",{"$talk":1371}," makes its target flinch for certain only if the ",{"$talk":1371}," deals at least 60% of the damage of a full cut. A lighter ",{"$talk":1371}," is a graze. A graze makes the target flinch only by the normal ",{"$talk":38574},".\n\nDual-wielding or using a double weapon inflicts a ",{"$talk":1371}," penalty (-6/-10 untrained, -6/-6 with ",{"$talk":150},", -4/-4 Improved, -2/-2 ",{"$talk":45678},"). A balanced off-hand weapon (such as a short sword or short lightsaber) or a double weapon reduces the ",{"$talk":41799},"-hand penalty by 2. Fighting with a single one-handed weapon and an empty off hand gains ",{"$talk":41858}," instead: +1 / +2 / +3 to ",{"$talk":1371}," and ",{"$talk":1059},".\n\n",{"$talk":41899}," your ",{"$talk":212}," modifier instead of ",{"$talk":211}," to ",{"$talk":1371}," if it is higher (",{"$talk":211}," still sets damage). ",{"$talk":16825429}," applies to lightsabers; ",{"$talk":16825432}," applies to all other melee weapons (not unarmed).\n\nA saber frame lasts 0.025 ",{"$talk":47878},". A swing's strength depends on how far the hilt moves in one saber frame. A saber lock moves forward at most once in each saber frame.\n\nA blade starts at the hilt in the character's hand and moves with the character's animations. A character with one lightsaber holds it in the ",{"$talk":48485}," hand. A second lightsaber goes in the ",{"$talk":48484}," hand. A double-bladed lightsaber has a blade at each end. Swords, vibroblades and staves have blades of a fixed length.\n\nThe blade of a sword or vibroblade is 0.81 meters long.\n\nEach end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 meters long.\n\nA swinging blade damages every character it passes through. A single attack deals at most one damage ",{"$talk":42016}," of the weapon to each target. The blade must pass through 4.1 meters of the target's body to deal the full damage ",{"$talk":42016},". Any cut deals at least 50% of the damage ",{"$talk":42016},". The target takes the damage when the blade leaves the body or when the attack ends.\n\nA blade is checked for hits every 0.2 meters along its length.\n\nTwo blades clash when they pass within 0.41 meters of each other's tip and path.\n\nWhen a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.\n\nA blade must pass through 4.1 meters of a body in one attack to deal its full damage ",{"$talk":42016},".\n\nA blade's first cut on a target deals at least 50% of the damage ",{"$talk":42016},". Further cuts in the same attack add the rest, up to the full ",{"$talk":42016},".\n\nSome moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 ",{"$talk":47878}," of leaving it is still in the same pass.\n\nIn a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.\n\nA move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.\n\nAn attacking blade hits any character or object within 0.051 meters of its edge.\n\n",{"$talk":42488}," is a number that decides who wins when two blades meet. An attacking blade's power is its style's ",{"$talk":42017}," multiplied by 2, plus 1. The blade gains 1 more power for each step of distance its hilt moves in one saber frame. ",{"$talk":375}," power is never below 1 and never above 16. Each move also has a move power of its own. The move power depends on the move and on how far into the move the character is.\n\nThe fast style is ",{"$talk":42017}," 1, the medium style ",{"$talk":42017}," 2 and the strong style ",{"$talk":42017}," 3. Two weapons and a double-bladed lightsaber count as medium.\n\nA special attack is a named move such as a kata, a jump attack, a flip, a spin or a back attack. A special attack deals damage and clashes with other blades only in the middle of its move, not at its start or its end. Outside that time its blade does no harm.\n\nA character who is not attacking blocks attacks, blaster bolts and thrown lightsabers that come from within the character's block arc. The block arc is the area in front of the character where blocks are possible. The arc is wider at a higher defense ",{"$talk":42017},". It is also wider against blades than against bolts. A character with no defense ",{"$talk":42017}," does not block.\n\nA character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense ",{"$talk":42017}," 1, 0.6 at ",{"$talk":42017}," 2 and 0.3 at ",{"$talk":42017}," 3. A lower limit means a wider arc.\n\nAgainst a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.\n\nWhen two blades meet, or a character blocks an attack, the game goes through the outcomes below in order. The first outcome that applies happens. First, the defender may knock the attack away. Second, the attacker may break the defender's parry. Third, the attacker may bounce off a strong parry. Fourth, if both characters are attacking, the one with more power breaks the other's attack or makes it bounce. If none of these happens, the defender parries. A strong enough attacker then crushes the parry, and a weaker one is turned aside.\n\nIn co-op, a player on another machine sees the world a little late. The game checks that player's shots and blades against other characters where the player saw them, up to 0.4 ",{"$talk":47878}," in the past. When a blade hits a player who could block it, the game waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA blade's ",{"$talk":1371}," on a player on another machine waits up to 0.1 ",{"$talk":47878}," for that player's block.\n\nA character who attacks with a lightsaber or a melee weapon moves slower than normal. How much slower depends on the saber style and on the attack. The character is slowest while backing off, faster in a spinning attack, and fastest while attacking forward. In the strong style, the character also moves slower between attacks.\n\nA character with a stun baton or a plasma torch swings it with KOTOR's two baton swings, first one and then the other, for as long as ",{"$talk":375}," ",{"$talk":42037},". Each swing flows into the next. Each ",{"$talk":1371}," deals a part of a round's damage that matches how long its swing takes, so the damage over a round stays the same as one ",{"$talk":1371}," a round.\n\nThe first baton swing hits 0.53 ",{"$talk":47878}," after it starts.\n\nThe second baton swing hits 0.53 ",{"$talk":47878}," after it starts.\n\nWhile ",{"$talk":375}," ",{"$talk":42037},", the next baton swing starts 0.25 ",{"$talk":47878}," after the last swing hits.\n\nOne baton swing fades into the next over 0.15 ",{"$talk":47878},".\n\nA character's torso turns 30 deg to the ",{"$talk":48484}," during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the ",{"$talk":48485}," of where the character faces.\n\nAfter a baton swing hits, the arm and torso move on only 35% as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the ",{"$talk":48484}," shoulder."]
+            },
+            "icon": "iw_stunbaton_001",
+            "kind": "Weapon",
+            "name": {"$talk":489}
+          },
+          "item": 2080374822,
+          "price": 33
+        },
+        {
+          "entry": {
+            "count": null,
+            "description": {
+              "$parts": [{"$talk":5889},"\n\nTo enter ",{"$talk":247}," Mode, a character needs ranks in the ",{"$talk":247}," skill and a stealth unit equipped. A character cannot enter ",{"$talk":247}," Mode during combat. A character in ",{"$talk":247}," Mode cannot run, unless the character knows ",{"$talk":16825538},". ",{"$talk":247}," Mode ends when the character attacks, ",{"$talk":1420}," a ",{"$talk":1060}," power, throws a grenade, enters combat, removes the stealth unit or starts a conversation."]
+            },
+            "icon": "ii_belt_010",
+            "kind": "Armour",
+            "name": {"$talk":5823}
+          },
+          "item": 2080374823,
+          "price": 110
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":698},": ",{"$talk":247}," +2\n\n",{"$talk":5751},"\n\nTo enter ",{"$talk":247}," Mode, a character needs ranks in the ",{"$talk":247}," skill and a stealth unit equipped. A character cannot enter ",{"$talk":247}," Mode during combat. A character in ",{"$talk":247}," Mode cannot run, unless the character knows ",{"$talk":16825538},". ",{"$talk":247}," Mode ends when the character attacks, ",{"$talk":1420}," a ",{"$talk":1060}," power, throws a grenade, enters combat, removes the stealth unit or starts a conversation."]
+            },
+            "icon": "ii_belt_006",
+            "kind": "Armour",
+            "name": {"$talk":5750}
+          },
+          "item": 2080374824,
+          "price": 220
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":671},": ",{"$talk":5871}," ",{"$talk":788},"\n\n",{"$talk":5872},"\n\nAn ",{"$talk":1448,"filled":["shield"]}," absorbs 20 points of damage."]
+            },
+            "icon": "ii_frarmbnds_001",
+            "kind": "Armour",
+            "name": {"$talk":5871}
+          },
+          "item": 2080374825,
+          "price": 154
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\n",{"$talk":42298}," Proficiency -  ",{"$talk":337},"\n\n",{"$talk":1059},": +7\n",{"$talk":707},": ",{"$talk":142},"\n\n",{"$talk":5679}]
+            },
+            "icon": "ia_class7_001",
+            "kind": "Armour",
+            "name": {"$talk":5678}
+          },
+          "item": 2080374826,
+          "price": 275
+        },
+        {
+          "entry": {
+            "count": 1,
+            "description": {
+              "$parts": [{"$talk":38536},":\nWeapon Proficiency -  Heavy Weapons\n\n",{"$talk":31385},": 1-8\n",{"$talk":38571},":\n20-20,x2\n\n",{"$talk":6144},"\n\nFires a rapid spray of bolts (one every 0.1 ",{"$talk":47878},", 80% damage per shot for players).\n\nA weapon's damage starts with its damage ",{"$talk":42016},". The weapon's ",{"$talk":42155,"filled":["and"]}," ",{"$talk":145}," are added to it. For a melee weapon, the wielder's ",{"$talk":211}," modifier is also added. A ",{"$talk":1390}," multiplies this total. ",{"$talk":742}," damage is then added, and it is never multiplied. The target's resistances and damage reduction are subtracted from the result. What is ",{"$talk":48484}," is multiplied by the attacker's ",{"$talk":38574}," to ",{"$talk":1371}," and by the time between the attacker's attacks (see ",{"$talk":31385}," per Round).\n\nA weapon's damage ",{"$talk":42016},", after all bonuses and penalties, is never less than 1.\n\nThe damage of every ",{"$talk":1371}," is multiplied by the ",{"$talk":38574}," that a KOTOR attack ",{"$talk":42016}," would have ",{"$talk":1371},". That ",{"$talk":38574}," is (21 + attack bonus - ",{"$talk":1059},") divided by 20. A strong attacker against a low ",{"$talk":1059}," deals nearly full damage. A weak attacker against a high ",{"$talk":1059}," deals little damage.\n\nThe place where an attack strikes the body changes the damage it deals. A ",{"$talk":1371}," to the head deals more damage. A ",{"$talk":1371}," to an arm, a leg, a hand or a foot deals less damage. ",{"$talk":31385}," from ",{"$talk":1060}," powers and from blasts does not strike any one place on the body.\n\nYou need a weapon's proficiency feat to equip it. ",{"$talk":144}," grants +1 to ",{"$talk":1371}," with that weapon type; ",{"$talk":145}," grants +2 to damage.\n\nA weapon with the ",{"$talk":690}," property has its critical threat range multiplied by 2.\n\nAn upgrade's properties apply only while the upgrade is fitted to an item. A lightsaber has room for one color crystal and 2 power crystals. Any other item has room for 1 upgrade of each kind.\n\nSkill checks, attack rolls, critical hits and saving throws are rolled on a d20.\n\nA locked door or container can be broken open by attacking it with a lightsaber, a melee weapon, fists, a blaster or a grenade. Each ",{"$talk":1371}," deals its damage minus the object's hardness, multiplied by 7. When its vitality points reach 0, the door or container breaks open.\n\n",{"$talk":31385}," against a door or container is multiplied by 7.\n\nSwitching weapons takes two steps. First the character lowers the weapon in hand, which takes 0.2 ",{"$talk":47878},". Then the character raises the next weapon, which takes 0.25 ",{"$talk":47878},". The character cannot attack during a switch. A character who puts a blaster away lowers it in the same way. A character who attacks with a blaster that is put away raises it first, and then fires.\n\nA weapon is always drawn solid. Some weapon textures are partly transparent but come with no instructions for how to use the transparency. kjk draws these textures solid instead of see-through.\n\nA ",{"$talk":1371}," pushes its target back. The more damage the ",{"$talk":1371}," deals, the harder it pushes. ",{"$talk":435}," hits do not push, and neither does damage that comes from no direction. A target that is pushed back cannot move on its own until it recovers.\n\nA character is fully aimed 0.2 ",{"$talk":47878}," after the player presses [Aim].\n\nA character stops aiming 0.15 ",{"$talk":47878}," after the player lets go of [Aim].\n\nPress [Saber ",{"$talk":7359},"/kata/ranged feat] with a ranged weapon to use your selected feat attack (",{"$talk":179},", ",{"$talk":180},", or ",{"$talk":181},"), regardless of gun type. Press [Next feat attack] to switch (remembered per gun type; defaults to the first you know in that order). ",{"$talk":42487}," attack penalties last one round (3 ",{"$talk":47878},"). If you lack stamina or any ranged feat, it fires normally.\n\nGrants +1 (",{"$talk":16825277},") up to +8 (",{"$talk":16825284},") to ",{"$talk":1371}," with ranged weapons (+1 per rank; highest rank applies).\n\nAdds +1 / +2 / +4 / +6 / +8 ranged weapon damage (ranks I-V) and inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection. Does not apply to grenades or thrown lightsabers.\n\nGrants +1 (",{"$talk":16825306},") or +2 (Improved) to ",{"$talk":1371}," with ranged weapons against targets within 10 m.\n\nA character with a lightsaber blocks blaster bolts at a bolt ",{"$talk":42017},". The bolt ",{"$talk":42017}," starts at the character's defense ",{"$talk":42017},". The lightsaber's deflection bonus raises or lowers it. The bolt ",{"$talk":42017}," is 1 lower while the character jumps or moves backward. At bolt ",{"$talk":42017}," 1 the blade absorbs the bolt. At ",{"$talk":42017}," 2 the blade deflects the bolt in the direction the character is looking. At ",{"$talk":42017}," 3 the blade reflects the bolt back at the shooter.\n\nA blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.\n\nAfter blocking a bolt, a character cannot block another for 0.35 ",{"$talk":47878},", less 0.1 ",{"$talk":47878}," per bolt ",{"$talk":42017},". At ",{"$talk":42017}," 3 there is no delay.\n\nEach bolt ",{"$talk":42017}," shortens the delay between bolt blocks by 0.1 ",{"$talk":47878},".\n\nA deflected bolt strays from the direction the character is looking by up to 1 on each axis.\n\nA reflected bolt strays from the shooter by up to 0.2 on each axis.\n\nAn NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 ",{"$talk":47878}," counts toward the Overwhelmed rule. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nFor every bolt an NPC deflected in the last 2 ",{"$talk":47878},", the next bolt has a ",{"$talk":38574}," to get past the NPC's lightsaber and ",{"$talk":1371}," them. The ",{"$talk":38574}," for each deflected bolt is 16% with ",{"$talk":156},", 12% with ",{"$talk":148}," and 8% with ",{"$talk":174},". An NPC without the feat has a ",{"$talk":38574}," of 20% for each bolt. The first bolt after a pause is always deflected as usual.\n\nA bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with ",{"$talk":156},", 0.15 with ",{"$talk":148}," and 0.1 with ",{"$talk":174},". An NPC without the feat makes it stray by up to 0.25. This applies under both the ",{"$talk":5596}," Academy rules and the Advanced rules.\n\nIn a cutscene, a shot waits up to 0.2 ",{"$talk":47878}," for its blaster bolt to reach the target. After that, the shot hits without the bolt."]
+            },
+            "icon": "iw_rptnblstr_001",
+            "kind": "Weapon",
+            "name": {"$talk":6143}
+          },
+          "item": 2080374827,
+          "price": 550
+        }
+      ],
+      "store": 100
+    }
+  },
+  "window": [1920.0,1080.0]
+}

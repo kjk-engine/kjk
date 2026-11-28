@@ -193,7 +193,7 @@ pub enum GameAction {
 /// the game (`sim::combat::bar::Content`). An item kind and a feat attack
 /// line are named by their place in the game's own lists of them
 /// (`Shelf::ALL`, `FeatLine::ALL`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BarContent {
     /// A Force power, by its `spells.2da` row.
     Power(u16),
@@ -231,7 +231,7 @@ pub enum Fitting {
 /// The workbench a script opened (`sim::action::Workbench`): its item
 /// creation table, the lab station's or not, and the party member whose
 /// skills it uses.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BenchDesc {
     pub list: String,
     pub lab: bool,
@@ -385,6 +385,8 @@ pub enum Intent {
     /// The party fallen (I30 P13): the host loads its latest save, for
     /// every seat.
     ReloadLatest,
+    /// The catalogue's list picked a story: its screen module and its name.
+    OpenStory(String, String),
     /// Leave the program.
     Quit,
 }

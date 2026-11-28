@@ -1,0 +1,9 @@
+# The stories of the screens in crates/ui/src/screens/bark.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: a second after the main character spoke to the Ithorian on Taris in KOTOR 1 and to C9-T9 on Nar Shaddaa in KOTOR 2."
+
+[[story]]
+name = "A bystander's bark"
+screen = "play"
+capture = { k1 = "taris-ithorian-bark", tsl = "nar-shaddaa-c9t9-bark" }
+pad_capture = { k1 = "taris-ithorian-bark-pad", tsl = "nar-shaddaa-c9t9-bark-pad" }

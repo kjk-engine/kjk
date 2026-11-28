@@ -13,6 +13,8 @@ use asset_odyssey::font::Font;
 use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
+
+use crate::layout_files;
 use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
@@ -114,7 +116,7 @@ pub struct ItemLook {
 /// A line of an item's stats, and the `upgrade.2da` row it comes with:
 /// none, always in force; else only with that upgrade fitted (KOTOR's
 /// lightsabers and upgradable gear list every crystal's and part's).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Stat {
     pub upgrade: Option<u8>,
     pub line: Vec<u8>,
@@ -124,7 +126,7 @@ pub struct Stat {
 /// line for each thing it requires. A line that comes from a property with
 /// an `upgrade.2da` row counts only while that upgrade is fitted, as a
 /// stat does.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Requirements {
     pub heading: Vec<u8>,
     pub lines: Vec<Stat>,
@@ -184,7 +186,7 @@ fn requirement_name(name: Vec<u8>) -> Vec<u8> {
 /// roll that threatens a critical hit, "-20", and the multiplier
 /// ("19-20,x2"). The damage that Massive Criticals adds to a critical hit
 /// follows as "+min-max".
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Critical {
     pub heading: Vec<u8>,
     /// The base item's `critthreat`: how many of the highest rolls threaten.
@@ -194,7 +196,7 @@ pub struct Critical {
 
 /// A Keen property (`massive` none) or a Massive Criticals property (the
 /// least and most damage it adds), and the `upgrade.2da` row it comes with.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Edge {
     pub upgrade: Option<u8>,
     pub massive: Option<(i64, i64)>,
@@ -306,6 +308,9 @@ pub struct GuiAssets {
     scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
     /// How large text and borders are drawn now (`Textures::set_sizing`).
     sizing: Sizing,
+    /// Whether kjk's overrides of KOTOR's layouts are applied
+    /// (`layout_files`).
+    overrides: bool,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
@@ -391,6 +396,7 @@ impl GuiAssets {
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
             sizing: Sizing::default(),
+            overrides: false,
         }
     }
 
@@ -523,11 +529,48 @@ impl GuiAssets {
     /// for one of the campaign's own world (`skin::own`), which a KOTOR 2
     /// campaign names as KOTOR 2 does (`skin::moved`).
     pub fn screen_layout(&self, name: &str) -> Result<(Gui, Source), String> {
+        if let Some(path) = layout_files::standalone_path(name) {
+            return Ok((self.standalone_layout(name, &path)?, Source::Skin));
+        }
         if skin::own(name) {
-            let gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
+            let mut gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
+            self.override_layout(name, &mut gui)?;
             return Ok((gui, Source::Campaign));
         }
-        Ok((self.skin_layout(name)?, Source::Skin))
+        let mut gui = self.skin_layout(name)?;
+        self.override_layout(name, &mut gui)?;
+        Ok((gui, Source::Skin))
+    }
+
+    /// Whether kjk's overrides of KOTOR's layouts are applied from now on.
+    /// Whether that changed anything.
+    pub fn set_overrides(&mut self, on: bool) -> bool {
+        std::mem::replace(&mut self.overrides, on) != on
+    }
+
+    /// `gui`, KOTOR's layout `name`, with kjk's override of it applied, if
+    /// overrides are on and `data/ui/layouts` has one.
+    fn override_layout(&self, name: &str, gui: &mut Gui) -> Result<(), String> {
+        let path = layout_files::override_path(name);
+        if !self.overrides || !path.is_file() {
+            return Ok(());
+        }
+        let tokens = layout_files::Tokens::read()?;
+        let file = layout_files::read(&path, &tokens)?;
+        let label = format!("{name}.toml");
+        layout_files::apply_override(gui, name, &label, &file, &tokens, &mut |part| {
+            self.skin_layout(part)
+        })
+    }
+
+    /// The layout of the standalone file `path`, built from KOTOR 2's parts.
+    fn standalone_layout(&self, name: &str, path: &std::path::Path) -> Result<Gui, String> {
+        let tokens = layout_files::Tokens::read()?;
+        let file = layout_files::read(path, &tokens)?;
+        let label = name.trim_start_matches(layout_files::PREFIX);
+        layout_files::build(&format!("{label}.toml"), &file, &tokens, &mut |part| {
+            self.skin_layout(part)
+        })
     }
 
     /// The name the campaign's own layout for `name` has: `name` where the
@@ -752,6 +795,11 @@ impl GuiAssets {
             .is_some_and(|value| value.trim() == "1");
         self.searched.insert(template.to_string(), searched);
         searched
+    }
+
+    /// The campaign's talk table, when it reads.
+    pub fn talk(&self) -> Option<&Tlk> {
+        self.tlk.as_deref()
     }
 
     /// The campaign's files (its module's own first, once one is set).
@@ -1356,6 +1404,11 @@ pub trait Assets: Textures {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String>;
     /// The layout `name` as `source` has it (one drawn under a screen's).
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String>;
+    /// Whether kjk's overrides of KOTOR's layouts apply from now on
+    /// (`layout_files`). Whether that changed anything.
+    fn set_overrides(&mut self, _on: bool) -> bool {
+        false
+    }
     /// Whether the layout `name` read from `source` (`layout`) is a mod's
     /// (`Resolved::is_mod`), which the stack stretches plainly as KOTOR 2
     /// does, its pictures not kept in shape (`screen::stretch`).
@@ -1384,10 +1437,16 @@ impl Assets for GuiAssets {
     }
 
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String> {
-        match source {
-            Source::Skin => self.skin_layout(name),
-            Source::Campaign => GuiAssets::layout(self, name),
-        }
+        let mut gui = match source {
+            Source::Skin => self.skin_layout(name)?,
+            Source::Campaign => GuiAssets::layout(self, name)?,
+        };
+        self.override_layout(name, &mut gui)?;
+        Ok(gui)
+    }
+
+    fn set_overrides(&mut self, on: bool) -> bool {
+        GuiAssets::set_overrides(self, on)
     }
 }
 

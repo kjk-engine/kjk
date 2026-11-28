@@ -28,6 +28,8 @@ mod stack;
 mod status_summary;
 mod text;
 mod transition;
+mod tree;
+mod virtual_screen;
 mod vm_screens;
 mod wheel;
 
@@ -61,6 +63,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(draw::rasters());
     checks.extend(paint::all());
     checks.extend(paint::toggle_pictures());
+    checks.extend(tree::all());
     checks.extend(stack::all());
     checks.extend(stack::mod_layouts());
     checks.extend(stack::menu_widths());
@@ -77,6 +80,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::save_cheats());
     checks.extend(chargen::all());
     checks.extend(clicks::all());
+    checks.extend(virtual_screen::all());
     checks.extend(vm_screens::all());
     checks.extend(hud::all());
     checks.extend(reticle::all());

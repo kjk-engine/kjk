@@ -2,7 +2,7 @@
 //! four strokes, a kill's four more, shown for `MARK_SHOWN_MS`, fading.
 
 use super::{Check, check, expect};
-use crate::screens::hud::{MARK_SHOWN_MS, Mark, hitmarker};
+use crate::screens::hud::{HitMark, MARK_SHOWN_MS, hitmarker};
 
 const FRAME: (i32, i32) = (1920, 1080);
 
@@ -18,25 +18,25 @@ fn alpha(quads: &[crate::draw::Quad]) -> f32 {
 }
 
 pub(super) fn all() -> Vec<Check> {
-    let counts: Vec<(Mark, usize)> = [
-        Mark::Hit,
-        Mark::Strong,
-        Mark::Turned,
-        Mark::Kill { strong: false },
+    let counts: Vec<(HitMark, usize)> = [
+        HitMark::Hit,
+        HitMark::Strong,
+        HitMark::Turned,
+        HitMark::Kill { strong: false },
     ]
     .iter()
     .map(|&mark| (mark, hitmarker(FRAME, mark, 20.0, 0.0).len()))
     .collect();
     let counted = counts.iter().all(|&(mark, n)| {
-        n == if matches!(mark, Mark::Kill { .. }) {
+        n == if matches!(mark, HitMark::Kill { .. }) {
             16
         } else {
             8
         }
     });
-    let fresh = alpha(&hitmarker(FRAME, Mark::Hit, 20.0, 0.0));
-    let fading = alpha(&hitmarker(FRAME, Mark::Hit, 20.0, 100.0));
-    let gone = hitmarker(FRAME, Mark::Hit, 20.0, MARK_SHOWN_MS + 1.0).len();
+    let fresh = alpha(&hitmarker(FRAME, HitMark::Hit, 20.0, 0.0));
+    let fading = alpha(&hitmarker(FRAME, HitMark::Hit, 20.0, 100.0));
+    let gone = hitmarker(FRAME, HitMark::Hit, 20.0, MARK_SHOWN_MS + 1.0).len();
     vec![check(
         "hitmarker_fades",
         expect(

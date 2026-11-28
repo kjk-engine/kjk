@@ -15,12 +15,12 @@
 //! portrait bar art lying on its side, thin, sloped at its top corners
 //! (`OverheadArt`). The health bar stands right over the Stamina bar.
 
-use crate::draw::DrawList;
+use crate::draw::{DrawList, Mark};
 use crate::paint::Painter;
 use crate::screens::hud::{BarArt, Stand, meter};
 use crate::skin::Source;
 use crate::vm::{FloatyView, OverheadView};
-use fmt_odyssey::gui::align;
+use fmt_odyssey::gui::{Kind, align};
 
 const FONT: &str = crate::paint::NUMBER_FONT;
 const WIDTH: f32 = 200.0;
@@ -53,8 +53,14 @@ pub struct OverheadArt {
 
 /// The health bar and the Stamina bar under it over enemies' heads
 /// (`overhead`) for a window of `window` pixels, in the HUD's portrait bar
-/// art (`art`) lying down, filling rightward.
-pub fn bars(overhead: &[OverheadView], art: OverheadArt, window: (f32, f32)) -> DrawList {
+/// art (`art`) lying down, filling rightward. With `marked`, each bar
+/// leaves a mark for a control tree.
+pub fn bars(
+    overhead: &[OverheadView],
+    art: OverheadArt,
+    window: (f32, f32),
+    marked: bool,
+) -> DrawList {
     let mut out = DrawList {
         size: window,
         ..DrawList::default()
@@ -63,13 +69,16 @@ pub fn bars(overhead: &[OverheadView], art: OverheadArt, window: (f32, f32)) -> 
     for head in overhead {
         let [x, y] = [head.over[0] * window.0, head.over[1] * window.1];
         let stamina_top = y - BARS_OVER - thick;
-        for (bar, top) in [
-            (&head.bars.points, stamina_top),
-            (&head.health, stamina_top - BARS_GAP - thick),
+        for (tag, bar, top) in [
+            ("STAMINA_BAR", &head.bars.points, stamina_top),
+            ("HEALTH_BAR", &head.health, stamina_top - BARS_GAP - thick),
         ] {
             let rect = [x - wide / 2.0, top, wide, thick];
-            out.quads
-                .extend(meter(art.upper, bar, rect, Stand::Lying, head.alpha));
+            let quads = meter(art.upper, bar, rect, Stand::Lying, head.alpha);
+            if marked {
+                out.marks.extend(Mark::drawn(tag, Kind::Progress, &quads));
+            }
+            out.quads.extend(quads);
         }
     }
     out

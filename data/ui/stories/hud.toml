@@ -1,0 +1,72 @@
+# The stories of the screens in crates/ui/src/screens/hud.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: the Taris lower city in KOTOR 1 and Nar Shaddaa in KOTOR 2. The blaster's reticle, the hit marker, the arcs of a targeted block, the perfect block mark and the banner of a break or a ready check come from steps, because no capture has them: each lasts a fraction of a second in play, or needs a second player. The steps fill them as the game does, with stand-in values."
+
+[[story]]
+name = "A hostile target held"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+
+[[story]]
+name = "Target block floating over the target"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["set display.target_top false"]
+
+[[story]]
+name = "Blaster reticle"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["reticle cross"]
+
+[[story]]
+name = "Hit marker on a kill"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["reticle cross", "hit kill"]
+
+[[story]]
+name = "Bolt turned by a blade"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["reticle cross", "hit turned"]
+
+[[story]]
+name = "Targeted block arcs"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["block arcs"]
+
+[[story]]
+name = "Perfect block with targeted blocks"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["block arcs", "perfect block"]
+
+[[story]]
+name = "Perfect block mark"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["perfect block"]
+
+[[story]]
+name = "Break banner"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["banner break"]
+
+[[story]]
+name = "Ready check banner"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["banner ready"]

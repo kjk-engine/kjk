@@ -109,21 +109,11 @@ pub fn recolour(color: [f32; 3]) -> [f32; 3] {
 
 /// The palette KOTOR 2's layouts set (their most used colours after white:
 /// base, highlight, disabled), beside its engine's own (`Palette::TSL`).
-pub(crate) const TSL_LAYOUT: Palette = Palette {
-    base: [0.101_96, 0.698_04, 0.549_02],
-    hilight: [0.8, 0.8, 0.698_04],
-    disabled: [0.050_98, 0.349_02, 0.270_59],
-    panel: crate::paint::TSL_PANEL,
-};
+pub(crate) const TSL_LAYOUT: Palette = crate::paint::tokens::TSL_LAYOUT;
 
 /// The colours KOTOR 2's own code tints with (its text, highlight and
 /// dark green): a feat chain's cells.
-pub const TSL_ENGINE: Palette = Palette {
-    base: [0.1, 0.7, 0.55],
-    hilight: [0.7, 0.7, 0.6],
-    disabled: [0.05, 0.35, 0.27],
-    panel: crate::paint::TSL_PANEL,
-};
+pub const TSL_ENGINE: Palette = crate::paint::tokens::TSL_ENGINE;
 
 /// The colour of the interface's lines and text. It is the green that
 /// KOTOR 2's layouts set, or KOTOR 1's blue while the interface is

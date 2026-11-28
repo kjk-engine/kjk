@@ -154,6 +154,8 @@ pub use prepasses::load_check_probes;
 pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub use ui_view::hide_probes;
+pub mod catalogue_view;
+
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
@@ -208,6 +210,7 @@ mod stealth_view;
 mod steam_join;
 pub mod store_verbs;
 pub mod stored_fill;
+pub mod story_stage;
 mod swallow;
 pub mod target_view;
 pub mod temporal;

@@ -1,0 +1,13 @@
+# The stories of the screens in crates/ui/src/screens/computer.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "Its story starts from captures of play: the security terminal of the Endar Spire's starboard section in KOTOR 1, and the shift console of Peragus in KOTOR 2."
+
+[[story]]
+name = "At rest"
+screen = "computer"
+
+[[story]]
+name = "A terminal's menu"
+screen = "computer"
+capture = { k1 = "endar-spire-computer", tsl = "peragus-computer" }
+pad_capture = { k1 = "endar-spire-computer-pad", tsl = "peragus-computer-pad" }

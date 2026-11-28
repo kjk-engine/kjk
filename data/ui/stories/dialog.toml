@@ -1,0 +1,36 @@
+# The stories of the screens in crates/ui/src/screens/dialog.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is drawn over play, outside the screen stack. Its stories open the screen `play` on captures of play (data/ui/captures), one in each game: the first conversation of the Endar Spire in KOTOR 1 and of Telos (Grenn) in KOTOR 2. Every conversation in kjk is drawn as a cinematic one, so there is no other kind to show. The second reply is focused by the step `reply 2`, as the arrows or the pad focus it, because no console command moves the focus. The host's request card comes from the step `request card`, because it needs a second player."
+
+[[story]]
+name = "A line playing"
+screen = "play"
+capture = { k1 = "endar-spire-conversation", tsl = "telos-conversation" }
+pad_capture = { k1 = "endar-spire-conversation-pad", tsl = "telos-conversation-pad" }
+
+[[story]]
+name = "A guest asks the host in"
+screen = "play"
+capture = { k1 = "endar-spire-conversation", tsl = "telos-conversation" }
+pad_capture = { k1 = "endar-spire-conversation-pad", tsl = "telos-conversation-pad" }
+steps = ["request card"]
+
+[[story]]
+name = "A guest asks the walking host in"
+screen = "play"
+capture = { k1 = "taris-lower-city-target", tsl = "nar-shaddaa-target" }
+pad_capture = { k1 = "taris-lower-city-target-pad", tsl = "nar-shaddaa-target-pad" }
+steps = ["request card"]
+
+[[story]]
+name = "Replies offered"
+screen = "play"
+capture = { k1 = "endar-spire-replies", tsl = "telos-replies" }
+pad_capture = { k1 = "endar-spire-replies-pad", tsl = "telos-replies-pad" }
+
+[[story]]
+name = "Second reply focused"
+screen = "play"
+capture = { k1 = "endar-spire-replies", tsl = "telos-replies" }
+pad_capture = { k1 = "endar-spire-replies-pad", tsl = "telos-replies-pad" }
+steps = ["reply 2"]

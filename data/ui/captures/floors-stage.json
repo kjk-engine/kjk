@@ -1,0 +1,188 @@
+{
+  "game": "k1",
+  "scale_factor": 1.0,
+  "view": {
+    "arena": {
+      "$parts": ["FLOORS   a row per ",{"$talk":38008}," (far: sand, near: water); K1 west, TSL east   F2 spawn   F4 god mode"]
+    },
+    "crosshair": true,
+    "floaties": [
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.18258318305015564,0.6206074357032776],
+        "stacked": 1,
+        "text": [84,83,76,32,77,97,108,97,99,104,111,114,32,86]
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.18258318305015564,0.6206074357032776],
+        "stacked": 0,
+        "text": [57,48,49,109,97,108,32,109,97,108,95,103,114,110,100,48,49]
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.2970057725906372,0.7313923835754395],
+        "stacked": 1,
+        "text": [84,83,76,32,72,97,114,98,105,110,103,101,114]
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.2970057725906372,0.7313923835754395],
+        "stacked": 0,
+        "text": [49,53,49,104,97,114,32,104,97,114,95,119,108,48,55]
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.39419442415237427,0.6206074357032776],
+        "stacked": 1,
+        "text": {"$parts":["TSL ",{"$talk":10910}]}
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.39419442415237427,0.6206074357032776],
+        "stacked": 0,
+        "text": [48,48,49,101,98,111,32,108,101,104,95,102,108,111,111,114,48,53]
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.8174169063568115,0.6206074357032776],
+        "stacked": 1,
+        "text": {"$parts":["TSL ",{"$talk":40594}]}
+      },
+      {
+        "alpha": 1.0,
+        "color": [0.8500000238418579,0.8500000238418579,0.800000011920929],
+        "over": [0.8174169063568115,0.6206074357032776],
+        "stacked": 0,
+        "text": [57,53,48,99,111,114,32,109,97,108,95,119,108,48,52]
+      }
+    ],
+    "hud": {
+      "bar": [
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_wave",
+          "key": {"badge":null,"words":[49]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_storm",
+          "key": {"badge":null,"words":[50]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_deathfield",
+          "key": {"badge":null,"words":[51]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": "ip_drainforce03",
+          "key": {"badge":null,"words":[52]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":null,"words":[53]},
+          "kinds": 0,
+          "lit": false
+        },
+        {
+          "count": null,
+          "dim": false,
+          "fire": null,
+          "icon": null,
+          "key": {"badge":null,"words":[54]},
+          "kinds": 0,
+          "lit": false
+        }
+      ],
+      "bar_label": null,
+      "busy": null,
+      "duel": null,
+      "feat": null,
+      "form": null,
+      "fp": [380,380],
+      "hp": [200,200],
+      "lit": [],
+      "minimap": null,
+      "poisoned": false,
+      "portrait": "po_pmha1",
+      "solo": false,
+      "stealth": false
+    },
+    "pad_kind": "xbox",
+    "pad_names": [
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
+    ],
+    "session_rules": "ja",
+    "settings": {
+      "display.ambient_occlusion": "on",
+      "display.anisotropy": "16",
+      "display.corner_notices": "true",
+      "display.effects": "high",
+      "display.frame_limit": "0",
+      "display.gamma": "0.50",
+      "display.grass": "true",
+      "display.image_aspect": "true",
+      "display.lighting": "enhanced",
+      "display.menu_width": "16x9",
+      "display.mode": "window",
+      "display.msaa": "taa_balanced",
+      "display.shadows": "low",
+      "display.size": "",
+      "display.small_fonts": "auto",
+      "display.target_top": "true",
+      "display.text_scale": "100",
+      "display.vsync": "true",
+      "feedback.floating_numbers": "true",
+      "feedback.hide_menu_buttons": "false",
+      "feedback.hide_unequippable": "false",
+      "feedback.minimap": "true",
+      "feedback.status_summary": "true",
+      "feedback.tooltips": "true",
+      "feedback.tutorials": "true"
+    }
+  },
+  "window": [1920.0,1080.0]
+}

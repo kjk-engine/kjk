@@ -177,7 +177,7 @@ fn level_up_control(tag: &str) -> Option<(usize, bool)> {
 }
 
 /// The status icons, each shown while lit (`HudView::lit`).
-const STATUS: [&str; 8] = [
+pub const STATUS: [&str; 8] = [
     "LBL_JOURNAL",
     "LBL_CASH",
     "LBL_PLOTXP",
@@ -766,7 +766,7 @@ pub fn dot_at(middle: [f32; 2], tall: f32, radius: f32, pixel: f32, tint: [f32; 
 
 /// The shape of a blaster's crosshair: it tells the kind of gun apart, and
 /// its gap is the spread the next shot may stray by (`gap_px`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Family {
     /// A dot and four bars: pistols and rifles.
     Cross,
@@ -1071,11 +1071,11 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
     quads
 }
 
-/// What a blaster shot the player landed did, as the mark flashed about
+/// What a blaster shot the main character landed did, as the mark flashed about
 /// the crosshair shows it: the colour tells a hit from a strong one, a
 /// kill adds red ticks, a bolt a blade turned a grey mark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mark {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HitMark {
     Turned,
     Hit,
     Strong,
@@ -1090,7 +1090,7 @@ const MARK_FADE_MS: f32 = 80.0;
 /// is `gap` at the middle of a layout `frame` big: four strokes on the
 /// diagonals outside the gap, growing a little and fading; none once
 /// `MARK_SHOWN_MS` has passed.
-pub fn hitmarker(frame: (i32, i32), mark: Mark, gap: f32, age_ms: f32) -> Vec<Quad> {
+pub fn hitmarker(frame: (i32, i32), mark: HitMark, gap: f32, age_ms: f32) -> Vec<Quad> {
     if !(0.0..=MARK_SHOWN_MS).contains(&age_ms) {
         return Vec::new();
     }
@@ -1101,9 +1101,9 @@ pub fn hitmarker(frame: (i32, i32), mark: Mark, gap: f32, age_ms: f32) -> Vec<Qu
     let alpha = ((MARK_SHOWN_MS - age_ms) / MARK_FADE_MS).min(1.0);
     let tint = |[r, g, b]: [f32; 3]| [r, g, b, alpha];
     let (color, long) = match mark {
-        Mark::Turned => (MARK_GREY, 4.0),
-        Mark::Hit | Mark::Kill { strong: false } => (MARK_WHITE, 8.0),
-        Mark::Strong | Mark::Kill { strong: true } => (MARK_GOLD, 8.0),
+        HitMark::Turned => (MARK_GREY, 4.0),
+        HitMark::Hit | HitMark::Kill { strong: false } => (MARK_WHITE, 8.0),
+        HitMark::Strong | HitMark::Kill { strong: true } => (MARK_GOLD, 8.0),
     };
     let diagonals = [45.0f32, 135.0, 225.0, 315.0];
     let ring = |(from, to): (f32, f32), color: [f32; 3]| -> Vec<Quad> {
@@ -1121,7 +1121,7 @@ pub fn hitmarker(frame: (i32, i32), mark: Mark, gap: f32, age_ms: f32) -> Vec<Qu
             .collect()
     };
     let mut quads = ring((6.0, 6.0 + long), color);
-    if matches!(mark, Mark::Kill { .. }) {
+    if matches!(mark, HitMark::Kill { .. }) {
         quads.extend(ring((18.0, 24.0), MARK_RED));
     }
     quads

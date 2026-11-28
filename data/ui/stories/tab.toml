@@ -1,0 +1,12 @@
+# The stories of the screens in crates/ui/src/screens/tab.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is the behaviour every in-game screen under the menu bar shares, not a screen of its own. Its stories open such screens."
+
+[[story]]
+name = "The inventory under the menu bar"
+screen = "inventory"
+
+[[story]]
+name = "The next tab"
+screen = "inventory"
+steps = ["key NextTab"]

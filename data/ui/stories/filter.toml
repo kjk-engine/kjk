@@ -1,0 +1,13 @@
+# The stories of the screens in crates/ui/src/screens/filter.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+notes = "It is a part that the inventory, the store and the workbench draw, not a screen of its own. Its stories open those screens."
+
+[[story]]
+name = "In the inventory, weapons shown"
+screen = "inventory"
+steps = ["press BTN_WEAPONS"]
+
+[[story]]
+name = "In the store, weapons shown"
+screen = "store"
+steps = ["press BTN_WEAPONS"]

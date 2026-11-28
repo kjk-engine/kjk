@@ -1,0 +1,11 @@
+# The stories of the screens in crates/ui/src/screens/options_in_game.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "options_in_game"
+
+[[story]]
+name = "Quit asks first"
+screen = "options_in_game"
+steps = ["press BTN_QUIT"]

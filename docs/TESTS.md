@@ -150,6 +150,36 @@ and that a key held as it ends stays out of play until it is let go. It is
 not an approved test,
 and it runs only through `kjk sim probes --only "photo mode"`.
 `bink_decoder_parts` was approved 2026-11-23.
+`ui_catalogue` was approved 2026-11-26. It checks that every module of
+`ui::screens` has a story file in `data/ui/stories`, that every story file
+belongs to a module, and that each story's screen opens. On 2026-11-26 it
+was extended for the HUD's stories (https://github.com/kjk-engine/roadmap/issues/22),
+and the owner approved the extension the same day. A story may now name the
+screen `play`, which is drawn over play and not opened in the stack. Each
+capture of play a story names must be in `data/ui/captures`, must read,
+must read the same once written again, must have been taken in the game it
+is named for, and must have been taken with its input. A story with
+captures must name one for each game it is drawn on, with each input. A story with a
+capture opens its screen on that capture rather than on an empty view
+model. The checks
+`tree_marks`, `tree_focus_links` and `palette_tokens` were added to
+`gui_layouts` the same day. They check the marks a painter leaves for the
+control trees, the focus links the trees record, and that the code's
+palettes have the colours of `data/ui/tokens.json`. On 2026-11-28 the
+check `palette_tokens` was removed. The ui crate's build script now writes
+the palettes from `data/ui/tokens.json`, so the file is the only source of
+the colours and there is nothing left to compare.
+The checks `virtual_screen_seen_scale`, `virtual_screen_placement`,
+`virtual_screen_clicks_land` and `virtual_screen_round_trip` were added to
+`gui_layouts` for the catalogue in the game
+(https://github.com/kjk-engine/roadmap/issues/23), and the owner approved
+them on 2026-11-27. On 2026-11-28 the owner dropped the catalogue's three
+ways of showing a device, so the catalogue always fits the device to the
+window. The check `virtual_screen_seen_scale` was removed with them. The
+other three now check where the fitted image stands in the window, that a
+click at the window's point that shows a control lands on that control in
+each of the five sizes, and that a point of the image taken to the window
+and back is where it was.
 The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
 approval. It checks that a pause of eight hours, as when a computer sleeps
 with the game running, moves the game by one frame at most, and that the

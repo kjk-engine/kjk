@@ -1,0 +1,16 @@
+# The stories of the screens in crates/ui/src/screens/join.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "join"
+
+[[story]]
+name = "An address typed"
+screen = "join"
+steps = ["type 192.168.1.20"]
+
+[[story]]
+name = "The player's name asked"
+screen = "join"
+steps = ["press BTN_OK"]

@@ -1,0 +1,11 @@
+# The stories of the screens in crates/ui/src/screens/lobby.rs (docs/UI.md, "UI catalogue").
+status = "not started"
+
+[[story]]
+name = "At rest"
+screen = "lobby"
+
+[[story]]
+name = "Every companion offered"
+screen = "lobby"
+steps = ["lobby all"]

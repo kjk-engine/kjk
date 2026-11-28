@@ -1130,7 +1130,7 @@ fn modes(monitor: &Monitor) -> Vec<UVec2> {
 /// What the resolution page offers: windows that fit the screen (with
 /// room for a title bar), the largest first; borderless; the screen's
 /// own modes where `exclusive`. The one `window` is shown as now is marked.
-fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayChoice> {
+pub(crate) fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayChoice> {
     let full = UVec2::new(monitor.physical_width, monitor.physical_height);
     let (shown, now) = match window.mode {
         WindowMode::Windowed => (DisplayMode::Window, Some(window.resolution.physical_size())),
