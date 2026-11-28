@@ -332,9 +332,14 @@ pub fn fighting(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             }) => Some(((at[0] - player_at[0]).powi(2) + (at[1] - player_at[1]).powi(2)).sqrt()),
             _ => None,
         };
+        let goal = FLEE + 2.0 * rules::scripts::moves::ARRIVAL_FLOOR;
         report.check(
-            flee_to.is_some_and(|far| (far - FLEE).abs() < 0.05 || (far - FLEE / 2.0).abs() < 0.05),
-            format!("it runs for a place {flee_to:?} m from the player ({FLEE} asked, or half)"),
+            flee_to.is_some_and(|far| {
+                (FLEE..=goal + 0.05).contains(&far) || (far - goal / 2.0).abs() < 0.05
+            }),
+            format!(
+                "it runs for a place {flee_to:?} m from the player ({FLEE}..={goal}, or half)"
+            ),
         );
         let near = apart(&before)?;
         let after = probe.step(400);

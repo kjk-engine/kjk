@@ -977,7 +977,8 @@ pub(super) fn scripts(
                 .unwrap_or(crate::snapshot::ObjectState::GONE)
         };
         let from = from.map(|v| v / collision::UNIT);
-        crate::walk::leads(level, from, script::standing(to), &state)
+        let to = crate::walk::on_floor(level, script::standing(to));
+        crate::walk::leads(level, from, to, &state)
     };
     // The collision's states are one per door, whatever order the doors
     // are read in, so the scripts' sight and perception share one list.

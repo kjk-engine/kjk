@@ -50,6 +50,8 @@ pub(crate) mod mod_routines {
         super::maths::Maths::named(name).map(|maths| maths.of(x, y))
     }
 }
+#[cfg(feature = "probes")]
+pub mod flee_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub(crate) use minigame::answered_drift;

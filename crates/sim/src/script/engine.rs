@@ -1856,28 +1856,41 @@ impl Engine<'_> {
         driven && fights && self.event.ai == Some(who)
     }
 
-    /// Where one standing at `from` flees `threat` to, `range` from it,
-    /// and facing that way: straight away, else turned ever further from
-    /// that (`rules::scripts::moves::away`'s steps) until a way leads
-    /// there, else nearer; none when it is that far already or no way
-    /// leads anywhere tried.
+    /// Where one standing at `from` flees `threat` to, past `range` from it
+    /// (adding arrival clearance so the mover ends outside `range`), and
+    /// facing that way: straight away, else turned ever further from that
+    /// (`rules::scripts::moves::away`'s steps), snapped onto the walkmesh if
+    /// an edge lies near (`spot`), until a way leads outside `range`, else
+    /// shorter or the farthest reachable step away; none when it is that far
+    /// already or no way leads anywhere further.
     fn away(&self, from: [f32; 3], threat: [f32; 3], range: f32) -> Option<([f32; 3], f32)> {
-        use rules::scripts::moves::away;
-        if flat(from, threat) >= range {
+        use rules::scripts::moves::{ARRIVAL_FLOOR, away};
+        let here = flat(from, threat);
+        if here >= range {
             return None;
         }
+        let goal = range + 2.0 * ARRIVAL_FLOOR;
+        let clear = range + ARRIVAL_FLOOR;
         let ahead = crate::math::atan2_deg(from[1] - threat[1], from[0] - threat[0]);
         let turns = (0..away::TURNS)
             .map(|step: i32| (step + 1) / 2 * away::TURN_STEP * if step % 2 == 0 { 1 } else { -1 });
-        [range, range / away::SHORT_DIVISOR]
-            .into_iter()
-            .filter(|far| *far > flat(from, threat))
-            .flat_map(|far| turns.clone().map(move |turn| (far, ahead + turn as f32)))
-            .map(|(far, yaw)| {
-                let (sin, cos) = crate::math::sin_cos_deg(yaw);
-                ([threat[0] + cos * far, threat[1] + sin * far, from[2]], yaw)
-            })
-            .find(|(at, _)| (self.view.leads)(from, *at))
+        let candidate = |far: f32, turn: i32| {
+            let yaw = ahead + turn as f32;
+            let (sin, cos) = crate::math::sin_cos_deg(yaw);
+            let raw = [threat[0] + cos * far, threat[1] + sin * far, from[2]];
+            ((self.view.spot)(from, raw), yaw)
+        };
+        let escaped = turns
+            .clone()
+            .map(|turn| candidate(goal, turn))
+            .find(|(at, _)| flat(*at, threat) >= clear && (self.view.leads)(from, *at));
+        escaped.or_else(|| {
+            [goal, goal / away::SHORT_DIVISOR]
+                .into_iter()
+                .filter(|far| *far > here)
+                .flat_map(|far| turns.clone().map(move |turn| candidate(far, turn)))
+                .find(|(at, _)| flat(*at, threat) > here && (self.view.leads)(from, *at))
+        })
     }
 
     /// The weapon `who` has (worn in `slot` or carried) for `slot` whose
@@ -4861,7 +4874,7 @@ impl Engine<'_> {
                         Action::Move {
                             to: Target::Point(at, yaw),
                             run: int(args, 1) != 0,
-                            range: MOVE_TO_LOCATION_RANGE,
+                            range: 0.0,
                             force_ms: None,
                         },
                     ),
