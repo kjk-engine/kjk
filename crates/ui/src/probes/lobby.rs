@@ -55,6 +55,7 @@ fn sample(own_slot: usize) -> ViewModel {
             saber_rules: "ja".into(),
             collision: "limited".into(),
             show_replies: true,
+            cheats: "host".into(),
             hero: Some(LobbyHeroView {
                 name: b"Dax".to_vec(),
                 portrait: Some("po_pmhc01".into()),
@@ -171,6 +172,7 @@ fn words_shown() -> Vec<Check> {
                 ("LBL_CNAME1", "Mia"),
                 ("LBL_CNAME3", "Free"),
                 ("LBL_CNAME4", "Zaalbar"),
+                ("BTN_CHEATS", "Cheats: Host only"),
                 ("BTN_BACK", "Leave"),
                 ("BTN_DONE", if host { "Start Game" } else { "Ready" }),
             ];
@@ -207,7 +209,8 @@ fn words_shown() -> Vec<Check> {
 }
 
 /// What each press asks for, in each view: the host's chosen replies row
-/// turns them off, a guest's settings rows are
+/// turns them off, the host's Cheats row goes from Host only to All
+/// players, a guest's settings rows are
 /// greyed and ask nothing, a companion the story took asks nothing, a
 /// guest's choice of another guest's companion is a choice, Start Game is
 /// the host's only, and a guest's Ready marks Ready.
@@ -215,7 +218,7 @@ fn presses() -> Check {
     let host = sample(0);
     let guest = sample(2);
     let greyed = |vm: &ViewModel, tag| state(&mut Lobby::default(), vm, None, tag).greyed;
-    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 15] = [
+    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 17] = [
         (
             "host saber",
             &host,
@@ -234,7 +237,14 @@ fn presses() -> Check {
             "BTN_REPLIES",
             lobby(LobbyIntent::ShowReplies(false)),
         ),
+        (
+            "host cheats",
+            &host,
+            "BTN_CHEATS",
+            lobby(LobbyIntent::Cheats("all".into())),
+        ),
         ("guest saber", &guest, "BTN_SABER", Vec::new()),
+        ("guest cheats", &guest, "BTN_CHEATS", Vec::new()),
         ("guest collision", &guest, "BTN_COLLISION", Vec::new()),
         ("guest replies", &guest, "BTN_REPLIES", Vec::new()),
         ("host taken away", &host, "BTN_NPC4", Vec::new()),
@@ -277,6 +287,7 @@ fn presses() -> Check {
         greyed(&guest, "BTN_SABER"),
         greyed(&guest, "BTN_COLLISION"),
         greyed(&guest, "BTN_REPLIES"),
+        greyed(&guest, "BTN_CHEATS"),
         greyed(&host, "BTN_SABER"),
     ];
     // A companion the story took away shows the layout's "no companion"
@@ -287,7 +298,7 @@ fn presses() -> Check {
         !state(&mut Lobby::default(), &guest, None, "LBL_CHAR3").hidden,
         state(&mut Lobby::default(), &guest, None, "LBL_NA3").hidden,
     ];
-    let ok = wrong.is_empty() && greys == [true, true, true, false] && away == [true; 4];
+    let ok = wrong.is_empty() && greys == [true, true, true, true, false] && away == [true; 4];
     check(
         "lobby_presses",
         if ok {
@@ -355,7 +366,7 @@ fn descriptions() -> Check {
             "guest setting",
             &guest,
             "BTN_SABER",
-            "The host chooses the saber rules, the collision and whether chosen replies are shown.",
+            "The host controls combat rules, collision, shown replies, and cheat permissions.",
         ),
         (
             "host setting",

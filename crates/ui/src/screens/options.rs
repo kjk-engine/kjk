@@ -652,7 +652,8 @@ const PAGES: [Spec; 12] = [
                 "CB_INVERTCAM",
                 ToggleAs("camera.invert", strings::INVERT_CAMERA),
             ),
-            ("CB_LEVELUP", Greyed),
+            // KOTOR 2's level-up box, unused: the console's switch.
+            ("CB_LEVELUP", ToggleAs(CONSOLE, strings::CONSOLE)),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
             // KOTOR 2's reverse box, unused: the sabers' page.
             ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
@@ -679,7 +680,7 @@ const PAGES: [Spec; 12] = [
             ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
             ("CB_DISABLEMOVE", Ours(strings::COLLISION_HELP)),
-            ("CB_LEVELUP", Told(42266)),
+            ("CB_LEVELUP", Ours(strings::CONSOLE_HELP)),
             ("CB_REVERSE", Ours(strings::SABERS_HELP)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
             ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
@@ -1029,6 +1030,22 @@ const SHARPENINGS: &[(&str, &str)] = &[
 /// The key of "Join nearby conversations" (`game::dialogue_view`): `true`
 /// or `false`, true while unset.
 pub const JOIN_TALKS: &str = "game.join_talks";
+
+/// The key of Console: whether the console's key opens the console
+/// (`kjk_game::console_view`). It is off until the player turns it on.
+pub const CONSOLE: &str = "game.console";
+
+/// The key of the lobby's Cheats row: who may use the console's commands
+/// that change the game in co-op (`sim::cheats::Rule`), and its default.
+pub const CHEATS: &str = "game.cheats";
+pub const CHEATS_DEFAULT: &str = "host";
+
+/// The Cheats row's values, as the settings file names them.
+pub const CHEAT_RULES: &[(&str, &str)] = &[
+    ("off", strings::CHEATS_OFF),
+    ("host", strings::CHEATS_HOST),
+    ("all", strings::CHEATS_ALL),
+];
 
 /// The key of the host's "Show chosen replies" (`game::lobby_host`): `true`
 /// or `false`, true while unset.

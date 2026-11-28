@@ -711,20 +711,22 @@ fn way(clips: &[Option<Animator>; 2], state: u8) -> Option<&Animator> {
 }
 
 /// Door `object`'s state in `snapshot`, and whether blows broke it
-/// (`sim::objects`).
-fn door_state(snapshot: &sim::Snapshot, instances: &sim::Instances, object: u32) -> (u8, bool) {
-    let Some(entity) = snapshot
+/// (`sim::objects`), or `None` once the door is destroyed and gone from the
+/// world so its pose is left alone until hidden.
+fn door_state(
+    snapshot: &sim::Snapshot,
+    instances: &sim::Instances,
+    object: u32,
+) -> Option<(u8, bool)> {
+    let entity = snapshot
         .entities
         .iter()
-        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, object))
-    else {
-        return (0, false);
-    };
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, object))?;
     let state = entity.object.unwrap_or(sim::ObjectState::default());
     let broken = instances
         .of_entity(entity)
         .is_some_and(|facts| state.broken(facts));
-    (state.state, broken)
+    Some((state.state, broken))
 }
 
 /// What a door's keyed alpha is shown through: its meshes' materials, and
@@ -766,7 +768,8 @@ fn doors(
                 clip.as_ref()
                     .and_then(|clip| scene::animator(placed, clip, nodes))
             };
-            let (state, broken) = door_state(current, &instances, door.object);
+            let (state, broken) =
+                door_state(current, &instances, door.object).unwrap_or((0, false));
             doors.0.push(DoorAnim {
                 object: door.object,
                 opening: [bind(&door.opening[0]), bind(&door.opening[1])],
@@ -786,7 +789,9 @@ fn doors(
     let now = previous.time_ms as f64
         + (current.time_ms as f64 - previous.time_ms as f64) * f64::from(alpha);
     for door in &mut doors.0 {
-        let (state, broken) = door_state(current, &instances, door.object);
+        let Some((state, broken)) = door_state(current, &instances, door.object) else {
+            continue;
+        };
         // Broken where it stood open: its `busted` from now.
         if broken != door.broken || state != door.state {
             door.since = Some(current.time_ms as f64);

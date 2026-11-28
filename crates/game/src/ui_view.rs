@@ -123,6 +123,9 @@ pub struct Ui {
     /// The player hid the HUD with the Hide interface key (`play_keys`).
     /// Any open screen shows it again.
     pub(crate) hud_hidden: bool,
+    /// The scroll bar of KOTOR 2's Messages page, which the console's log
+    /// scrolls with, once read (`console_layer`).
+    console_bar: Option<Option<fmt_odyssey::gui::Control>>,
     /// Photo mode's corner lines while photo mode is on (`photo_mode`).
     /// The rest of the interface is hidden meanwhile, and the player's own
     /// Hide interface choice is kept for after.
@@ -271,6 +274,7 @@ impl Ui {
             summary_closed: false,
             headless,
             hud_hidden: false,
+            console_bar: None,
             photo: None,
             all_saves: Vec::new(),
             saves_for: None,
@@ -740,6 +744,11 @@ fn requests(
         ResMut<crate::wheel_view::Wheel>,
         Option<ResMut<crate::photo_mode::PhotoMode>>,
     ),
+    (mut overlay, mut console_log, mut lines): (
+        Option<ResMut<crate::console_view::Overlay>>,
+        Option<ResMut<crate::console_view::ConsoleLog>>,
+        Option<ResMut<console::LineRequests>>,
+    ),
 ) {
     use sim::script::dialogue::Pick;
     let ui = &mut *ui;
@@ -783,6 +792,17 @@ fn requests(
             ["photo", what @ ..] => {
                 if !photo.as_deref_mut().is_some_and(|photo| photo.script(what)) {
                     warn!(target: "console", "ui photo: {what:?} is no photo mode request");
+                }
+            }
+            ["console", what @ ..] => {
+                let done = match (overlay.as_deref_mut(), console_log.as_deref_mut()) {
+                    (Some(overlay), Some(log)) => {
+                        crate::console_view::script(what, overlay, log, lines.as_deref_mut())
+                    }
+                    _ => false,
+                };
+                if !done {
+                    warn!(target: "console", "ui console: {what:?} is not open, close, type, paste or key")
                 }
             }
             ["script", what @ ..] => match crate::script_screens::parse(what) {
@@ -996,9 +1016,11 @@ fn step(
     });
     // A movie or the startup splash over the screens takes the keys and the
     // pointer, and so does the main menu held back until its 3D view is
-    // drawn (`gui_scene`).
+    // drawn (`gui_scene`). The console takes them too, and a pad's buttons
+    // with them, while it is open (`console_view`).
     let movie = showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0);
-    let blind = movie || scenes.is_some_and(|scenes| scenes.holding());
+    let console = ui.vm.console.is_some();
+    let blind = movie || console || scenes.is_some_and(|scenes| scenes.holding());
     let (keys, mouse) = if blind { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
     let camera = cameras.iter().next();
@@ -1094,7 +1116,9 @@ fn step(
         play_keys(
             ui,
             &mut input,
-            actions.as_deref().filter(|_| !movie && !waiting),
+            actions
+                .as_deref()
+                .filter(|_| !movie && !waiting && !console),
         );
     }
     ui.stack.veil_world = presented.is_some();
@@ -1261,10 +1285,12 @@ fn step(
     }
     // Photo mode's corner lines over the world, alone.
     layers.extend(photo_layer(ui, (size.x, size.y)));
+    // The console over everything.
+    layers.extend(console_layer(ui, (size.x, size.y)));
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
-    // holds the player as a screen does.
-    open.0 = ui.stack.is_open() || hold.0;
+    // holds the player as a screen does, and so does the console.
+    open.0 = ui.stack.is_open() || hold.0 || ui.vm.console.is_some();
     states.0.retain(|key, _| !key.starts_with("ui_"));
     for screen in ui.stack.screens() {
         states.0.insert(format!("ui_{}", screen.0), true);
@@ -1793,6 +1819,31 @@ fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         &panel,
         (wide as f32, tall as f32),
         at,
+    ))
+}
+
+/// The console, while it is open, for a window of `window` pixels
+/// (`ui::screens::console`), in KOTOR 2's colours whichever game is played.
+/// Its log scrolls with the scroll bar of KOTOR 2's Messages page.
+fn console_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let Ui {
+        assets,
+        vm,
+        console_bar,
+        ..
+    } = ui;
+    let view = vm.console.as_ref()?;
+    let assets = assets.as_mut()?;
+    let bar = console_bar.get_or_insert_with(|| {
+        let (gui, _) = assets.screen_layout("messages").ok()?;
+        gui.find("LB_MESSAGES")?.scrollbar.as_deref().cloned()
+    });
+    let mut painter = ui::paint::Painter::new(assets, ui::paint::Palette::TSL);
+    Some(ui::screens::console::draw(
+        &mut painter,
+        view,
+        window,
+        bar.as_ref(),
     ))
 }
 

@@ -35,6 +35,7 @@
 //! `inputs-<tick>.kjkr`): a reload does not replay.
 
 use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -770,6 +771,13 @@ struct Authority {
     /// stepped on the step thread.
     stepped_here: u64,
     stepped_beside: u64,
+    /// Level and dialogue transcript cached off the step thread so per-frame
+    /// main-thread reads never need `authority.world` at home.
+    level: Level,
+    talk: Vec<sim::script::dialogue::Line>,
+    step_gen: u64,
+    reset_checked: bool,
+    metrics: StepMetrics,
     lifecycle: Option<Lifecycle>,
     job: Option<Job>,
     /// Transitions that failed to plan, as (module, arrival): not asked
@@ -806,6 +814,192 @@ struct Authority {
     /// for the whole session.
     show_replies: Option<bool>,
     slowed: Slowed,
+    history: VecDeque<Arc<Snapshot>>,
+    view_clock: ViewClock,
+}
+
+const VIEW_HISTORY_MAX: usize = 32;
+const VIEW_EMA_MIN_MS: f64 = 4.0;
+const VIEW_EMA_MAX_MS: f64 = 33.3;
+const VIEW_EMA_ALPHA: f64 = 0.1;
+const VIEW_SLEW_SLOW: f64 = 0.15;
+const VIEW_SLEW_FAST: f64 = 0.35;
+const VIEW_SNAP_BEHIND_MS: f64 = 64.0;
+
+/// Monotonic presentation clock for `KJK_STEP_ASYNC`: trails issued sim time
+/// by one smoothed frame plus one tick so the view interpolates smoothly
+/// between landed ticks without extrapolating past `authority.last`.
+struct ViewClock {
+    render_ms: f64,
+    frame_ema_ms: f64,
+    was_async: bool,
+}
+
+impl ViewClock {
+    fn new(start_ms: f64) -> Self {
+        Self {
+            render_ms: start_ms,
+            frame_ema_ms: 8.0,
+            was_async: false,
+        }
+    }
+
+    fn reset(&mut self, start_ms: f64) {
+        self.render_ms = start_ms;
+        self.frame_ema_ms = 8.0;
+        self.was_async = false;
+    }
+
+    fn seed(&mut self, current_view_ms: f64, dt_ms: f64) {
+        self.render_ms = self.render_ms.max(current_view_ms);
+        if dt_ms > 0.0 {
+            self.frame_ema_ms = dt_ms.clamp(VIEW_EMA_MIN_MS, VIEW_EMA_MAX_MS);
+        }
+        self.was_async = true;
+    }
+
+    fn advance_async(
+        &mut self,
+        dt_ms: f64,
+        scale: f32,
+        tick_ms: f64,
+        issued_ms: f64,
+        newest_landed_ms: f64,
+        paused: bool,
+    ) -> bool {
+        if dt_ms > 0.0 {
+            let clamped = dt_ms.clamp(VIEW_EMA_MIN_MS, VIEW_EMA_MAX_MS);
+            self.frame_ema_ms += (clamped - self.frame_ema_ms) * VIEW_EMA_ALPHA;
+        }
+        if paused || dt_ms <= 0.0 || scale <= 0.0 {
+            return false;
+        }
+        let scaled_dt_ms = dt_ms * f64::from(scale);
+        let target_lag_ms = self.frame_ema_ms + tick_ms;
+        let ideal_ms = (issued_ms - target_lag_ms).max(self.render_ms);
+        let base_ms = self.render_ms + scaled_dt_ms;
+        let err = ideal_ms - base_ms;
+        let next_ms = if err > VIEW_SNAP_BEHIND_MS {
+            ideal_ms
+        } else {
+            base_ms
+                + err.clamp(
+                    -VIEW_SLEW_SLOW * scaled_dt_ms,
+                    VIEW_SLEW_FAST * scaled_dt_ms,
+                )
+        };
+        let held = next_ms > newest_landed_ms;
+        self.render_ms = next_ms.clamp(self.render_ms, newest_landed_ms);
+        held
+    }
+
+    fn advance_catchup(&mut self, dt_ms: f64, settled_ms: f64) -> bool {
+        if self.render_ms + 1e-3 >= settled_ms {
+            self.render_ms = self.render_ms.max(settled_ms);
+            self.was_async = false;
+            return false;
+        }
+        if settled_ms - self.render_ms > VIEW_SNAP_BEHIND_MS {
+            self.render_ms = settled_ms;
+            self.was_async = false;
+            return false;
+        }
+        let step = dt_ms.max(0.0) * (1.0 + VIEW_SLEW_FAST);
+        self.render_ms = (self.render_ms + step).min(settled_ms);
+        if self.render_ms + 1e-3 >= settled_ms {
+            self.render_ms = settled_ms;
+            self.was_async = false;
+            false
+        } else {
+            true
+        }
+    }
+
+    fn bracket(history: &VecDeque<Arc<Snapshot>>, render_ms: f64) -> Option<Presented> {
+        let len = history.len();
+        if len == 0 {
+            return None;
+        }
+        if len == 1 {
+            return Some(Presented::shared(history[0].clone()));
+        }
+        let hi = history.partition_point(|s| (s.time_ms as f64) <= render_ms);
+        if hi == 0 {
+            return Some(Presented::shared(history[0].clone()));
+        }
+        if hi >= len {
+            return Some(Presented::between(
+                history[len - 2].clone(),
+                history[len - 1].clone(),
+                1.0,
+            ));
+        }
+        let prev = &history[hi - 1];
+        let curr = &history[hi];
+        let from = prev.time_ms as f64;
+        let to = curr.time_ms as f64;
+        if (render_ms - from).abs() <= 1e-9 {
+            return Some(if hi >= 2 {
+                Presented::between(history[hi - 2].clone(), prev.clone(), 1.0)
+            } else {
+                Presented::shared(prev.clone())
+            });
+        }
+        let alpha = if to > from {
+            ((render_ms - from) / (to - from)).clamp(0.0, 1.0) as f32
+        } else {
+            1.0
+        };
+        Some(Presented::between(prev.clone(), curr.clone(), alpha))
+    }
+}
+
+/// Measurements for async queue health (`KJK_STEP_ASYNC`), emitted in `facts.json`
+/// (`DumpFacts`) and Perfetto traces (`KJK_PERF=1`).
+#[derive(Default)]
+struct StepMetrics {
+    frame_wait_ms: f64,
+    wait_ms_total: f64,
+    wait_ms_max: f64,
+    wait_frames: u64,
+    frames_without_new_tick_while_due: u64,
+    view_held_frames: u64,
+    max_queue_depth: usize,
+    cap_hits: u64,
+    picture_age_ms_sum: f64,
+    picture_age_ms_max: f64,
+    picture_age_samples: u64,
+    step_busy_us_total: u64,
+    first_step_at: Option<Instant>,
+    last_step_at: Option<Instant>,
+}
+
+impl StepMetrics {
+    fn record_wait(&mut self, elapsed: Duration) {
+        let ms = elapsed.as_secs_f64() * 1000.0;
+        self.frame_wait_ms += ms;
+        self.wait_ms_total += ms;
+        self.wait_ms_max = self.wait_ms_max.max(ms);
+        self.wait_frames += 1;
+    }
+
+    fn record_picture_age(&mut self, age_ms: f64) {
+        self.picture_age_ms_sum += age_ms;
+        self.picture_age_ms_max = self.picture_age_ms_max.max(age_ms);
+        self.picture_age_samples += 1;
+    }
+
+    fn step_busy_share(&self) -> f64 {
+        let (Some(start), Some(end)) = (self.first_step_at, self.last_step_at) else {
+            return 0.0;
+        };
+        let wall_us = end.saturating_duration_since(start).as_micros() as f64;
+        if wall_us > 0.0 {
+            (self.step_busy_us_total as f64 / wall_us).min(1.0)
+        } else {
+            0.0
+        }
+    }
 }
 
 /// A perfect block's slow motion (`rules::duel::slow_motion`, the option
@@ -1082,6 +1276,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         });
         let solo = Solo::new(world.level(), request, rate, &last, listen, &folder)
             .map_err(|error| format!("the session: {error}"))?;
+        let cached_level = world.level().clone();
+        let cached_talk = world.script_report().talk.clone();
         let mut states = States::default();
         states.0.insert("world".into(), true);
         states.0.insert("loading".into(), false);
@@ -1105,6 +1301,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.init_resource::<SelectedPower>();
         app.init_resource::<Loading>();
         crate::report::game_started(app);
+        let start_ms = last.time_ms as f64;
+        let history = VecDeque::from([last.clone()]);
         app.insert_resource(Authority {
             seat,
             world: WorldSlot::new(world),
@@ -1125,6 +1323,11 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             most: 0,
             stepped_here: 0,
             stepped_beside: 0,
+            level: cached_level,
+            talk: cached_talk,
+            step_gen: 1,
+            reset_checked: false,
+            metrics: StepMetrics::default(),
             lifecycle,
             job: None,
             declined: Vec::new(),
@@ -1138,6 +1341,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             damage_taken,
             show_replies,
             slowed: Slowed::default(),
+            history,
+            view_clock: ViewClock::new(start_ms),
         });
     }
     Ok(())
@@ -1618,6 +1823,8 @@ struct Landed {
     notices: Vec<(Seat, sim::notice::Notice)>,
     for_net: Option<crate::sim_worker::ForNet>,
     stepped_at: net::NetTime,
+    step_us: u64,
+    published: bool,
 }
 
 impl Authority {
@@ -1656,16 +1863,39 @@ impl Authority {
         self.world.script_report().runs.clone()
     }
 
-    /// The world home, if it was being stepped: each of its ticks
-    /// recorded, in order, and the newest made the last. The rest is kept
-    /// for `advance` (`landed`). The actions of the ticks the step thread
-    /// did not step wait for the next tick again (`Solo::unstepped`).
-    fn settle(&mut self) {
-        let Some(away) = Stepper::land(&mut self.world, &mut self.stepper) else {
+    fn is_checked_in(&self) -> bool {
+        self.stepper
+            .as_ref()
+            .is_some_and(crate::sim_worker::Stepper::is_checked_in)
+    }
+
+    fn in_flight(&self) -> usize {
+        self.stepper
+            .as_ref()
+            .map_or(0, crate::sim_worker::Stepper::in_flight)
+    }
+
+    fn push_history(&mut self, snapshot: Arc<Snapshot>) {
+        if self
+            .history
+            .back()
+            .is_some_and(|back| back.tick >= snapshot.tick)
+        {
             return;
-        };
-        self.stepped_beside += away.stepped.len() as u64;
-        for stepped in away.stepped {
+        }
+        self.history.push_back(snapshot);
+        while self.history.len() > VIEW_HISTORY_MAX {
+            self.history.pop_front();
+        }
+    }
+
+    fn record_stepped(&mut self, stepped: Vec<crate::sim_worker::Stepped>) {
+        self.stepped_beside += stepped.len() as u64;
+        if !stepped.is_empty() {
+            self.metrics.last_step_at = Some(Instant::now());
+        }
+        for stepped in stepped {
+            self.metrics.step_busy_us_total += stepped.step_us;
             if let Source::Live {
                 recorder: Some(recorder),
             } = &mut self.source
@@ -1675,6 +1905,9 @@ impl Authority {
             if let Some(flight) = &mut self.flight {
                 flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
             }
+            if !stepped.talk.is_empty() {
+                self.talk.extend(stepped.talk);
+            }
             let snapshot = stepped.snapshot;
             self.last = snapshot.clone();
             self.landed.push(Landed {
@@ -1683,11 +1916,86 @@ impl Authority {
                 notices: stepped.notices,
                 for_net: stepped.for_net,
                 stepped_at: stepped.stepped_at,
+                step_us: stepped.step_us,
+                published: stepped.published,
             });
         }
-        if !away.unstepped.is_empty() {
+    }
+
+    fn finish_drained(
+        &mut self,
+        drained: crate::sim_worker::Drained,
+        drain_remaining_on_end: bool,
+    ) {
+        self.record_stepped(drained.stepped);
+        let mut unstepped = drained.unstepped;
+        if drained.ended {
+            if drain_remaining_on_end && let Some(stepper) = self.stepper.as_mut() {
+                unstepped.extend(stepper.drain_cut());
+            }
+            self.step_gen += 1;
             self.cut = true;
-            self.solo.unstepped(away.unstepped);
+            self.clock = Accumulator::new(self.setup.rate, self.last.tick);
+        }
+        if !unstepped.is_empty() {
+            self.cut = true;
+            self.solo.unstepped(unstepped);
+        }
+    }
+
+    /// Collects completed async ticks without blocking. If any tick ended on a
+    /// break or transition, drains remaining queued orders of that generation
+    /// immediately so `unstepped` is recovered in FIFO order and `clock` resets.
+    fn poll_stepped(&mut self) {
+        let Some(stepper) = self.stepper.as_mut() else {
+            return;
+        };
+        let drained = stepper.try_drain();
+        self.finish_drained(drained, true);
+    }
+
+    /// Blocks until at least one in-flight tick completes (or the cut settles),
+    /// recording wait time and incrementing `cap_hits`.
+    fn wait_for_room(&mut self) {
+        let Some(stepper) = self.stepper.as_mut() else {
+            return;
+        };
+        if stepper.in_flight() == 0 {
+            return;
+        }
+        let _span = bevy::log::info_span!("sim.wait").entered();
+        let started = Instant::now();
+        let drained = stepper.wait_one();
+        self.metrics.record_wait(started.elapsed());
+        self.metrics.cap_hits += 1;
+        self.finish_drained(drained, true);
+    }
+
+    /// The world home, if it was being stepped: each of its ticks
+    /// recorded, in order, and the newest made the last. The rest is kept
+    /// for `advance` (`landed`). The actions of the ticks the step thread
+    /// did not step wait for the next tick again (`Solo::unstepped`).
+    fn settle(&mut self) {
+        if self.is_checked_in() {
+            let _span = bevy::log::info_span!("sim.wait").entered();
+            let started = Instant::now();
+            let drained = Stepper::check_out(&mut self.world, &mut self.stepper);
+            self.metrics.record_wait(started.elapsed());
+            self.finish_drained(drained, false);
+            return;
+        }
+        if !self.world.home() {
+            let _span = bevy::log::info_span!("sim.wait").entered();
+            let started = Instant::now();
+            let away = Stepper::land(&mut self.world, &mut self.stepper);
+            self.metrics.record_wait(started.elapsed());
+            if let Some(away) = away {
+                self.record_stepped(away.stepped);
+                if !away.unstepped.is_empty() {
+                    self.cut = true;
+                    self.solo.unstepped(away.unstepped);
+                }
+            }
         }
     }
 
@@ -1714,12 +2022,14 @@ impl Authority {
         if self.lifecycle.is_none() {
             return false;
         }
-        let ask = ask.unwrap_or_else(|| {
-            self.settle();
-            HintAsk {
-                hints: self.world.hints(),
-                visited: self.last.visited(&request.module),
-            }
+        let key = (request.module.clone(), request.arrival.clone());
+        if !commanded && expect.is_none() && self.declined.contains(&key) {
+            return false;
+        }
+        self.settle();
+        let ask = ask.unwrap_or_else(|| HintAsk {
+            hints: self.world.hints(),
+            visited: self.last.visited(&request.module),
         });
         let Some(lifecycle) = &self.lifecycle else {
             return false;
@@ -1904,6 +2214,7 @@ fn store(
             snapshot: sim::SNAPSHOT_FORMAT,
             story: saves::STORY_SCHEMA,
         }),
+        cheats: snapshot.cheats.used,
         ..saves::Meta::default()
     };
     let tick = snapshot.tick;
@@ -2074,6 +2385,174 @@ pub fn autosave_probes() -> sim::probe::Checks {
     ]
 }
 
+/// `ViewClock` interpolation probes (`kjk sim probes --only "view clock"`).
+#[cfg(feature = "probes")]
+pub fn view_clock_probes() -> sim::probe::Checks {
+    use sim::action::Action;
+
+    // Step one Arena world to build realistic snapshots, including paused ticks.
+    let mut world = SimWorld::new(sim::WorldConfig::one_seat(), Level::arena()).expect("arena");
+    let mut snaps = vec![Arc::new(world.snapshot())];
+    for tick in 1..=25u64 {
+        let mut input = TickInput::default();
+        if tick == 10 {
+            input.act(Seat(0), Action::Break);
+        } else if tick == 13 {
+            input.act(Seat(0), Action::Resume);
+        }
+        let s = step(&mut world, tick, &input, 8, StepReason::Authority);
+        snaps.push(Arc::new(s));
+    }
+
+    // 1. monotonic_under_slow_ticks_and_bursts: irregular/burst delivery produces monotonic,
+    // fractional intermediate frames without jumping backwards or snapping alpha to 1.0.
+    let mut vc1 = ViewClock::new(0.0);
+    vc1.seed(0.0, 4.0);
+    let mut h1: VecDeque<Arc<Snapshot>> = VecDeque::from([snaps[0].clone()]);
+    let mut landed_idx = 0usize;
+    let mut prev_ms = 0.0f64;
+    let mut mono_ok = true;
+    let mut fractional_count = 0usize;
+    for frame in 1..=30usize {
+        // Land bursts every 3 frames so some frames see 0 landed ticks and others see 2-3.
+        if frame % 3 == 0 && landed_idx + 2 <= 9 {
+            for _ in 0..2 {
+                landed_idx += 1;
+                h1.push_back(snaps[landed_idx].clone());
+            }
+        }
+        let issued_ms = (frame as f64) * 2.5;
+        let newest_ms = snaps[landed_idx].time_ms as f64;
+        vc1.advance_async(4.0, 1.0, 8.0, issued_ms, newest_ms, false);
+        let p = ViewClock::bracket(&h1, vc1.render_ms).expect("bracketed");
+        let ms = view_ms(&p);
+        if ms + 1e-6 < prev_ms || ms > newest_ms + 1e-6 {
+            mono_ok = false;
+        }
+        if p.alpha() > 0.0 && p.alpha() < 1.0 {
+            fractional_count += 1;
+        }
+        prev_ms = ms;
+    }
+    let mono_pass = mono_ok && fractional_count > 0 && prev_ms > 0.0;
+
+    // 2. never_extrapolates_and_counts_holds: advancing while no ticks arrive holds at newest_ms.
+    let mut vc2 = ViewClock::new(0.0);
+    vc2.seed(0.0, 8.0);
+    let h2: VecDeque<Arc<Snapshot>> = VecDeque::from([snaps[0].clone(), snaps[1].clone()]);
+    let newest_ms = snaps[1].time_ms as f64;
+    let mut held_hits = 0usize;
+    let mut extra_ok = true;
+    for frame in 1..=10 {
+        let held = vc2.advance_async(8.0, 1.0, 8.0, (frame as f64) * 12.0, newest_ms, false);
+        if held {
+            held_hits += 1;
+        }
+        let p = ViewClock::bracket(&h2, vc2.render_ms).expect("bracketed");
+        if vc2.render_ms > newest_ms + 1e-9 || view_ms(&p) > newest_ms + 1e-9 {
+            extra_ok = false;
+        }
+    }
+    let extra_pass = extra_ok && held_hits > 0;
+
+    // 3. equal_time_ms_paused_ticks_no_nan: paused ticks share time_ms; alpha must never NaN.
+    let paused_hist: VecDeque<Arc<Snapshot>> = snaps[8..=15].iter().cloned().collect();
+    let paused_ms = snaps[10].time_ms as f64;
+    let resume_ms = snaps[14].time_ms as f64;
+    let mid_before = (snaps[9].time_ms as f64 + paused_ms) * 0.5;
+    let mid_after = (paused_ms + resume_ms) * 0.5;
+    let mut eq_ok = true;
+    for probe_ms in [mid_before, paused_ms, mid_after, resume_ms] {
+        let p = ViewClock::bracket(&paused_hist, probe_ms).expect("paused bracket");
+        let a = p.alpha();
+        let vm = view_ms(&p);
+        if a.is_nan() || !(0.0..=1.0).contains(&a) || vm.is_nan() {
+            eq_ok = false;
+        }
+    }
+    let at_paused = ViewClock::bracket(&paused_hist, paused_ms).expect("at paused");
+    let eq_pass = eq_ok && (view_ms(&at_paused) - paused_ms).abs() < 1e-6;
+
+    // 4. slow_motion_and_pause_invariance: paused frames never advance; 0.25x scales step rate.
+    let mut vc_pause = ViewClock::new(16.0);
+    vc_pause.seed(16.0, 8.0);
+    let paused_held = vc_pause.advance_async(16.0, 1.0, 8.0, 64.0, 56.0, true);
+    let mut vc_full = ViewClock::new(16.0);
+    vc_full.seed(16.0, 8.0);
+    vc_full.advance_async(8.0, 1.0, 8.0, 64.0, 56.0, false);
+    let mut vc_slow = ViewClock::new(16.0);
+    vc_slow.seed(16.0, 8.0);
+    vc_slow.advance_async(8.0, 0.25, 8.0, 64.0, 56.0, false);
+    let slow_pass = !paused_held
+        && (vc_pause.render_ms - 16.0).abs() < 1e-9
+        && vc_slow.render_ms > 16.0
+        && vc_full.render_ms - 16.0 > (vc_slow.render_ms - 16.0) * 3.0;
+
+    // 5. leave_and_reenter_queue_mode_continuity: catchup is monotonic and seed never rewinds.
+    let mut vc5 = ViewClock::new(40.0);
+    vc5.seed(40.0, 8.0);
+    let mut steps = Vec::new();
+    for _ in 0..10 {
+        let still = vc5.advance_catchup(8.0, 64.0);
+        steps.push(vc5.render_ms);
+        if !still {
+            break;
+        }
+    }
+    let catchup_mono = steps.windows(2).all(|w| w[1] >= w[0]) && !vc5.was_async;
+    let reached = (vc5.render_ms - 64.0).abs() < 1e-6 && steps.len() >= 2;
+    vc5.seed(48.0, 8.0);
+    let no_rewind = vc5.render_ms >= 64.0 && vc5.was_async;
+    let leave_reenter_pass = catchup_mono && reached && no_rewind;
+
+    vec![
+        (
+            "monotonic_under_slow_ticks_and_bursts",
+            sim::probe::check(
+                mono_pass,
+                format!("mono_ok {mono_ok}, fractional {fractional_count}, end {prev_ms}"),
+            ),
+        ),
+        (
+            "never_extrapolates_and_counts_holds",
+            sim::probe::check(
+                extra_pass,
+                format!(
+                    "extra_ok {extra_ok}, held_hits {held_hits}, render_ms {}",
+                    vc2.render_ms
+                ),
+            ),
+        ),
+        (
+            "equal_time_ms_paused_ticks_no_nan",
+            sim::probe::check(
+                eq_pass,
+                format!("eq_ok {eq_ok}, paused_view_ms {}", view_ms(&at_paused)),
+            ),
+        ),
+        (
+            "slow_motion_and_pause_invariance",
+            sim::probe::check(
+                slow_pass,
+                format!(
+                    "pause {}, slow {}, full {}",
+                    vc_pause.render_ms, vc_slow.render_ms, vc_full.render_ms
+                ),
+            ),
+        ),
+        (
+            "leave_and_reenter_queue_mode_continuity",
+            sim::probe::check(
+                leave_reenter_pass,
+                format!(
+                    "mono {catchup_mono}, reached {reached}, no_rewind {no_rewind}, end {}",
+                    vc5.render_ms
+                ),
+            ),
+        ),
+    ]
+}
+
 /// The autosave owed after each module entered (KOTOR's rule, not after a
 /// save loaded) and when a script asks for one, once a second until
 /// nothing refuses it: a player's game, solo or hosting (the host's world
@@ -2237,6 +2716,17 @@ fn batches() -> bool {
     *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
 }
 
+/// Whether single-player batched runs keep `SimWorld` checked into the step
+/// thread across frames so rendering never waits on stepping (`KJK_STEP_ASYNC`).
+fn step_async() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| {
+        batches()
+            && std::env::var("KJK_STEP_ASYNC")
+                .is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "on"))
+    })
+}
+
 /// The screens that keep the world going while they are open: pazaak, whose
 /// game is played on the world's ticks, and a computer, whose conversation
 /// goes on with them. The loading screen is no menu.
@@ -2254,6 +2744,101 @@ fn holds_world(stack: &ui::screen::Stack) -> bool {
     stack
         .screens()
         .any(|screen| !LIVE_SCREENS.contains(&screen.0))
+}
+
+struct Ingested {
+    stepped: usize,
+    step_us: u64,
+    held_up: bool,
+}
+
+fn ingest_landed(
+    authority: &mut Authority,
+    presented: &mut PresentedSnapshot,
+    authority_snapshot: &mut AuthoritySnapshot,
+    world_tick: &mut WorldTick,
+    ui: &mut Option<ResMut<crate::ui_view::Ui>>,
+    loading: &mut Loading,
+    states: &mut States,
+) -> Ingested {
+    let landed = std::mem::take(&mut authority.landed);
+    let cut = std::mem::take(&mut authority.cut);
+    let mut held_up = cut;
+    let mut stepped = 0usize;
+    let mut step_us = 0u64;
+    let any_landed = !landed.is_empty();
+    for landed in landed {
+        step_us += landed.step_us;
+        for (seat, notice) in landed.notices {
+            if authority.took(&notice) {
+                continue;
+            }
+            match notice {
+                sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
+                sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                sim::notice::Notice::Explosion(explosion) => {
+                    authority.solo.explosion(seat, explosion)
+                }
+                notice => {
+                    let text = crate::loot::words(&notice, ui.as_deref_mut());
+                    authority.solo.notice(seat, &text);
+                }
+            }
+        }
+        if landed.published {
+            authority.solo.published_stepped(
+                &landed.snapshot,
+                landed.for_net.as_ref().and_then(|for_net| for_net.hash),
+            );
+        } else {
+            match landed.for_net.as_ref() {
+                Some(for_net) => authority.solo.stepped_hashed_at(
+                    &landed.input,
+                    &landed.snapshot,
+                    for_net.hash,
+                    for_net.split.clone(),
+                    landed.stepped_at,
+                ),
+                None => {
+                    authority
+                        .solo
+                        .stepped_at(&landed.input, &landed.snapshot, landed.stepped_at)
+                }
+            }
+        }
+        stepped += 1;
+        let transition = landed.snapshot.transition.clone();
+        authority.forget_declined(transition.as_ref());
+        authority.push_history(landed.snapshot.clone());
+        presented.1.push(landed.snapshot);
+        if let Some(transition) = transition
+            && let Some(lifecycle) = &authority.lifecycle
+        {
+            let request = lifecycle.installer.request_from(
+                &authority.last,
+                &transition.module,
+                Some(&transition.tag),
+            );
+            if authority.start(request, false, None, None, loading) {
+                states.0.insert("loading".into(), true);
+                states.0.insert("world".into(), false);
+                held_up = true;
+            }
+        }
+    }
+    if any_landed {
+        world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
+        authority_snapshot.0 = authority.last.clone();
+        held_up |= authority.last.paused_by.is_some();
+    }
+    if held_up {
+        authority.clock = Accumulator::new(authority.setup.rate, authority.last.tick);
+    }
+    Ingested {
+        stepped,
+        step_us,
+        held_up,
+    }
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -2299,10 +2884,14 @@ fn advance(
     ),
 ) {
     let authority = &mut *authority;
+    authority.metrics.frame_wait_ms = 0.0;
     let rate = authority.setup.rate;
-    // The ticks stepped beside the last frame: the session hears of them,
-    // in order, before this frame's commands, as it would have that frame.
-    authority.settle();
+    // 1. Poll finished async ticks without blocking, or settle if blocking.
+    if authority.is_checked_in() {
+        authority.poll_stepped();
+    } else {
+        authority.settle();
+    }
     // A host publishes no tick, so `tick` holds only a game without co-op.
     world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
     // This machine's seat as the session has it: a lobby's guest may play
@@ -2315,42 +2904,25 @@ fn advance(
         commands.insert_resource(OwnSeat(seat));
     }
     let own_seat = authority.seat;
-    let landed = std::mem::take(&mut authority.landed);
-    let cut = std::mem::take(&mut authority.cut);
-    for landed in &landed {
-        for (seat, notice) in landed.notices.iter().cloned() {
-            if authority.took(&notice) {
-                continue;
-            }
-            match notice {
-                sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
-                sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
-                sim::notice::Notice::Explosion(explosion) => {
-                    authority.solo.explosion(seat, explosion)
-                }
-                notice => {
-                    let text = crate::loot::words(&notice, ui.as_deref_mut());
-                    authority.solo.notice(seat, &text);
-                }
-            }
-        }
-        match landed.for_net.as_ref() {
-            Some(for_net) => authority.solo.stepped_hashed_at(
-                &landed.input,
-                &landed.snapshot,
-                for_net.hash,
-                for_net.split.clone(),
-                landed.stepped_at,
-            ),
-            None => authority
-                .solo
-                .stepped_at(&landed.input, &landed.snapshot, landed.stepped_at),
-        }
-    }
     // The first frame keeps the starting snapshot for the views.
     if authority.frames > 0 {
         presented.1.clear();
     }
+    let fresh = presented.1.len();
+    // 2. Ingest landed ticks first so transitions, pauses, and notices apply in order.
+    let initial_ingest = ingest_landed(
+        authority,
+        &mut presented,
+        &mut authority_snapshot,
+        &mut world_tick,
+        &mut ui,
+        &mut loading,
+        &mut states,
+    );
+    let any_landed_initial = initial_ingest.stepped > 0;
+    let mut stepped = initial_ingest.stepped;
+    let mut frame_step_us = initial_ingest.step_us;
+    let mut held_up = initial_ingest.held_up;
     // A `module` command's install.
     if let Some((module, arrival)) = request.pending.take() {
         match &authority.lifecycle {
@@ -2540,7 +3112,13 @@ fn advance(
                     hash: announcement.after.to_string(),
                 });
                 let after = Arc::new(after);
+                authority.level = authority.world.level().clone();
+                authority.talk = authority.world.script_report().talk.clone();
+                authority.reset_checked = true;
                 authority_snapshot.0 = after.clone();
+                authority.history.clear();
+                authority.history.push_back(after.clone());
+                authority.view_clock.reset(after.time_ms as f64);
                 presented.0 = Presented::shared(after.clone());
                 presented.1 = vec![after.clone()];
                 authority.clock = Accumulator::new(rate, after.tick);
@@ -2620,26 +3198,17 @@ fn advance(
     // pause is a player's own). A replay steps its recorded ticks.
     let movie_up = input.movie_up();
     let live = matches!(authority.source, Source::Live { .. });
-    let on_break = live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
+    let mut on_break =
+        live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
     let summary_up = live && input.summary_up() && !authority.solo.hosting();
-    // In single player the world also waits while a menu is open, as
-    // KOTOR's does. An action made on the menu (an item equipped, a
-    // purchase) still gets the ticks it needs to take effect.
     let menu_up = live
         && !authority.solo.hosting()
         && matches!(authority.driver, Driver::Player(None))
         && ui.as_deref().is_some_and(|ui| holds_world(&ui.stack))
         && !authority.solo.action_waiting();
-    // It waits too after an install until the new area can be drawn whole
-    // behind the loading screen (`lifecycle_view::Picture`, issue 410): its
-    // scripts, conversations and fights start when the player can see them.
-    // Co-op players wait with it, as for a movie.
     let unseen = picture
         .as_deref()
         .is_some_and(|picture| picture.holds(loading.committed));
-    // Played alone, the world waits too while photo mode holds it, as for
-    // a menu, and a replay steps the one tick its step control lets
-    // through (`photo_mode`).
     let replaying = matches!(authority.source, Source::Replay { .. });
     let photo = input.photo().filter(|_| !authority.solo.hosting());
     let one_tick = replay.as_deref_mut().is_some_and(|replay| {
@@ -2647,36 +3216,132 @@ fn advance(
         std::mem::take(&mut replay.step) && replaying
     });
     let photo_up = photo.is_some_and(crate::photo_mode::PhotoMode::holds_world) && !one_tick;
-    let waiting = movie_up || on_break || summary_up || menu_up || unseen || photo_up;
+    // 3-4. Evaluate queue-mode eligibility; if leaving queue mode, settle and
+    // ingest any late ticks before recomputing `waiting` and calling `hold`.
+    let held_ms = held.0.map(|seconds| f64::from(seconds) * 1000.0);
+    let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
+    let batched = beside
+        && batches()
+        && match &authority.driver {
+            Driver::Player(None) => true,
+            Driver::Player(Some(_)) => authority.aim.is_none(),
+            Driver::Pilot => false,
+        }
+        && authority.last.paused_by.is_none()
+        && authority.declined.is_empty();
+    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
+    let mut waiting = movie_up || on_break || summary_up || menu_up || unseen || photo_up;
+    let installing_or_held_up = installing || held_up || authority.job.is_some();
+    let eligible_for_async = step_async()
+        && batched
+        && held_at.is_none()
+        && !waiting
+        && !installing_or_held_up
+        && !one_tick;
+    if !eligible_for_async && authority.is_checked_in() {
+        authority.settle();
+        let settled = ingest_landed(
+            authority,
+            &mut presented,
+            &mut authority_snapshot,
+            &mut world_tick,
+            &mut ui,
+            &mut loading,
+            &mut states,
+        );
+        stepped += settled.stepped;
+        frame_step_us += settled.step_us;
+        held_up |= settled.held_up;
+        on_break = live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
+        waiting = movie_up || on_break || summary_up || menu_up || unseen || photo_up;
+    }
+    let installing = authority.job.is_some();
     authority.solo.hold(waiting);
     frozen.0 = waiting;
-    // The session answers its players (the own client joins and loads
-    // before the world steps; a host waits for loaders after an install).
+    // 5-7. Pump session; if still not playing while checked in, settle cleanly.
     authority.solo.pump();
     let playing = authority.solo.playing();
+    if !playing && authority.is_checked_in() {
+        authority.settle();
+        let settled = ingest_landed(
+            authority,
+            &mut presented,
+            &mut authority_snapshot,
+            &mut world_tick,
+            &mut ui,
+            &mut loading,
+            &mut states,
+        );
+        stepped += settled.stepped;
+        frame_step_us += settled.step_us;
+        held_up |= settled.held_up;
+    }
+    let mut use_async = step_async()
+        && batched
+        && held_at.is_none()
+        && !waiting
+        && !installing
+        && playing
+        && !one_tick
+        && !held_up;
 
-    // The ticks due: by wall time, or up to the held animation time (less
-    // what the world waited); none while a module is being installed (its
-    // time is not the sim's), before the player's client plays, or while
-    // the world waits (`Waited`). A movie up takes the keys and the mouse
-    // too (`PlayerInput`).
-    let held_ms = held.0.map(|seconds| f64::from(seconds) * 1000.0);
     waited.frame(waiting, held_ms, time.delta_secs_f64() * 1000.0);
-    // The time the ticks are due up to, while it is held.
     let held_target = held_ms.map(|ms| (ms - waited.ms).max(0.0) as u64);
-    // Whether the world has reached the held time (`wait arrived`: an `anim`
-    // far ahead takes modules and frames to get to), or a replay ran out.
     let arrived = !installing
         && (held_target.is_none_or(|target| rate.time_ms(authority.last.tick) >= target)
             || matches!(&authority.source, Source::Replay { recording, next, .. } if *next == recording.ticks.len()));
     states.0.insert("arrived".into(), arrived);
-    let due: Vec<(u64, u32)> = if installing || !playing || waiting {
-        if !playing || waiting {
+    let scale = {
+        let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
+        let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
+        let photo = photo.map_or(1.0, crate::photo_mode::PhotoMode::scale);
+        (authority.slowed.scale(time.elapsed_secs_f64()))
+            .min(wheel)
+            .min(photo)
+    };
+    if use_async && authority.in_flight() >= sim::MAX_CATCH_UP as usize {
+        authority.wait_for_room();
+        let roomed = ingest_landed(
+            authority,
+            &mut presented,
+            &mut authority_snapshot,
+            &mut world_tick,
+            &mut ui,
+            &mut loading,
+            &mut states,
+        );
+        stepped += roomed.stepped;
+        frame_step_us += roomed.step_us;
+        held_up |= roomed.held_up;
+        if held_up || authority.job.is_some() || authority.last.paused_by.is_some() {
+            authority.settle();
+            let settled = ingest_landed(
+                authority,
+                &mut presented,
+                &mut authority_snapshot,
+                &mut world_tick,
+                &mut ui,
+                &mut loading,
+                &mut states,
+            );
+            stepped += settled.stepped;
+            frame_step_us += settled.step_us;
+            held_up |= settled.held_up;
+            use_async = false;
+        }
+    }
+    let due: Vec<(u64, u32)> = if installing || !playing || waiting || held_up {
+        if !playing || waiting || held_up {
             authority.clock = Accumulator::new(rate, authority.last.tick);
         }
         Vec::new()
+    } else if use_async {
+        let room = sim::MAX_CATCH_UP.saturating_sub(authority.in_flight() as u32);
+        authority
+            .clock
+            .advance_capped(time.delta().mul_f32(scale), room)
     } else {
-        match held_target {
+        let due = match held_target {
             Some(target) => {
                 let mut due = Vec::new();
                 let mut tick = authority.last.tick;
@@ -2687,37 +3352,20 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            // The step control of a stopped replay lets one tick through.
             None if one_tick => {
                 let tick = authority.last.tick + 1;
                 authority.clock = Accumulator::new(rate, tick);
                 vec![(tick, rate.msec(tick))]
             }
-            // A perfect block slows the clock for a moment (`Slowed`). The
-            // power wheel slows it while it is open in a session of one
-            // seat (`wheel_view::time_scale`), and photo mode's speed does
-            // while it runs the world slowly (`photo_mode::Speed`). The
-            // scales never multiply. The clock runs at the slowest of them.
-            None => {
-                let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
-                let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
-                let photo = photo.map_or(1.0, crate::photo_mode::PhotoMode::scale);
-                let scale = (authority.slowed.scale(time.elapsed_secs_f64()))
-                    .min(wheel)
-                    .min(photo);
-                authority.clock.advance(time.delta().mul_f32(scale))
+            None => authority.clock.advance(time.delta().mul_f32(scale)),
+        };
+        match held_at {
+            Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
+                authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
+                due.into_iter().filter(|(tick, _)| *tick <= at).collect()
             }
+            _ => due,
         }
-    };
-    // Only a game without co-op is held (`tick`). A host that stopped its
-    // ticks would stop the world for every guest.
-    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
-    let due = match held_at {
-        Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
-            authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
-            due.into_iter().filter(|(tick, _)| *tick <= at).collect()
-        }
-        _ => due,
     };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
@@ -2725,8 +3373,6 @@ fn advance(
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
-    // A scripted player, and a headless run without keys (`ui reply` in a
-    // run's commands), answer here: no key reading below takes the pick.
     let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
     if let Some(pick) = picked
         && authority.last.talk_for(own_seat).is_some()
@@ -2761,81 +3407,10 @@ fn advance(
     if let Some(exploded) = exploded.as_deref_mut() {
         exploded.0.extend(authority.solo.take_explosions());
     }
-    // The snapshots this frame steps are pushed after the first `fresh`.
-    let fresh = presented.1.len();
-    let mut stepped = 0;
-    // The ticks stepped beside the last frame are this frame's first; a
-    // transition or a break the last of them asked for holds the world
-    // from it. The step thread stopped at that tick (`cut`), and the
-    // clock goes back to it, so the ticks after it are due again later.
-    // There are at most `MAX_CATCH_UP` of them: the clock hands out no
-    // more in a frame.
-    let mut held_up = cut;
-    let any_landed = !landed.is_empty();
-    for landed in landed {
-        stepped += 1;
-        let transition = landed.snapshot.transition.clone();
-        authority.forget_declined(transition.as_ref());
-        presented.1.push(landed.snapshot);
-        if let Some(transition) = transition
-            && let Some(lifecycle) = &authority.lifecycle
-        {
-            let request = lifecycle.installer.request_from(
-                &authority.last,
-                &transition.module,
-                Some(&transition.tag),
-            );
-            if authority.start(request, false, None, None, &mut loading) {
-                states.0.insert("loading".into(), true);
-                states.0.insert("world".into(), false);
-                held_up = true;
-            }
-        }
-    }
-    if any_landed {
-        authority_snapshot.0 = authority.last.clone();
-        held_up |= authority.last.paused_by.is_some();
-    }
-    if held_up {
-        authority.clock = Accumulator::new(rate, authority.last.tick);
-    }
-    let due = if held_up { Vec::new() } else { due };
-    // A live frame's ticks are stepped beside the next frame's work
-    // (`sim_worker`); a held time's (a recording, `anim`) here, so the
-    // frame shows the moment it holds.
-    let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
-    // The frame hands all its ticks to the step thread when it can make
-    // their commands before any of them is stepped, with nothing changed
-    // by that. It cannot in these cases, and then steps all but its last
-    // tick itself, as every frame does with `KJK_STEP_BATCH=off`:
-    // - A pilot or a minigame's bot drives. Their commands are kept as
-    //   they were, each made from the tick before it.
-    // - A break holds, and this frame's first tick may end it. The ticks
-    //   after it take the players' actions by whether it did
-    //   (`Solo::commands_for`).
-    // - A transition failed to plan (`declined`). The world goes on while
-    //   its steps still ask for it, and the step thread would stop at each.
-    // - Players can join over the network. The server takes a guest's
-    //   command for a tick when the tick's input is made, and counts a
-    //   command as late by the ticks it has been told were stepped. With
-    //   all the inputs made at the frame's start, a guest's commands would
-    //   have less time to arrive, and a late one would not be counted.
-    // A person's keys are read once a frame, so their commands are the
-    // same either way. One thing differs: which button a shared Block
-    // press stands for is decided by what the character held at the
-    // frame's start (`InHand`), for all the frame's ticks.
-    let batched = beside
-        && batches()
-        && match &authority.driver {
-            Driver::Player(None) => true,
-            Driver::Player(Some(_)) => authority.aim.is_none(),
-            Driver::Pilot => false,
-        }
-        && authority.last.paused_by.is_none()
-        && authority.declined.is_empty();
     let mut orders = Vec::new();
+    let due_len = due.len();
     let last_due = due.last().map(|(tick, _)| *tick);
-    let module = authority.world.level().name().to_owned();
+    let module = authority.level.name().to_owned();
     for (tick, msec) in due {
         let start_ms = rate.time_ms(tick - 1);
         // The player's command for the tick, made on its client: the
@@ -2868,7 +3443,7 @@ fn advance(
                     Some(tag) => {
                         // A minigame's bot (`race`, `turrets`; the probes'),
                         // else a creature.
-                        let level = authority.world.level();
+                        let level = &authority.level;
                         #[cfg(feature = "probes")]
                         let steered = crate::minigame_bot::drive(
                             tag,
@@ -2894,7 +3469,7 @@ fn advance(
                 })
             }
             (Source::Live { .. }, Driver::Player(None), Some(actions)) => {
-                let (last, level) = (&authority.last, authority.world.level());
+                let (last, level) = (&authority.last, &authority.level);
                 Some(player_command(
                     actions,
                     authority.look,
@@ -2949,6 +3524,7 @@ fn advance(
                         split: false,
                         check: false,
                     };
+                    let paused_by = authority.last.paused_by;
                     orders.push(Order {
                         tick,
                         input: TickInput::default(),
@@ -2956,18 +3532,43 @@ fn advance(
                         prepare,
                         live: Some(crate::sim_worker::LiveInput {
                             hosted: authority.solo.shared_hosted(),
-                            paused_by: authority.last.paused_by,
+                            paused_by,
+                            publish: use_async.then(|| authority.solo.net_waker()).flatten(),
                         }),
                     });
                     if last_due != Some(tick) {
                         continue;
                     }
-                    Stepper::send(
-                        &mut authority.world,
-                        &mut authority.stepper,
-                        std::mem::take(&mut orders),
-                        authority.lifecycle.is_some(),
-                    );
+                    authority
+                        .metrics
+                        .first_step_at
+                        .get_or_insert_with(Instant::now);
+                    if use_async {
+                        if !authority.is_checked_in() {
+                            Stepper::check_in(
+                                &mut authority.world,
+                                &mut authority.stepper,
+                                authority.lifecycle.is_some(),
+                                authority.step_gen,
+                                std::mem::take(&mut authority.reset_checked),
+                                paused_by,
+                            );
+                        }
+                        let batch = std::mem::take(&mut orders);
+                        if !batch.is_empty()
+                            && let Some(stepper) = authority.stepper.as_mut()
+                        {
+                            stepper.push_orders(authority.step_gen, batch);
+                        }
+                    } else {
+                        Stepper::send(
+                            &mut authority.world,
+                            &mut authority.stepper,
+                            std::mem::take(&mut orders),
+                            authority.lifecycle.is_some(),
+                            std::mem::take(&mut authority.reset_checked),
+                        );
+                    }
                     break;
                 }
                 // What the server has (the player's), and the pilot for the
@@ -2979,6 +3580,44 @@ fn advance(
                     if !authority.solo.occupied(seat) && seat != Seat(0) {
                         input.insert(seat, *command);
                     }
+                }
+                if use_async {
+                    let prepare = Prepare {
+                        hash: false,
+                        split: false,
+                        check: authority.solo.checks_on(tick),
+                    };
+                    orders.push(Order {
+                        tick,
+                        input,
+                        msec,
+                        prepare,
+                        live: None,
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
+                    if !authority.is_checked_in() {
+                        Stepper::check_in(
+                            &mut authority.world,
+                            &mut authority.stepper,
+                            authority.lifecycle.is_some(),
+                            authority.step_gen,
+                            std::mem::take(&mut authority.reset_checked),
+                            authority.last.paused_by,
+                        );
+                    }
+                    let batch = std::mem::take(&mut orders);
+                    if !batch.is_empty() {
+                        authority
+                            .metrics
+                            .first_step_at
+                            .get_or_insert_with(Instant::now);
+                        if let Some(stepper) = authority.stepper.as_mut() {
+                            stepper.push_orders(authority.step_gen, batch);
+                        }
+                    }
+                    break;
                 }
                 if beside && (batched || last_due == Some(tick)) {
                     // A host's tick is hashed on the step thread (when
@@ -3000,11 +3639,16 @@ fn advance(
                     if last_due != Some(tick) {
                         continue;
                     }
+                    authority
+                        .metrics
+                        .first_step_at
+                        .get_or_insert_with(Instant::now);
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
                         std::mem::take(&mut orders),
                         authority.lifecycle.is_some(),
+                        std::mem::take(&mut authority.reset_checked),
                     );
                     break;
                 }
@@ -3037,6 +3681,12 @@ fn advance(
                             authority.solo.notice(seat, &text);
                         }
                     }
+                }
+                let report_talk = &authority.world.script_report().talk;
+                if report_talk.len() > authority.talk.len() {
+                    authority
+                        .talk
+                        .extend_from_slice(&report_talk[authority.talk.len()..]);
                 }
                 (input, snapshot)
             }
@@ -3086,6 +3736,7 @@ fn advance(
         authority.forget_declined(transition.as_ref());
         let snapshot = Arc::new(snapshot);
         authority.solo.stepped(&input, &snapshot);
+        authority.push_history(snapshot.clone());
         presented.1.push(snapshot.clone());
         // A replay's jump (`anim` far ahead) steps its ticks in one frame:
         // the view reads the last of them, and each holds about 100 KB.
@@ -3141,40 +3792,125 @@ fn advance(
             crumbs.conversation = talk.map(|talk| (talk.dialog.clone(), talk.entry));
         }
     });
-    // The views blend the frame's last two snapshots; the rest they read
-    // from the list (all of them shared, none copied).
+    let queue_depth = authority.in_flight();
+    let tick_ms = 1000.0 / f64::from(rate.hz());
+    let dt_ms = time.delta_secs_f64() * 1000.0;
+    let issued_ms = authority.last.time_ms as f64
+        + (queue_depth as f64 + f64::from(authority.clock.alpha())) * tick_ms;
+    // The views blend the frame's last two snapshots in sync/blocking mode,
+    // or interpolate between neighbouring snapshots along ViewClock in async mode.
     let (previous, newest) = match &presented.1[fresh..] {
         [] => (None, None),
         [only] => (None, Some(only.clone())),
         [.., previous, newest] => (Some(previous.clone()), Some(newest.clone())),
     };
-    if let Some(newest) = newest {
-        if let Some(previous) = previous {
-            presented.0.push_shared(previous);
-        }
-        presented.0.push_shared(newest);
-    }
-    let alpha = match held_ms {
-        Some(ms) => {
-            let (from, to) = (
-                presented.0.previous().time_ms as f32,
-                presented.0.current().time_ms as f32,
-            );
-            if to > from {
-                ((ms - waited.ms) as f32 - from) / (to - from)
-            } else {
-                1.0
+    let apply_sync_presentation = |presented: &mut Presented| {
+        if let Some(newest) = &newest {
+            if let Some(previous) = &previous {
+                presented.push_shared(previous.clone());
             }
+            presented.push_shared(newest.clone());
         }
-        None if authority.job.is_some() => 1.0,
-        // The newest tick shown was the clock's at the frame before: the
-        // view is that frame's time, a tick behind, so it moves evenly
-        // however many ticks each frame hands over.
-        None if batched && presented.0.current().tick == authority.before.0 => authority.before.1,
-        None => authority.clock.alpha(),
+        let alpha = match held_ms {
+            Some(ms) => {
+                let (from, to) = (
+                    presented.previous().time_ms as f32,
+                    presented.current().time_ms as f32,
+                );
+                if to > from {
+                    ((ms - waited.ms) as f32 - from) / (to - from)
+                } else {
+                    1.0
+                }
+            }
+            None if authority.job.is_some() => 1.0,
+            // The newest tick shown was the clock's at the frame before: the
+            // view is that frame's time, a tick behind, so it moves evenly
+            // however many ticks each frame hands over.
+            None if batched && presented.current().tick == authority.before.0 => authority.before.1,
+            None => authority.clock.alpha(),
+        };
+        presented.set_alpha(alpha);
     };
-    presented.0.set_alpha(alpha);
+    if use_async && held_ms.is_none() && authority.job.is_none() {
+        if !authority.view_clock.was_async {
+            authority.view_clock.seed(view_ms(&presented.0), dt_ms);
+        }
+        if authority.view_clock.advance_async(
+            dt_ms,
+            scale,
+            tick_ms,
+            issued_ms,
+            authority.last.time_ms as f64,
+            waiting || installing || !playing,
+        ) {
+            authority.metrics.view_held_frames += 1;
+        }
+        if let Some(bracketed) =
+            ViewClock::bracket(&authority.history, authority.view_clock.render_ms)
+        {
+            presented.0 = bracketed;
+        }
+    } else if authority.view_clock.was_async {
+        if held_ms.is_some() || authority.job.is_some() {
+            authority.view_clock.render_ms = authority
+                .view_clock
+                .render_ms
+                .max(authority.last.time_ms as f64);
+            authority.view_clock.was_async = false;
+            apply_sync_presentation(&mut presented.0);
+        } else if authority
+            .view_clock
+            .advance_catchup(dt_ms, authority.last.time_ms as f64)
+        {
+            if let Some(bracketed) =
+                ViewClock::bracket(&authority.history, authority.view_clock.render_ms)
+            {
+                presented.0 = bracketed;
+            }
+        } else if let Some(bracketed) =
+            ViewClock::bracket(&authority.history, authority.last.time_ms as f64)
+        {
+            presented.0 = bracketed;
+        } else {
+            apply_sync_presentation(&mut presented.0);
+        }
+    } else {
+        apply_sync_presentation(&mut presented.0);
+    }
     authority.before = (authority.clock.tick(), authority.clock.alpha());
+
+    authority.metrics.max_queue_depth = authority.metrics.max_queue_depth.max(queue_depth);
+    if use_async && (queue_depth > 0 || due_len > 0) && !any_landed_initial {
+        authority.metrics.frames_without_new_tick_while_due += 1;
+    }
+    let shown_ms = view_ms(&presented.0);
+    let newest_age_ms = (issued_ms - authority.last.time_ms as f64).max(0.0);
+    let picture_age_ms = (issued_ms - shown_ms).max(0.0);
+    if use_async {
+        authority.metrics.record_picture_age(picture_age_ms);
+    }
+    if crate::perf::enabled() {
+        let frame_us = (time.delta_secs_f64() * 1_000_000.0).max(1.0);
+        let step_busy_pct = (frame_step_us as f64 / frame_us * 100.0).min(100.0);
+        crate::perf::counter(
+            "sim.step",
+            &[
+                ("wait_ms", authority.metrics.frame_wait_ms),
+                ("ticks_sent", due_len as f64),
+                ("ticks_landed", stepped as f64),
+                ("queue_depth", queue_depth as f64),
+                ("cap_hits", authority.metrics.cap_hits as f64),
+                (
+                    "view_held_frames",
+                    authority.metrics.view_held_frames as f64,
+                ),
+                ("picture_age_ms", picture_age_ms),
+                ("newest_age_ms", newest_age_ms),
+                ("step_busy_pct", step_busy_pct),
+            ],
+        );
+    }
 
     // A replay is over once its ticks and its installs are: its end must be
     // the recording's.
@@ -3206,10 +3942,17 @@ fn advance(
     };
     let last = &authority.last;
     let census = last.census();
+    let picture_age_ms_mean = if authority.metrics.picture_age_samples > 0 {
+        authority.metrics.picture_age_ms_sum / authority.metrics.picture_age_samples as f64
+    } else {
+        0.0
+    };
+    let step_busy_share = authority.metrics.step_busy_share();
     facts.0.insert(
         "sim".into(),
         serde_json::json!({
             "source": source,
+            "step_async": step_async(),
             "hz": authority.setup.rate.hz(),
             "tick": last.tick,
             "time_ms": last.time_ms,
@@ -3220,12 +3963,22 @@ fn advance(
             "script_runs": authority.script_runs(),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
+            "frames_without_new_tick_while_due": authority.metrics.frames_without_new_tick_while_due,
+            "view_held_frames": authority.metrics.view_held_frames,
             "most_ticks_in_a_frame": authority.most,
             // Ticks the main thread stepped itself, and ticks the step
             // thread stepped (`sim_worker`).
             "ticks_on_main_thread": authority.stepped_here,
             "ticks_on_step_thread": authority.stepped_beside,
             "dropped_ms": authority.clock.dropped().as_millis() as u64,
+            "wait_ms_total": authority.metrics.wait_ms_total,
+            "wait_ms_max": authority.metrics.wait_ms_max,
+            "wait_frames": authority.metrics.wait_frames,
+            "max_queue_depth": authority.metrics.max_queue_depth,
+            "cap_hits": authority.metrics.cap_hits,
+            "picture_age_ms_mean": picture_age_ms_mean,
+            "picture_age_ms_max": authority.metrics.picture_age_ms_max,
+            "step_busy_share": step_busy_share,
             "replay_matched": replay,
         }),
     );
@@ -3273,14 +4026,17 @@ fn write_transcript(
     folder: Res<RunFolder>,
     mut written: Local<usize>,
 ) {
-    let Some(authority) = authority.filter(|authority| authority.world.home()) else {
+    let Some(authority) = authority else {
         return;
     };
-    let talk = &authority.world.script_report().talk;
+    let talk = &authority.talk;
+    if talk.len() < *written {
+        *written = 0;
+    }
     if talk.len() <= *written {
         return;
     }
-    let level = authority.world.level();
+    let level = &authority.level;
     let (Some(library), Some(lifecycle)) = (level.scripts(), &authority.lifecycle) else {
         *written = talk.len();
         return;

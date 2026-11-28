@@ -1299,6 +1299,58 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).
 
+## The console
+
+The console is disabled by default until you turn on **Console** in
+Gameplay options (KOTOR 2's unused level-up checkbox). Runs started with
+`--cmds` or `KJK_CONSOLE=1` have the console enabled automatically. By
+default, `` ` `` (Backquote, rebound in Key Mapping) opens and closes the
+console without typing into the input line. The console cannot open while
+a movie is playing.
+
+The console drops down from the top of the window (40% of window height,
+minimum 8 log lines) and draws over the HUD, menus, and dialogue without
+pushing a screen onto the stack. It always uses KOTOR 2's UI colors and
+button-rim art, with the Messages log font (errors in red) and Messages
+scrollbar.
+
+While open, the console captures all keyboard, mouse wheel, and mouse
+button input so gameplay and underlying screens stay idle. It counts as an
+open UI (`UiOpen`), freeing the cursor and marking the player busy in
+co-op, without pausing the game.
+
+- `Left`, `Right`, `Home`, `End` move the cursor; `Backspace` and `Delete`
+  delete characters (max 256 characters per line).
+- `Enter` runs the current input line. When no suggestions are open, `Up`
+  and `Down` browse the last 200 commands (persisted in
+  `console-history.txt` next to the settings file).
+- `Ctrl+V` (`Cmd+V` on macOS) pastes text; multi-line pastes run each
+  non-empty line in order (up to 64 lines). `Ctrl+C` copies the input line;
+  `Ctrl+L` clears the output log.
+- `Page Up`, `Page Down`, and the mouse wheel scroll the log.
+- Typing updates up to 8 autocomplete suggestions below the console
+  (hidden when the line is empty); item suggestions also display the
+  in-game item name. `Tab`, `Shift+Tab`, `Up`, and `Down` highlight a
+  suggestion, and `Enter` or clicking inserts it. Suggestions are never
+  applied unless explicitly selected.
+- `Tab` completes the word before the cursor, filling it immediately when
+  only one match exists.
+- `Escape` closes the suggestion list first, then closes the console.
+- After typing a command name, remaining usage arguments appear dimmed
+  after the line (e.g. `giveitem ` shows `TEMPLATE [COUNT]`).
+
+Headless scripts drive the overlay with `ui console open`, `ui console
+close`, `ui console type WORDS`, `ui console paste WORDS` (`\n` between
+lines), and `ui console key NAME` (`tab`, `backtab`, `enter`, `backspace`,
+`delete`, `left`, `right`, `home`, `end`, `up`, `down`, `pageup`,
+`pagedown`, `escape`, `copy`, `clear`, `space`)
+(`game::console_view`, `ui::screens::console`).
+
+Saves created after using a cheat command outside test maps display
+**Cheats used** on the Load Game, Save Game, Solo, and Host screens (in
+KOTOR 2's unused time-played label). Bug reports include `console.txt`
+with the cheats flag and console log.
+
 ## The minimap and the map page
 
 KOTOR's minimap at the HUD's top left (`ui::screens::hud::minimap`,

@@ -77,6 +77,7 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
 | `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. `size 0 0` stands for a minimized window. Every camera drawing the frame is then sized 0 by 0, as Bevy sizes the cameras of a minimized window on Windows, and the frame keeps its image. The next `size` brings the cameras back. |
 | `quit` | always; the run ends with success |
+| any other command, such as `god`, `spawn g_sithtroop01` or `attribute strength 18` | Runs any console command from `CONSOLE.md` (including legacy `arena ...` aliases). Validated before startup (exit code 2 on error). |
 
 Unnamed screenshots and dumps are numbered (`screenshot-1`, `dump-1`, …).
 

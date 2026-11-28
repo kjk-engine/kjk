@@ -67,6 +67,7 @@ pub fn put_lobby(out: &mut Vec<u8>, lobby: &Lobby) {
     put_text(out, &lobby.saber_rules);
     out.push(lobby.collision.code());
     out.push(u8::from(lobby.show_replies));
+    out.push(lobby.cheats.code());
     let companions = &lobby.companions[..lobby.companions.len().min(MAX_COMPANIONS)];
     out.push(companions.len() as u8);
     for companion in companions {
@@ -124,6 +125,7 @@ pub fn read_lobby(input: &mut Reader<'_>) -> Result<Lobby, WireError> {
     let saber_rules = input.text("saber rules")?;
     let collision = Collision::from_code(input.u8("collision")?).ok_or(invalid("collision"))?;
     let show_replies = flag(input, "show replies")?;
+    let cheats = sim::cheats::Rule::from_code(input.u8("cheats")?).ok_or(invalid("cheats"))?;
     let count = input.count("companions", MAX_COMPANIONS)?;
     let companions = (0..count)
         .map(|_| {
@@ -163,6 +165,7 @@ pub fn read_lobby(input: &mut Reader<'_>) -> Result<Lobby, WireError> {
         saber_rules,
         collision,
         show_replies,
+        cheats,
         companions,
         with_party,
         slots,

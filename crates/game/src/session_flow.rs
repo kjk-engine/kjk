@@ -251,7 +251,7 @@ fn show_loading(ui: &mut Ui, image: Option<String>) {
 }
 
 /// `kjk play`'s options on `stage`, the new game's module, alone.
-fn solo_options(stage: &'static str) -> Result<play::Options<'static>, String> {
+fn solo_options(stage: &str) -> Result<play::Options<'_>, String> {
     Ok(play::Options {
         aim: None,
         stage,
@@ -421,6 +421,16 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                     play::load(&discovery, &options)
                 })
             }
+            SessionIntent::Warp { module, arrival } => {
+                status(format!("Loading {module}"));
+                solo_options(&module).and_then(|options| {
+                    let options = play::Options {
+                        arrive: arrival.as_deref(),
+                        ..options
+                    };
+                    play::load(&discovery, &options)
+                })
+            }
             SessionIntent::ToMenu => Err("not a session".into()),
         };
         let _ = sender.send(Progress::Ready(Box::new(result)));
@@ -520,7 +530,10 @@ fn start(
         Option<Res<crate::sim_host::OwnSeat>>,
         Option<Res<crate::sim_host::WorldHere>>,
     ),
-    mut reload: ResMut<crate::sim_host::ReloadRequest>,
+    (mut reload, mut warp_mark): (
+        ResMut<crate::sim_host::ReloadRequest>,
+        Option<ResMut<crate::console_view::WarpMark>>,
+    ),
 ) {
     // The story's question goes with its box: Cancel or Back leaves no
     // stale error behind.
@@ -579,6 +592,11 @@ fn start(
             }
             Intent::Session(session) if flow.job.is_none() => {
                 info!(target: "session", ?session, "starting");
+                if !matches!(session, SessionIntent::Warp { .. })
+                    && let Some(mark) = warp_mark.as_mut()
+                {
+                    mark.0 = false;
+                }
                 flow.from_save = matches!(
                     session,
                     SessionIntent::Restore { .. }
@@ -599,6 +617,7 @@ fn start(
                     SessionIntent::Sandbox => {
                         Some(format!("load_{}", crate::arena::SANDBOX_MODULE))
                     }
+                    SessionIntent::Warp { module, .. } => Some(format!("load_{module}")),
                     SessionIntent::Solo { save, campaign, .. }
                     | SessionIntent::Host { save, campaign, .. } => {
                         let module = save.as_ref().and_then(|id| {
@@ -691,6 +710,9 @@ fn finish(world: &mut World) {
         }
         // The guest left the co-op lobby: the main menu, without a message.
         Err(why) if why.ends_with(crate::lobby_guest::LEFT) => {
+            if let Some(mut mark) = world.get_resource_mut::<crate::console_view::WarpMark>() {
+                mark.0 = false;
+            }
             info!(target: "session", "left the co-op lobby");
             let mut ui = world.resource_mut::<Ui>();
             let ui = &mut *ui;
@@ -699,6 +721,9 @@ fn finish(world: &mut World) {
             ui.stack.open("main_menu", &ui.vm);
         }
         Err(why) => {
+            if let Some(mut mark) = world.get_resource_mut::<crate::console_view::WarpMark>() {
+                mark.0 = false;
+            }
             warn!(target: "session", %why, "the session did not start");
             let mut ui = world.resource_mut::<Ui>();
             let ui = &mut *ui;

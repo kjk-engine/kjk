@@ -173,19 +173,14 @@ pub fn fade(
             .find(|(_, scene_model)| scene_model.index == model)
             .map(|(root, _)| root)
     };
-    // Doors share the instance indices but are never hidden: a guest may
-    // present the old module's snapshot over the new scene for a while.
-    let placeable_root = |index: u32| {
-        if scene.0.doors.iter().any(|door| door.object == index) {
-            return None;
-        }
-        placed_root(index)
-    };
+    // Both doors and placeables placed by the module share `instance_models`
+    // and can be destroyed by scripts; stale cross-module snapshots are
+    // ignored in `hide_placed_gone`.
     hide_placed_gone(
         snapshot,
         &swap.level,
         &mut fading,
-        placeable_root,
+        placed_root,
         &mut visibility,
     );
     // The dead fading in the world, then those departing, then those done
@@ -208,6 +203,7 @@ pub fn fade(
             }
             let root = match entity.kind {
                 sim::Kind::Object(ObjectKind::Creature, _) => roots.0.get(&entity.id).copied(),
+                sim::Kind::Object(ObjectKind::Door, index) => placed_root(index),
                 sim::Kind::Object(ObjectKind::Placeable, index) => made
                     .as_ref()
                     .and_then(|made| made.prop_root(index))
@@ -238,8 +234,9 @@ pub fn fade(
     }
 }
 
-/// The module's placeables the snapshot draws no longer, hidden (each
-/// once).
+/// The module's doors and placeables the snapshot draws no longer, hidden
+/// (each once). A snapshot of another module (a guest's last one, drawn
+/// over the new scene for a while) hides nothing.
 fn hide_placed_gone(
     snapshot: &sim::Snapshot,
     level: &sim::Level,
@@ -247,15 +244,18 @@ fn hide_placed_gone(
     placed_root: impl Fn(u32) -> Option<Entity>,
     visibility: &mut Query<&mut Visibility>,
 ) {
+    if !same_module(snapshot, level) {
+        return;
+    }
     let present: BTreeSet<u32> = snapshot
         .all_drawn()
         .filter_map(|entity| match entity.kind {
-            sim::Kind::Object(ObjectKind::Placeable, index) => Some(index),
+            sim::Kind::Object(ObjectKind::Placeable | ObjectKind::Door, index) => Some(index),
             _ => None,
         })
         .collect();
     // One whose model is not spawned yet is tried again next frame.
-    for index in fading.placed_gone(present, || module_placeables(snapshot, level)) {
+    for index in fading.placed_gone(present, || module_placed(level)) {
         if let Some(mut shown) = placed_root(index).and_then(|root| visibility.get_mut(root).ok()) {
             *shown = Visibility::Hidden;
             fading.placed_hidden.insert(index);
@@ -263,22 +263,21 @@ fn hide_placed_gone(
     }
 }
 
-/// The numbers of the placeables `level` places, when `snapshot` is of that
-/// module. Every one of them is in the world when the module is first
-/// installed, so one the snapshot lacks was destroyed, even before this
-/// scene began. A snapshot of another module (a guest's last one, drawn
-/// over the new scene for a while) names none.
-fn module_placeables(snapshot: &sim::Snapshot, level: &sim::Level) -> Vec<u32> {
-    let same = snapshot
+/// Whether `snapshot` was stepped on `level`'s loaded module.
+fn same_module(snapshot: &sim::Snapshot, level: &sim::Level) -> bool {
+    snapshot
         .place
         .as_ref()
         .zip(level.module())
-        .is_some_and(|(place, module)| place.module == module.name && place.game == module.game);
-    if !same {
-        return Vec::new();
-    }
+        .is_some_and(|(place, module)| place.module == module.name && place.game == module.game)
+}
+
+/// The numbers of the doors and placeables `level` places. Every one of them
+/// is in the world when the module is first installed, so one the snapshot
+/// lacks was destroyed, even before this scene began.
+fn module_placed(level: &sim::Level) -> Vec<u32> {
     (level.placed().iter().enumerate())
-        .filter(|(_, facts)| facts.kind == ObjectKind::Placeable)
+        .filter(|(_, facts)| matches!(facts.kind, ObjectKind::Placeable | ObjectKind::Door))
         .map(|(index, _)| index as u32)
         .collect()
 }

@@ -161,7 +161,47 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{} then {again:?}", ran.last.hash().short()),
             ),
         ),
+        (
+            "remains_survive_leaving_during_fade",
+            survive_leaving_during_fade(),
+        ),
     ]
+}
+
+/// Leaving a module after `DESTROY_MS` removed a creature's id from `ids`,
+/// while its remains bag is still waiting out `FADE_MS` in `state.corpses`,
+/// stashes the corpse with the left module instead of spawning its bag in
+/// the next module, and restores it when returning.
+fn survive_leaving_during_fade() -> Result<String, String> {
+    use crate::script::State;
+    use std::collections::BTreeSet;
+
+    let mut state = State::default();
+    let bag = Bag {
+        row: 0,
+        at: [1.0, 2.0, 0.0],
+        yaw: 45.0,
+    };
+    state.corpses.insert(
+        42,
+        Corpse {
+            due_ms: 5000,
+            bag: Some(bag),
+            died_ms: 1000,
+            waits: Vec::new(),
+        },
+    );
+    state.leave_module("tar_m02ad", &BTreeSet::from([1, 2]), 4500);
+    let cleared = state.corpses.is_empty();
+    state.return_to("tar_m02ad", 14500);
+    let restored = state
+        .corpses
+        .get(&42)
+        .is_some_and(|c| c.bag == Some(bag) && c.due_ms == 15000 && c.died_ms == 11000);
+    check(
+        cleared && restored,
+        format!("cleared while away {cleared}, restored on return {restored}"),
+    )
 }
 
 /// The name the probe's bag rows have.

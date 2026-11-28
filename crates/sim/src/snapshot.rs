@@ -1595,6 +1595,9 @@ pub struct Snapshot {
     /// The share of the normal damage the party and the enemies take, the
     /// session's (`combat::damage::Taken`).
     pub damage_taken: crate::combat::damage::Taken,
+    /// The session's cheat rule, and whether a cheat was ever carried out
+    /// outside an arena level (`world::cheats`).
+    pub cheats: crate::cheats::Cheats,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2393,6 +2396,7 @@ impl Snapshot {
         }
         out.u16(self.damage_taken.party());
         out.u16(self.damage_taken.enemies());
+        self.cheats.encode(out);
     }
 
     fn encode_tail_cold_parts(&self) -> [Arc<[u8]>; 7] {
@@ -2484,6 +2488,7 @@ impl Snapshot {
             targeted_blocks,
             waiting,
             damage_taken,
+            cheats,
         ) = if current {
             let lost = read_fixed(&mut input, &0, |input| input.u64(), "lost flag")?;
             let in_combat = decode_bool(&mut input, "in combat flag")?;
@@ -2508,6 +2513,13 @@ impl Snapshot {
             let targeted_blocks = decode_targeted(&mut input)?;
             let waiting = decode_sim_id_list_u8(&mut input)?;
             let damage_taken = crate::combat::damage::Taken::new(input.u16()?, input.u16()?);
+            // Older snapshots carried none: the rule is Off until the host's
+            // game sends it, and no cheat was used.
+            let cheats = if input.since(crate::since::snapshot::CONSOLE) {
+                crate::cheats::Cheats::decode(&mut input)?
+            } else {
+                Default::default()
+            };
             let spawned = Arc::new(decode_spawned(&mut input)?);
             let goods = Arc::new(Goods::decode(&mut input)?);
             let progress = Arc::new(Progress::decode(&mut input)?);
@@ -2541,6 +2553,7 @@ impl Snapshot {
                 targeted_blocks,
                 waiting,
                 damage_taken,
+                cheats,
             )
         } else {
             let spawned = Arc::new(decode_spawned(&mut input)?);
@@ -2604,6 +2617,7 @@ impl Snapshot {
             } else {
                 Default::default()
             };
+            let cheats = Default::default();
             (
                 spawned,
                 goods,
@@ -2630,6 +2644,7 @@ impl Snapshot {
                 targeted_blocks,
                 waiting,
                 damage_taken,
+                cheats,
             )
         };
         let stash = match stash {
@@ -2682,6 +2697,7 @@ impl Snapshot {
             targeted_blocks,
             waiting,
             damage_taken,
+            cheats,
             shared,
             authority,
             next_id,
@@ -3939,6 +3955,15 @@ impl Presented {
             previous: first.clone(),
             current: first,
             alpha: 1.0,
+        }
+    }
+
+    /// Two snapshots to blend between (`previous` at `alpha = 0`, `current` at `alpha = 1`).
+    pub fn between(previous: Arc<Snapshot>, current: Arc<Snapshot>, alpha: f32) -> Self {
+        Presented {
+            previous,
+            current,
+            alpha: alpha.clamp(0.0, 1.0),
         }
     }
 

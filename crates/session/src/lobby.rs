@@ -101,6 +101,9 @@ pub struct Lobby {
     /// conversation before it runs ("Show chosen replies", on in a new
     /// lobby).
     pub show_replies: bool,
+    /// Who may use the console's commands that change the game (the
+    /// Cheats row, Host only in a new lobby).
+    pub cheats: sim::cheats::Rule,
     pub companions: Vec<Companion>,
     pub with_party: Vec<u8>,
     pub slots: [Option<Slot>; SLOTS],
@@ -114,6 +117,7 @@ impl Lobby {
             saber_rules,
             collision,
             show_replies: true,
+            cheats: sim::cheats::Rule::Host,
             companions: Vec::new(),
             with_party: Vec::new(),
             slots: [

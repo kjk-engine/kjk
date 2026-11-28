@@ -153,9 +153,10 @@ pub struct UiRequests(pub Vec<Vec<String>>);
 #[derive(Resource, Default, Debug)]
 pub struct VfxRequests(pub Vec<Vec<String>>);
 
-/// `arena` orders for the combat arena to give, oldest first.
+/// Lines for the console's table of commands to run (`Command::Line`),
+/// oldest first.
 #[derive(Resource, Default, Debug)]
-pub struct ArenaRequests(pub Vec<Vec<String>>);
+pub struct LineRequests(pub Vec<String>);
 
 /// Pending toggles or explicit states from `net_graph` console commands.
 #[derive(Resource, Default)]
@@ -174,6 +175,7 @@ struct Pipelines {
 
 pub struct ConsolePlugin {
     pub commands: Vec<Command>,
+    pub exit_when_done: bool,
 }
 
 impl Plugin for ConsolePlugin {
@@ -181,6 +183,7 @@ impl Plugin for ConsolePlugin {
         let pipelines = Pipelines::default();
         app.insert_resource(Queue {
             pending: self.commands.iter().cloned().collect(),
+            exit_when_done: self.exit_when_done,
             active: None,
             frame: 0,
             started: Instant::now(),
@@ -200,7 +203,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<ModuleRequest>()
         .init_resource::<UiRequests>()
         .init_resource::<VfxRequests>()
-        .init_resource::<ArenaRequests>()
+        .init_resource::<LineRequests>()
         .init_resource::<NetGraphRequests>()
         .init_resource::<DumpDue>()
         .init_resource::<Hold>()
@@ -271,6 +274,7 @@ fn count_pipelines(cache: Res<PipelineCache>, pipelines: Res<Pipelines>) {
 #[derive(Resource)]
 struct Queue {
     pending: VecDeque<Command>,
+    exit_when_done: bool,
     active: Option<Active>,
     frame: u64,
     started: Instant,
@@ -382,11 +386,11 @@ fn run_queue(
         Res<WorldTick>,
     ),
     (pipelines, states): (Res<Pipelines>, Res<States>),
-    (mut module, mut screens, mut visuals, mut arena, mut net_graph): (
+    (mut module, mut screens, mut visuals, mut lines, mut net_graph): (
         ResMut<ModuleRequest>,
         ResMut<UiRequests>,
         ResMut<VfxRequests>,
-        ResMut<ArenaRequests>,
+        ResMut<LineRequests>,
         ResMut<NetGraphRequests>,
     ),
     (clock, marks): (Res<GameClock>, Res<AudioMarks>),
@@ -411,6 +415,10 @@ fn run_queue(
 
     if queue.active.is_none() {
         let Some(command) = queue.pending.pop_front() else {
+            if queue.exit_when_done {
+                info!(target: "console", "headless script finished; exiting");
+                exit.write(AppExit::Success);
+            }
             return;
         };
         info!(target: "console", "start: {command}");
@@ -451,7 +459,7 @@ fn run_queue(
             Command::Camera(pose) => camera.0 = Some(*pose),
             Command::Ui(words) => screens.0.push(words.clone()),
             Command::Vfx(words) => visuals.0.push(words.clone()),
-            Command::Arena(words) => arena.0.push(words.clone()),
+            Command::Line(line) => lines.0.push(line.clone()),
             Command::NetGraph(state) => net_graph.0.push(*state),
             Command::Clip => match clock.0 {
                 Some(now) => queue.clip = Some((now, Vec::new())),
@@ -583,7 +591,7 @@ fn run_queue(
         | Command::Clip
         | Command::Ui(_)
         | Command::Vfx(_)
-        | Command::Arena(_)
+        | Command::Line(_)
         | Command::NetGraph(_)
         | Command::Size(..) => true,
         Command::ClipAt(ms) => match (clipping, clock.0) {

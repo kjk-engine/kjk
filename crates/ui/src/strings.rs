@@ -129,6 +129,20 @@ pub const STANCE_NEEDS: &str =
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
 pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+/// The console's option on the Gameplay page, its description, and the
+/// console's own title (`screens::console`).
+pub const CONSOLE: &str = "Console";
+pub const CONSOLE_HELP: &str =
+    "Enable the cheat and debug console. Press {console} on the keyboard to open it.";
+pub const CONSOLE_TITLE: &str = "CONSOLE";
+pub const CHEATS: &str = "Cheats";
+pub const CHEATS_OFF: &str = "Off";
+pub const CHEATS_HOST: &str = "Host only";
+pub const CHEATS_ALL: &str = "All players";
+pub const CHEATS_HELP: &str = "Who can use cheat commands in the console: Off (no one), Host only, or All players. Players can only edit their own character and unclaimed companions.";
+/// A save made after a console command changed the game, on the save
+/// screens.
+pub const CHEATS_USED: &str = "Cheats used";
 pub const COLLISION_RESTRICTED: &str = "Collision: Restricted";
 pub const COLLISION_LIMITED: &str = "Collision: Limited";
 pub const COLLISION_HELP: &str = "Restricted: Characters collide with the world as in the original game. A jump cannot land on furniture or containers.\n\nLimited: A jump can land on tables, crates, containers and other objects.\n\nA change applies when you next start or load a game. In co-op, the host's collision applies.";
@@ -322,7 +336,7 @@ pub const LOBBY_START: &str = "Start Game";
 pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
 pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
 pub const LOBBY_SETTINGS_GUEST: &str =
-    "The host chooses the saber rules, the collision and whether chosen replies are shown.";
+    "The host controls combat rules, collision, shown replies, and cheat permissions.";
 pub const LOBBY_OTHER_GAME: &str =
     "Choose a save of the same game. To host the other game, leave the lobby and host again.";
 /// The word before a character's level in a lobby slot ("Soldier, level 4").

@@ -51,6 +51,13 @@ pub mod arena;
 pub mod arena_probes;
 mod bars;
 pub mod charting;
+pub mod cheats;
+#[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
+pub mod cheats_probes;
 pub mod containers;
 #[cfg(feature = "probes")]
 pub mod coop_items;
@@ -331,6 +338,11 @@ impl Rules {
 /// (`Snapshot::damage_taken`).
 #[derive(Resource, Default, Clone, Copy)]
 pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
+
+/// The session's cheat rule and whether a cheat was carried out
+/// (`Snapshot::cheats`, `cheats`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct CheatState(pub(crate) cheats::Cheats);
 
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
@@ -963,6 +975,13 @@ impl SimWorld {
     /// The share of the normal damage each side takes.
     pub fn damage_taken(&self) -> crate::combat::damage::Taken {
         self.world.resource::<DamageTaken>().0
+    }
+
+    /// The cheat rule, and whether a cheat was ever carried out outside an
+    /// arena level (`cheats`). The rule changes only by the first seat's
+    /// `CheatOrder::Policy`.
+    pub fn cheats(&self) -> cheats::Cheats {
+        self.world.resource::<CheatState>().0
     }
 
     /// Whether a reply a player takes is shown to the other players in the

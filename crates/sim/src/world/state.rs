@@ -199,6 +199,7 @@ impl SimWorld {
             targeted_blocks: false,
             waiting: Vec::new(),
             damage_taken: Default::default(),
+            cheats: Default::default(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -438,6 +439,7 @@ impl SimWorld {
             saber_rules: self.world.resource::<super::Rules>().0,
             targeted_blocks: self.world.resource::<super::Rules>().1,
             damage_taken: self.world.resource::<super::DamageTaken>().0,
+            cheats: self.world.resource::<super::CheatState>().0,
             shared,
             authority,
             next_id,
@@ -523,6 +525,7 @@ fn populate_resources(
     world.insert_resource(SeatsHeld(snapshot.seats_held));
     world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
     world.insert_resource(super::DamageTaken(snapshot.damage_taken));
+    world.insert_resource(super::CheatState(snapshot.cheats));
     world.insert_resource(Inputs::default());
     world.insert_resource(Bumped::default());
     world.insert_resource(GrenadeHolsterKeys::default());

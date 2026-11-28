@@ -113,6 +113,10 @@ impl Hosted {
         &self.server
     }
 
+    pub(crate) fn server_mut(&mut self) -> &mut Server {
+        &mut self.server
+    }
+
     pub(crate) fn commands_for(&mut self, tick: u64, paused_by: Option<Seat>) -> TickInput {
         let mut input = self.server.commands_for(tick);
         let mut actions = std::mem::take(&mut self.after_break);
@@ -554,6 +558,10 @@ impl Solo {
         self.hosted.clone()
     }
 
+    pub(crate) fn net_waker(&self) -> Option<net::io::Waker> {
+        self.net.as_ref().map(NetThread::waker)
+    }
+
     /// The address players join, when hosting.
     pub fn address(&self) -> Option<SocketAddr> {
         self.address
@@ -873,6 +881,17 @@ impl Solo {
         }
         self.pump();
         self.wake();
+    }
+
+    /// Completes main-thread bookkeeping after the step thread published
+    /// `snapshot` directly into `Hosted::server` and woke `net_thread`.
+    pub fn published_stepped(&mut self, snapshot: &Arc<Snapshot>, hash: Option<sim::SnapshotHash>) {
+        if let Some(file) = &mut self.hashes {
+            let epoch = lock(&self.hosted).server.epoch();
+            let hash = hash.unwrap_or_else(|| snapshot.hash());
+            let _ = writeln!(file, "{epoch} {} {hash}", snapshot.tick);
+        }
+        self.pump();
     }
 
     /// Whether this is a host players join over the network: its steps

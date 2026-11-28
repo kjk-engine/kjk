@@ -395,8 +395,8 @@ pub fn open(
 }
 
 /// The lobby on `chosen` as it opens: the host in its slot, the saber
-/// rules, the collision and "Show chosen replies" as the host's settings
-/// have them, and the save's companions.
+/// rules, the collision, "Show chosen replies" and the Cheats row as the
+/// host's settings have them, and the save's companions.
 pub fn lobby_of(chosen: &Chosen) -> Lobby {
     let settings = crate::settings::Settings::read();
     let saber_rules = settings
@@ -405,6 +405,7 @@ pub fn lobby_of(chosen: &Chosen) -> Lobby {
         .to_string();
     let mut lobby = Lobby::new(host_name(), saber_rules, settings.collision());
     lobby.show_replies = settings.on(ui::screens::options::SHOW_REPLIES);
+    lobby.cheats = crate::console_view::coop_rule(Some(&settings));
     lobby.reset(
         chosen.summary.clone(),
         chosen.companions.clone(),
@@ -678,6 +679,7 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
         saber_rules: lobby.saber_rules.clone(),
         collision: collision_key(lobby.collision),
         show_replies: lobby.show_replies,
+        cheats: crate::console_view::rule_key(lobby.cheats).to_string(),
         hero,
         companions,
         slots,
@@ -711,6 +713,13 @@ fn apply(host: &mut LobbyHost, intent: &LobbyIntent, intents: &mut Vec<Intent>) 
             intents.push(Intent::Setting(
                 ui::screens::options::SHOW_REPLIES.into(),
                 on.to_string(),
+            ));
+        }
+        LobbyIntent::Cheats(key) => {
+            host.lobby.cheats = crate::console_view::rule_named(key);
+            intents.push(Intent::Setting(
+                ui::screens::options::CHEATS.into(),
+                key.clone(),
             ));
         }
         LobbyIntent::Invite => {

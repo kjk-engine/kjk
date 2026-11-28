@@ -628,6 +628,34 @@ fn reload_while_held() {
     probed("solo reload", &kjk_game::solo_reload_probes(), 1);
 }
 
+/// Persistent async step queue (`kjk_game::sim_worker::queue_probes`,
+/// also `kjk sim probes --only "sim worker queue"`). Bit-exact async vs
+/// sync parity, break and proving-ground transition cuts returning
+/// unstepped actions in FIFO order, save-checkout draining, live
+/// talk streaming while checked in, and direct step-thread publishing
+/// for co-op hosts. Needs `--features rig`; no installs.
+#[test]
+fn sim_worker_queue() {
+    #[cfg(not(feature = "rig"))]
+    println!("sim_worker_queue skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("sim worker queue", &kjk_game::sim_worker::queue_probes(), 6);
+}
+
+/// Monotonic `ViewClock` interpolation for async sim presentation
+/// (`kjk_game::sim_host::view_clock_probes`, also `kjk sim probes --only "view clock"`).
+/// Verifies monotonic render time under slow/burst ticks, no extrapolation with
+/// `view_held_frames`, safe equal-`time_ms` handling across paused ticks,
+/// slow-motion/pause invariance, and queue-mode leave/re-enter continuity.
+/// Needs `--features rig`; no installs.
+#[test]
+fn view_clock() {
+    #[cfg(not(feature = "rig"))]
+    println!("view_clock skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("view clock", &kjk_game::sim_host::view_clock_probes(), 5);
+}
+
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
 /// that sets `UnequipHItem` hides each line's speaker's and listener's head
 /// item until the conversation ends, as KOTOR 2's executable does; one
@@ -4147,7 +4175,7 @@ fn mod_routines() {
 /// same. The sim alone.
 #[test]
 fn corpse_remains() {
-    probed("remains", &sim::remains::probes(), 10);
+    probed("remains", &sim::remains::probes(), 11);
 }
 
 /// Items a module gives a resref of its own, and what a creature joining
@@ -4271,7 +4299,7 @@ fn crosshair_drawn_meshes() {
 /// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 24);
+    probed("bash", &sim::objects::probes(), 25);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -6737,6 +6765,31 @@ fn creature_env_maps() {
             .areas
             .iter()
             .all(|area| area.default_envmap.is_none())
+    );
+}
+
+/// The console's table of commands (`commands::probes`): every command
+/// is well formed, lines split and their arguments are checked as
+/// `docs/CONSOLE.md` says, the `arena` words of earlier scripts give the
+/// same orders, the original games' names resolve, completion and "did you
+/// mean" find the expected names, and random lines never panic. A mod's
+/// `kjkconsole.2da` adds its good rows as commands and skips its broken
+/// rows with their reasons, and a damaged table never panics.
+#[test]
+fn commands() {
+    probed("commands", &commands::probes::probes(), 16);
+}
+
+/// `docs/CONSOLE.md` is the page `cargo xtask console` writes from the
+/// table of commands.
+#[test]
+fn console_page() {
+    let root = approved_tests::workspace();
+    let page =
+        std::fs::read_to_string(root.join("docs/CONSOLE.md")).unwrap_or_else(|_| String::new());
+    assert!(
+        page == commands::page::markdown(),
+        "docs/CONSOLE.md is stale: run `cargo xtask console`"
     );
 }
 
