@@ -155,7 +155,6 @@ pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub use ui_view::hide_probes;
 pub mod catalogue_view;
-mod display_density;
 
 #[cfg(feature = "probes")]
 pub mod held_probes;

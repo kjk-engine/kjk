@@ -7,7 +7,7 @@
 
 use crate::catalogue::Size;
 use crate::draw::{DrawList, Quad};
-use crate::virtual_screen::{Placement, viewing};
+use crate::virtual_screen::{Placement, inches};
 
 /// How a part is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,10 +51,10 @@ const CONTROL: [f32; 4] = [0.27, 0.27, 0.28, 1.0];
 const LINE: [f32; 4] = [0.5, 0.5, 0.52, 1.0];
 
 /// The screen's width and height in millimetres: the diagonal of the
-/// size's typical screen (`virtual_screen::viewing`) at the shape of its
+/// size's typical screen (`virtual_screen::inches`) at the shape of its
 /// pixels.
 pub fn screen_mm(size: &Size) -> [f32; 2] {
-    let diagonal = viewing(size).inches * 25.4;
+    let diagonal = inches(size) * 25.4;
     let (w, h) = (size.pixels.0 as f32, size.pixels.1 as f32);
     let across = w.hypot(h);
     [diagonal * w / across, diagonal * h / across]
@@ -167,16 +167,7 @@ fn parts_of(size: &Size) -> Vec<Part> {
     let screen = screen_mm(size);
     match size.name {
         "deck" => deck(screen),
-        "4k-tv" => tv(screen),
-        "4k-monitor" => desk(
-            screen,
-            &Desk {
-                bezel: [6.0, 6.0, 16.0],
-                radius: 3.0,
-                neck: [40.0, 100.0],
-                base: [260.0, 12.0],
-            },
-        ),
+        "4k" => tv(screen),
         "4x3" => desk(
             screen,
             &Desk {
@@ -385,35 +376,14 @@ fn outline_round(
     }
 }
 
-/// The device a size stands for, in words: "Steam Deck, 1280 × 800, held at
-/// 35 cm".
+/// The device a size stands for, in words: "Steam Deck, 1280 × 800".
 pub fn describe(size: &Size) -> String {
     let device = match size.name {
         "deck" => "Steam Deck",
-        "4k-tv" => "4K TV",
-        "4k-monitor" => "4K monitor",
+        "4k" => "4K",
         "4x3" => "4:3 monitor",
         "ultrawide" => "Ultrawide monitor",
         _ => "1080p monitor",
     };
-    let distance = viewing(size).distance_cm;
-    let how = if size.name == "deck" {
-        "held at"
-    } else {
-        "seen from"
-    };
-    let far = if distance >= 100.0 {
-        format!("{} m", distance / 100.0)
-    } else {
-        format!("{distance} cm")
-    };
-    let scale = if size.factor == 1.0 {
-        String::new()
-    } else {
-        format!(" at {}%", (size.factor * 100.0).round())
-    };
-    format!(
-        "{device}, {} × {}{scale}, {how} {far}",
-        size.pixels.0, size.pixels.1
-    )
+    format!("{device}, {} × {}", size.pixels.0, size.pixels.1)
 }

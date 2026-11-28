@@ -173,13 +173,13 @@ The checks `virtual_screen_seen_scale`, `virtual_screen_placement`,
 `virtual_screen_clicks_land` and `virtual_screen_round_trip` were added to
 `gui_layouts` for the catalogue in the game
 (https://github.com/kjk-engine/roadmap/issues/23), and the owner approved
-them on 2026-11-27. They check that a Steam Deck pixel seen by the owner of a
-254 pixel an inch display at 60 cm covers about 2.02 display pixels and that
-a pixel of the 55 inch 4K TV seen from 2.5 m covers about 0.76. They check
-where the image stands in the window in each of the three modes. They check
-that a click at the window's point that shows a control lands on that
-control, in each of the six sizes and three modes, panned or not. They check
-that a point of the image taken to the window and back is where it was.
+them on 2026-11-27. On 2026-11-28 the owner dropped the catalogue's three
+ways of showing a device, so the catalogue always fits the device to the
+window. The check `virtual_screen_seen_scale` was removed with them. The
+other three now check where the fitted image stands in the window, that a
+click at the window's point that shows a control lands on that control in
+each of the five sizes, and that a point of the image taken to the window
+and back is where it was.
 The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
 approval. It checks that a pause of eight hours, as when a computer sleeps
 with the game running, moves the game by one frame at most, and that the

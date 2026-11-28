@@ -1399,8 +1399,8 @@ pub(crate) enum GuiVerb {
         module: String,
         /// One story, by name or slug; all by default
         story: Option<String>,
-        /// One size (`deck`, `1080p`, `4k-tv`, `4k-monitor`, `4x3`,
-        /// `ultrawide`); all six by default. It is not called `size`, which
+        /// One size (`deck`, `1080p`, `4k`, `4x3`,
+        /// `ultrawide`); all five by default. It is not called `size`, which
         /// is the headless frame size every verb takes.
         #[arg(long)]
         at: Option<ui::catalogue::Size>,
@@ -1423,14 +1423,13 @@ pub(crate) enum GuiVerb {
         rewrite: bool,
     },
     /// The UI catalogue in the game: a story's screen opened live on a
-    /// virtual screen of one of the six sizes
+    /// virtual screen of one of the five sizes
     Catalogue {
         /// The story, as `options/At rest`: its screen module, a slash, and
         /// its name or slug. The first story by default
         #[arg(long)]
         story: Option<String>,
-        /// The size it opens at (`deck`, `1080p`, `4k-tv`, `4k-monitor`,
-        /// `4x3`, `ultrawide`)
+        /// The size it opens at (`deck`, `1080p`, `4k`, `4x3`, `ultrawide`)
         #[arg(long, default_value = "1080p")]
         at: String,
         /// k1 or tsl; the first game the story names by default

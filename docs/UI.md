@@ -767,15 +767,12 @@ Running and checking:
   from a capture of play instead of stand-ins (below). Every module has at
   least one story. A module that is only a part of other screens (the
   companion places, the filter, the tab and the menu bar) has stories that
-  open the screens drawing it. Each story is drawn at the six sizes of docs/UI-GUIDELINES.md
-  (`catalogue::SIZES`: `deck`, `1080p`, `4k-tv`, `4k-monitor` at a scale
-  factor of 2, `4x3`, `ultrawide`) and with two inputs (`pad`, its hints
-  shown, the Steam Deck's buttons on `deck`; `mouse`). The screens step in
-  the logical window and are drawn at the physical size, as in play, so
-  `4k-monitor` draws the same picture as `4k-tv`. The screens keep their
-  size at any desktop scaling. The size stays in the catalogue to show
-  that: kjk does not follow the desktop's scaling, and a change that made it
-  do so would make the two sizes differ. `kjk gui list [--json]` lists the modules, their
+  open the screens drawing it. Each story is drawn at the five sizes of docs/UI-GUIDELINES.md
+  (`catalogue::SIZES`: `deck`, `1080p`, `4k`, `4x3`, `ultrawide`) and with
+  two inputs (`pad`, its hints shown, the Steam Deck's buttons on `deck`;
+  `mouse`). The screens keep their size at any desktop scaling, so a 4K
+  monitor at 200% draws the same picture as a 4K TV and the two share the
+  size `4k`. `kjk gui list [--json]` lists the modules, their
   statuses and stories, and the sizes and inputs. It then lists what breaks
   the catalogue's rules (`ui::catalogue::check`, the rules of the approved
   test `ui_catalogue`) and fails when something does. A story's steps are
@@ -952,59 +949,28 @@ Running and checking:
     back to the list from any story. The list opens with its cursor on the
     story that was open. The story that was open stays the one the next
     chord returns to.
-  - **The three modes.** Fit scales the whole image to fit the window and
-    leaves black bars. Pixel for pixel shows one pixel of the image as one
-    pixel of the display. As seen scales the image so that a pixel of the
-    device looks as big to the owner as it does on the device, seen from the
-    device's usual distance. The scale is the device pixel's apparent size
-    over the display pixel's, where a pixel's apparent size is its width
-    over its distance (`virtual_screen::seen_scale`). The plan gives each
-    size's screen and distance (`virtual_screen::viewing`): 7 inches at 35
-    cm for `deck`, 24 inches at 60 cm for `1080p`, 55 inches at 2.5 m for
-    `4k-tv`, 27 inches at 60 cm for `4k-monitor`, 20 inches at 60 cm for
-    `4x3` and 34 inches at 70 cm for `ultrawide`. On a display of 254 pixels
-    to the inch seen from 60 cm, a Steam Deck pixel covers about 2.02 pixels
-    of the display and a pixel of the 4K TV about 0.76. The owner's distance
-    is the setting `catalogue.distance_cm` (60 by default).
-  - **The display's density** (`kjk_game::display_density`). The catalogue
-    asks the operating system how big the monitor the window is on is, and
-    divides the monitor's pixels by its width. On macOS it reads
-    `CGDisplayScreenSize` and the width in pixels of the display's current
-    mode. On Windows it reads the monitor's raw dpi (`GetDpiForMonitor` with
-    `MDT_RAW_DPI`), which comes from the size the monitor reports. It reads
-    again twice a second, so a window moved to a second monitor takes that
-    monitor's density. The setting `catalogue.display_density` overrides
-    the system's reading when it is set. When the system reports nothing, as
-    in a headless run, or on a platform other than the two, the density is
-    110. `ui catalogue density N` sets the override from a script, and `ui
-    catalogue density system` removes it and reads the main display. A dump
-    shows the density used, the system's reading and the setting.
-  - **Opening a large image.** When the image is larger than the window in
-    pixel for pixel or as seen, the window opens centred on the focused
-    control, or on the middle of the image when nothing has focus. It does
-    the same after a change of size or mode, and when a story opens. Panning
-    starts from there.
-  - **Panning.** When the image is larger than the window, which pixel for
-    pixel and as seen make it on a large device, the right mouse button
-    dragged or the pad's right stick moves the window over it.
-  - **The pointer.** The window's pointer is mapped into the image in all
-    three modes (`virtual_screen::Placement::to_image`) and then into the
-    virtual window's logical pixels, so a click lands on the control it is
-    over. A pointer in the black bars is not over the screen.
+  - **Fit to the window.** The window shows the whole device, as large as
+    the window allows with the device's outline around it, in the middle,
+    with black bars where the shapes differ (`virtual_screen::place`). Its
+    corner is on a whole pixel of the display. The catalogue has no other way
+    of showing a device. Whether a text can be read on a Steam Deck or a TV
+    is the UI lint's to say (https://github.com/kjk-engine/roadmap/issues/24),
+    from each text's height in the control tree.
+  - **The pointer.** The window's pointer is mapped into the image
+    (`virtual_screen::Placement::to_image`) and then into the virtual
+    window's logical pixels, so a click lands on the control it is over. A
+    pointer in the black bars or on the outline is not over the screen.
   - **Keys.** `F6` or the pad chord LB with Y (`LB+North`) changes to the
-    next of the six sizes, `F7` or LB with X (`LB+West`) to the next mode,
-    and `F8` or LB with B (`LB+East`) back to the list of stories. `F12` or
+    next of the five sizes, and `F8` or LB with B (`LB+East`) back to the list of stories. `F12` or
     LB with the d-pad's right (`LB+DPadRight`) hides the status bar or shows
     it again. A size change keeps the screen as it is: the stack is stepped
     in the new window and lays itself out again. The keys are the table
     `KEYS` in `catalogue_view.rs`, one row for each, with a key and a chord.
   - **The status bar** (`kjk_game::catalogue_view::chrome`). A bar along the
     bottom of the window always says which story is open and on which game,
-    the size, the mode, the backdrop, and whether the outlines are on. The
-    size is written as the device it stands for, for example "Steam Deck,
-    1280 × 800, held at 35 cm" (`ui::device_frame::describe`). The mode is
-    written in words: "Fit to the window", "Pixel for pixel", or "As seen,
-    2.02 times", which includes the scale. Under that, the bar lists every
+    the device, the backdrop, and whether the outlines are on. The device
+    is written with its resolution, for example "Steam Deck, 1280 × 800"
+    (`ui::device_frame::describe`). Under that, the bar lists every
     key of the catalogue with what it does. It lists the keyboard's keys
     when the keyboard or the mouse was used last, and the pad's chords when
     the pad was used last, so "LB + Y" stands for the chord `LB+North`. The
@@ -1015,42 +981,37 @@ Running and checking:
     about 34 display pixels tall, so they stay sharp and readable on a
     Retina display. The bar does not change the picture, the control trees or
     the bridge's state of the story.
-  - **Notices.** When the size, the mode or the backdrop changes, whatever
+  - **Notices.** When the device or the backdrop changes, whatever
     the cause, a notice in the middle of the window says what it changed to,
     stays for 1.8 seconds, and then fades out in 0.6 seconds. Hiding the bar
     gives a notice that says which key shows it again. `ui catalogue bar
     show|hide|toggle` does the same from a script, and `ui nav` or a pad
     chord switches the bar to the pad's chords.
-  - **The device frame** (`ui::device_frame`). In fit and as seen, the window
-    draws an outline of the device around the image: a Steam Deck's body of
-    298 × 117 mm with its d-pad, two sticks, four buttons and two trackpads,
-    a monitor with its bezel and stand, a TV with a thin bezel and two feet,
-    a 4:3 monitor with a wide bezel, or an ultrawide monitor. Each part is
-    measured in millimetres from the screen's corner, and the screen is the
-    size of the device's typical screen (`virtual_screen::viewing`), so the
-    body has the same scale as the image in as seen. The drawing is flat
-    shapes and outlines in neutral grey. Fit scales the image so that the
-    whole frame fits the window (`virtual_screen::View::margin`). As seen
-    keeps the real scale, so a frame larger than the window is cut by the
-    window's edge. Pixel for pixel draws no frame. A click on the frame is
-    not a click on the image, because the mapping only accepts points inside
-    the image.
+  - **The device frame** (`ui::device_frame`). The window draws an outline
+    of the device around the image: a Steam Deck's body of 298 × 117 mm with
+    its d-pad, two sticks, four buttons and two trackpads, a monitor with its
+    bezel and stand, a TV with a thin bezel and two feet, a 4:3 monitor with
+    a wide bezel, or an ultrawide monitor. Each part is measured in
+    millimetres from the screen's corner, and the screen is the size of the
+    device's typical screen (`virtual_screen::inches`). The drawing is flat
+    shapes and outlines in neutral grey. The image is scaled so that the
+    whole outline fits the window (`virtual_screen::View::margin`). A click
+    on the outline is not a click on the image, because the mapping only
+    accepts points inside the image.
   - **A pad alone.** Every step works with a pad and nothing else. The d-pad
     moves through the list, A opens a story, the screen takes the pad as in
-    play, LB with Y changes size, LB with X changes mode, the right stick pans
-    an image larger than the window, and LB with B goes back to the list. A
-    headless run does this with `ui nav up|down|activate` for the d-pad and A,
-    and `ui raw Pad:LB+North` (or `LB+West`, `LB+East`) for the chords.
-  - **Console.** `ui catalogue size NAME|next`, `ui catalogue mode
-    fit|pixel|seen|next`, `ui catalogue bar show|hide|toggle`, `ui catalogue
-    pan X Y`, `ui catalogue density N` and `ui catalogue distance CM` do the
-    same from a script. The `ui`
+    play, LB with Y changes the device, and LB with B goes back to the list.
+    A headless run does this with `ui nav up|down|activate` for the d-pad and
+    A, and `ui raw Pad:LB+North` (or `LB+East`) for the chords.
+  - **Console.** `ui catalogue size NAME|next`, `ui catalogue overrides
+    on|off|toggle` and `ui catalogue bar show|hide|toggle` do the same from a
+    script. The `ui`
     commands that move the pointer (`ui pointer X Y`, `ui click X Y`, `ui
     down`, `ui drag`, `ui up`) take points of the window, and the catalogue
     maps them as it maps the mouse. `ui press TAG`, `ui nav`, `ui raw`, `ui
     type` and `ui back` reach the screens. A dump has the fact `catalogue`,
-    with the size, the mode, where the image stands in the window and the
-    focused control.
+    with the size, where the image stands in the window and the focused
+    control.
 - **3D views in the catalogue** (`kjk_game::gui_scene`, `want_staged`). Some
   screens draw a 3D model inside a control: the main menu's figure, the
   character sheet's party member, the upgrade bench's item, the party
@@ -1069,8 +1030,8 @@ Running and checking:
   - **Seeing a story's 3D view without a window.** `kjk gui story` draws on
     the CPU and shows a 3D view as a white box. A headless catalogue run
     draws it: `kjk gui catalogue --story main_menu/at-rest --at deck --game
-    k1 --headless --size 1280x800 --cmds 'ui catalogue bar hide; ui
-    catalogue mode pixel; wait 300f; screenshot; quit'`.
+    k1 --headless --size 1280x800 --cmds 'ui catalogue bar hide; wait 300f;
+    screenshot; quit'`.
 - **Working with the catalogue** (`kjk_game::catalogue_view`, its module
   `collab`). Five things let an agent and the owner work on a story together.
   - **The agent bridge.** When the catalogue starts, it creates three files
@@ -1096,7 +1057,7 @@ Running and checking:
     count as something: a credit count that changes alone writes the file
     again. Its `revision` counts the
     writes. Its fields are `story` (`MODULE/NAME`), `game`, `size`, `device`
-    (the size's pixels), `factor`, `mode`, `focus` (the focused control's
+    (the size's pixels), `factor`, `focus` (the focused control's
     tag), `screens` (the open screens, bottom first), `outlines`,
     `backdrop`, `backdrop_still` (`making`, `ready` or `failed: WHY` while the
     backdrop is `play`, else null), `recording` (its `steps` so far and the `saved` stories),
@@ -1117,7 +1078,7 @@ Running and checking:
   - **The command file** takes one command on each line. The catalogue reads
     a line only when it ends with a newline, and ignores empty lines and
     lines that start with `#`. The commands are `open MODULE/STORY`, `size
-    NAME`, `mode fit|pixel|seen`, `step STEP` (any step of `Staged::step`, such
+    NAME`, `step STEP` (any step of `Staged::step`, such
     as `step press BTN_GAMEPLAY`), `outlines on|off`, `backdrop
     plain|stripes|play` and `save [NAME]`. A command that fails does not stop the
     others. The state file's `last_command` and a line of the log with the
@@ -1126,7 +1087,7 @@ Running and checking:
     number), `seconds` (since the catalogue started), `source`, `change` and
     `detail`. The sources are `keyboard`, `mouse`, `pad`, `console` (a `ui`
     command of a run's script), `agent` (the command file) and `disk` (a
-    reload). The changes are `story`, `size`, `mode`, `backdrop`, `outlines`,
+    reload). The changes are `story`, `size`, `backdrop`, `outlines`,
     `step` (a step taken, whether the owner's input made it or an agent
     asked for it), `save`, `reload` and `refused`.
   - **Saving a tryout as a story.** The input of the owner on the live
@@ -1174,8 +1135,8 @@ Running and checking:
     tag in a black box. The frames of each open screen have their own
     colour, and the focused control's frame is orange and twice as thick. The
     frames are drawn from the same marks as the control tree. Their lines
-    and tags are sized in the window's pixels, so they read the same in
-    every mode. The text beside a frame comes from `label` in
+    and tags are sized in the window's pixels, so they read the same at
+    every size. The text beside a frame comes from `label` in
     `collab/outline.rs`, where the lint of
     https://github.com/kjk-engine/roadmap/issues/24 adds the numbers of the
     rules a control breaks.
@@ -1376,7 +1337,7 @@ Running and checking:
     - `left`, `top`, `width` and `height` are in layout pixels, counted from
       the root's top left, as in KOTOR's own layouts. Nothing else anchors a
       control. The stack scales the whole layout to the window as it scales a
-      KOTOR layout, so a file looks the same at the six sizes of the
+      KOTOR layout, so a file looks the same at the five sizes of the
       catalogue. A control that moves with `left` or `top` takes the controls
       inside it along, such as a list box's rows and its scroll bar. A
       change of `width` or `height` does not resize them.

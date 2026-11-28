@@ -15,7 +15,6 @@ use serde_json::{Value, json};
 use ui::catalogue::{SIZES, Step, Story};
 use ui::draw::DrawList;
 use ui::input::UiInput;
-use ui::virtual_screen::Mode;
 
 use super::{Catalogue, Start};
 pub use backdrop::{Backdrop, Shown, show};
@@ -34,7 +33,6 @@ const TREE_SETTLE: f32 = 0.3;
 struct Seen {
     story: String,
     size: String,
-    mode: String,
     outlines: bool,
     backdrop: String,
     still: String,
@@ -225,11 +223,8 @@ fn command(cat: &mut Catalogue, line: &str) -> Result<(), String> {
         "size" => {
             let at = SIZES.iter().position(|size| size.name == rest);
             at.map(|at| cat.set_size(at))
-                .ok_or(format!("{rest}: not one of the six sizes"))
+                .ok_or(format!("{rest}: not one of the five sizes"))
         }
-        "mode" => Mode::named(rest)
-            .map(|mode| cat.set_mode(mode))
-            .ok_or(format!("{rest}: not fit, pixel or seen")),
         "step" => step(cat, rest, "agent"),
         "outlines" => {
             switch(rest).map(|on| cat.collab.outlines = on.unwrap_or(!cat.collab.outlines))
@@ -245,7 +240,7 @@ fn command(cat: &mut Catalogue, line: &str) -> Result<(), String> {
         },
         "save" => save(cat, (!rest.is_empty()).then_some(rest)),
         other => Err(format!(
-            "{other}: `open MODULE/STORY`, `size NAME`, `mode fit|pixel|seen`, `step STEP`, `outlines on|off`, `backdrop plain|stripes|play` or `save [NAME]`"
+            "{other}: `open MODULE/STORY`, `size NAME`, `step STEP`, `outlines on|off`, `backdrop plain|stripes|play` or `save [NAME]`"
         )),
     }
 }
@@ -288,7 +283,6 @@ fn open(cat: &mut Catalogue, wanted: &str) -> Result<(), String> {
     cat.start = start;
     cat.reopen_failed = false;
     cat.listing = false;
-    cat.recentre = true;
     cat.collab.watch.take(&cat.start.module);
     cat.collab.restaged();
     Ok(())
@@ -452,7 +446,6 @@ fn log_changes(cat: &mut Catalogue) {
     let seen = Seen {
         story: format!("{}/{}", cat.start.module, cat.start.story.name),
         size: cat.size().name.to_string(),
-        mode: cat.mode.name().to_string(),
         outlines: cat.collab.outlines,
         backdrop: cat.collab.backdrop.name().to_string(),
         still: cat
@@ -476,7 +469,6 @@ fn log_changes(cat: &mut Catalogue) {
     let changes = [
         ("story", &before.story, &seen.story),
         ("size", &before.size, &seen.size),
-        ("mode", &before.mode, &seen.mode),
         ("backdrop", &before.backdrop, &seen.backdrop),
         ("backdrop still", &before.still, &seen.still),
     ];
@@ -546,7 +538,6 @@ fn publish(cat: &mut Catalogue) {
         "size": size.name,
         "device": [size.pixels.0, size.pixels.1],
         "factor": size.factor,
-        "mode": cat.mode.name(),
         "focus": cat.staged.stack().focused(),
         "screens": cat.staged.stack().screens().map(|screen| screen.0).collect::<Vec<_>>(),
         "outlines": cat.collab.outlines,

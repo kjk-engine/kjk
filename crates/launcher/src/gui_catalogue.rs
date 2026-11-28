@@ -164,7 +164,7 @@ pub fn show(module: &str) -> ExitCode {
 }
 
 /// What `story` draws: the module's stories (all, or the one named or
-/// slugged `story`), at `size` (all six when none), with `input` (both when
+/// slugged `story`), at `size` (all five when none), with `input` (both when
 /// none), on `game` (each the story names when none).
 pub struct Choice<'a> {
     pub module: &'a str,

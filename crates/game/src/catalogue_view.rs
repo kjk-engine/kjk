@@ -1,9 +1,9 @@
 //! The UI catalogue in the game (`kjk gui catalogue`, docs/UI.md, "The
 //! catalogue in the game"). A story is staged (`story_stage::Staged`) in a
-//! virtual window of one of the six sizes (`ui::catalogue::SIZES`), whatever
+//! virtual window of one of the five sizes (`ui::catalogue::SIZES`), whatever
 //! the real window is. A camera draws its screens into an image of the
 //! device's exact pixel size, and a second camera shows that image in the
-//! window in one of three modes (`ui::virtual_screen`). The mouse, the keys
+//! window, scaled to fit inside the device's outline (`ui::virtual_screen`). The mouse, the keys
 //! and the pad reach the screens through the same mapping, so a click lands
 //! on the control it is over.
 //!
@@ -24,9 +24,7 @@ use console::{DumpFacts, UiRequests};
 use ui::catalogue::{Input, SIZES, Size, Step, Story};
 use ui::draw::DrawList;
 use ui::screens::key_mapping::PAD_RAW;
-use ui::virtual_screen::{
-    DISPLAY_DENSITY, Mode, OWNER_DISTANCE_CM, Placement, View, place, seen_scale, viewing,
-};
+use ui::virtual_screen::{Placement, View, place};
 use vfs::Game;
 
 use chrome::{Chrome, Facts, Hints, Look};
@@ -47,29 +45,18 @@ use crate::ui_view::{Drawn, LAYER as SCREENS_LAYER, console_input};
 /// The render layer of the quad that shows the image in the window.
 const WINDOW_LAYER: usize = 10;
 
-/// How fast the right stick pans the image, in logical pixels a second at
-/// full tilt.
-const PAN_SPEED: f32 = 900.0;
-
-/// The stick's tilt from which it pans.
+/// The stick's tilt from which a pad counts as used.
 const STICK: f32 = 0.3;
 
 /// How many frames the screens' image is drawn after a change, while their
 /// meshes and textures reach the GPU.
 const REDRAWN: u8 = 3;
 
-/// The settings that say how big a pixel of the owner's display is and how
-/// far the owner sits from it.
-const DISPLAY_SETTING: &str = "catalogue.display_density";
-const DISTANCE_SETTING: &str = "catalogue.distance_cm";
-
 /// What the catalogue's keys do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
-    /// The next of the six sizes.
+    /// The next of the five sizes.
     NextSize,
-    /// The next of the three ways to show the image.
-    NextMode,
     /// A frame around every control, with its tag.
     Outlines,
     /// The next backdrop behind the screen.
@@ -86,9 +73,8 @@ enum Action {
 
 /// The catalogue's keys: what they do, the keyboard key and the pad chord.
 /// Later keys of the catalogue join this table.
-const KEYS: [(Action, &str, &str); 8] = [
+const KEYS: [(Action, &str, &str); 7] = [
     (Action::NextSize, "F6", "LB+North"),
-    (Action::NextMode, "F7", "LB+West"),
     (Action::List, "F8", "LB+East"),
     (Action::Outlines, "F9", "LB+South"),
     (Action::Backdrop, "F10", "LB+DPadUp"),
@@ -116,25 +102,10 @@ pub struct CataloguePlugin {
 impl Plugin for CataloguePlugin {
     fn build(&self, app: &mut App) {
         let settings = crate::settings::Settings::load();
-        let number = |key: &str, default: f32| {
-            settings
-                .value(key)
-                .and_then(|value| value.parse::<f32>().ok())
-                .filter(|value| *value > 0.0)
-                .unwrap_or(default)
-        };
-        let overridden = settings
-            .value(DISPLAY_SETTING)
-            .and_then(|value| value.parse::<f32>().ok())
-            .filter(|value| *value > 0.0);
-        let display = (
-            overridden.unwrap_or(DISPLAY_DENSITY),
-            number(DISTANCE_SETTING, OWNER_DISTANCE_CM),
-        );
         let overrides = settings
             .value(ui::layout_files::OVERRIDES)
             .is_none_or(|value| value == "true");
-        match Catalogue::open(&self.start, display, overridden, overrides) {
+        match Catalogue::open(&self.start, overrides) {
             Ok(catalogue) => {
                 app.insert_resource(catalogue);
             }
@@ -155,7 +126,7 @@ impl Plugin for CataloguePlugin {
         .init_resource::<Painting>()
         .add_systems(
             Update,
-            (read_density, step, views, paint)
+            (step, views, paint)
                 .chain()
                 .after(console::ConsoleQueue)
                 .after(crate::pad::Settled),
@@ -175,20 +146,6 @@ struct Catalogue {
     staged: Staged,
     /// The place of the size in `SIZES`.
     size: usize,
-    mode: Mode,
-    /// How far the window is into an image larger than itself, in the
-    /// window's logical pixels.
-    pan: [f32; 2],
-    /// The owner's display: its pixels to the inch, and the owner's
-    /// distance from it in centimetres.
-    display: (f32, f32),
-    /// The setting that overrides the display's density, and what the
-    /// system says of the monitor the window is on.
-    density_setting: Option<f32>,
-    density_system: Option<f32>,
-    /// The image was just shown at another size or mode, or is new: it is
-    /// to be centred on the focused control once a frame is drawn.
-    recentre: bool,
     /// The window as the camera that shows the image last saw it: its
     /// logical size, and its physical pixels to each logical one.
     window: ((f32, f32), f32),
@@ -202,8 +159,6 @@ struct Catalogue {
     /// What `ui` commands of the console left for the next frame's input.
     scripted: Vec<Vec<String>>,
     scripted_hold: Option<[f32; 2]>,
-    /// Where the pointer was when the right button last moved the image.
-    dragging: Option<[f32; 2]>,
     sticks: Held,
     last_pointer: Option<Vec2>,
     rows: Rows,
@@ -222,12 +177,7 @@ struct Catalogue {
 }
 
 impl Catalogue {
-    fn open(
-        start: &Start,
-        display: (f32, f32),
-        density_setting: Option<f32>,
-        overrides: bool,
-    ) -> Result<Catalogue, String> {
+    fn open(start: &Start, overrides: bool) -> Result<Catalogue, String> {
         let discovery = crate::discover();
         let size = SIZES
             .iter()
@@ -244,18 +194,11 @@ impl Catalogue {
             discovery,
             staged,
             size,
-            mode: Mode::Fit,
-            pan: [0.0; 2],
-            display,
-            density_setting,
-            density_system: None,
-            recentre: true,
             window: (window, 1.0),
             placement: Placement {
                 origin: [0.0; 2],
                 size: [0.0; 2],
                 scale: 1.0,
-                pan: [0.0; 2],
             },
             layers: Vec::new(),
             names: Vec::new(),
@@ -263,7 +206,6 @@ impl Catalogue {
             chrome: Chrome::default(),
             scripted: Vec::new(),
             scripted_hold: None,
-            dragging: None,
             sticks: Held::default(),
             last_pointer: None,
             rows: Rows::default(),
@@ -368,8 +310,6 @@ impl Catalogue {
                 self.replace(staged);
                 self.collab.restaged();
                 self.listing = true;
-                self.pan = [0.0; 2];
-                self.recentre = true;
             }
             Err(why) => {
                 warn!(target: "catalogue", "{why}");
@@ -415,8 +355,6 @@ impl Catalogue {
                 self.replace(staged);
                 self.collab.opened(&self.start.module);
                 self.listing = false;
-                self.pan = [0.0; 2];
-                self.recentre = true;
             }
             Err(why) => warn!(target: "catalogue", "{why}"),
         }
@@ -424,12 +362,6 @@ impl Catalogue {
 
     fn size(&self) -> Size {
         SIZES[self.size]
-    }
-
-    /// How many display pixels a pixel of the device covers.
-    fn seen(&self) -> f32 {
-        let size = self.size();
-        seen_scale((size, viewing(&size)), self.display)
     }
 
     /// What the bar says.
@@ -455,8 +387,6 @@ impl Catalogue {
     fn look(&self) -> Look {
         Look {
             size: self.size(),
-            mode: self.mode,
-            seen: self.seen(),
             backdrop: self.collab.backdrop_name(),
             outlines: self.collab.outlines(),
             overrides: self.overrides,
@@ -470,75 +400,24 @@ impl Catalogue {
         (window.0, (window.1 - bar).max(1.0))
     }
 
-    /// Whether the device's frame is drawn: whenever the whole device is
-    /// shown, as it is in fit and as seen.
-    fn framed(&self) -> bool {
-        self.mode != Mode::Pixel
-    }
-
-    fn view(&self, pan: [f32; 2]) -> View {
+    fn view(&self) -> View {
         let size = self.size();
         View {
-            mode: self.mode,
             image: size.pixels,
             window: self.area(),
             window_factor: self.window.1,
-            seen: self.seen(),
-            pan,
-            margin: if self.framed() {
-                ui::device_frame::margin(&size)
-            } else {
-                [0.0; 4]
-            },
+            margin: ui::device_frame::margin(&size),
         }
     }
 
     /// Where the image stands in the window now.
     fn placed(&self) -> Placement {
-        place(&self.view(self.pan))
-    }
-
-    /// The density the display has: the setting, else the system's, else
-    /// the default.
-    fn resolve_density(&mut self) {
-        self.display.0 = (self.density_setting)
-            .or(self.density_system)
-            .unwrap_or(DISPLAY_DENSITY);
-    }
-
-    /// The image panned so that the focused control, or the image's middle
-    /// when nothing is focused, is in the middle of the window.
-    fn centre(&mut self) {
-        self.recentre = false;
-        let size = self.size();
-        let window = size.window();
-        let focused = self.layers.last().and_then(|list| {
-            let mark = list.marks.iter().find(|mark| mark.focused)?;
-            let (scale, at) = if list.fill {
-                ui::draw::fill(window, list.size)
-            } else {
-                ui::draw::fit(window, list.size)
-            };
-            Some([
-                (at[0] + (mark.rect[0] + mark.rect[2] / 2.0) * scale) * size.factor,
-                (at[1] + (mark.rect[1] + mark.rect[3] / 2.0) * scale) * size.factor,
-            ])
-        });
-        let point = focused.unwrap_or([size.pixels.0 as f32 / 2.0, size.pixels.1 as f32 / 2.0]);
-        let flat = place(&self.view([0.0; 2]));
-        let area = self.area();
-        self.pan = [
-            point[0] * flat.scale - area.0 / 2.0,
-            point[1] * flat.scale - area.1 / 2.0,
-        ];
-        self.placement = self.placed();
-        self.pan = self.placement.pan;
+        place(&self.view())
     }
 
     /// The bar hidden or shown again. A notice says how to bring it back.
     fn hide_bar(&mut self, hidden: bool) {
         self.chrome.hidden = hidden;
-        self.recentre = true;
         if hidden {
             let key = self.chrome.key_of(Action::HideBar);
             self.chrome
@@ -557,28 +436,17 @@ impl Catalogue {
     fn set_overrides(&mut self, on: bool) {
         self.overrides = on;
         self.apply_overrides();
-        self.recentre = true;
         info!(target: "catalogue", on, "layout overrides");
     }
 
     fn set_size(&mut self, size: usize) {
         self.size = size % SIZES.len();
-        self.pan = [0.0; 2];
-        self.recentre = true;
         info!(target: "catalogue", size = self.size().name, "size");
-    }
-
-    fn set_mode(&mut self, mode: Mode) {
-        self.mode = mode;
-        self.pan = [0.0; 2];
-        self.recentre = true;
-        info!(target: "catalogue", mode = mode.name(), "mode");
     }
 
     fn act(&mut self, action: Action) {
         match action {
             Action::NextSize => self.set_size(self.size + 1),
-            Action::NextMode => self.set_mode(self.mode.next()),
             Action::Outlines => collab::act(self, Tool::Outlines),
             Action::Backdrop => collab::act(self, Tool::Backdrop),
             Action::SaveTryout => collab::act(self, Tool::SaveTryout),
@@ -596,13 +464,8 @@ impl Catalogue {
             ["catalogue", "size", name] => match SIZES.iter().position(|size| size.name == *name) {
                 Some(at) => self.set_size(at),
                 None => {
-                    warn!(target: "console", "ui catalogue: {name} is not one of the six sizes")
+                    warn!(target: "console", "ui catalogue: {name} is not one of the five sizes")
                 }
-            },
-            ["catalogue", "mode", "next"] => self.set_mode(self.mode.next()),
-            ["catalogue", "mode", name] => match Mode::named(name) {
-                Some(mode) => self.set_mode(mode),
-                None => warn!(target: "console", "ui catalogue: {name} is not fit, pixel or seen"),
             },
             ["catalogue", "overrides", "on" | "off" | "toggle"] => {
                 self.set_overrides(match words[2] {
@@ -619,26 +482,6 @@ impl Catalogue {
                 };
                 self.hide_bar(hidden);
             }
-            ["catalogue", "pan", x, y] => match (x.parse(), y.parse()) {
-                (Ok(x), Ok(y)) => self.pan = [x, y],
-                _ => warn!(target: "console", "ui catalogue pan X Y: window pixels"),
-            },
-            ["catalogue", "density", "system"] => {
-                self.density_setting = None;
-                self.density_system = crate::display_density::of(None);
-                self.resolve_density();
-            }
-            ["catalogue", "density", value] => match value.parse::<f32>() {
-                Ok(value) if value > 0.0 => {
-                    self.density_setting = Some(value);
-                    self.resolve_density();
-                }
-                _ => warn!(target: "console", "ui catalogue density N|system: pixels to the inch"),
-            },
-            ["catalogue", "distance", value] => match value.parse::<f32>() {
-                Ok(value) if value > 0.0 => self.display.1 = value,
-                _ => warn!(target: "console", "ui catalogue distance N: centimetres"),
-            },
             _ => return false,
         }
         true
@@ -729,7 +572,6 @@ fn step(
         ResMut<DumpFacts>,
     ),
 ) {
-    use ui::input::Key;
     let cat = &mut *cat;
     if let Some(window) = window_of(
         cameras.iter().next(),
@@ -791,46 +633,7 @@ fn step(
         input.keys.clear();
     }
 
-    // The image moved by the right mouse button dragged and by the right
-    // stick, where it is larger than the window.
-    let before = cat.placed();
-    let spare = before.spare(cat.area());
-    let pannable = spare[0] > 0.0 || spare[1] > 0.0;
-    let dragged = mouse
-        .as_deref()
-        .is_some_and(|mouse| mouse.pressed(MouseButton::Right));
-    match (input.pointer, dragged) {
-        (Some(at), true) => {
-            if let Some(from) = cat.dragging {
-                cat.pan = [
-                    before.pan[0] + from[0] - at[0],
-                    before.pan[1] + from[1] - at[1],
-                ];
-            }
-            cat.dragging = Some(at);
-        }
-        _ => cat.dragging = None,
-    }
-    let stick = pads
-        .iter()
-        .map(|(_, sticks)| sticks.right)
-        .max_by(|a, b| a.length().total_cmp(&b.length()))
-        .unwrap_or(Vec2::ZERO);
-    if pannable && stick.length() > STICK {
-        cat.pan = [
-            before.pan[0] + stick.x * PAN_SPEED * time.delta_secs(),
-            before.pan[1] - stick.y * PAN_SPEED * time.delta_secs(),
-        ];
-        input
-            .keys
-            .retain(|key| !matches!(key, Key::ScrollUp | Key::ScrollDown));
-    }
-    if dragged {
-        input.click = false;
-        input.held = false;
-    }
     cat.placement = cat.placed();
-    cat.pan = cat.placement.pan;
 
     // The pointer, from the window into the image, then into the virtual
     // window's logical pixels.
@@ -895,9 +698,6 @@ fn step(
     cat.chrome.look_for_font(&cat.layers);
     let look = cat.look();
     cat.chrome.watch(look, time.delta_secs());
-    if cat.recentre && !cat.layers.is_empty() {
-        cat.centre();
-    }
     if let Some((module, name)) = picked {
         cat.open_story(&module, &name);
     } else if !cat.reopen_failed && !cat.staged.stack().is_open() && !cat.staged.is_play() {
@@ -912,7 +712,6 @@ fn step(
                 "story": format!("{}/{}", cat.start.module, cat.start.story.name),
                 "game": cat.start.game.key(),
                 "size": size.name,
-                "mode": cat.mode.name(),
                 "device": [size.pixels.0, size.pixels.1],
                 "factor": size.factor,
                 "window": [cat.window.0.0, cat.window.0.1],
@@ -920,45 +719,12 @@ fn step(
                 "image_at": cat.placement.origin,
                 "image_size": cat.placement.size,
                 "image_scale": cat.placement.scale,
-                "pan": cat.placement.pan,
                 "bar_hidden": cat.chrome.hidden,
                 "layout_overrides": cat.overrides,
-                "framed": cat.framed(),
-                "seen": cat.seen(),
-                "display_density": cat.display.0,
-                "display_density_system": cat.density_system,
-                "display_density_setting": cat.density_setting,
-                "owner_distance_cm": cat.display.1,
                 "screens": cat.staged.stack().screens().map(|screen| screen.0).collect::<Vec<_>>(),
                 "focused": cat.staged.stack().focused(),
             }),
         );
-    }
-}
-
-/// The density of the monitor the window is on, read again twice a second
-/// and when the window moves to another monitor.
-fn read_density(
-    mut cat: ResMut<Catalogue>,
-    windows: Query<Entity, With<PrimaryWindow>>,
-    mut frames: Local<u32>,
-    _main: bevy::ecs::system::NonSendMarker,
-) {
-    *frames += 1;
-    if *frames % 30 != 1 {
-        return;
-    }
-    let Ok(entity) = windows.single() else {
-        return;
-    };
-    let density = bevy::winit::WINIT_WINDOWS.with_borrow(|windows| {
-        let window = windows.get_window(entity)?;
-        crate::display_density::of(Some(window))
-    });
-    if density != cat.density_system && density.is_some() {
-        info!(target: "catalogue", density, "the display's density, from the system");
-        cat.density_system = density;
-        cat.resolve_density();
     }
 }
 
@@ -1188,14 +954,12 @@ fn paint(
     // The frame, the bar and the notice, drawn in the window itself.
     let factor = cat.window.1;
     let mut lists = Vec::new();
-    if cat.framed() {
-        lists.push(ui::device_frame::draw(
-            &size,
-            &placement,
-            window,
-            2.0 / factor,
-        ));
-    }
+    lists.push(ui::device_frame::draw(
+        &size,
+        &placement,
+        window,
+        2.0 / factor,
+    ));
     lists.extend(cat.chrome.bar(&cat.facts(), window, factor));
     lists.extend(cat.chrome.notice(window, factor));
     if painting.chrome_assets != cat.assets_replaced {

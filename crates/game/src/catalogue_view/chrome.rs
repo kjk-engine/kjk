@@ -10,7 +10,6 @@ use asset_odyssey::font::Font;
 use ui::catalogue::Size;
 use ui::draw::{DrawList, Quad, TextureId};
 use ui::screens::key_mapping::PAD_RAW;
-use ui::virtual_screen::Mode;
 
 use super::{Action, KEYS};
 
@@ -49,8 +48,6 @@ struct Notice {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Look {
     pub size: Size,
-    pub mode: Mode,
-    pub seen: f32,
     pub backdrop: &'static str,
     pub outlines: bool,
     pub overrides: bool,
@@ -107,8 +104,6 @@ impl Chrome {
         if let Some(before) = &self.seen {
             if before.size != look.size {
                 self.say(device_title(&look.size), "");
-            } else if before.mode != look.mode {
-                self.say(mode_title(&look), mode_detail(look.mode));
             } else if before.overrides != look.overrides {
                 let (title, detail) = if look.overrides {
                     (
@@ -417,8 +412,7 @@ fn status(facts: &Facts) -> Vec<Item> {
     let look = &facts.look;
     vec![
         item("Story", format!("{} ({})", facts.story, facts.game)),
-        item("Size", ui::device_frame::describe(&look.size)),
-        item("Mode", mode_title(look)),
+        item("Device", ui::device_frame::describe(&look.size)),
         item("Backdrop", look.backdrop.to_string()),
         item("Layouts", facts.layouts.clone()),
         item(
@@ -432,23 +426,6 @@ fn device_title(size: &Size) -> String {
     ui::device_frame::describe(size)
 }
 
-/// The mode in words, with the scale when it is as seen.
-pub fn mode_title(look: &Look) -> String {
-    match look.mode {
-        Mode::Fit => "Fit to the window".to_string(),
-        Mode::Pixel => "Pixel for pixel".to_string(),
-        Mode::Seen => format!("As seen, {:.2} times", look.seen),
-    }
-}
-
-fn mode_detail(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Fit => "The whole device is shown as large as the window allows.",
-        Mode::Pixel => "One pixel of the screen is one pixel of your display.",
-        Mode::Seen => "The screen is as big as it looks from the device's usual distance.",
-    }
-}
-
 fn backdrop_detail(backdrop: &str) -> &'static str {
     match backdrop {
         "stripes" => "Diagonal stripes show through the see-through parts.",
@@ -459,8 +436,7 @@ fn backdrop_detail(backdrop: &str) -> &'static str {
 
 fn key_label(action: Action) -> &'static str {
     match action {
-        Action::NextSize => "Size",
-        Action::NextMode => "Mode",
+        Action::NextSize => "Device",
         Action::List => "Story list",
         Action::Layouts => "KOTOR or kjk layout",
         Action::Outlines => "Outlines",

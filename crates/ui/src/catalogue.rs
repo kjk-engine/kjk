@@ -66,8 +66,8 @@ impl Size {
     }
 }
 
-/// The six sizes of docs/UI-GUIDELINES.md.
-pub const SIZES: [Size; 6] = [
+/// The five sizes of docs/UI-GUIDELINES.md.
+pub const SIZES: [Size; 5] = [
     Size {
         name: "deck",
         pixels: (1280, 800),
@@ -79,14 +79,9 @@ pub const SIZES: [Size; 6] = [
         factor: 1.0,
     },
     Size {
-        name: "4k-tv",
+        name: "4k",
         pixels: (3840, 2160),
         factor: 1.0,
-    },
-    Size {
-        name: "4k-monitor",
-        pixels: (3840, 2160),
-        factor: 2.0,
     },
     Size {
         name: "4x3",

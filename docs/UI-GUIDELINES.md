@@ -23,18 +23,17 @@ These principles come from how remasters of classic games changed their UI witho
 
 ## Sizes and distances
 
-Every screen is checked at six sizes. Each size has a scale factor, because kjk draws a layout's pixel as one window point, and the scale factor changes the size of everything on screen.
+Every screen is checked at five sizes. A size is a resolution, and the resolution gives its aspect ratio.
 
-| Size | Resolution | Scale factor | What it stands for |
+| Size | Resolution | Aspect ratio | What it stands for |
 |---|---|---|---|
-| Steam Deck | 1280 × 800 | 100% | The Steam Deck, held in the hands |
-| 1080p | 1920 × 1080 | 100% | A desktop monitor, or a 1080p TV |
-| 4K TV | 3840 × 2160 | 100% | A 4K TV |
-| 4K monitor | 3840 × 2160 | 200% | A 4K desktop monitor |
-| 4:3 | 1440 × 1080 | 100% | An old 4:3 monitor |
-| Ultrawide | 3440 × 1440 | 100% | A 21:9 monitor |
+| Steam Deck | 1280 × 800 | 16:10 | The Steam Deck, held in the hands |
+| 1080p | 1920 × 1080 | 16:9 | A desktop monitor, or a 1080p TV |
+| 4K | 3840 × 2160 | 16:9 | A 4K TV, or a 4K desktop monitor |
+| 4:3 | 1440 × 1080 | 4:3 | An old 4:3 monitor |
+| Ultrawide | 3440 × 1440 | 21:9 | A 21:9 monitor |
 
-The 4K monitor draws the same picture as the 4K TV. kjk scales its screens to the window, so the desktop's scaling does not change their size. The 4K monitor stays in the list to show that kjk does not follow the desktop's scaling. If kjk ever followed it, the two pictures would differ.
+kjk scales its screens to the window and does not follow the desktop's scaling. A 4K monitor at 200% therefore draws the same picture as a 4K TV, and the two share one size.
 
 A screen can also be seen from three distances. The Steam Deck is held at about 30 cm, which is the distance Valve's rules assume. A desktop monitor is seen from about 60 cm. A TV is seen from between 2.5 and 3 m, which is the "10-foot" view that Microsoft's TV numbers assume. The rules give the desk figure and the TV figure separately where they differ.
 
@@ -103,7 +102,7 @@ A rule that does not fit kjk was left out. The list of those is at the end of th
 | L-3 | With a mouse, every control the player can click is at least 24 × 24 px, or has enough empty space around it that a 24 px circle around it touches no other control. | must | Auto | [WCAG 2.2, 2.5.8](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) |
 | L-4 | No two controls overlap unless the layout means them to, and no list, grid or text runs past its panel. | must | Auto | [Apple, Designing for games](https://developer.apple.com/design/human-interface-guidelines/designing-for-games) |
 | L-5 | Crossing the screen from one side to the other takes at most six presses of a direction. | should | Auto | Microsoft, Designing for Xbox and TV |
-| L-6 | At each of the six sizes, nothing is cut off, overlapped or out of reach. | must | Auto | Apple, Designing for games |
+| L-6 | At each of the five sizes, nothing is cut off, overlapped or out of reach. | must | Auto | Apple, Designing for games |
 | L-7 | The same kind of element sits in the same place on every screen. Examples are the screen's title, the bar of button prompts and the way back. | should | Auto for the prompt bar. Person for the rest. | [XAG 112](https://learn.microsoft.com/en-us/gaming/accessibility/xbox-accessibility-guidelines/112) |
 | L-8 | A label sits next to the control it describes, or inside the same focus frame. | should | Auto | XAG 114 |
 | L-9 | A long block of text has headings. | should | Judge | XAG 114 |
