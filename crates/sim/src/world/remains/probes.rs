@@ -194,9 +194,10 @@ fn survive_leaving_during_fade() -> Result<String, String> {
     state.leave_module("tar_m02ad", &BTreeSet::from([1, 2]), 4500);
     let cleared = state.corpses.is_empty();
     state.return_to("tar_m02ad", 14500);
-    let restored = state.corpses.get(&42).is_some_and(|c| {
-        c.bag == Some(bag.clone()) && c.due_ms == 15000 && c.died_ms == 11000
-    });
+    let restored = state
+        .corpses
+        .get(&42)
+        .is_some_and(|c| c.bag == Some(bag.clone()) && c.due_ms == 15000 && c.died_ms == 11000);
     check(
         cleared && restored,
         format!("cleared while away {cleared}, restored on return {restored}"),

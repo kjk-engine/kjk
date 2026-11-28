@@ -647,9 +647,7 @@ fn scripted_bash(
         .ok_or("no gate")?;
     let bruiser = ids
         .iter(&world.world)
-        .find(|(_, object)| {
-            object.is_some_and(|object| object.kind == ObjectKind::Creature)
-        })
+        .find(|(_, object)| object.is_some_and(|object| object.kind == ObjectKind::Creature))
         .map(|(id, _)| id.0)
         .ok_or("no bruiser")?;
     world
@@ -1175,9 +1173,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                         plain.damage, plot.damage
                     ))
                 }
-                (plain, cut, plot) => Err(format!(
-                    "baton {plain:?}, saber {cut:?}, plot {plot:?}"
-                )),
+                (plain, cut, plot) => Err(format!("baton {plain:?}, saber {cut:?}, plot {plot:?}")),
             },
         ),
         (

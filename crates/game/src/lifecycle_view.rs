@@ -768,7 +768,8 @@ fn doors(
                 clip.as_ref()
                     .and_then(|clip| scene::animator(placed, clip, nodes))
             };
-            let (state, broken) = door_state(current, &instances, door.object).unwrap_or((0, false));
+            let (state, broken) =
+                door_state(current, &instances, door.object).unwrap_or((0, false));
             doors.0.push(DoorAnim {
                 object: door.object,
                 opening: [bind(&door.opening[0]), bind(&door.opening[1])],
