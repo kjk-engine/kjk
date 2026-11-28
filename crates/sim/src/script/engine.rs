@@ -3533,11 +3533,19 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
+            // An item used through an action is used on its user, while the
+            // use runs (`Character::item_use`).
             GetAttemptedSpellTarget => maybe(
                 view.intents
                     .get(&caller.0)
                     .filter(|intent| intent.talent.is_some())
-                    .map(|intent| intent.target),
+                    .map(|intent| intent.target)
+                    .or_else(|| {
+                        let using = (view.thing(caller)).is_some_and(|thing| {
+                            thing.character.is_some_and(|c| c.item_use.is_some())
+                        });
+                        using.then_some(caller)
+                    }),
             ),
             GetAttemptedMovementTarget => maybe(
                 state
@@ -5203,11 +5211,20 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             GetCurrentAction => {
-                let front = state
-                    .actions
-                    .get(&object(args, 0).0)
-                    .and_then(|queue| queue.first());
-                let name = front.map_or("ACTION_INVALID", |queued| queued.action.constant());
+                let who = object(args, 0);
+                // An item used through an action is its current action
+                // while the use runs (`Character::item_use`).
+                let using = (view.thing(who)).and_then(|thing| thing.character?.item_use);
+                let front = state.actions.get(&who.0).and_then(|queue| queue.first());
+                let name = match (using, front) {
+                    (Some(row), _) => Action::Talent {
+                        talent: Use::Power(row),
+                        target: who,
+                    }
+                    .constant(),
+                    (None, Some(queued)) => queued.action.constant(),
+                    (None, None) => "ACTION_INVALID",
+                };
                 self.action_value(name)
             }
             SetCommandable => {

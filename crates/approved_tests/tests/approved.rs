@@ -4695,6 +4695,18 @@ fn power_rows() {
     probed("power rows", &sim::power_rows_probes::probes(), 8);
 }
 
+/// A medpac used under steady hits (`kjk sim probes --only "medpac
+/// hits"`). A hurt enemy and a hurt companion whose scripts are written as
+/// `k_ai_master` is each heal once their medpac's use is over, though a hit
+/// lands every half second. An enemy whose use begins late in a combat round
+/// heals too, because its round ends only once the use is over. A story
+/// script that clears the enemy's actions on every hit still breaks the use
+/// off, and the enemy keeps its medpac (awaiting the owner's approval).
+#[test]
+fn medpac_hits() {
+    probed("medpac hits", &sim::medpac_hit_probes::probes(), 4);
+}
+
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk
 /// sim probes --only "kotor2 powers"`): the 23 rows KOTOR 1 gets with KOTOR
 /// 2's costs, names, icons and levels, KOTOR 1's own data and rules unchanged, a

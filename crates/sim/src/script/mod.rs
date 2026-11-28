@@ -2183,6 +2183,15 @@ pub struct Character {
     /// When it last used an item (sim ms; 0 for never,
     /// `combat::items::Pack::last`).
     pub item_used_ms: u64,
+    /// The `spells.2da` row of an item it is using through an action, while
+    /// the use runs. Such an action is Use Item or an AI's item talent
+    /// (`combat::items::Pack::ordered`). The talent's action leaves the
+    /// queue as the use begins, but scripts still see the use as its current
+    /// action (`GetCurrentAction`) with itself as the spell's target
+    /// (`GetAttemptedSpellTarget`). The games' damaged scripts start a new
+    /// combat round only for a character with no action of that kind, and a
+    /// new round's `ClearAllActions` would break the use off.
+    pub item_use: Option<u16>,
 }
 
 /// The world as scripts read it this step: things in id order, the

@@ -142,6 +142,8 @@ pub use world::locks;
 #[cfg(feature = "probes")]
 pub use world::made_waypoint_probes;
 #[cfg(feature = "probes")]
+pub use world::medpac_hit_probes;
+#[cfg(feature = "probes")]
 pub use world::minds_probes;
 pub use world::objects;
 #[cfg(feature = "probes")]
