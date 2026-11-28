@@ -72,7 +72,13 @@ pub fn show(module: &str) -> ExitCode {
             outln!("{}", file.notes);
         }
         for story in &file.stories {
-            outln!("- {} [{}]: {} on {}", story.name, slug(&story.name), story.screen, story.games.join(", "));
+            outln!(
+                "- {} [{}]: {} on {}",
+                story.name,
+                slug(&story.name),
+                story.screen,
+                story.games.join(", ")
+            );
             for step in &story.steps {
                 outln!("    {step}");
             }
@@ -110,10 +116,18 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
         let file = (files.iter().find(|file| file.module == choice.module))
             .ok_or(format!("{}: no story file", choice.module))?;
         let chosen: Vec<&Story> = (file.stories.iter())
-            .filter(|story| choice.story.is_none_or(|wanted| story.name == wanted || slug(&story.name) == wanted))
+            .filter(|story| {
+                choice
+                    .story
+                    .is_none_or(|wanted| story.name == wanted || slug(&story.name) == wanted)
+            })
             .collect();
         if chosen.is_empty() {
-            return Err(format!("{}: no story {:?}", choice.module, choice.story.unwrap_or("")));
+            return Err(format!(
+                "{}: no story {:?}",
+                choice.module,
+                choice.story.unwrap_or("")
+            ));
         }
         let sizes: Vec<Size> = match choice.size {
             Some(name) => vec![Size::named(name).ok_or(format!("{name}: no such size"))?],
@@ -134,20 +148,26 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
                 for size in &sizes {
                     for input in &inputs {
                         let Some(capture) = story.capture_for(game, *input) else {
-                            outln!("{}: no capture on {game} with the {}", story.name, input.name());
+                            outln!(
+                                "{}: no capture on {game} with the {}",
+                                story.name,
+                                input.name()
+                            );
                             continue;
                         };
 
                         let mut steps = input.steps(*size);
                         steps.extend(story.steps.iter().cloned());
-                        let path = drawn_path(&out, (game, &file.module, &story.name), *size, *input);
-                        crate::gui_verbs::render_screen(
-                            discovery,
-                            (key, &story.screen),
-                            (&steps, story.error.clone(), capture),
-                            (size.pixels, size.factor),
-                            &path,
-                        )?;
+                        let scene = kjk_game::story_stage::Scene {
+                            game: key,
+                            screen: story.screen.clone(),
+                            steps,
+                            error: story.error.clone(),
+                            capture: capture.map(str::to_string),
+                        };
+                        let path =
+                            drawn_path(&out, (game, &file.module, &story.name), *size, *input);
+                        crate::gui_verbs::render_screen(discovery, scene, *size, &path)?;
                         outln!("{}", path.display());
                         drawn += 1;
                     }
@@ -159,11 +179,17 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
     })())
 }
 
-fn drawn_path(out: &Path, (game, module, story): (&str, &str, &str), size: Size, input: Input) -> PathBuf {
-    out.join(game)
-        .join(module)
-        .join(slug(story))
-        .join(format!("{}-{}.png", size.name, input.name()))
+fn drawn_path(
+    out: &Path,
+    (game, module, story): (&str, &str, &str),
+    size: Size,
+    input: Input,
+) -> PathBuf {
+    out.join(game).join(module).join(slug(story)).join(format!(
+        "{}-{}.png",
+        size.name,
+        input.name()
+    ))
 }
 
 /// What the layouts of each install use, counted: how many layouts, the
@@ -172,8 +198,8 @@ fn drawn_path(out: &Path, (game, module, story): (&str, &str, &str), size: Size,
 /// written to `out` (by default the repository's `data/ui/census.json`),
 /// the "before" of the design tokens.
 pub fn census(discovery: &Discovery, out: Option<PathBuf>) -> ExitCode {
-    use std::collections::BTreeMap;
     use fmt_odyssey::gui::Border;
+    use std::collections::BTreeMap;
     let out = out.unwrap_or_else(|| ui::catalogue::root().join("data/ui/census.json"));
     finish((|| {
         let mut games = serde_json::Map::new();
@@ -189,7 +215,12 @@ pub fn census(discovery: &Discovery, out: Option<PathBuf>) -> ExitCode {
             let mut borders: BTreeMap<String, u32> = BTreeMap::new();
             let hex = |rgb: [f32; 3]| {
                 let byte = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
-                format!("#{:02x}{:02x}{:02x}", byte(rgb[0]), byte(rgb[1]), byte(rgb[2]))
+                format!(
+                    "#{:02x}{:02x}{:02x}",
+                    byte(rgb[0]),
+                    byte(rgb[1]),
+                    byte(rgb[2])
+                )
             };
             for name in assets.layouts() {
                 let Ok(gui) = assets.layout(&name) else {
@@ -197,15 +228,21 @@ pub fn census(discovery: &Discovery, out: Option<PathBuf>) -> ExitCode {
                 };
                 layouts += 1;
                 for control in gui.walk() {
-                    *kinds.entry(format!("{:?}", control.kind).to_lowercase()).or_default() += 1;
+                    *kinds
+                        .entry(format!("{:?}", control.kind).to_lowercase())
+                        .or_default() += 1;
                     if let Some(text) = &control.text {
                         *fonts.entry(text.font.to_lowercase()).or_default() += 1;
                         if let Some(colour) = text.color {
                             *colours.entry(hex(colour)).or_default() += 1;
                         }
                     }
-                    let frames: [&Option<Border>; 4] =
-                        [&control.border, &control.hilight, &control.selected, &control.hilight_selected];
+                    let frames: [&Option<Border>; 4] = [
+                        &control.border,
+                        &control.hilight,
+                        &control.selected,
+                        &control.hilight_selected,
+                    ];
                     for border in frames.into_iter().flatten() {
                         for texture in [&border.corner, &border.edge, &border.fill] {
                             if !texture.is_empty() && texture != "0" {

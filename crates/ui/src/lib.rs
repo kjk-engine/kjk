@@ -16,6 +16,7 @@ pub mod paint;
 #[cfg(feature = "probes")]
 pub mod probes;
 pub mod raster;
+pub mod render;
 pub mod screen;
 pub mod screens;
 pub mod skin;

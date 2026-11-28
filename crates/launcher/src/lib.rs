@@ -38,6 +38,13 @@ macro_rules! probes {
     };
 }
 
+// cargo fmt does not follow modules declared through a macro, so new
+// probe modules are declared one by one.
+#[cfg(feature = "probes")]
+mod gui_catalogue;
+#[cfg(feature = "probes")]
+mod gui_verbs;
+
 // The verbs that check and measure rather than play (`verbs`), and what
 // only they use.
 probes!(
@@ -69,9 +76,6 @@ probes!(
     formats_ja,
     game_sweep,
     grenades_verbs,
-    gui_catalogue,
-    gui_tree,
-    gui_verbs,
     impact_verbs,
     inventory_verbs,
     item_text_probes,

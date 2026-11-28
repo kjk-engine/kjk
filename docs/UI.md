@@ -714,7 +714,7 @@ Running and checking:
 - `kjk gui probes` runs the checks the approved test `gui_layouts` asserts.
   `kjk gui render k1 <layout>` draws one layout; `kjk gui sweep` paints
   every layout of each install; `kjk gui sheet` makes a contact sheet.
-- **Control trees.** `kjk gui screen` writes a control tree next to its
+- **Control trees** (`ui::render`). `kjk gui screen` writes a control tree next to its
   PNG, a JSON file of the same name. `kjk gui sweep --out DIR` draws every
   layout at rest at its own size into `DIR/<game>/`, a PNG and a control
   tree each. A tree holds no pixels, so it can be committed where the
@@ -742,11 +742,14 @@ Running and checking:
     focus's pulse in its alpha) and `background`. `background` is the
     darkest and the lightest colour behind the words, read from the
     picture drawn without any words. `body_height` is the font's body
-    height in window pixels: the rows from the top of its tallest letter
-    to the bottom of its lowest one (the digits and the letters A to Z,
-    both cases), drawn by the renderer on a line that starts on a whole
-    pixel, a pixel counting from half its alpha. This is the measure
-    docs/UI-GUIDELINES.md uses.
+    height in window pixels. It is the rows from the top of its tallest
+    letter to the bottom of its lowest one (the digits and the letters A
+    to Z, both cases). The letters are drawn by the renderer in the words'
+    colour, on a line that starts on a whole pixel, over the darkest or
+    the lightest colour behind the words, whichever is closer to the
+    words' colour. A pixel counts only if its contrast with that colour is
+    above 2 to 1, so a dark outline on a dark background does not add to
+    the height. This is the measure docs/UI-GUIDELINES.md uses.
 - **UI catalogue** (`ui::catalogue`). Every module of `ui::screens` has a
   story file of its own name in `data/ui/stories`, and the approved test
   `ui_catalogue` fails when one is missing. A file gives the module's

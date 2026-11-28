@@ -427,6 +427,13 @@ pub struct Frame {
     pub refusals: Vec<String>,
 }
 
+/// What Back did (`Stack::back`): the screens open after it, top last, and
+/// the intents it raised.
+pub struct Back {
+    pub screens: Vec<ScreenId>,
+    pub intents: Vec<Intent>,
+}
+
 pub type Factory = fn(&str, &ViewModel) -> Option<Box<dyn Screen>>;
 
 pub struct Stack {
@@ -1186,6 +1193,20 @@ impl Stack {
             return Vec::new();
         };
         links_among(&entry.focusables(gui, vm))
+    }
+
+    /// Back pressed on the top screen for one frame of `quiet` input. The
+    /// stack is left as Back left it.
+    pub fn back(&mut self, assets: &mut dyn Assets, vm: &ViewModel, quiet: &UiInput) -> Back {
+        let pressed = UiInput {
+            keys: vec![Key::Back],
+            ..quiet.clone()
+        };
+        let frame = self.step(assets, vm, &pressed);
+        Back {
+            screens: self.screens().collect(),
+            intents: frame.intents,
+        }
     }
 
     /// Activates `tag` on the top screen next frame.

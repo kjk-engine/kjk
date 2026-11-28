@@ -94,6 +94,7 @@ pub(super) fn all() -> Vec<Check> {
                 Ok(format!("{tags:?}"))
             })()
         }),
+        check("tree_body_height", tree_body_height()),
         check("tree_focus_links", {
             (|| {
                 expect(
@@ -108,6 +109,36 @@ pub(super) fn all() -> Vec<Check> {
             })()
         }),
     ]
+}
+
+/// A body height counts only the rows that stand out from the background,
+/// so a dark outline counts on a light background and not on a dark one.
+fn tree_body_height() -> Result<String, String> {
+    use crate::render::{contrast, ink_rows};
+    let (black, grey, white) = ([0u8; 3], [128u8; 3], [255u8; 3]);
+    let strip: Vec<u8> = [black, black, white, white, white, black, black]
+        .iter()
+        .flat_map(|&[r, g, b]| [r, g, b, 255])
+        .collect();
+    expect(
+        "black on white has WCAG's contrast of 21 to 1",
+        (contrast(black, white) - 21.0).abs() < 0.01,
+    )?;
+    let on_black = ink_rows(&strip, 1, black);
+    let on_grey = ink_rows(&strip, 1, grey);
+    expect(
+        &format!("on black, only the 3 white rows count, not {on_black:?}"),
+        on_black == Some(3),
+    )?;
+    expect(
+        &format!("on grey, the outline counts too: 7 rows, not {on_grey:?}"),
+        on_grey == Some(7),
+    )?;
+    expect(
+        "a strip of the background's own colour has no body",
+        ink_rows(&[0, 0, 0, 255], 1, black).is_none(),
+    )?;
+    Ok(format!("{on_black:?} rows on black, {on_grey:?} on grey"))
 }
 
 /// Every palette in the code has the colours `data/ui/tokens.json` gives

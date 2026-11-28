@@ -6,10 +6,12 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use kjk_game::story_stage::Scene;
 use ui::assets::GuiAssets;
 use ui::draw::DrawList;
 use ui::paint::Painter;
 use ui::raster::raster;
+use ui::render::Render;
 use ui::sweep::{paint, palette, sweep_install};
 use vfs::{Discovery, Game};
 
@@ -102,9 +104,22 @@ pub fn screen(
     let result = Game::from_key(game)
         .ok_or(format!("{game}: use k1 or tsl"))
         .and_then(|game| {
-            let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
+            let file =
+                file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
             let path = output(game, out)?.join(file);
-            render_screen(discovery, (game, name), (steps, error, None), (size, 1.0), &path)
+            let scene = Scene {
+                game,
+                screen: name.to_string(),
+                steps: steps.to_vec(),
+                error,
+                capture: None,
+            };
+            let size = ui::catalogue::Size {
+                name: "screen",
+                pixels: size,
+                factor: 1.0,
+            };
+            render_screen(discovery, scene, size, &path)
         });
     match result {
         Ok(path) => {
@@ -118,105 +133,31 @@ pub fn screen(
     }
 }
 
-/// The screen `name` of `game` drawn as `screen` draws it, at `size`
-/// physical pixels with `factor` of them to each logical pixel, into the
-/// PNG at `path` with its control tree next to it. With `capture`, the
-/// screen shows the capture of play of that name.
+/// `scene` drawn as `screen` draws it, at `size`, into the PNG at `path`
+/// with its control tree next to it.
 pub(crate) fn render_screen(
     discovery: &Discovery,
-    (game, name): (Game, &str),
-    (steps, error, capture): (&[String], Option<String>, Option<&str>),
-    (size, factor): ((u32, u32), f32),
+    scene: Scene,
+    size: ui::catalogue::Size,
     path: &Path,
 ) -> Result<PathBuf, String> {
-    let mut staged = kjk_game::story_stage::stage(
-        discovery,
-        (game, name),
-        (steps, error, capture),
-        (size, factor),
-    )?;
-    let shown_layers = staged.frame();
-    let kjk_game::story_stage::Staged {
-        assets,
-        vm,
-        stack,
-        quiet,
-        ..
-    } = &mut staged;
-    let mut image = vec![0u8; (size.0 * size.1 * 4) as usize];
-    for layer in &shown_layers {
-        let drawn = raster(&layer.list, &|id| assets.pixels(id), size.0, size.1, [0, 0, 0, 0]);
-        over(&mut image, &drawn);
-    }
+    let mut staged = kjk_game::story_stage::stage(discovery, scene, size)?;
     if let Some(folder) = path.parent() {
-        std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+        std::fs::create_dir_all(folder)
+            .map_err(|error| format!("{}: {error}", folder.display()))?;
     }
-    save(path, &image, size.0, size.1)?;
-    let links = stack.focus_links(vm);
-    let focus = stack.focused().map(str::to_string);
-    let back = back(stack, assets, vm, quiet);
-    let layers: Vec<crate::gui_tree::Layer<'_>> = (shown_layers.iter())
-        .map(|layer| crate::gui_tree::Layer {
-            screen: &layer.screen,
-            layout: &layer.layout,
-            list: &layer.list,
-        })
-        .collect();
-    let mut shown = serde_json::json!({
-        "game": game.key(),
-        "screen": name,
-        "steps": steps,
-        "scale_factor": factor,
-    });
-    if let Some(capture) = capture {
-        shown["capture"] = capture.into();
-    }
-    let tree = crate::gui_tree::tree(assets, shown, &layers, size, (&links, focus.as_deref()), back);
-    write_tree(path, &tree)?;
+    write(path, &staged.render())?;
     Ok(path.to_path_buf())
 }
 
-/// What Back does on the top screen of `stack`: the screens open after
-/// it, top last, and the intents it raised. It is taken last, as it
-/// changes the stack.
-fn back(
-    stack: &mut ui::screen::Stack,
-    assets: &mut GuiAssets,
-    vm: &ui::vm::ViewModel,
-    quiet: &ui::input::UiInput,
-) -> serde_json::Value {
-    let pressed = ui::input::UiInput {
-        keys: vec![ui::input::Key::Back],
-        ..quiet.clone()
-    };
-    let frame = stack.step(assets, vm, &pressed);
-    let intents: Vec<String> = frame.intents.iter().map(|intent| format!("{intent:?}")).collect();
-    let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
-    serde_json::json!({ "screens": screens, "intents": intents })
-}
-
-/// `tree` written as JSON next to the picture at `png`.
-fn write_tree(png: &Path, tree: &serde_json::Value) -> Result<(), String> {
+/// `render`'s picture written to the PNG at `png`, and its control tree
+/// next to it as JSON.
+fn write(png: &Path, render: &Render<'_>) -> Result<(), String> {
+    let (width, height) = render.window();
+    save(png, &render.rgba(), width, height)?;
     let path = png.with_extension("json");
-    let text = serde_json::to_string_pretty(tree).map_err(|error| error.to_string())?;
+    let text = serde_json::to_string_pretty(&render.tree()).map_err(|error| error.to_string())?;
     std::fs::write(&path, text + "\n").map_err(|error| format!("{}: {error}", path.display()))
-}
-
-/// `top`, drawn over nothing (its colour already carries its alpha), laid
-/// over `image`, which ends opaque.
-pub(crate) fn over(image: &mut [u8], top: &[u8]) {
-    for (pixel, drawn) in image
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .zip(top.as_chunks::<4>().0)
-    {
-        let alpha = f32::from(drawn[3]) / 255.0;
-        for k in 0..3 {
-            pixel[k] = (f32::from(drawn[k]) + f32::from(pixel[k]) * (1.0 - alpha)).min(255.0) as u8;
-        }
-        pixel[3] = 255;
-    }
 }
 
 pub fn sweep(discovery: &Discovery, game: Option<&str>, out: Option<PathBuf>) -> ExitCode {
@@ -283,32 +224,10 @@ fn drawn_at_rest(discovery: &Discovery, game: Game, folder: &Path) -> Result<usi
     std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
     let mut count = 0;
     for name in assets.layouts() {
-        let Ok(gui) = assets.layout(&name) else {
+        let Ok(render) = Render::at_rest(&mut assets, &name) else {
             continue;
         };
-        let mut list = DrawList::default();
-        let brush = ui::paint::Brush::new(palette(game), 1.0, true);
-        let mut painter = brush.painter(&mut assets, ui::skin::Source::Campaign);
-        painter.layout(&gui, &|_| ui::paint::ControlState::default(), &mut list);
-        let size = (list.size.0 as u32, list.size.1 as u32);
-        let path = folder.join(format!("{name}.png"));
-        save(&path, &draw(&assets, &list, size.0, size.1), size.0, size.1)?;
-        let links = ui::screen::layout_links(&gui);
-        let layer = crate::gui_tree::Layer {
-            screen: &name,
-            layout: &name,
-            list: &list,
-        };
-        let shown = serde_json::json!({ "game": game.key(), "layout": name });
-        let tree = crate::gui_tree::tree(
-            &assets,
-            shown,
-            &[layer],
-            size,
-            (&links, None),
-            serde_json::Value::Null,
-        );
-        write_tree(&path, &tree)?;
+        write(&folder.join(format!("{name}.png")), &render)?;
         count += 1;
     }
     Ok(count)
@@ -361,7 +280,7 @@ pub fn sheet(discovery: &Discovery, game: &str, out: Option<PathBuf>) -> ExitCod
             height,
             [0, 0, 0, 0],
         );
-        over(&mut sheet, &text);
+        ui::render::over(&mut sheet, &text);
         let path = output(game, out)?.join("sheet.png");
         save(&path, &sheet, width, height)?;
         Ok(path)

@@ -4,47 +4,50 @@
 //! in-game catalogue will show it.
 
 use ui::assets::GuiAssets;
+use ui::catalogue::Size;
 use ui::over_play::Shown;
+use ui::render::Render;
 use vfs::{Discovery, Game};
+
+/// What a story stages on one game: the screen as `screens::open` names it
+/// (or `ui::catalogue::PLAY`), the steps taken on it, the session's error
+/// the message screen shows, and the capture of play it starts from
+/// (`data/ui/captures`) instead of stand-ins.
+pub struct Scene {
+    pub game: Game,
+    pub screen: String,
+    pub steps: Vec<String>,
+    pub error: Option<String>,
+    pub capture: Option<String>,
+}
 
 /// A screen as a story left it: the stack it is open in, the view model
 /// it is drawn from, and the assets it draws with.
 pub struct Staged {
-    pub game: Game,
-    pub assets: GuiAssets,
-    pub vm: ui::vm::ViewModel,
-    pub stack: ui::screen::Stack,
+    scene: Scene,
+    size: Size,
+    assets: GuiAssets,
+    vm: ui::vm::ViewModel,
+    stack: ui::screen::Stack,
     /// A frame of input with nothing pressed, in the stack's window.
-    pub quiet: ui::input::UiInput,
+    quiet: ui::input::UiInput,
     /// Where the pointer is: the window's middle until `point` moves it.
     pointer: [f32; 2],
     /// What is drawn over play, for the story screen `play`
     /// (`ui::catalogue::PLAY`).
-    pub over: Option<ui::over_play::OverPlay>,
+    over: Option<ui::over_play::OverPlay>,
     /// Photo mode's corner lines, after the step `photo on`.
     photo: Option<ui::screens::photo::Lines>,
     /// The kind of pad the step `pad` played with.
     pad: crate::pad::PadKind,
 }
 
-/// The screen `name` of `game` opened as play opens it, in a window of
-/// `size` physical pixels with `factor` of them to each logical pixel, and
-/// `steps` taken in turn. The view model is that of the capture named
-/// `capture` (`data/ui/captures`), or else what the game fills for the screen (character creation's choices, the session's
-/// `error` for `message`).
-pub fn stage(
-    discovery: &Discovery,
-    (game, name): (Game, &str),
-    (steps, error, capture): (&[String], Option<String>, Option<&str>),
-    (size, factor): ((u32, u32), f32),
-) -> Result<Staged, String> {
-    let mut staged = Staged::open(
-        discovery,
-        (game, name),
-        (steps, error, capture),
-        (size, factor),
-    )?;
-    for step in steps {
+/// `scene` opened as play opens it, in a window of `size`, and its steps
+/// taken in turn.
+pub fn stage(discovery: &Discovery, scene: Scene, size: Size) -> Result<Staged, String> {
+    let steps = scene.steps.clone();
+    let mut staged = Staged::open(discovery, scene, size)?;
+    for step in &steps {
         staged.step(discovery, step)?;
     }
     Ok(staged)
@@ -52,19 +55,16 @@ pub fn stage(
 
 impl Staged {
     /// The screen opened, before any step but `level`, which sets the
-    /// member before the screen opens.
-    pub fn open(
-        discovery: &Discovery,
-        (game, name): (Game, &str),
-        (steps, error, capture): (&[String], Option<String>, Option<&str>),
-        (size, factor): ((u32, u32), f32),
-    ) -> Result<Staged, String> {
+    /// member before the screen opens. The view model is that of the
+    /// scene's capture, or else what the game fills for the screen
+    /// (character creation's choices, the session's error for `message`).
+    pub fn open(discovery: &Discovery, scene: Scene, size: Size) -> Result<Staged, String> {
         // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
         // feats lent.
-        let install = crate::installs::open(discovery, game)?;
-        let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
+        let install = crate::installs::open(discovery, scene.game)?;
+        let assets = GuiAssets::with(scene.game, install.index.clone(), install.base()?.clone());
         let mut assets = crate::runtime::skinned(assets, discovery)?;
-        let vm = match capture {
+        let vm = match &scene.capture {
             Some(name) => {
                 let tlk = assets
                     .talk()
@@ -72,24 +72,25 @@ impl Staged {
                 let talk = ui::catalogue::TalkTable::new(tlk);
                 ui::catalogue::read_capture(&ui::catalogue::captures(), name, &talk)?.view
             }
-            None => stand_ins(discovery, (game, name), (steps, error), &mut assets)?,
+            None => stand_ins(discovery, &scene, &mut assets)?,
         };
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         stack.mark_controls();
-        let play = name == ui::catalogue::PLAY;
-        if !play && !stack.open(name, &vm) {
-            return Err(format!("{name}: no such screen"));
+        let play = scene.screen == ui::catalogue::PLAY;
+        if !play && !stack.open(&scene.screen, &vm) {
+            return Err(format!("{}: no such screen", scene.screen));
         }
-        let window = (size.0 as f32 / factor, size.1 as f32 / factor);
+        let window = size.window();
         let quiet = ui::input::UiInput {
             window,
-            scale_factor: factor,
+            scale_factor: size.factor,
             dt: 0.016,
             ..ui::input::UiInput::default()
         };
         stack.step(&mut assets, &vm, &quiet);
         Ok(Staged {
-            game,
+            scene,
+            size,
             assets,
             vm,
             stack,
@@ -101,11 +102,35 @@ impl Staged {
         })
     }
 
+    /// The frame as it stands, drawn at the scene's size, with what Back
+    /// does on its top screen. Back is taken last, so the stack is left
+    /// as Back left it.
+    pub fn render(&mut self) -> Render<'_> {
+        let layers = self.frame();
+        let scene = &self.scene;
+        let mut shown = serde_json::json!({
+            "game": scene.game.key(),
+            "screen": scene.screen,
+            "steps": scene.steps,
+            "scale_factor": self.size.factor,
+        });
+        if let Some(capture) = &scene.capture {
+            shown["capture"] = capture.as_str().into();
+        }
+        Render::stacked(
+            &mut self.assets,
+            (&mut self.stack, &self.vm, &self.quiet),
+            layers,
+            shown,
+            self.size.pixels,
+        )
+    }
+
     /// The frame as it stands, bottom layer first, as a frame of play
     /// stacks it (`ui::over_play::OverPlay::compose`): what is drawn over
     /// play, the screens of the stack and what stands over them. What a
     /// screen refused to draw is printed.
-    pub fn frame(&mut self) -> Vec<Shown> {
+    fn frame(&mut self) -> Vec<Shown> {
         let frame = self.stack.step(&mut self.assets, &self.vm, &self.quiet);
         for why in &frame.refusals {
             outln!("refused: {why}");
@@ -146,7 +171,7 @@ impl Staged {
     /// `nintendo`, `deck`), and a quiet frame after it.
     pub fn step(&mut self, discovery: &Discovery, step: &str) -> Result<(), String> {
         let Staged {
-            game,
+            scene,
             assets,
             vm,
             stack,
@@ -156,7 +181,7 @@ impl Staged {
             pad,
             ..
         } = self;
-        let (game, quiet) = (*game, &*quiet);
+        let (game, quiet) = (scene.game, &*quiet);
         match step.split_once(' ') {
             Some(("press", tag)) => stack.press(tag),
             Some(("set", setting)) => {
@@ -423,15 +448,15 @@ fn wheel_step(vm: &mut ui::vm::ViewModel, what: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The view model of the screen `name` of `game` on stand-ins, as play
-/// fills it for that screen, with the settings as play shows them
+/// The view model of the scene's screen on stand-ins, as play fills it
+/// for that screen, with the settings as play shows them
 /// (`KJK_SETTINGS` names another).
 fn stand_ins(
     discovery: &Discovery,
-    (game, name): (Game, &str),
-    (steps, error): (&[String], Option<String>),
+    scene: &Scene,
     assets: &mut GuiAssets,
 ) -> Result<ui::vm::ViewModel, String> {
+    let (game, name) = (scene.game, scene.screen.as_str());
     let movie_duels = discovery
         .get(Game::JediAcademy)
         .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found);
@@ -441,7 +466,7 @@ fn stand_ins(
         movie_duels_incomplete: matches!(movie_duels, vfs::MovieDuels::Incomplete { .. }),
         ..ui::vm::ViewModel::default()
     };
-    vm.session.error = error;
+    vm.session.error = scene.error.clone();
     (vm.keys, vm.pad_keys) = crate::key_rows();
     padded(&mut vm, crate::pad::PadKind::Xbox);
     if matches!(name.split(':').next(), Some("chargen" | "levelup")) {
@@ -480,7 +505,7 @@ fn stand_ins(
         vm.load_in_play = true;
         vm.party = vec![ui::vm::MemberView::default(); 3];
     }
-    for step in steps {
+    for step in &scene.steps {
         if let Some(("level", level)) = step.split_once(' ') {
             stand_in_level(&mut vm, assets, level)?;
         }
