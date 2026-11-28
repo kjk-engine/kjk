@@ -628,6 +628,34 @@ fn reload_while_held() {
     probed("solo reload", &kjk_game::solo_reload_probes(), 1);
 }
 
+/// Persistent async step queue (`kjk_game::sim_worker::queue_probes`,
+/// also `kjk sim probes --only "sim worker queue"`). Bit-exact async vs
+/// sync parity, break and proving-ground transition cuts returning
+/// unstepped actions in FIFO order, save-checkout draining, live
+/// talk streaming while checked in, and direct step-thread publishing
+/// for co-op hosts. Needs `--features rig`; no installs.
+#[test]
+fn sim_worker_queue() {
+    #[cfg(not(feature = "rig"))]
+    println!("sim_worker_queue skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("sim worker queue", &kjk_game::sim_worker::queue_probes(), 6);
+}
+
+/// Monotonic `ViewClock` interpolation for async sim presentation
+/// (`kjk_game::sim_host::view_clock_probes`, also `kjk sim probes --only "view clock"`).
+/// Verifies monotonic render time under slow/burst ticks, no extrapolation with
+/// `view_held_frames`, safe equal-`time_ms` handling across paused ticks,
+/// slow-motion/pause invariance, and queue-mode leave/re-enter continuity.
+/// Needs `--features rig`; no installs.
+#[test]
+fn view_clock() {
+    #[cfg(not(feature = "rig"))]
+    println!("view_clock skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("view clock", &kjk_game::sim_host::view_clock_probes(), 5);
+}
+
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
 /// that sets `UnequipHItem` hides each line's speaker's and listener's head
 /// item until the conversation ends, as KOTOR 2's executable does; one

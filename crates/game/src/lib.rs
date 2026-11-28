@@ -191,7 +191,7 @@ pub mod shots;
 mod sim_blades;
 pub mod sim_host;
 mod sim_view;
-mod sim_worker;
+pub mod sim_worker;
 pub mod skeleton;
 mod skin_once;
 pub mod solo;

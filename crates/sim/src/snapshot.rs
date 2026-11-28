@@ -3942,6 +3942,15 @@ impl Presented {
         }
     }
 
+    /// Two snapshots to blend between (`previous` at `alpha = 0`, `current` at `alpha = 1`).
+    pub fn between(previous: Arc<Snapshot>, current: Arc<Snapshot>, alpha: f32) -> Self {
+        Presented {
+            previous,
+            current,
+            alpha: alpha.clamp(0.0, 1.0),
+        }
+    }
+
     /// A new tick's snapshot: the current one becomes the previous.
     pub fn push(&mut self, snapshot: Snapshot) {
         self.push_shared(Arc::new(snapshot));

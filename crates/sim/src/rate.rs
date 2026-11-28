@@ -75,6 +75,14 @@ impl Accumulator {
     /// Adds `elapsed` wall time and returns the ticks now due, in order,
     /// each with its milliseconds.
     pub fn advance(&mut self, elapsed: Duration) -> Vec<(u64, u32)> {
+        self.advance_capped(elapsed, MAX_CATCH_UP)
+    }
+
+    /// Adds `elapsed` wall time and returns up to `max_ticks` ticks now due,
+    /// in order, each with its milliseconds. Any remaining catch-up time past
+    /// the cap is dropped so queued step budgets stay bounded without
+    /// rewinding.
+    pub fn advance_capped(&mut self, elapsed: Duration, max_ticks: u32) -> Vec<(u64, u32)> {
         self.residual_ns += elapsed.as_nanos() as u64;
         let mut due = Vec::new();
         loop {
@@ -83,7 +91,7 @@ impl Accumulator {
             if self.residual_ns < needed {
                 break;
             }
-            if due.len() as u32 == MAX_CATCH_UP {
+            if due.len() as u32 == max_ticks {
                 self.dropped_ns += self.residual_ns;
                 self.residual_ns = 0;
                 break;

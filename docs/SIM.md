@@ -202,6 +202,8 @@ the world sooner (a save, a dump, the session's end) waits for the thread
 - A dump's `sim` fact counts the ticks stepped
   each way: `ticks_on_main_thread` and `ticks_on_step_thread`.
 
+With `KJK_STEP_ASYNC=1` (while `KJK_STEP_BATCH` is not `off`), the main thread keeps the `SimWorld` checked into `game::sim_worker`, queues up to `MAX_CATCH_UP` (8) ticks, drains completed ticks without blocking, and interpolates between neighbouring landed ticks along a monotonic `ViewClock` delayed by one smoothed frame plus one tick rather than waiting in `Authority::settle`. Co-op hosts use the same async queue: the step thread pulls live guest commands right before each tick, publishes each finished snapshot directly into the shared server, and wakes `net_thread` immediately rather than holding the batch until the host's next frame settles. When leaving async queue mode (breaks, menus, holds, transitions, saves, or shutdown), it checks the world back out, processes any late or unstepped ticks in order so replays stay bit-exact, and slews smoothly up to settled time. Dumps then also report `step_async`, `wait_ms_total`, `wait_ms_max`, `wait_frames`, `frames_without_new_tick_while_due`, `view_held_frames`, `max_queue_depth`, `cap_hits`, `picture_age_ms_mean`, `picture_age_ms_max`, and `step_busy_share`, and `KJK_PERF=1` emits `sim.step` counters and `sim.wait` spans.
+
 ## Commands
 ```bash
 kjk sim determinism [--ticks 10000] [--hz N] [--seed N] [--pilot N] [--expect HASH]
