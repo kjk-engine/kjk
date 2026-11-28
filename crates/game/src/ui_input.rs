@@ -106,6 +106,7 @@ pub(crate) fn gather(
     typed: &mut MessageReader<KeyboardInput>,
     wheel: &mut MessageReader<MouseWheel>,
     pads: Option<(&crate::pad::Pads, bool)>,
+    pad_map: Option<&crate::pad::PadMap>,
     window: Option<&Window>,
     window_size: Vec2,
     dt: f32,
@@ -173,11 +174,12 @@ pub(crate) fn gather(
         Some((gamepads, open)) => (Some(gamepads), open),
         None => (None, false),
     };
+    let pad_map = pad_map.unwrap_or_else(|| crate::pad::PadMap::defaults());
     // A held D-pad direction moves the focus as the held left stick does,
     // and wins over the stick while both are held.
     let mut dpad = None;
     for (gamepad, sticks) in gamepads.into_iter().flatten() {
-        let shift = gamepad.pressed(crate::pad::SHIFT);
+        let start_chord = pad_map.is_start_chord_held(gamepad);
         dpad = dpad.or_else(|| {
             (DPAD.iter())
                 .find(|(button, _)| gamepad.pressed(*button))
@@ -198,38 +200,31 @@ pub(crate) fn gather(
             (GamepadButton::LeftTrigger2, Key::PrevPage),
             (GamepadButton::RightTrigger2, Key::NextPage),
         ] {
-            // In play B crouches, and LB's Menu is the quick save.
-            let play =
-                !open && button == GamepadButton::East || shift && button == GamepadButton::Start;
+            // In play B crouches, and a Start chord (such as LB+Menu or
+            // LT+Menu for Quick save) does not open the menu.
+            let play = !open
+                && (button == GamepadButton::East || start_chord && button == GamepadButton::Start);
             if gamepad.just_pressed(button) && !play {
                 input.keys.push(key);
             }
         }
-        // Each button pressed by its chord's name, for binding it
-        // (`key_mapping`). LB is the chord's layer, so LB's own press is
-        // named alone. LB let go is sent too, so that the entry can bind LB
-        // alone.
+        // Each button pressed and released by its raw name (`Pad:LeftTrigger2`,
+        // `Released:Pad:LeftTrigger2`), so `KeyEntry` can form a chord with any
+        // held modifier button or bind a button alone on release.
         use ui::screens::key_mapping::{PAD_RAW, RELEASED_RAW};
-        let layer = crate::pad::Layer::of(gamepad);
-        let named = |button: GamepadButton| {
-            let layer = if button == crate::pad::SHIFT {
-                crate::pad::Layer::Alone
-            } else {
-                layer
-            };
-            format!("{PAD_RAW}{}", crate::pad::Chord { layer, button }.name())
-        };
+        let named = |button: GamepadButton| format!("{PAD_RAW}{}", crate::pad::button_name(button));
         input.raw.extend(
             gamepad
                 .digital()
                 .get_just_pressed()
                 .map(|button| named(*button)),
         );
-        if gamepad.just_released(crate::pad::SHIFT) {
-            input
-                .raw
-                .push(format!("{RELEASED_RAW}{}", named(crate::pad::SHIFT)));
-        }
+        input.raw.extend(
+            gamepad
+                .digital()
+                .get_just_released()
+                .map(|button| format!("{RELEASED_RAW}{}", named(*button))),
+        );
         let (left, right) = (sticks.left, sticks.right);
         if stick.length() < left.length() {
             stick = left;

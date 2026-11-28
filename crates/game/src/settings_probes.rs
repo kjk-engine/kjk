@@ -31,6 +31,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("old layout 4 pad file", old_pad_file()),
         ("old files get slots 7 to 10", added_slots_file()),
         ("lb layer", lb_layer()),
+        ("pad modifier", pad_modifier()),
     ]
 }
 
@@ -64,7 +65,9 @@ fn clashes(rows: &[KeyRow]) -> Vec<String> {
             rows[at + 1..]
                 .iter()
                 .filter(move |other| {
-                    !row.key.is_empty()
+                    row.action != ui::screens::key_mapping::PAD_MODIFIER
+                        && other.action != ui::screens::key_mapping::PAD_MODIFIER
+                        && !row.key.is_empty()
                         && other.key == row.key
                         && !row.shares.contains(&other.action)
                 })
@@ -1139,7 +1142,8 @@ fn feedback_reset() -> Result<String, String> {
     )
 }
 
-/// The controller tab shows every action but the stick's.
+/// The controller tab shows the chord modifier first, then every action
+/// but the stick's.
 fn pad_rows() -> Result<String, String> {
     let rows = Settings::defaults().pad_rows();
     let stick: Vec<&str> = rows
@@ -1147,9 +1151,91 @@ fn pad_rows() -> Result<String, String> {
         .map(|row| row.action.as_str())
         .filter(|action| ["forward", "backward", "left", "right", "walk"].contains(action))
         .collect();
+    let first = rows
+        .first()
+        .map(|row| (row.action.as_str(), row.key.as_str()));
     check(
-        stick.is_empty() && rows.len() == ACTIONS.len() - STICK.len(),
-        format!("{} rows, the stick's among them: {stick:?}", rows.len()),
+        stick.is_empty()
+            && rows.len() == ACTIONS.len() - STICK.len() + 1
+            && first == Some(("modifier", "LeftTrigger")),
+        format!(
+            "{} rows, first {first:?}, the stick's among them: {stick:?}",
+            rows.len()
+        ),
+    )
+}
+
+/// Remapping the controller modifier button (`pad.modifier`) to LT moves
+/// every LB chord onto LT, swaps `Solo` (`LB+LT`) to `LT+LB`, and swaps
+/// with any non-migrating action already on a target LT chord so no clashes
+/// remain. Swapping `Block` (`LB` <-> `LT`) with `Aim`/`AltAttack` leaves
+/// zero clashes, persists across save/load, refuses invalid modifiers
+/// (`Start`, chords, nonsense), and resets on `reset pad`.
+fn pad_modifier() -> Result<String, String> {
+    let folder = std::env::temp_dir().join(format!("kjk-pad-modifier-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let path = folder.join("settings.json");
+
+    let mut settings = Settings::load_from(Some(path.clone()));
+    // Pre-bind Jump to LT+A to verify conflict-free swap on modifier migration.
+    settings.apply("pad.jump", "LeftTrigger2+South");
+    settings.apply("pad.modifier", "LeftTrigger2");
+    // Swap Block and Aim/AltAttack between LB and LT.
+    settings.apply("pad.block", "LeftTrigger2");
+    settings.apply("pad.aim", "LeftTrigger");
+    settings.apply("pad.alt_attack", "LeftTrigger");
+
+    let pad_map = settings.pads();
+    let migrated_ok = pad_map.modifier() == bevy::input::gamepad::GamepadButton::LeftTrigger2
+        && pad_map
+            .chord(Action::Bar1)
+            .map(crate::pad::Chord::name)
+            .as_deref()
+            == Some("LeftTrigger2+South")
+        && pad_map
+            .chord(Action::Jump)
+            .map(crate::pad::Chord::name)
+            .as_deref()
+            == Some("LB+South")
+        && pad_map
+            .chord(Action::Solo)
+            .map(crate::pad::Chord::name)
+            .as_deref()
+            == Some("LeftTrigger2+LeftTrigger")
+        && pad_map
+            .chord(Action::DuelAltAttack)
+            .map(crate::pad::Chord::name)
+            .as_deref()
+            == Some("LeftTrigger2+RightTrigger2")
+        && pad_map
+            .chord(Action::QuickSave)
+            .map(crate::pad::Chord::name)
+            .as_deref()
+            == Some("LeftTrigger2+Start");
+    let clashed = clashes(&settings.pad_rows());
+
+    // Persistence across save/load.
+    let reloaded = Settings::load_from(Some(path.clone()));
+    let persisted = reloaded.pads() == pad_map;
+
+    // Invalid modifiers refused.
+    settings.apply("pad.modifier", "Start");
+    settings.apply("pad.modifier", "LB+South");
+    settings.apply("pad.modifier", "Nonsense");
+    let refused_ok =
+        settings.pads().modifier() == bevy::input::gamepad::GamepadButton::LeftTrigger2;
+
+    // Reset puts pad.modifier and all chords back to LB defaults.
+    settings.apply("reset", "pad");
+    let reset_ok = settings.pads() == crate::pad::PadMap::default().clone();
+
+    let _ = std::fs::remove_dir_all(&folder);
+    check(
+        migrated_ok && clashed.is_empty() && persisted && refused_ok && reset_ok,
+        format!(
+            "migrated={migrated_ok}, clashes={clashed:?}, persisted={persisted}, refused={refused_ok}, reset={reset_ok}"
+        ),
     )
 }
 

@@ -24,15 +24,23 @@ const INK: Rgba = [0.93, 0.94, 0.95, 1.0];
 pub fn pad_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
     let (kind, chord) = name.strip_prefix(PREFIX)?.split_once('_')?;
     let kind = Kind::named(kind)?;
-    // The bumper held with the button, if the chord has one.
-    let (bumper, button) = [("lb+", Button::LeftBumper), ("rb+", Button::RightBumper)]
-        .into_iter()
-        .find_map(|(prefix, bumper)| Some((Some(bumper), chord.strip_prefix(prefix)?)))
-        .unwrap_or((None, chord));
+    // The modifier held with the button, if the chord has one (`lb+south`,
+    // `lefttrigger2+south`, `rb+south`).
+    let (modifier, button) = match chord.split_once('+') {
+        Some((mod_name, button)) => {
+            let modifier = match mod_name {
+                "lb" => Button::LeftBumper,
+                "rb" => Button::RightBumper,
+                other => Button::named(other)?,
+            };
+            (Some(modifier), button)
+        }
+        None => (None, chord),
+    };
     let button = Button::named(button)?;
     let mut parts = Vec::new();
-    if let Some(bumper) = bumper {
-        parts.push(Part::Button(bumper));
+    if let Some(modifier) = modifier {
+        parts.push(Part::Button(modifier));
         parts.push(Part::Plus);
     }
     parts.push(Part::Button(button));
@@ -678,7 +686,11 @@ pub(crate) fn probe() -> Result<String, String> {
     let mut made = 0;
     for kind in kinds {
         for button in buttons {
-            for chord in [button.to_string(), format!("lb+{button}")] {
+            for chord in [
+                button.to_string(),
+                format!("lb+{button}"),
+                format!("lefttrigger2+{button}"),
+            ] {
                 let name = format!("{PREFIX}{kind}_{chord}");
                 let (width, height, rgba) =
                     pad_icon(&name).ok_or_else(|| format!("{name}: not made"))?;

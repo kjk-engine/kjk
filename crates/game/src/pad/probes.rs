@@ -19,6 +19,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("wheel bumpers", wheel_bumpers()),
         ("block on LB", block_on_lb()),
         ("feat attack chord", feat_chord()),
+        ("remapped modifier", remapped_modifier()),
         ("stick after the wheel", stick_after_wheel()),
         ("control tokens", control_tokens()),
         ("keys held through a screen", held_through_screen()),
@@ -127,7 +128,7 @@ fn wheel_bumpers() -> Result<String, String> {
     world.button(pad, South, true);
     let actions = world.actions();
     let layered = (actions.held(Action::Jump), actions.held(BAR[0]));
-    let badges = wheel_badges(Some(&actions));
+    let badges = wheel_badges(Some(&actions), None);
     let wanted = [String::new(), "kjkpad_xbox_lefttrigger".into()];
     check(
         step == (1, true, false) && layered == (true, false) && badges.as_ref() == Some(&wanted),
@@ -379,6 +380,7 @@ impl PadWorld {
                 &mut wheel,
                 Some((&pads, true)),
                 None,
+                None,
                 Vec2::ZERO,
                 SCREEN_FRAME,
                 &mut held,
@@ -591,6 +593,7 @@ fn keys_over_stick() -> Result<String, String> {
 /// with LB, read as chords. LB with itself, a chord with RB as the layer
 /// (which older files keep), and nonsense read as none.
 fn chord_names() -> Result<String, String> {
+    use GamepadButton::{LeftTrigger as Lb, LeftTrigger2 as Lt, South};
     let wrong: Vec<String> = PAD
         .iter()
         .chain(&SHARED)
@@ -598,11 +601,22 @@ fn chord_names() -> Result<String, String> {
         .filter(|chord| Chord::named(&chord.name()) != Some(*chord))
         .map(Chord::name)
         .collect();
+    let lt_south = Chord {
+        modifier: Some(Lt),
+        button: South,
+    };
+    let lt_lb = Chord {
+        modifier: Some(Lt),
+        button: Lb,
+    };
     let read = [
         ("LeftTrigger", Some(alone(SHIFT))),
         ("RightTrigger", Some(alone(RB))),
         ("LB+RightTrigger", Some(shifted(RB))),
+        ("LeftTrigger2+South", Some(lt_south)),
+        ("LeftTrigger2+LeftTrigger", Some(lt_lb)),
         ("LB+LeftTrigger", None),
+        ("LeftTrigger2+LeftTrigger2", None),
         ("RB+South", None),
         ("Nonsense", None),
     ];
@@ -624,8 +638,8 @@ fn chords_apart() -> Result<String, String> {
     let shared = crate::settings::SHARES;
     let map = PadMap::default();
     let mut clashes = Vec::new();
-    for (a, x) in &map.0 {
-        for (b, y) in map.0.iter().filter(|(b, y)| a < *b && x == *y) {
+    for (a, x) in &map.bindings {
+        for (b, y) in map.bindings.iter().filter(|(b, y)| a < *b && x == *y) {
             if !shared
                 .iter()
                 .any(|pair| pair.contains(a) && pair.contains(b))
@@ -639,29 +653,190 @@ fn chords_apart() -> Result<String, String> {
     }
     if let Some(attack) = map
         .chord(UNDER_BLOCK)
-        .filter(|attack| map.on_lb(attack.button))
+        .filter(|attack| map.on_modifier(map.modifier(), attack.button))
     {
         clashes.push(format!("an LB chord on the attack's {}", attack.name()));
     }
     check(
         clashes.is_empty(),
-        format!("{} chords; clashes {clashes:?}", map.0.len()),
+        format!("{} chords; clashes {clashes:?}", map.bindings.len()),
     )
 }
 
-/// Each kind of pad names the shifted A by its own buttons.
+/// Each kind of pad names the shifted A and LT-shifted A by its own buttons.
 fn pad_names() -> Result<String, String> {
     let chord = shifted(GamepadButton::South);
-    let names = [
+    let lt_chord = Chord {
+        modifier: Some(GamepadButton::LeftTrigger2),
+        button: GamepadButton::South,
+    };
+    let kinds = [
         PadKind::Xbox,
         PadKind::PlayStation,
         PadKind::Nintendo,
         PadKind::Deck,
-    ]
-    .map(|kind| kind.chord(chord));
+    ];
+    let names = kinds.map(|kind| kind.chord(chord));
+    let lt_names = kinds.map(|kind| kind.chord(lt_chord));
     check(
-        names == ["LB+A", "L1+Cross", "L+B", "L1+A"],
-        format!("{names:?}"),
+        names == ["LB+A", "L1+Cross", "L+B", "L1+A"]
+            && lt_names == ["LT+A", "L2+Cross", "ZL+B", "L2+A"],
+        format!("{names:?} / {lt_names:?}"),
+    )
+}
+
+/// Through bevy's own pad messages (`sample`, `wheel_badges`, `ui_input::gather`):
+/// with LT as the modifier button and LB/LT swapped (`pad.modifier = LeftTrigger2`,
+/// `Block = LT`, `Aim`/`AltAttack = LB`, `Solo = LT+LB`, `Bar1 = LT+A`,
+/// `Bar3 = LT+X`, `DuelAltAttack = LT+RT`, `QuickSave = LT+Start`), LT alone
+/// blocks, LT+X uses slot 3 and suppresses Block until LT is released, LT+RT
+/// attacks and sets `feat_under_block` while keeping Block held, LT+A uses
+/// slot 1 without jumping even if LT is released first, LT+LB triggers Solo
+/// without Aim, LB+RT both aims and attacks, LT+DPadRight does not cycle,
+/// wheel badges show LT, and LT+Start in play triggers QuickSave without
+/// opening the menu.
+fn remapped_modifier() -> Result<String, String> {
+    use GamepadButton::{
+        DPadRight, LeftTrigger as Lb, LeftTrigger2 as Lt, RightTrigger2 as Rt, South as A, Start,
+        West as X,
+    };
+    let mut settings = crate::settings::Settings::defaults();
+    settings.apply("pad.modifier", "LeftTrigger2");
+    settings.apply("pad.block", "LeftTrigger2");
+    settings.apply("pad.aim", "LeftTrigger");
+    settings.apply("pad.alt_attack", "LeftTrigger");
+    let pad_map = settings.pads();
+
+    let (mut world, pad) = PadWorld::sampling();
+    world.0.insert_resource(pad_map.clone());
+
+    // 1. LT alone -> Block; LT+RT -> Block + Attack + feat_under_block.
+    world.button(pad, Lt, true);
+    let lt_block = world.actions().held(Action::Block);
+    world.button(pad, Rt, true);
+    let lt_rt = world.actions();
+    let feat = (
+        lt_rt.held(Action::Block),
+        lt_rt.held(Action::Attack),
+        lt_rt.feat_under_block,
+    );
+    world.button(pad, Rt, false);
+
+    // 2. LT+X -> Bar3 and suppresses Block until LT released.
+    world.button(pad, X, true);
+    let lt_x = world.actions();
+    let chord_bar3 = (lt_x.held(BAR[2]), lt_x.held(Action::Block));
+    world.button(pad, X, false);
+    let after_x = world.actions().held(Action::Block);
+    world.button(pad, Lt, false);
+
+    // 3. LT+A, LT released before A -> Bar1 stays held, Jump never fires.
+    world.button(pad, Lt, true);
+    world.button(pad, A, true);
+    let bar1_down = world.actions().pressed(BAR[0]);
+    world.button(pad, Lt, false);
+    let after_lt_up = world.actions();
+    let bar1_kept = (after_lt_up.held(BAR[0]), after_lt_up.held(Action::Jump));
+    world.button(pad, A, false);
+
+    // 4. LT+LB -> Solo without Aim/AltAttack; LB+RT -> Aim + AltAttack + Attack.
+    world.button(pad, Lt, true);
+    world.button(pad, Lb, true);
+    let lt_lb = world.actions();
+    let solo = (
+        lt_lb.held(Action::Solo),
+        lt_lb.held(Action::Aim),
+        lt_lb.held(Action::AltAttack),
+    );
+    world.button(pad, Lb, false);
+    world.button(pad, Lt, false);
+    world.button(pad, Lb, true);
+    world.button(pad, Rt, true);
+    let lb_rt = world.actions();
+    let aim_attack = (
+        lb_rt.held(Action::Aim),
+        lb_rt.held(Action::AltAttack),
+        lb_rt.held(Action::Attack),
+    );
+    world.button(pad, Rt, false);
+    world.button(pad, Lb, false);
+
+    // 5. LT+DPadRight does not cycle target; wheel badges show LT.
+    world.button(pad, Lt, true);
+    world.button(pad, DPadRight, true);
+    let cycled = world.actions().cycle;
+    world.button(pad, DPadRight, false);
+    world.button(pad, Lt, false);
+    let badges = wheel_badges(Some(&world.actions()), Some(&pad_map));
+    let wanted_badges = [String::new(), "kjkpad_xbox_lefttrigger2".into()];
+
+    // 6. ui_input::gather: LT+Start in play does not open menu; Start alone does.
+    let mut screen_app = PadWorld::new();
+    #[derive(Resource, Default)]
+    struct RawKeys(Vec<ui::input::Key>, Vec<String>);
+    fn read_play(
+        mut typed: MessageReader<bevy::input::keyboard::KeyboardInput>,
+        mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+        pads: Pads,
+        pad_map: Res<PadMap>,
+        mut held: Local<crate::ui_input::Held>,
+        mut seen: ResMut<RawKeys>,
+    ) {
+        let input = crate::ui_input::gather(
+            None,
+            None,
+            &mut typed,
+            &mut wheel,
+            Some((&pads, false)),
+            Some(&pad_map),
+            None,
+            Vec2::ZERO,
+            SCREEN_FRAME,
+            &mut held,
+            &mut None,
+        );
+        seen.0.extend(input.keys);
+        seen.1.extend(input.raw);
+    }
+    screen_app
+        .0
+        .insert_resource(pad_map)
+        .init_resource::<RawKeys>()
+        .add_systems(Update, read_play);
+    let spad = screen_app.0.world_mut().spawn_empty().id();
+    screen_app.plug(spad, true);
+    screen_app.button(spad, Lt, true);
+    screen_app.button(spad, Start, true);
+    let lt_start_keys = std::mem::take(&mut screen_app.0.world_mut().resource_mut::<RawKeys>().0);
+    let lt_start_raw = std::mem::take(&mut screen_app.0.world_mut().resource_mut::<RawKeys>().1);
+    screen_app.button(spad, Start, false);
+    screen_app.button(spad, Lt, false);
+    let lt_released_raw = std::mem::take(&mut screen_app.0.world_mut().resource_mut::<RawKeys>().1);
+    screen_app.button(spad, Start, true);
+    let start_alone_keys =
+        std::mem::take(&mut screen_app.0.world_mut().resource_mut::<RawKeys>().0);
+
+    check(
+        lt_block
+            && feat == (true, true, true)
+            && chord_bar3 == (true, false)
+            && !after_x
+            && bar1_down
+            && bar1_kept == (true, false)
+            && solo == (true, false, false)
+            && aim_attack == (true, true, true)
+            && cycled == 0
+            && badges.as_ref() == Some(&wanted_badges)
+            && !lt_start_keys.contains(&ui::input::Key::Back)
+            && start_alone_keys.contains(&ui::input::Key::Back)
+            && lt_start_raw.contains(&"Pad:Start".to_string())
+            && lt_released_raw.contains(&"Released:Pad:LeftTrigger2".to_string()),
+        format!(
+            "lt_block={lt_block}, feat={feat:?}, chord_bar3={chord_bar3:?}, after_x={after_x}, \
+             bar1=({bar1_down}, {bar1_kept:?}), solo={solo:?}, aim_attack={aim_attack:?}, \
+             cycled={cycled}, badges={badges:?}, lt_start_keys={lt_start_keys:?}, \
+             start_alone_keys={start_alone_keys:?}, lt_released_raw={lt_released_raw:?}"
+        ),
     )
 }
 

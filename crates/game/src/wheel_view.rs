@@ -917,7 +917,11 @@ fn show(
         Option<Res<SceneSwap>>,
         Option<Res<Picking>>,
     ),
-    (actions, mut facts): (Option<Res<Actions>>, ResMut<console::DumpFacts>),
+    (actions, pad_map, mut facts): (
+        Option<Res<Actions>>,
+        Option<Res<crate::pad::PadMap>>,
+        ResMut<console::DumpFacts>,
+    ),
 ) {
     let Some(mut ui) = ui else {
         return;
@@ -962,7 +966,7 @@ fn show(
         arc_at: wheel.arc_at.filter(|_| !arc.is_empty()),
         arc,
         pointer: wheel.pointer.into(),
-        bumpers: crate::pad::wheel_badges(actions.as_deref()),
+        bumpers: crate::pad::wheel_badges(actions.as_deref(), pad_map.as_deref()),
     });
 }
 

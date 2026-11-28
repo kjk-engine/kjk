@@ -1389,6 +1389,7 @@ pub(super) fn key_rebinding() -> Vec<Check> {
             row("use", "Use", "KeyE", &[]),
         ],
         pad_keys: vec![
+            row("modifier", "Chord modifier", "LeftTrigger", &[]),
             row("report", "Report a bug", "", &[]),
             row("jump", "Jump", "South", &[]),
             row("crouch", "Crouch", "East", &["leave_talk"]),
@@ -1401,6 +1402,8 @@ pub(super) fn key_rebinding() -> Vec<Check> {
             ("West", "X"),
             ("North", "Y"),
             ("LeftTrigger", "LB"),
+            ("LeftTrigger2", "LT"),
+            ("Start", "Menu"),
         ]
         .map(|(button, name)| (button.to_string(), name.to_string()))
         .to_vec(),
@@ -1410,6 +1413,14 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     let pad = |button: &str| UiInput {
         raw: vec![format!("{}{button}", crate::screens::key_mapping::PAD_RAW)],
         keys: vec![Key::Activate],
+        ..keys(&[])
+    };
+    let released = |button: &str| UiInput {
+        raw: vec![format!(
+            "{}{}{button}",
+            crate::screens::key_mapping::RELEASED_RAW,
+            crate::screens::key_mapping::PAD_RAW
+        )],
         ..keys(&[])
     };
     let on = |stack: &Stack, screen: &str| stack.top().map(|id| id.0) == Some(screen);
@@ -1433,20 +1444,42 @@ pub(super) fn key_rebinding() -> Vec<Check> {
                 .collect()
         })
         .unwrap_or_else(Vec::new);
-    // The tab's button keeps the focus; a row is chosen on the list.
+    // The tab's button keeps the focus; row 0 is the chord modifier.
     press(&mut page, &mut assets, &vm, "LST_EventList");
+    let mod_set = page.step(&mut assets, &vm, &pad("LeftTrigger2")).intents;
+    let mod_closed = on(&page, "options_keymap");
+    // Step down to Jump (row 1).
+    page.step(&mut assets, &vm, &keys(&[Key::Down, Key::Activate]));
     let chorded = page.step(&mut assets, &vm, &pad("LB+South")).intents;
     let chord_closed = on(&page, "options_keymap");
     page.step(&mut assets, &vm, &keys(&[Key::Activate]));
-    let first = page.step(&mut assets, &vm, &pad("West")).intents;
+    page.step(&mut assets, &vm, &pad("West"));
+    let first = page.step(&mut assets, &vm, &released("West")).intents;
     let named = page
         .state_of("LB_MESSAGE", &vm)
         .and_then(|state| state.list?.rows.pop())
         .map(|row| String::from_utf8_lossy(&row.text).into_owned())
         .unwrap_or_else(String::new);
-    let swapped = page.step(&mut assets, &vm, &pad("West")).intents;
+    page.step(&mut assets, &vm, &pad("West"));
+    let swapped = page.step(&mut assets, &vm, &released("West")).intents;
     page.step(&mut assets, &vm, &keys(&[Key::Down, Key::Activate]));
-    let shared = page.step(&mut assets, &vm, &pad("North")).intents;
+    page.step(&mut assets, &vm, &pad("North"));
+    let shared = page.step(&mut assets, &vm, &released("North")).intents;
+    // Holding LT and pressing A binds LT+A across two frames; holding LT and
+    // pressing Menu binds LT+Menu instead of cancelling; releasing LT alone
+    // binds LT; releasing LT after a chord release does not bind LT alone.
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let lt_wait = page.step(&mut assets, &vm, &pad("LeftTrigger2")).intents;
+    let lt_chord = page.step(&mut assets, &vm, &pad("South")).intents;
+    let lt_chord_closed = on(&page, "options_keymap");
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    page.step(&mut assets, &vm, &pad("LeftTrigger2"));
+    let lt_alone = page
+        .step(&mut assets, &vm, &released("LeftTrigger2"))
+        .intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    page.step(&mut assets, &vm, &pad("LeftTrigger2"));
+    let lt_start = page.step(&mut assets, &vm, &pad("Start")).intents;
     page.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let cancelled = page.step(&mut assets, &vm, &pad("Start")).intents;
     let cancel_closed = on(&page, "options_keymap");
@@ -1455,11 +1488,13 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     press(&mut page, &mut assets, &vm, "LST_EventList");
     let ignored = page.step(&mut assets, &vm, &pad("South")).intents;
     let still_open = on(&page, "key_entry");
+    let shown_lt_chord = crate::screens::key_mapping::chord_name("LeftTrigger2+South", &vm);
     let setting = |key: &str, value: &str| Intent::Setting(key.into(), value.into());
     vec![check("key_rebinding", {
         expect(
             &format!("the pad's tab as its own buttons, the unbound last: {rows:?}"),
             rows == [
+                ("Chord modifier".into(), Some("kjkpad_xbox_lefttrigger".into())),
                 ("Jump".into(), Some("kjkpad_xbox_south".into())),
                 ("Crouch".into(), Some("kjkpad_xbox_east".into())),
                 ("Use".into(), Some("kjkpad_xbox_west".into())),
@@ -1467,6 +1502,12 @@ pub(super) fn key_rebinding() -> Vec<Check> {
                 ("Report a bug".into(), Some("-".into())),
             ],
         )
+        .and_then(|()| {
+            expect(
+                &format!("modifier changed to LT: {mod_set:?} {mod_closed}"),
+                mod_set == vec![setting("pad.modifier", "LeftTrigger2")] && mod_closed,
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("an LB chord taken: {chorded:?} {chord_closed}"),
@@ -1496,6 +1537,19 @@ pub(super) fn key_rebinding() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
+                &format!(
+                    "LT chord, LT alone, LT+Menu, name: wait {lt_wait:?}, chord {lt_chord:?} {lt_chord_closed}, alone {lt_alone:?}, start {lt_start:?}, shown {shown_lt_chord:?}"
+                ),
+                lt_wait.is_empty()
+                    && lt_chord == vec![setting("pad.crouch", "LeftTrigger2+South")]
+                    && lt_chord_closed
+                    && lt_alone == vec![setting("pad.crouch", "LeftTrigger2")]
+                    && lt_start == vec![setting("pad.crouch", "LeftTrigger2+Start")]
+                    && shown_lt_chord == "LT+A",
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("Menu cancels: {cancelled:?} {cancel_closed}"),
                 cancelled.is_empty() && cancel_closed,
             )
@@ -1513,7 +1567,7 @@ pub(super) fn key_rebinding() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "pad tab, chord, named clash, swap, shared, cancel, default, devices apart".into()
+            "pad tab, modifier, LB/LT chords, named clash, swap, shared, cancel, default, devices apart".into()
         })
     })]
 }

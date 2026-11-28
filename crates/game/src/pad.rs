@@ -36,58 +36,33 @@ use sim::combat::items::Shelf;
 
 use crate::settings::{Action, BAR, Input, KeyMap, Mods};
 
-/// LB, the button held for the second layer, which has the action bar. LB
-/// alone may also be bound to one action, Block by default.
-pub(crate) const SHIFT: GamepadButton = GamepadButton::LeftTrigger;
+/// LB, the default button held for a chord's second layer, which has the
+/// action bar. LB alone may also be bound to one action, Block by default.
+pub(crate) const DEFAULT_MODIFIER: GamepadButton = GamepadButton::LeftTrigger;
+/// Alias used by pad probes.
+pub(crate) const SHIFT: GamepadButton = DEFAULT_MODIFIER;
 
 /// RB, the power wheel's button by default. It is an ordinary button and no
 /// layer.
 pub(crate) const RB: GamepadButton = GamepadButton::RightTrigger;
 
-/// Whether LB is held with a chord's button: no (`Alone`) or yes (`Lb`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Layer {
-    Alone,
-    Lb,
-}
-
-impl Layer {
-    /// The layer `pad` is on: LB's while LB is held, else the first.
-    pub(crate) fn of(pad: &Gamepad) -> Layer {
-        if pad.pressed(SHIFT) {
-            Layer::Lb
-        } else {
-            Layer::Alone
-        }
-    }
-
-    /// The bumper held for this layer, and its name in a chord's name
-    /// (`LB+South`). The first layer has none.
-    fn bumper(self) -> Option<(GamepadButton, &'static str)> {
-        match self {
-            Layer::Alone => None,
-            Layer::Lb => Some((SHIFT, "LB")),
-        }
-    }
-}
-
-/// A pad binding: a button, alone or with LB held (`Layer`).
+/// A pad binding: a button, alone or with a modifier button held (`modifier`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chord {
-    pub layer: Layer,
+    pub modifier: Option<GamepadButton>,
     pub button: GamepadButton,
 }
 
 const fn alone(button: GamepadButton) -> Chord {
     Chord {
-        layer: Layer::Alone,
+        modifier: None,
         button,
     }
 }
 
 const fn shifted(button: GamepadButton) -> Chord {
     Chord {
-        layer: Layer::Lb,
+        modifier: Some(DEFAULT_MODIFIER),
         button,
     }
 }
@@ -205,28 +180,27 @@ pub(crate) fn cycle_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
     Some(CYCLE.map(|(chord, _)| ui::icons::pad_texture(kind.key(), &chord.name())))
 }
 
-/// The bumper that steps while the power wheel is open: LB steps on by one
-/// entry (`sample`, `wheel_view`). RB is the wheel's own button by default,
-/// held to keep it open, so no bumper steps back.
-const WHEEL_STEPS: [(GamepadButton, i8); 1] = [(SHIFT, 1)];
-
 /// The power wheel's bumper badges as the wheel shows them beside its two
 /// arrows: back, then on, drawn as the buttons of the pad that plays. No
 /// bumper steps back, so the back badge is an empty name, which draws
-/// nothing. None while the keys play (the mouse wheel has no hint).
-pub(crate) fn wheel_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
+/// nothing. The configured modifier button steps on (unless the wheel
+/// itself is bound to it). None while the keys play (the mouse wheel has
+/// no hint).
+pub(crate) fn wheel_badges(
+    actions: Option<&Actions>,
+    pad_map: Option<&PadMap>,
+) -> Option<[String; 2]> {
     let Device::Pad(kind) = actions?.device else {
         return None;
     };
-    let badge = |step: i8| {
-        WHEEL_STEPS
-            .iter()
-            .find(|(_, on)| *on == step)
-            .map_or_else(String::new, |(button, _)| {
-                ui::icons::pad_texture(kind.key(), &alone(*button).name())
-            })
+    let map = pad_map.unwrap_or_else(|| PadMap::defaults());
+    let step = map.modifier();
+    let on = if map.chord(Action::Wheel) == Some(alone(step)) {
+        String::new()
+    } else {
+        ui::icons::pad_texture(kind.key(), &alone(step).name())
     };
-    Some([badge(-1), badge(1)])
+    Some([String::new(), on])
 }
 
 /// A button's name as the settings file keeps it (`South`, `DPadUp`).
@@ -259,40 +233,63 @@ const BUTTONS: [GamepadButton; 17] = {
 };
 
 impl Chord {
-    /// As the settings file keeps it: `South`, `RightTrigger`, `LB+South`.
+    /// As the settings file keeps it: `South`, `RightTrigger`, `LB+South`,
+    /// `LeftTrigger2+South`.
     pub fn name(self) -> String {
         let button = button_name(self.button);
-        match self.layer.bumper() {
-            Some((_, bumper)) => format!("{bumper}+{button}"),
+        match self.modifier {
+            Some(DEFAULT_MODIFIER) => format!("LB+{button}"),
+            Some(modifier) => format!("{}+{button}", button_name(modifier)),
             None => button,
         }
     }
 
     /// The chord a name names (`Chord::name`), if it names one. Every button
-    /// may be bound alone, the bumpers too. LB is no button of its own
-    /// layer, so `LB+LeftTrigger` names no chord. RB is no layer, so a
-    /// name such as `RB+South`, which older files keep, names no chord.
+    /// may be bound alone, and any button in `BUTTONS` may be a modifier for
+    /// another distinct button (`LB+South`, `LeftTrigger2+South`). A button
+    /// with itself (`LB+LeftTrigger`), or legacy `RB+...` from layout 4,
+    /// names no chord.
     pub fn named(name: &str) -> Option<Chord> {
-        let (layer, button) = Layer::Lb
-            .bumper()
-            .and_then(|(_, bumper)| name.strip_prefix(bumper)?.strip_prefix('+'))
-            .map_or((Layer::Alone, name), |button| (Layer::Lb, button));
-        let button = BUTTONS
-            .iter()
-            .copied()
-            .find(|candidate| button_name(*candidate) == button)
-            .filter(|button| layer == Layer::Alone || *button != SHIFT)?;
-        Some(Chord { layer, button })
+        let find_button = |btn: &str| {
+            BUTTONS
+                .iter()
+                .copied()
+                .find(|candidate| button_name(*candidate) == btn)
+        };
+        if let Some((mod_part, btn_part)) = name.split_once('+') {
+            let modifier = if mod_part == "LB" {
+                DEFAULT_MODIFIER
+            } else {
+                find_button(mod_part)?
+            };
+            let button = find_button(btn_part).filter(|button| *button != modifier)?;
+            Some(Chord {
+                modifier: Some(modifier),
+                button,
+            })
+        } else {
+            let button = find_button(name)?;
+            Some(Chord {
+                modifier: None,
+                button,
+            })
+        }
     }
 }
 
-/// Which chords do what.
+/// Which chords do what, and which button is the configured chord modifier.
 #[derive(Resource, Debug, Clone, PartialEq)]
-pub struct PadMap(BTreeMap<Action, Chord>);
+pub struct PadMap {
+    pub(crate) bindings: BTreeMap<Action, Chord>,
+    modifier: GamepadButton,
+}
 
 impl Default for PadMap {
     fn default() -> PadMap {
-        PadMap(PAD.iter().chain(&SHARED).copied().collect())
+        PadMap {
+            bindings: PAD.iter().chain(&SHARED).copied().collect(),
+            modifier: DEFAULT_MODIFIER,
+        }
     }
 }
 
@@ -307,42 +304,92 @@ impl PadMap {
     /// The defaults with `bound` over them (`pad.<action>` in the settings,
     /// by the action's settings name); `None` there unbinds it.
     pub fn with(bound: impl IntoIterator<Item = (Action, Option<Chord>)>) -> PadMap {
-        let mut map = PadMap::default();
+        PadMap::with_modifier(DEFAULT_MODIFIER, bound)
+    }
+
+    /// `with` using `modifier` as the configured chord modifier button.
+    pub fn with_modifier(
+        modifier: GamepadButton,
+        bound: impl IntoIterator<Item = (Action, Option<Chord>)>,
+    ) -> PadMap {
+        let mut map = PadMap {
+            modifier,
+            ..PadMap::default()
+        };
         for (action, chord) in bound {
             match chord {
-                Some(chord) => map.0.insert(action, chord),
-                None => map.0.remove(&action),
+                Some(chord) => map.bindings.insert(action, chord),
+                None => map.bindings.remove(&action),
             };
         }
         map
     }
 
-    pub fn chord(&self, action: Action) -> Option<Chord> {
-        self.0.get(&action).copied()
+    /// The configured chord modifier button (`LeftTrigger` / LB by default).
+    pub fn modifier(&self) -> GamepadButton {
+        self.modifier
     }
 
-    /// Whether an action is bound to `button` with LB held. Such a button
-    /// does not fall through to `UNDER_BLOCK` while LB is held, and pressing
-    /// it with LB makes a chord (`Pressed::chorded`). The chord of
-    /// `HELD_UNDER_BLOCK` does not count while it is on the attack's button
-    /// (`under_block_too`).
-    fn on_lb(&self, button: GamepadButton) -> bool {
-        self.0.iter().any(|(action, chord)| {
+    pub fn chord(&self, action: Action) -> Option<Chord> {
+        self.bindings.get(&action).copied()
+    }
+
+    /// Whether any chord bound to `Start` has its modifier held on `pad`
+    /// (e.g. `LB+Start` or `LeftTrigger2+Start` for Quick save).
+    pub(crate) fn is_start_chord_held(&self, pad: &Gamepad) -> bool {
+        self.bindings.values().any(|chord| {
+            chord.button == GamepadButton::Start
+                && chord.modifier.is_some_and(|modifier| pad.pressed(modifier))
+        })
+    }
+
+    /// Whether an action is bound to `button` with `modifier` held. Such a
+    /// button does not fall through to `UNDER_BLOCK` while `modifier` is
+    /// held, and pressing it with `modifier` makes a chord
+    /// (`Pressed::chorded`). The chord of `HELD_UNDER_BLOCK` does not count
+    /// while it is on the attack's button (`under_block_too`).
+    fn on_modifier(&self, modifier: GamepadButton, button: GamepadButton) -> bool {
+        self.bindings.iter().any(|(action, chord)| {
             !self.under_block_too(*action, *chord)
-                && chord.layer == Layer::Lb
+                && chord.modifier == Some(modifier)
                 && chord.button == button
         })
     }
 
-    /// Whether `chord` is `HELD_UNDER_BLOCK`'s and is LB held with the button
-    /// of `UNDER_BLOCK`'s first-layer chord, so that it is also the chord of
-    /// the attack made while blocking.
+    /// Whether `chord` is `HELD_UNDER_BLOCK`'s and is the block button held
+    /// with the button of `UNDER_BLOCK`'s first-layer chord, so that it is
+    /// also the chord of the attack made while blocking.
     fn under_block_too(&self, action: Action, chord: Chord) -> bool {
         action == HELD_UNDER_BLOCK
-            && chord.layer == Layer::Lb
+            && chord.modifier.is_some()
+            && self.chord(Action::Block) == chord.modifier.map(alone)
+            && self.chord(UNDER_BLOCK) == Some(alone(chord.button))
+    }
+
+    /// Which modifier button (if any) applies to a fresh press of `button` on
+    /// `pad`. Prefers a held modifier that actually forms a chord with
+    /// `button` (starting with the configured `self.modifier`), then falls
+    /// back to `self.modifier` if it is held so `self.modifier` stays a
+    /// dedicated second layer (suppressing `CYCLE` and other `Alone`
+    /// bindings, except `UNDER_BLOCK`).
+    fn chord_modifier_for(&self, pad: &Gamepad, button: GamepadButton) -> Option<GamepadButton> {
+        if pad.pressed(self.modifier)
+            && button != self.modifier
             && self
-                .chord(UNDER_BLOCK)
-                .is_some_and(|attack| attack.layer == Layer::Alone && attack.button == chord.button)
+                .bindings
+                .values()
+                .any(|chord| chord.modifier == Some(self.modifier) && chord.button == button)
+        {
+            return Some(self.modifier);
+        }
+        if let Some(modifier) = self.bindings.values().find_map(|chord| {
+            chord
+                .modifier
+                .filter(|&m| m != button && pad.pressed(m) && chord.button == button)
+        }) {
+            return Some(modifier);
+        }
+        (pad.pressed(self.modifier) && button != self.modifier).then_some(self.modifier)
     }
 }
 
@@ -684,11 +731,11 @@ impl PadKind {
         }
     }
 
-    /// A chord as its prompts show it: `X`, `RB`, `LB+A`, `L1+Cross`.
+    /// A chord as its prompts show it: `X`, `RB`, `LB+A`, `L1+Cross`, `LT+A`.
     pub fn chord(self, chord: Chord) -> String {
         let button = self.name(chord.button);
-        match chord.layer.bumper() {
-            Some((bumper, _)) => format!("{}+{button}", self.name(bumper)),
+        match chord.modifier {
+            Some(modifier) => format!("{}+{button}", self.name(modifier)),
             None => button.to_string(),
         }
     }
@@ -1193,74 +1240,84 @@ type Overlays<'w> = (
 /// It also keeps the pads whose held LB has made a chord (`chorded`).
 #[derive(Default)]
 pub(crate) struct Pressed {
-    layers: std::collections::HashMap<(Entity, GamepadButton), Option<Layer>>,
-    /// The pads on which another button was pressed with LB held, and that
-    /// chord used an action (a bar slot, Solo, Form, Switch weapons and the
-    /// rest). On such a pad, the action bound to LB alone (Block by
-    /// default) is not held until LB is let go. A player who readies a
-    /// grenade with LB and X and keeps LB held after letting go of X so
-    /// does not block, which would take the lightsaber back out. The right
-    /// trigger's attack with LB held (`UNDER_BLOCK`) is no LB chord, so it
-    /// keeps the block.
-    chorded: std::collections::HashSet<Entity>,
+    /// For each held `(entity, button)`, `Some(Some(mod_btn))` if it went down
+    /// with `mod_btn`, `Some(None)` if alone, or `None` if swallowed (e.g.
+    /// the wheel-step button pressed while the power wheel was open).
+    layers: std::collections::HashMap<(Entity, GamepadButton), Option<Option<GamepadButton>>>,
+    /// `(entity, modifier)` pairs where another button was pressed while
+    /// `modifier` was held and that chord used an action (a bar slot, Solo,
+    /// Form, Switch weapons and the rest). On such a pad, the action bound to
+    /// `modifier` alone (Block by default) is not held until `modifier` is let
+    /// go.
+    chorded: std::collections::HashSet<(Entity, GamepadButton)>,
 }
 
-/// The layer a press of `button` on `pad` counts on now. LB is no button of
-/// its own layer, so its own press is on the first layer, where LB alone
-/// may be bound (Block by default). While the power wheel is open
-/// (`wheeling`), LB steps the wheel and is no layer. Every other button
-/// then counts as pressed alone, and LB pressed then counts on no layer at
-/// all.
-fn layer_now(pad: &Gamepad, button: GamepadButton, wheeling: bool) -> Option<Layer> {
-    match (wheeling, button == SHIFT) {
-        (true, true) => None,
-        (true, false) | (false, true) => Some(Layer::Alone),
-        (false, false) => Some(Layer::of(pad)),
+/// The modifier (if any) a press of `button` on `pad` counts on now. While the
+/// power wheel is open (`wheeling`), the modifier steps the wheel and is no
+/// layer; every other button counts as pressed alone.
+fn layer_now(
+    pad: &Gamepad,
+    button: GamepadButton,
+    wheeling: bool,
+    pad_map: &PadMap,
+) -> Option<Option<GamepadButton>> {
+    let modifier = pad_map.modifier();
+    if wheeling {
+        if button == modifier && pad_map.chord(Action::Wheel) != Some(alone(modifier)) {
+            None
+        } else {
+            Some(None)
+        }
+    } else {
+        Some(pad_map.chord_modifier_for(pad, button))
     }
 }
 
 impl Pressed {
-    /// Records the layer of the buttons `pad` pressed this frame
-    /// (`layer_now`), and whether one of them made an LB chord of
-    /// `pad_map` (`chorded`).
+    /// Records the modifier of the buttons `pad` pressed this frame
+    /// (`layer_now`), and whether one of them made a chord of `pad_map`
+    /// (`chorded`).
     fn press(&mut self, entity: Entity, pad: &Gamepad, wheeling: bool, pad_map: &PadMap) {
         for button in pad.digital().get_just_pressed() {
-            let layer = layer_now(pad, *button, wheeling);
+            let layer = layer_now(pad, *button, wheeling, pad_map);
             self.layers.insert((entity, *button), layer);
-            if layer == Some(Layer::Lb) && pad_map.on_lb(*button) {
-                self.chorded.insert(entity);
+            if let Some(Some(modifier)) = layer
+                && pad_map.on_modifier(modifier, *button)
+            {
+                self.chorded.insert((entity, modifier));
             }
         }
     }
 
-    /// The layer `button` of `pad` went down on, while it is held or on the
-    /// frame it is let go. For any other button, it is the layer a press
-    /// would count on now (`layer_now`).
+    /// The modifier `button` of `pad` went down with, while it is held or on
+    /// the frame it is let go.
     fn layer(
         &self,
         entity: Entity,
         pad: &Gamepad,
         button: GamepadButton,
         wheeling: bool,
-    ) -> Option<Layer> {
+        pad_map: &PadMap,
+    ) -> Option<Option<GamepadButton>> {
         self.layers
             .get(&(entity, button))
             .copied()
-            .unwrap_or_else(|| layer_now(pad, button, wheeling))
+            .unwrap_or_else(|| layer_now(pad, button, wheeling, pad_map))
     }
 
-    /// Whether `entity`'s held LB has made a chord since it went down
+    /// Whether `entity`'s held `modifier` has made a chord since it went down
     /// (`chorded`).
-    fn chorded(&self, entity: Entity) -> bool {
-        self.chorded.contains(&entity)
+    fn chorded(&self, entity: Entity, modifier: GamepadButton) -> bool {
+        self.chorded.contains(&(entity, modifier))
     }
 
     /// Forgets the buttons no pad holds any longer, and the chords of the
-    /// pads that have let go of LB.
+    /// modifiers that have been let go.
     fn release(&mut self, held: impl Fn(Entity, GamepadButton) -> bool) {
         self.layers
             .retain(|(entity, button), _| held(*entity, *button));
-        self.chorded.retain(|entity| held(*entity, SHIFT));
+        self.chorded
+            .retain(|(entity, modifier)| held(*entity, *modifier));
     }
 }
 
@@ -1362,7 +1419,7 @@ pub(crate) fn sample(
         if used {
             next.device = Device::Pad(PadKind::of(pad.vendor_id(), pad.product_id()));
         }
-        let first_layer = Layer::of(pad) == Layer::Alone;
+        let first_layer = !pad.pressed(pad_map.modifier());
         presses.pressed.extend(
             pad.digital()
                 .get_just_pressed()
@@ -1383,28 +1440,32 @@ pub(crate) fn sample(
                 *stepping = true;
             }
         }
-        for (button, step) in WHEEL_STEPS {
-            if wheeling && pad.just_pressed(button) {
-                next.wheel_step += step;
-            }
+        let wheel_step_button = pad_map.modifier();
+        if wheeling
+            && pad_map.chord(Action::Wheel) != Some(alone(wheel_step_button))
+            && pad.just_pressed(wheel_step_button)
+        {
+            next.wheel_step += 1;
         }
         pressed.press(entity, pad, wheeling, pad_map);
-        let layer = |button| pressed.layer(entity, pad, button, wheeling);
-        let chorded = pressed.chorded(entity);
-        for (action, chord) in &pad_map.0 {
-            // LB alone's action (Block by default) waits for LB to be let
-            // go once LB has made a chord (`Pressed::chorded`).
-            if chorded && *chord == alone(SHIFT) {
+        let layer = |button| pressed.layer(entity, pad, button, wheeling, pad_map);
+        for (action, chord) in &pad_map.bindings {
+            // A modifier's alone action (Block by default) waits for that
+            // modifier to be let go once it has made a chord
+            // (`Pressed::chorded`).
+            if chord.modifier.is_none() && pressed.chorded(entity, chord.button) {
                 continue;
             }
             let on = layer(chord.button);
-            // The attack's first-layer chord also attacks with LB held,
-            // unless an LB chord uses its button.
+            // The attack's first-layer chord also attacks while the block/modifier
+            // button is held, unless another chord uses its button there.
             let under_block = *action == UNDER_BLOCK
-                && chord.layer == Layer::Alone
-                && on == Some(Layer::Lb)
-                && !pad_map.on_lb(chord.button);
-            let live = on == Some(chord.layer) || under_block || choosing == Some(*action);
+                && chord.modifier.is_none()
+                && matches!(
+                    on,
+                    Some(Some(modifier)) if !pad_map.on_modifier(modifier, chord.button)
+                );
+            let live = on == Some(chord.modifier) || under_block || choosing == Some(*action);
             if !taken.keeps_pad(*action) || !live {
                 continue;
             }
@@ -1430,7 +1491,7 @@ pub(crate) fn sample(
                 *turned = false;
             }
             *turned |= pad.pressed(orbit.button) && rest(right, feel.dead) != Vec2::ZERO;
-            if Some(orbit.layer) == layer(orbit.button)
+            if Some(orbit.modifier) == layer(orbit.button)
                 && pad.just_released(orbit.button)
                 && !*turned
             {
@@ -1441,7 +1502,7 @@ pub(crate) fn sample(
         // while a pick is under way (`PICK_STEPS`).
         let cycle = CYCLE
             .iter()
-            .filter(|(chord, _)| !*stepping && Some(chord.layer) == layer(chord.button));
+            .filter(|(chord, _)| !*stepping && Some(chord.modifier) == layer(chord.button));
         for (chord, step) in cycle {
             next.cycle += step * i8::from(pad.just_pressed(chord.button));
         }

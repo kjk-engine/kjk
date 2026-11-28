@@ -1497,6 +1497,7 @@ impl Settings {
                 }
             }
             ("reset", "pad") => {
+                self.values.remove(PAD_MODIFIER);
                 for (_, name, ..) in ACTIONS {
                     self.values.remove(&format!("pad.{name}"));
                 }
@@ -1530,6 +1531,18 @@ impl Settings {
             {
                 warn!("{key}: not a key a binding may use");
                 return;
+            }
+            (name, button) if name == PAD_MODIFIER => {
+                let Some(new_mod) = modifier_named(button) else {
+                    warn!("{button}: not a button a pad modifier may use");
+                    return;
+                };
+                let old_mod = self.modifier_button();
+                if new_mod != old_mod {
+                    self.migrate_pad_modifier(old_mod, new_mod);
+                }
+                self.values
+                    .insert(PAD_MODIFIER.into(), crate::pad::button_name(new_mod));
             }
             (name, chord)
                 if pad_action(name).is_some()
@@ -1595,18 +1608,76 @@ impl Settings {
         }
     }
 
+    /// The configured controller chord modifier button (`LeftTrigger` / LB
+    /// by default).
+    pub(crate) fn modifier_button(&self) -> bevy::input::gamepad::GamepadButton {
+        self.values
+            .get(PAD_MODIFIER)
+            .and_then(|value| modifier_named(value))
+            .unwrap_or(crate::pad::DEFAULT_MODIFIER)
+    }
+
+    /// Migrates every action whose chord currently uses `old_mod` to use
+    /// `new_mod` instead (swapping `old_mod+new_mod` to `new_mod+old_mod`,
+    /// and swapping with any non-migrating action that already holds the
+    /// target chord).
+    fn migrate_pad_modifier(
+        &mut self,
+        old_mod: bevy::input::gamepad::GamepadButton,
+        new_mod: bevy::input::gamepad::GamepadButton,
+    ) {
+        let current = self.pads();
+        let mut updates: Vec<(Action, &str, crate::pad::Chord, crate::pad::Chord)> = Vec::new();
+        for (action, name, ..) in ACTIONS {
+            let Some(chord) = current.chord(action) else {
+                continue;
+            };
+            if chord.modifier == Some(old_mod) {
+                let target_button = if chord.button == new_mod {
+                    old_mod
+                } else {
+                    chord.button
+                };
+                let target = crate::pad::Chord {
+                    modifier: Some(new_mod),
+                    button: target_button,
+                };
+                updates.push((action, name, chord, target));
+            }
+        }
+        for &(action, name, old_chord, target) in &updates {
+            let sharing = shares(action);
+            for (other_action, other_name, ..) in ACTIONS {
+                if other_action == action
+                    || updates.iter().any(|(a, ..)| *a == other_action)
+                    || sharing.iter().any(|s| s == other_name)
+                {
+                    continue;
+                }
+                if current.chord(other_action) == Some(target) {
+                    self.values
+                        .insert(format!("pad.{other_name}"), old_chord.name());
+                }
+            }
+            self.values.insert(format!("pad.{name}"), target.name());
+        }
+    }
+
     /// The pad's chords: the defaults, with a file's `pad.<action>` over
     /// them (a chord's name, `Chord::name`, or `none` to unbind it).
     pub fn pads(&self) -> crate::pad::PadMap {
-        crate::pad::PadMap::with(ACTIONS.iter().filter_map(|(action, name, ..)| {
-            let value = self.values.get(&format!("pad.{name}"))?;
-            let chord = crate::pad::Chord::named(value);
-            if chord.is_none() && value != UNBOUND {
-                warn!("pad.{name}: {value} names no chord; the default stands");
-                return None;
-            }
-            Some((*action, chord))
-        }))
+        crate::pad::PadMap::with_modifier(
+            self.modifier_button(),
+            ACTIONS.iter().filter_map(|(action, name, ..)| {
+                let value = self.values.get(&format!("pad.{name}"))?;
+                let chord = crate::pad::Chord::named(value);
+                if chord.is_none() && value != UNBOUND {
+                    warn!("pad.{name}: {value} names no chord; the default stands");
+                    return None;
+                }
+                Some((*action, chord))
+            }),
+        )
     }
 
     /// How the pad turns the view: 0.4 to 1.6 times the default rate, the
@@ -1817,24 +1888,34 @@ impl Settings {
             .collect()
     }
 
-    /// The pad's rows the key mapping's controller tab shows: every action
-    /// but the stick's (moving, and walking by how far it is pushed), its
-    /// chord's name (`LB+South`; empty where none is bound).
+    /// The pad's rows the key mapping's controller tab shows: the chord
+    /// modifier button first, then every action but the stick's (moving, and
+    /// walking by how far it is pushed), its chord's name (`LB+South`; empty
+    /// where none is bound).
     pub fn pad_rows(&self) -> Vec<KeyRow> {
         let map = self.pads();
-        ACTIONS
-            .iter()
-            .filter(|(action, ..)| !STICK.contains(action))
-            .map(|(action, name, label, _, movement)| KeyRow {
-                action: name.to_string(),
-                label: label.to_string(),
-                key: map
-                    .chord(*action)
-                    .map_or_else(String::new, crate::pad::Chord::name),
-                movement: *movement,
-                shares: shares(*action),
-            })
-            .collect()
+        std::iter::once(KeyRow {
+            action: ui::screens::key_mapping::PAD_MODIFIER.to_string(),
+            label: "Chord modifier".to_string(),
+            key: crate::pad::button_name(map.modifier()),
+            movement: false,
+            shares: Vec::new(),
+        })
+        .chain(
+            ACTIONS
+                .iter()
+                .filter(|(action, ..)| !STICK.contains(action))
+                .map(|(action, name, label, _, movement)| KeyRow {
+                    action: name.to_string(),
+                    label: label.to_string(),
+                    key: map
+                        .chord(*action)
+                        .map_or_else(String::new, crate::pad::Chord::name),
+                    movement: *movement,
+                    shares: shares(*action),
+                }),
+        )
+        .collect()
     }
 }
 
@@ -1883,6 +1964,18 @@ fn shares(action: Action) -> Vec<String> {
                 .map(|(_, name, ..)| name.to_string())
         })
         .collect()
+}
+
+/// The setting holding the controller's chord modifier button.
+const PAD_MODIFIER: &str = "pad.modifier";
+
+/// The single pad button `name` names if it may serve as the chord modifier
+/// (any button in `BUTTONS` except `Start`, which cancels remapping and opens
+/// the pause menu).
+fn modifier_named(name: &str) -> Option<bevy::input::gamepad::GamepadButton> {
+    let chord = crate::pad::Chord::named(name)?;
+    (chord.modifier.is_none() && chord.button != bevy::input::gamepad::GamepadButton::Start)
+        .then_some(chord.button)
 }
 
 /// The action a `pad.<name>` setting binds, if it names one (not the pad's
