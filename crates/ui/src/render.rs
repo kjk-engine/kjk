@@ -187,7 +187,7 @@ impl<'a> Render<'a> {
             .map(|words| {
                 let rect = in_window(words.rect, placed);
                 let behind = background(bare, self.window, rect);
-                let ground = behind.map_or([0; 3], |behind| behind.closest(words.color));
+                let ground = behind.map_or([0; 3], |behind| behind.most);
                 let key = (
                     words.texture,
                     words.font.height.to_bits(),
@@ -328,29 +328,20 @@ pub(crate) fn contrast(a: [u8; 3], b: [u8; 3]) -> f32 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
-/// The darkest and the lightest colour behind some words.
+/// The colours behind some words.
 #[derive(Clone, Copy)]
 struct Behind {
     darkest: [u8; 3],
     lightest: [u8; 3],
-}
-
-impl Behind {
-    /// Whichever of the two has the lower contrast with `color`: the one
-    /// the words stand out against least, as rule C-1 of
-    /// docs/UI-GUIDELINES.md takes it.
-    fn closest(self, color: [f32; 4]) -> [u8; 3] {
-        let text = [0, 1, 2].map(|k| (color[k].clamp(0.0, 1.0) * 255.0).round() as u8);
-        if contrast(text, self.lightest) < contrast(text, self.darkest) {
-            self.lightest
-        } else {
-            self.darkest
-        }
-    }
+    /// The commonest, which the words' body height is measured on. The
+    /// darkest or the lightest is often a border inside the words' box,
+    /// drawn in the words' own colour.
+    most: [u8; 3],
 }
 
 /// The darkest and the lightest colour of `image` inside `rect` (window
-/// pixels), by luminance: what words there must stand out against.
+/// pixels), by luminance, and the commonest: what words there must stand
+/// out against.
 fn background(image: &[u8], window: (u32, u32), rect: [f32; 4]) -> Option<Behind> {
     let [l, t, w, h] = rect;
     let (x0, y0) = (l.max(0.0) as u32, t.max(0.0) as u32);
@@ -364,10 +355,12 @@ fn background(image: &[u8], window: (u32, u32), rect: [f32; 4]) -> Option<Behind
     };
     let mut darkest: Option<[u8; 3]> = None;
     let mut lightest: Option<[u8; 3]> = None;
+    let mut seen: BTreeMap<[u8; 3], u32> = BTreeMap::new();
     for y in y0..y1 {
         for x in x0..x1 {
             let at = ((y * window.0 + x) * 4) as usize;
             let pixel = [image[at], image[at + 1], image[at + 2]];
+            *seen.entry(pixel).or_default() += 1;
             if darkest.is_none_or(|seen| luminance(&pixel) < luminance(&seen)) {
                 darkest = Some(pixel);
             }
@@ -376,8 +369,11 @@ fn background(image: &[u8], window: (u32, u32), rect: [f32; 4]) -> Option<Behind
             }
         }
     }
+    let most =
+        (seen.into_iter()).max_by_key(|&(colour, count)| (count, std::cmp::Reverse(colour)))?;
     Some(Behind {
         darkest: darkest?,
         lightest: lightest?,
+        most: most.0,
     })
 }

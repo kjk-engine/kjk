@@ -745,9 +745,9 @@ Running and checking:
     height in window pixels. It is the rows from the top of its tallest
     letter to the bottom of its lowest one (the digits and the letters A
     to Z, both cases). The letters are drawn by the renderer in the words'
-    colour, on a line that starts on a whole pixel, over the darkest or
-    the lightest colour behind the words, whichever is closer to the
-    words' colour. A pixel counts only if its contrast with that colour is
+    colour, on a line that starts on a whole pixel, over the commonest
+    colour behind the words in that picture. A pixel counts only if its
+    contrast with that colour is
     above 2 to 1, so a dark outline on a dark background does not add to
     the height. This is the measure docs/UI-GUIDELINES.md uses.
 - **UI catalogue** (`ui::catalogue`). Every module of `ui::screens` has a
