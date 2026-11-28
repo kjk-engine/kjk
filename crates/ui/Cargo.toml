@@ -17,6 +17,9 @@ rules.workspace = true
 # The UI catalogue's story files (`data/ui/stories`).
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 
+[build-dependencies]
+serde_json.workspace = true
+
 [features]
 # The probes (`kjk <layer> probes`): checks, not the game.
 probes = []

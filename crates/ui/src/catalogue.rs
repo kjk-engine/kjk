@@ -9,6 +9,8 @@
 
 use toml_edit::{DocumentMut, Item};
 
+include!(concat!(env!("OUT_DIR"), "/screen_modules.rs"));
+
 /// The folder of the story files, from the repository's root.
 pub const STORIES: &str = "data/ui/stories";
 
@@ -98,6 +100,17 @@ pub const SIZES: [Size; 6] = [
     },
 ];
 
+impl std::str::FromStr for Size {
+    type Err = String;
+
+    fn from_str(name: &str) -> Result<Size, String> {
+        Size::named(name).ok_or_else(|| {
+            let names: Vec<&str> = SIZES.iter().map(|size| size.name).collect();
+            format!("{name}: not a size, which is one of {}", names.join(", "))
+        })
+    }
+}
+
 /// What a story is played with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
@@ -124,37 +137,342 @@ impl Input {
     /// The steps that set the input up before a story's own, at `size`: a
     /// controller's glyphs are the Steam Deck's on the Deck, else an Xbox
     /// pad's.
-    pub fn steps(self, size: Size) -> Vec<String> {
+    pub fn steps(self, size: Size) -> Vec<Step> {
+        use crate::icons::Kind;
         match self {
-            Input::Pad if size.name == "deck" => vec!["pad deck".into()],
-            Input::Pad => vec!["pad xbox".into()],
+            Input::Pad if size.name == "deck" => vec![Step::Pad(Kind::Deck)],
+            Input::Pad => vec![Step::Pad(Kind::Xbox)],
             Input::Mouse => Vec::new(),
         }
     }
 }
 
+impl std::str::FromStr for Input {
+    type Err = String;
+
+    fn from_str(name: &str) -> Result<Input, String> {
+        Input::named(name).ok_or(format!("{name}: pad or mouse"))
+    }
+}
+
+/// The games a story is drawn on, all of them unless it names some.
+pub const GAMES: [vfs::Game; 2] = [vfs::Game::Kotor1, vfs::Game::Kotor2];
+
+/// The game of `GAMES` that `key` names (`k1`, `tsl`).
+pub fn game(key: &str) -> Result<vfs::Game, String> {
+    (vfs::Game::from_key(key).filter(|game| GAMES.contains(game)))
+        .ok_or(format!("{key}: not k1 or tsl"))
+}
+
 /// Where a screen stands in the audit.
-pub const STATUSES: [&str; 3] = ["not started", "needs work", "audited"];
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    NotStarted,
+    NeedsWork,
+    Audited,
+}
+
+impl Status {
+    pub const ALL: [Status; 3] = [Status::NotStarted, Status::NeedsWork, Status::Audited];
+
+    /// As a story file writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Status::NotStarted => "not started",
+            Status::NeedsWork => "needs work",
+            Status::Audited => "audited",
+        }
+    }
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// One step of a story, as a story file and `kjk gui screen --step` write
+/// it (`Step::FORMS`). A step is read when its story file is, so a story
+/// file with a step that does not read fails with no game data.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Step {
+    /// The control of this tag pressed.
+    Press(String),
+    /// A setting, as `display.grass true`.
+    Set {
+        key: String,
+        value: String,
+    },
+    /// A session running under these rules, `ja` or `mda`.
+    Session(String),
+    Lobby(Lobby),
+    /// The party selection with every companion of KOTOR 2 available.
+    PartyAll,
+    /// Whose turn it is on `pazaak_game`, 0 the main character's, or no
+    /// one's.
+    PazaakTurn(Option<usize>),
+    /// The main character's hand card at this place played away.
+    PazaakPlayed(usize),
+    Wheel(Wheel),
+    /// A terminal's camera feed over play, as the game turns it on while a
+    /// computer conversation shows a camera.
+    FeedOn,
+    /// Photo mode on, its corner lines as it first shows them.
+    PhotoOn,
+    /// The member a character of this `classes.2da` row and level, with the
+    /// experience for the next level, so `levelup` opens on the level
+    /// after. It is set before the screen opens.
+    Level {
+        class: u8,
+        level: u8,
+    },
+    /// The character page's member standing in the stance set of this
+    /// skeleton's folder, as `_humanoid_obi`.
+    Stands(String),
+    Type(String),
+    /// A key, a mouse button or a pad chord pressed: `KeyZ`, `MouseBack`,
+    /// `Pad:LB+South`.
+    Raw(String),
+    /// The pad played with, its hints shown.
+    Pad(crate::icons::Kind),
+    /// A screen move, after which the focus is printed.
+    Key(crate::input::Key),
+    /// The pointer moved to this pixel of the frame, which hovers what is
+    /// there.
+    Point([f32; 2]),
+    /// Wheel notches down where the pointer is, the window's middle at
+    /// first.
+    Scroll(f32),
+}
+
+/// A lobby the lobby screen shows (`Step::Lobby`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lobby {
+    /// A guest's view.
+    Guest,
+    /// The host's view, where the first guest plays the main character.
+    Hero,
+    /// The first guest's view, where that guest plays the main character.
+    HeroGuest,
+    /// Every companion of KOTOR 2 recruited, as a mod makes them.
+    All,
+    /// A guest's view, where the guest flies a remote droid.
+    Droid,
+    /// The host's view of the save of this id in the saves folder.
+    Save(String),
+    /// The host's view of the checkpoint at this path.
+    Checkpoint(String),
+}
+
+/// A step on an open power wheel (`Step::Wheel`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Wheel {
+    /// The entry of this number highlighted, from 0.
+    At(usize),
+    /// The first entry whose name holds these words highlighted.
+    Pick(String),
+    Close,
+}
+
+/// The screen moves of `Step::Key`, by their names.
+const MOVES: [(&str, crate::input::Key); 13] = {
+    use crate::input::Key::*;
+    [
+        ("Up", Up),
+        ("Down", Down),
+        ("Left", Left),
+        ("Right", Right),
+        ("Activate", Activate),
+        ("Back", Back),
+        ("Primary", Primary),
+        ("Second", Second),
+        ("Accept", Accept),
+        ("NextTab", NextTab),
+        ("PrevTab", PrevTab),
+        ("NextPage", NextPage),
+        ("PrevPage", PrevPage),
+    ]
+};
+
+/// How a step's words after its verb read into a step.
+type Reads = fn(&str) -> Option<Step>;
+
+impl Step {
+    /// Every form a step takes, and how the words after its verb read. A
+    /// step is read with the first form of its verb that reads it.
+    pub const FORMS: [(&'static str, Reads); 18] = [
+        ("press TAG", |tag| Some(Step::Press(words(tag)?))),
+        ("set KEY VALUE", |set| {
+            let (key, value) = set.split_once(' ')?;
+            Some(Step::Set {
+                key: words(key)?,
+                value: words(value)?,
+            })
+        }),
+        ("session RULES", |rules| Some(Step::Session(words(rules)?))),
+        (
+            "lobby guest|hero|hero guest|all|droid|save ID|checkpoint PATH",
+            |lobby| {
+                Some(Step::Lobby(match lobby {
+                    "guest" => Lobby::Guest,
+                    "hero" => Lobby::Hero,
+                    "hero guest" => Lobby::HeroGuest,
+                    "all" => Lobby::All,
+                    "droid" => Lobby::Droid,
+                    _ => match lobby.split_once(' ')? {
+                        ("save", id) => Lobby::Save(words(id)?),
+                        ("checkpoint", path) => Lobby::Checkpoint(words(path)?),
+                        _ => return None,
+                    },
+                }))
+            },
+        ),
+        ("party all", |all| (all == "all").then_some(Step::PartyAll)),
+        ("pazaak turn N|none", |turn| {
+            match turn.strip_prefix("turn ")? {
+                "none" => Some(Step::PazaakTurn(None)),
+                whose => whose
+                    .parse()
+                    .ok()
+                    .map(|whose| Step::PazaakTurn(Some(whose))),
+            }
+        }),
+        ("pazaak played N", |played| {
+            (played.strip_prefix("played ")?.parse().ok()).map(Step::PazaakPlayed)
+        }),
+        ("wheel at N|pick NAME|close", |wheel| {
+            Some(Step::Wheel(match wheel.split_once(' ') {
+                None if wheel == "close" => Wheel::Close,
+                Some(("at", nth)) => Wheel::At(nth.parse().ok()?),
+                Some(("pick", name)) => Wheel::Pick(words(name)?),
+                _ => return None,
+            }))
+        }),
+        ("feed on", |on| (on == "on").then_some(Step::FeedOn)),
+        ("photo on", |on| (on == "on").then_some(Step::PhotoOn)),
+        ("level CLASS N", |level| {
+            let (class, level) = level.split_once(' ')?;
+            Some(Step::Level {
+                class: class.parse().ok()?,
+                level: level.parse().ok()?,
+            })
+        }),
+        ("stands FOLDER", |folder| Some(Step::Stands(words(folder)?))),
+        ("type TEXT", |text| Some(Step::Type(text.to_string()))),
+        ("raw NAME", |name| Some(Step::Raw(words(name)?))),
+        ("pad xbox|playstation|nintendo|deck", |kind| {
+            crate::icons::Kind::named(kind).map(Step::Pad)
+        }),
+        (
+            "key Up|Down|Left|Right|Activate|Back|Primary|Second|Accept|NextTab|PrevTab|NextPage|PrevPage",
+            |moved| {
+                (MOVES.into_iter())
+                    .find(|(name, _)| *name == moved)
+                    .map(|(_, key)| Step::Key(key))
+            },
+        ),
+        ("point X Y", |at| {
+            let (x, y) = at.split_once(' ')?;
+            Some(Step::Point([x.parse().ok()?, y.parse().ok()?]))
+        }),
+        ("scroll N", |notches| notches.parse().ok().map(Step::Scroll)),
+    ];
+}
+
+/// `words` when there are some.
+fn words(words: &str) -> Option<String> {
+    (!words.is_empty()).then(|| words.to_string())
+}
+
+impl std::str::FromStr for Step {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Step, String> {
+        let (verb, rest) = text.split_once(' ').unwrap_or((text, ""));
+        let forms: Vec<&(&str, Reads)> = (Step::FORMS.iter())
+            .filter(|(form, _)| form.split(' ').next() == Some(verb))
+            .collect();
+        if let Some(step) = forms.iter().find_map(|(_, read)| read(rest)) {
+            return Ok(step);
+        }
+        let named = |forms: &mut dyn Iterator<Item = &str>| {
+            forms
+                .map(|form| format!("`{form}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        Err(if forms.is_empty() {
+            format!(
+                "{text:?}: not a step, which is one of {}",
+                named(&mut Step::FORMS.iter().map(|(form, _)| *form))
+            )
+        } else {
+            format!(
+                "{text:?}: not {}",
+                named(&mut forms.iter().map(|(form, _)| *form))
+            )
+        })
+    }
+}
+
+impl std::fmt::Display for Step {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Step::Press(tag) => write!(f, "press {tag}"),
+            Step::Set { key, value } => write!(f, "set {key} {value}"),
+            Step::Session(rules) => write!(f, "session {rules}"),
+            Step::Lobby(lobby) => match lobby {
+                Lobby::Guest => write!(f, "lobby guest"),
+                Lobby::Hero => write!(f, "lobby hero"),
+                Lobby::HeroGuest => write!(f, "lobby hero guest"),
+                Lobby::All => write!(f, "lobby all"),
+                Lobby::Droid => write!(f, "lobby droid"),
+                Lobby::Save(id) => write!(f, "lobby save {id}"),
+                Lobby::Checkpoint(path) => write!(f, "lobby checkpoint {path}"),
+            },
+            Step::PartyAll => write!(f, "party all"),
+            Step::PazaakTurn(None) => write!(f, "pazaak turn none"),
+            Step::PazaakTurn(Some(whose)) => write!(f, "pazaak turn {whose}"),
+            Step::PazaakPlayed(nth) => write!(f, "pazaak played {nth}"),
+            Step::Wheel(Wheel::At(nth)) => write!(f, "wheel at {nth}"),
+            Step::Wheel(Wheel::Pick(name)) => write!(f, "wheel pick {name}"),
+            Step::Wheel(Wheel::Close) => write!(f, "wheel close"),
+            Step::FeedOn => write!(f, "feed on"),
+            Step::PhotoOn => write!(f, "photo on"),
+            Step::Level { class, level } => write!(f, "level {class} {level}"),
+            Step::Stands(folder) => write!(f, "stands {folder}"),
+            Step::Type(text) => write!(f, "type {text}"),
+            Step::Raw(name) => write!(f, "raw {name}"),
+            Step::Pad(kind) => write!(f, "pad {}", kind.key()),
+            Step::Key(key) => {
+                let name = (MOVES.iter()).find(|(_, move_key)| move_key == key);
+                write!(f, "key {}", name.map_or("?", |(name, _)| name))
+            }
+            Step::Point([x, y]) => write!(f, "point {x} {y}"),
+            Step::Scroll(notches) => write!(f, "scroll {notches}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Story {
     pub name: String,
     /// The screen as `screens::open` names it.
     pub screen: String,
-    pub steps: Vec<String>,
-    /// The games it is drawn on, `k1` and `tsl`.
-    pub games: Vec<String>,
+    pub steps: Vec<Step>,
+    /// The games it is drawn on, `GAMES` unless the file names some.
+    pub games: Vec<vfs::Game>,
     /// Why a session did not start, for the message screen.
     pub error: Option<String>,
     /// The captures of play it starts from with the mouse (`Capture`), by
-    /// game (`k1`, `tsl`) and by name in `data/ui/captures`. A story is one
-    /// situation, such as a hostile target held, and each game has its own
-    /// capture of it. Without captures, the story starts from stand-ins.
-    pub capture: std::collections::BTreeMap<String, String>,
+    /// game and by name in `data/ui/captures`. A story is one situation,
+    /// such as a hostile target held, and each game has its own capture of
+    /// it. Without captures, the story starts from stand-ins.
+    pub capture: std::collections::BTreeMap<vfs::Game, String>,
     /// The captures it starts from with a controller: the same moments
     /// captured while a pad played. The game fills the action bar and the
     /// key hints for the input in use, so each input needs its own capture.
-    pub pad_capture: std::collections::BTreeMap<String, String>,
+    pub pad_capture: std::collections::BTreeMap<vfs::Game, String>,
 }
 
 impl Story {
@@ -162,7 +480,7 @@ impl Story {
     /// whether it is drawn so at all. A story without captures starts from
     /// stand-ins everywhere. A story with captures is drawn only where it
     /// has one.
-    pub fn capture_for(&self, game: &str, input: Input) -> Option<Option<&str>> {
+    pub fn capture_for(&self, game: vfs::Game, input: Input) -> Option<Option<&str>> {
         if self.capture.is_empty() && self.pad_capture.is_empty() {
             return Some(None);
         }
@@ -170,7 +488,7 @@ impl Story {
             Input::Mouse => &self.capture,
             Input::Pad => &self.pad_capture,
         };
-        captures.get(game).map(|name| Some(name.as_str()))
+        captures.get(&game).map(|name| Some(name.as_str()))
     }
 }
 
@@ -178,12 +496,11 @@ impl Story {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stories {
     pub module: String,
-    pub status: String,
+    pub status: Status,
     pub notes: String,
     pub stories: Vec<Story>,
 }
 
-/// `text`, the story file of `module`, read.
 pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
     let why = |what: &str| format!("{module}: {what}");
     let document: DocumentMut = text.parse().map_err(|error| why(&format!("{error}")))?;
@@ -210,7 +527,7 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
     };
     let by_game = |item: Option<&Item>,
                    field: &str|
-     -> Result<std::collections::BTreeMap<String, String>, String> {
+     -> Result<std::collections::BTreeMap<vfs::Game, String>, String> {
         let Some(item) = item else {
             return Ok(Default::default());
         };
@@ -219,20 +536,22 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
         )))?;
         table
             .iter()
-            .map(|(game, name)| {
+            .map(|(key, name)| {
+                let game = game(key).map_err(|error| why(&format!("{field}.{error}")))?;
                 let name = name
                     .as_str()
-                    .ok_or(why(&format!("{field}.{game} is not text")))?;
-                Ok((game.to_string(), name.to_string()))
+                    .ok_or(why(&format!("{field}.{key} is not text")))?;
+                Ok((game, name.to_string()))
             })
             .collect()
     };
     let status = words(document.get("status"), "status")?.ok_or(why("no status"))?;
-    if !STATUSES.contains(&status.as_str()) {
-        return Err(why(&format!(
-            "status {status:?} is not one of {STATUSES:?}"
-        )));
-    }
+    let status = (Status::ALL.into_iter())
+        .find(|known| known.name() == status)
+        .ok_or_else(|| {
+            let names: Vec<&str> = Status::ALL.iter().map(|known| known.name()).collect();
+            why(&format!("status {status:?} is not one of {names:?}"))
+        })?;
     let notes = words(document.get("notes"), "notes")?.unwrap_or_else(String::new);
     let mut stories = Vec::new();
     if let Some(tables) = document.get("story") {
@@ -243,19 +562,25 @@ pub fn parse(module: &str, text: &str) -> Result<Stories, String> {
             let name = words(table.get("name"), "name")?.ok_or(why("a story has no name"))?;
             let screen =
                 words(table.get("screen"), "screen")?.ok_or(why(&format!("{name}: no screen")))?;
-            let games = list(table.get("games"), "games")?
-                .unwrap_or_else(|| vec!["k1".into(), "tsl".into()]);
-            if let Some(game) = games
-                .iter()
-                .find(|game| !matches!(game.as_str(), "k1" | "tsl"))
-            {
-                return Err(why(&format!("{name}: game {game} is not k1 or tsl")));
-            }
+            let games = match list(table.get("games"), "games")? {
+                None => GAMES.to_vec(),
+                Some(keys) => (keys.iter())
+                    .map(|key| game(key).map_err(|error| why(&format!("{name}: game {error}"))))
+                    .collect::<Result<_, _>>()?,
+            };
             if stories.iter().any(|story: &Story| story.name == name) {
                 return Err(why(&format!("two stories named {name}")));
             }
+            let steps = (list(table.get("steps"), "steps")?
+                .unwrap_or_else(Vec::new)
+                .iter())
+            .map(|step| {
+                step.parse()
+                    .map_err(|error| why(&format!("{name}: {error}")))
+            })
+            .collect::<Result<_, _>>()?;
             stories.push(Story {
-                steps: list(table.get("steps"), "steps")?.unwrap_or_else(Vec::new),
+                steps,
                 error: words(table.get("error"), "error")?,
                 capture: by_game(table.get("capture"), "capture")?,
                 pad_capture: by_game(table.get("pad_capture"), "pad_capture")?,
@@ -317,9 +642,10 @@ pub fn slug(name: &str) -> String {
 /// window, so a story draws it over the same spot at every size.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Capture {
-    /// The game it was taken in, by its key (`k1`, `tsl`). Its words are
-    /// lines of that game's talk table.
-    pub game: String,
+    /// The game it was taken in, written as its key (`k1`, `tsl`). Its
+    /// words are lines of that game's talk table.
+    #[serde(with = "crate::vm::game")]
+    pub game: vfs::Game,
     pub window: [f32; 2],
     pub scale_factor: f32,
     pub view: crate::vm::ViewModel,
@@ -349,7 +675,7 @@ impl Capture {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         Capture {
-            game: game.key().to_string(),
+            game,
             window,
             scale_factor,
             view: crate::vm::ViewModel {
@@ -395,7 +721,10 @@ impl Capture {
         let mut value = serde_json::to_value(self).map_err(|error| error.to_string())?;
         let unset = serde_json::to_value(crate::vm::ViewModel::default())
             .map_err(|error| error.to_string())?;
-        if let Some(view) = value.get_mut("view").and_then(serde_json::Value::as_object_mut) {
+        if let Some(view) = value
+            .get_mut("view")
+            .and_then(serde_json::Value::as_object_mut)
+        {
             view.retain(|field, value| unset.get(field) != Some(value));
         }
         name_lines(&mut value, false, talk);
@@ -999,7 +1328,6 @@ pub fn game_words(text: &str, talk: &dyn Talk) -> Result<Vec<String>, String> {
     Ok(found)
 }
 
-/// The capture named `name` in `folder`, read with `talk`.
 pub fn read_capture(
     folder: &std::path::Path,
     name: &str,
@@ -1011,8 +1339,7 @@ pub fn read_capture(
     Capture::read(&text, talk).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// `capture` written into `folder` as `name` with `talk`, and the file's
-/// path.
+/// The path of the file written.
 pub fn write_capture(
     folder: &std::path::Path,
     name: &str,
@@ -1033,4 +1360,138 @@ pub fn write_capture(
     let path = capture_file(folder, name);
     std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(path)
+}
+
+/// A rule of a valid catalogue that the story files or the captures break.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Problem {
+    /// The story files do not read.
+    Unread(String),
+    /// A screen module with no story file.
+    NoStories(String),
+    /// A story file of no screen module.
+    Stray(String),
+    /// A story whose screen does not open on an empty view model or on its
+    /// capture.
+    Unopened {
+        module: String,
+        story: String,
+        screen: String,
+    },
+    /// A capture that a story names but that is missing, does not read,
+    /// reads otherwise once written again, or was taken in another game or
+    /// with another input than it is named for.
+    Capture {
+        module: String,
+        story: String,
+        why: String,
+    },
+}
+
+impl std::fmt::Display for Problem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Problem::Unread(why) => write!(f, "the story files do not read: {why}"),
+            Problem::NoStories(module) => write!(f, "{module}: a screen module with no story file"),
+            Problem::Stray(module) => write!(f, "{module}: a story file of no screen module"),
+            Problem::Unopened {
+                module,
+                story,
+                screen,
+            } => write!(f, "{module}: {story} ({screen}): its screen does not open"),
+            Problem::Capture { module, story, why } => write!(f, "{module}: {story}: {why}"),
+        }
+    }
+}
+
+/// What breaks the rules of a valid catalogue in the checkout this was
+/// built from (docs/UI.md, "UI catalogue"). Every screen module has a story
+/// file, and every story file is a module's. Each file reads, with its
+/// status and steps. Each story opens its screen on an empty view model or
+/// on its capture, or names the screen over play (`PLAY`). Each capture of
+/// play a story names is in `CAPTURES`, reads, reads the same once written
+/// again, was taken in the game it is named for, and was taken with its
+/// input: the mouse for `capture`, a pad for `pad_capture`. A story with
+/// captures has one for each game it is drawn on, with each input. It needs
+/// no game data: the lines of the talk table a capture names are read as
+/// stand-in words (`StandInTalk`).
+pub fn check() -> Vec<Problem> {
+    let files = match read_all(&folder()) {
+        Ok(files) => files,
+        Err(why) => return vec![Problem::Unread(why)],
+    };
+    let modules: std::collections::BTreeSet<&str> = SCREEN_MODULES.into_iter().collect();
+    let covered: std::collections::BTreeSet<&str> =
+        files.iter().map(|file| file.module.as_str()).collect();
+    let mut problems: Vec<Problem> = (modules.difference(&covered))
+        .map(|module| Problem::NoStories(module.to_string()))
+        .chain((covered.difference(&modules)).map(|module| Problem::Stray(module.to_string())))
+        .collect();
+    let talk = StandInTalk;
+    let empty = crate::vm::ViewModel::default();
+    for file in &files {
+        for story in &file.stories {
+            let captured = (story.capture.values().next())
+                .and_then(|name| read_capture(&captures(), name, &talk).ok())
+                .map(|capture| capture.view);
+            let view = captured.as_ref().unwrap_or(&empty);
+            if story.screen != PLAY && crate::screens::open(&story.screen, view).is_none() {
+                problems.push(Problem::Unopened {
+                    module: file.module.clone(),
+                    story: story.name.clone(),
+                    screen: story.screen.clone(),
+                });
+            }
+        }
+    }
+    for file in &files {
+        for story in &file.stories {
+            for why in captures_problems(story, &talk) {
+                problems.push(Problem::Capture {
+                    module: file.module.clone(),
+                    story: story.name.clone(),
+                    why,
+                });
+            }
+        }
+    }
+    problems
+}
+
+/// What is wrong with the captures `story` names, read with `talk`.
+fn captures_problems(story: &Story, talk: &dyn Talk) -> Vec<String> {
+    let mut problems = Vec::new();
+    if story.capture.is_empty() && story.pad_capture.is_empty() {
+        return problems;
+    }
+    for &game in &story.games {
+        for (captures_of, pad) in [(&story.capture, false), (&story.pad_capture, true)] {
+            let input = if pad { "a pad" } else { "the mouse" };
+            let Some(name) = captures_of.get(&game) else {
+                problems.push(format!("no capture on {} with {input}", game.key()));
+                continue;
+            };
+            let why = match read_capture(&captures(), name, talk) {
+                Err(why) => Some(why),
+                Ok(capture) if capture.game != game => Some(format!(
+                    "taken in {}, named for {}",
+                    capture.game.key(),
+                    game.key()
+                )),
+                Ok(capture) if capture.view.pad_playing != pad => Some(format!(
+                    "taken with the {}",
+                    if pad { "mouse" } else { "pad" }
+                )),
+                Ok(capture) => {
+                    let again = (capture.text(talk)).and_then(|text| Capture::read(&text, talk));
+                    (again.as_ref() != Ok(&capture))
+                        .then(|| "reads otherwise once written".to_string())
+                }
+            };
+            if let Some(why) = why {
+                problems.push(format!("{name}: {why}"));
+            }
+        }
+    }
+    problems
 }

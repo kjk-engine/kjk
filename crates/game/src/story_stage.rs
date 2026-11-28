@@ -4,7 +4,7 @@
 //! in-game catalogue will show it.
 
 use ui::assets::GuiAssets;
-use ui::catalogue::Size;
+use ui::catalogue::{Lobby, Size, Step, Wheel};
 use ui::over_play::Shown;
 use ui::render::Render;
 use vfs::{Discovery, Game};
@@ -16,7 +16,7 @@ use vfs::{Discovery, Game};
 pub struct Scene {
     pub game: Game,
     pub screen: String,
-    pub steps: Vec<String>,
+    pub steps: Vec<Step>,
     pub error: Option<String>,
     pub capture: Option<String>,
 }
@@ -111,7 +111,7 @@ impl Staged {
         let mut shown = serde_json::json!({
             "game": scene.game.key(),
             "screen": scene.screen,
-            "steps": scene.steps,
+            "steps": scene.steps.iter().map(ToString::to_string).collect::<Vec<_>>(),
             "scale_factor": self.size.factor,
         });
         if let Some(capture) = &scene.capture {
@@ -164,12 +164,10 @@ impl Staged {
             .layers
     }
 
-    /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `key MOVE` a
-    /// screen move, `Down`, `Activate`; `raw NAME` a key, mouse button or
-    /// pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad KIND`
-    /// the pad played with, its hints shown, `xbox`, `playstation`,
-    /// `nintendo`, `deck`), and a quiet frame after it.
-    pub fn step(&mut self, discovery: &Discovery, step: &str) -> Result<(), String> {
+    /// `step` taken, and a quiet frame after it. A raw press and a screen
+    /// move print the intents they raised, and a screen move prints where
+    /// it left the focus.
+    pub fn step(&mut self, discovery: &Discovery, step: &Step) -> Result<(), String> {
         let Staged {
             scene,
             assets,
@@ -182,185 +180,121 @@ impl Staged {
             ..
         } = self;
         let (game, quiet) = (scene.game, &*quiet);
-        match step.split_once(' ') {
-            Some(("press", tag)) => stack.press(tag),
-            Some(("set", setting)) => {
-                let (key, value) = setting
-                    .split_once(' ')
-                    .ok_or(format!("{step}: set KEY VALUE"))?;
-                vm.settings.insert(key.to_string(), value.to_string());
-                stack.step(assets, vm, quiet);
+        // What the step feeds the stack on a frame of its own, if anything.
+        let fed = match step {
+            Step::Press(tag) => {
+                stack.press(tag);
+                None
             }
-            Some(("session", rules)) => {
-                vm.session_rules = Some(rules.to_string());
-                stack.step(assets, vm, quiet);
+            Step::Set { key, value } => {
+                vm.settings.insert(key.clone(), value.clone());
+                Some(quiet.clone())
             }
-            Some(("lobby", "guest")) => {
-                vm.lobby = Some(stand_in_lobby(assets, game, 2, 0, false));
-                stack.step(assets, vm, quiet);
+            Step::Session(rules) => {
+                vm.session_rules = Some(rules.clone());
+                Some(quiet.clone())
             }
-            Some(("lobby", "hero")) => {
-                vm.lobby = Some(stand_in_lobby(assets, game, 0, 1, false));
-                stack.step(assets, vm, quiet);
-            }
-            Some(("lobby", "hero guest")) => {
-                vm.lobby = Some(stand_in_lobby(assets, game, 1, 1, false));
-                stack.step(assets, vm, quiet);
-            }
-            Some(("lobby", "all")) => {
-                vm.lobby = Some(stand_in_lobby(assets, game, 0, 0, true));
-                stack.step(assets, vm, quiet);
-            }
-            Some(("party", "all")) => {
-                vm.party_selection = Some(stand_in_party(assets, game, true));
-                stack.step(assets, vm, quiet);
-            }
-            Some(("pazaak", change)) => {
-                let table = vm.pazaak.as_mut().ok_or("pazaak: on pazaak_game only")?;
-                match change.split_once(' ') {
-                    Some(("turn", whose)) => table.turn = whose.parse().ok(),
-                    Some(("played", nth)) => {
-                        let nth: usize = nth.parse().map_err(|_| "pazaak played N")?;
-                        if let Some(held) = table.sides[0].hand.get_mut(nth) {
-                            *held = None;
-                        }
+            Step::Lobby(lobby) => {
+                vm.lobby = Some(match lobby {
+                    Lobby::Guest => stand_in_lobby(assets, game, 2, 0, false),
+                    Lobby::Hero => stand_in_lobby(assets, game, 0, 1, false),
+                    Lobby::HeroGuest => stand_in_lobby(assets, game, 1, 1, false),
+                    Lobby::All => stand_in_lobby(assets, game, 0, 0, true),
+                    Lobby::Droid => droid_lobby(assets, game),
+                    Lobby::Save(id) => saved_lobby(discovery, id.clone())?,
+                    Lobby::Checkpoint(path) => {
+                        saved_lobby(discovery, checkpoint_save(game, path)?)?
                     }
-                    _ => return Err(format!("{step}: `pazaak turn N` or `pazaak played N`")),
-                }
-                stack.step(assets, vm, quiet);
-            }
-            Some(("lobby", "droid")) => {
-                vm.lobby = Some(droid_lobby(assets, game));
-                stack.step(assets, vm, quiet);
-            }
-            Some(("lobby", lobby))
-                if lobby.starts_with("save ") || lobby.starts_with("checkpoint ") =>
-            {
-                let id = match lobby.strip_prefix("checkpoint ") {
-                    Some(path) => checkpoint_save(game, path)?,
-                    None => lobby["save ".len()..].to_string(),
-                };
-                let chosen = crate::lobby_host::choose(discovery, Some(id), None, None)?;
-                let mut lobby = crate::lobby_host::lobby_of(&chosen);
-                lobby.join("Mia".into());
-                lobby.join("Kalle".into());
-                outln!("lobby facts {}", lobby_facts(&chosen, &lobby));
-                vm.lobby = Some(ui::vm::LobbyView {
-                    address: "192.168.1.20 : 7777".into(),
-                    steam: true,
-                    ..crate::lobby_host::view(&lobby, 0)
                 });
-                stack.step(assets, vm, quiet);
+                Some(quiet.clone())
             }
-            Some(("wheel", what)) => wheel_step(vm, what)?,
-            // A terminal's camera feed over play, as the game turns it on
-            // while a computer conversation shows a camera.
-            Some(("feed", "on")) => vm.camera_feed = true,
-            // Photo mode on, its corner lines as it first shows them.
-            Some(("photo", "on")) => {
+            Step::PartyAll => {
+                vm.party_selection = Some(stand_in_party(assets, game, true));
+                Some(quiet.clone())
+            }
+            Step::PazaakTurn(whose) => {
+                let table = vm.pazaak.as_mut().ok_or("pazaak: on pazaak_game only")?;
+                table.turn = *whose;
+                Some(quiet.clone())
+            }
+            Step::PazaakPlayed(nth) => {
+                let table = vm.pazaak.as_mut().ok_or("pazaak: on pazaak_game only")?;
+                if let Some(held) = table.sides[0].hand.get_mut(*nth) {
+                    *held = None;
+                }
+                Some(quiet.clone())
+            }
+            Step::Wheel(wheel) => {
+                wheel_step(vm, wheel)?;
+                None
+            }
+            Step::FeedOn => {
+                vm.camera_feed = true;
+                None
+            }
+            Step::PhotoOn => {
                 let device = if vm.pad_playing {
                     crate::pad::Device::Pad(*pad)
                 } else {
                     crate::pad::Device::Keys
                 };
                 *photo = Some(crate::photo_mode::first_lines(device));
+                None
             }
-            Some(("level", _)) => {}
-            Some(("stands", folder)) => {
+            Step::Level { .. } => None,
+            Step::Stands(folder) => {
                 if let Some(me) = vm.character.as_mut() {
                     me.stance = Some(crate::stance_sets::set_title(folder));
                 }
-                stack.step(assets, vm, quiet);
+                Some(quiet.clone())
             }
-            Some(("type", text)) => {
-                let typed = ui::input::UiInput {
-                    text: text.to_string(),
-                    ..quiet.clone()
-                };
-                stack.step(assets, vm, &typed);
-            }
-            Some(("pad", kind)) => {
-                let kind = crate::pad::PadKind::named(kind)
-                    .ok_or(format!("{kind}: xbox, playstation, nintendo or deck"))?;
+            Step::Type(text) => Some(ui::input::UiInput {
+                text: text.clone(),
+                ..quiet.clone()
+            }),
+            Step::Pad(kind) => {
+                let kind = crate::pad::PadKind::named(kind.key())
+                    .ok_or(format!("{}: no such pad here", kind.key()))?;
                 repad(vm, kind.key())?;
                 padded(vm, kind);
                 *pad = kind;
                 vm.pad_playing = true;
+                None
             }
-            Some(("raw", pressed)) => {
-                let raw = ui::input::UiInput {
-                    raw: vec![pressed.to_string()],
+            Step::Raw(pressed) => Some(ui::input::UiInput {
+                raw: vec![pressed.clone()],
+                ..quiet.clone()
+            }),
+            Step::Key(key) => Some(ui::input::UiInput {
+                keys: vec![*key],
+                ..quiet.clone()
+            }),
+            Step::Point(at) => {
+                *pointer = *at;
+                Some(ui::input::UiInput {
+                    pointer: Some(*at),
+                    moved: true,
                     ..quiet.clone()
-                };
-                let frame = stack.step(assets, vm, &raw);
+                })
+            }
+            Step::Scroll(notches) => Some(ui::input::UiInput {
+                pointer: Some(*pointer),
+                moved: true,
+                wheel: -notches,
+                ..quiet.clone()
+            }),
+        };
+        if let Some(fed) = fed {
+            let frame = stack.step(assets, vm, &fed);
+            if matches!(step, Step::Raw(_) | Step::Key(_)) {
                 for intent in frame.intents {
                     outln!("{step}: {intent:?}");
                 }
             }
-            Some(("key", moved)) => {
-                use ui::input::Key;
-                let key = [
-                    ("Up", Key::Up),
-                    ("Down", Key::Down),
-                    ("Left", Key::Left),
-                    ("Right", Key::Right),
-                    ("Activate", Key::Activate),
-                    ("Back", Key::Back),
-                    ("Primary", Key::Primary),
-                    ("Second", Key::Second),
-                    ("Accept", Key::Accept),
-                    ("NextTab", Key::NextTab),
-                    ("PrevTab", Key::PrevTab),
-                    ("NextPage", Key::NextPage),
-                    ("PrevPage", Key::PrevPage),
-                ]
-                .into_iter()
-                .find(|(name, _)| *name == moved)
-                .ok_or(format!(
-                    "{moved}: Up, Down, Left, Right, Activate, Back, Primary, Second, Accept, NextTab, PrevTab, NextPage or PrevPage"
-                ))?
-                .1;
-                let keyed = ui::input::UiInput {
-                    keys: vec![key],
-                    ..quiet.clone()
-                };
-                let frame = stack.step(assets, vm, &keyed);
-                for intent in frame.intents {
-                    outln!("{step}: {intent:?}");
-                }
-                // Where the move left the focus, so that a check can
-                // follow a pad's player across the screen.
+            // Where a move left the focus, so that a check can follow a
+            // pad's player across the screen.
+            if matches!(step, Step::Key(_)) {
                 outln!("{step}: focus {}", stack.focused().unwrap_or("none"));
-            }
-            Some(("point", at)) => {
-                let parsed: Vec<f32> = at.split(' ').filter_map(|n| n.parse().ok()).collect();
-                let [x, y] = parsed[..] else {
-                    return Err(format!("{step:?}: `point X Y`, a pixel of the frame"));
-                };
-                *pointer = [x, y];
-                let moved = ui::input::UiInput {
-                    pointer: Some(*pointer),
-                    moved: true,
-                    ..quiet.clone()
-                };
-                stack.step(assets, vm, &moved);
-            }
-            Some(("scroll", notches)) => {
-                let notches: f32 = notches
-                    .parse()
-                    .map_err(|_| format!("{step:?}: `scroll N`, N notches down"))?;
-                let wheeled = ui::input::UiInput {
-                    pointer: Some(*pointer),
-                    moved: true,
-                    wheel: -notches,
-                    ..quiet.clone()
-                };
-                stack.step(assets, vm, &wheeled);
-            }
-            _ => {
-                return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on`, `photo on` or `pazaak turn N`"
-                ));
             }
         }
         let frame = stack.step(assets, vm, quiet);
@@ -395,28 +329,21 @@ fn repad(vm: &mut ui::vm::ViewModel, kind: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A step on an open power wheel: `wheel at N` highlights entry N (from
-/// 0), `wheel pick NAME` the first entry whose name holds NAME, and
-/// `wheel close` shuts the wheel. The pointer goes to the highlighted
+/// A step on an open power wheel. The pointer goes to the highlighted
 /// entry, the ring turns to show it, and the arc of the entry highlighted
 /// before goes away, as only the game knows an entry's arc.
-fn wheel_step(vm: &mut ui::vm::ViewModel, what: &str) -> Result<(), String> {
+fn wheel_step(vm: &mut ui::vm::ViewModel, step: &Wheel) -> Result<(), String> {
     use ui::screens::wheel::{Ring, ring_slot};
-    if what == "close" {
-        vm.wheel = None;
-        return Ok(());
-    }
-    let wheel = vm
-        .wheel
-        .as_mut()
-        .ok_or("wheel: no wheel is open (a capture taken with it open has one)")?;
-    let at = match what.split_once(' ') {
-        Some(("at", nth)) => nth
-            .parse()
-            .map_err(|_| format!("wheel at {nth}: N is an entry's number"))?,
-        Some(("pick", name)) => {
+    let closed = "wheel: no wheel is open (a capture taken with it open has one)";
+    let at = match step {
+        Wheel::Close => {
+            vm.wheel = None;
+            return Ok(());
+        }
+        Wheel::At(nth) => *nth,
+        Wheel::Pick(name) => {
             let name = name.to_lowercase();
-            (wheel.entries.iter())
+            (vm.wheel.as_ref().ok_or(closed)?.entries.iter())
                 .position(|entry| {
                     String::from_utf8_lossy(&entry.name)
                         .to_lowercase()
@@ -424,12 +351,8 @@ fn wheel_step(vm: &mut ui::vm::ViewModel, what: &str) -> Result<(), String> {
                 })
                 .ok_or(format!("wheel pick {name}: no entry is so named"))?
         }
-        _ => {
-            return Err(format!(
-                "wheel {what}: `wheel at N`, `wheel pick NAME` or `wheel close`"
-            ));
-        }
     };
+    let wheel = vm.wheel.as_mut().ok_or(closed)?;
     let entries = wheel.entries.len();
     if at >= entries {
         return Err(format!("wheel at {at}: the wheel has {entries} entries"));
@@ -506,8 +429,8 @@ fn stand_ins(
         vm.party = vec![ui::vm::MemberView::default(); 3];
     }
     for step in &scene.steps {
-        if let Some(("level", level)) = step.split_once(' ') {
-            stand_in_level(&mut vm, assets, level)?;
+        if let Step::Level { class, level } = *step {
+            stand_in_level(&mut vm, assets, class, level)?;
         }
     }
     Ok(vm)
@@ -528,6 +451,20 @@ fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
     let root = crate::save_view::folder().ok_or("no folder for saves here")?;
     saves::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
     Ok(id)
+}
+
+/// The host's view of the lobby on the save `id`, with two guests.
+fn saved_lobby(discovery: &Discovery, id: String) -> Result<ui::vm::LobbyView, String> {
+    let chosen = crate::lobby_host::choose(discovery, Some(id), None, None)?;
+    let mut lobby = crate::lobby_host::lobby_of(&chosen);
+    lobby.join("Mia".into());
+    lobby.join("Kalle".into());
+    outln!("lobby facts {}", lobby_facts(&chosen, &lobby));
+    Ok(ui::vm::LobbyView {
+        address: "192.168.1.20 : 7777".into(),
+        steam: true,
+        ..crate::lobby_host::view(&lobby, 0)
+    })
 }
 
 /// What the lobby on a real save shows, as one line of JSON for the lobby's
@@ -824,12 +761,9 @@ fn stand_in_member() -> ui::vm::CharacterView {
 fn stand_in_level(
     vm: &mut ui::vm::ViewModel,
     assets: &mut GuiAssets,
-    spec: &str,
+    class: u8,
+    level: u8,
 ) -> Result<(), String> {
-    let usage = || format!("{spec:?}: `level CLASS N`, a classes.2da row and a level");
-    let (class, level) = spec.split_once(' ').ok_or_else(usage)?;
-    let class: u8 = class.parse().map_err(|_| usage())?;
-    let level: u8 = level.parse().map_err(|_| usage())?;
     let classes = session::classes::classes(&crate::viewer::ResolverSource(assets.resolver()));
     let of = classes
         .classes

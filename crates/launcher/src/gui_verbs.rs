@@ -87,17 +87,14 @@ pub fn render(
 }
 
 /// A screen of `game` (`chargen:solo`, ...) opened on the game's own data,
-/// as play opens it, `steps` taken in turn (`press TAG`, `type TEXT`, `scroll N`;
-/// `key MOVE` a screen move, `Down`, `Activate`; `raw NAME` a key, mouse
-/// button or pad chord pressed, `KeyZ`, `MouseBack`, `Pad:LB+South`; `pad
-/// KIND` the pad played with, its hints shown, `xbox`, `playstation`, `nintendo`, `deck`), its
+/// as play opens it, `steps` taken in turn (`ui::catalogue::Step`), its
 /// layers drawn into one PNG named `file`. The view model is what the game
 /// fills for the screen (character creation's choices, the session's
 /// `error` for `message`); the 3D views are not drawn.
 pub fn screen(
     discovery: &Discovery,
     (game, name): (&str, &str),
-    (steps, error): (&[String], Option<String>),
+    (steps, error): (&[ui::catalogue::Step], Option<String>),
     size: (u32, u32),
     (out, file): (Option<PathBuf>, Option<&str>),
 ) -> ExitCode {

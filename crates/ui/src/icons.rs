@@ -198,8 +198,9 @@ impl Button {
     }
 }
 
+/// A kind of pad, by its maker: whose glyphs and button names are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub enum Kind {
     Xbox,
     PlayStation,
     Nintendo,
@@ -223,14 +224,20 @@ const PS_FACE: [Rgba; 4] = [
 ];
 
 impl Kind {
-    fn named(name: &str) -> Option<Kind> {
-        Some(match name {
-            "xbox" => Kind::Xbox,
-            "playstation" => Kind::PlayStation,
-            "nintendo" => Kind::Nintendo,
-            "deck" => Kind::Deck,
-            _ => return None,
-        })
+    pub const ALL: [Kind; 4] = [Kind::Xbox, Kind::PlayStation, Kind::Nintendo, Kind::Deck];
+
+    pub fn named(name: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|kind| kind.key() == name)
+    }
+
+    /// As the view model and the textures name it (`pad_texture`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Kind::Xbox => "xbox",
+            Kind::PlayStation => "playstation",
+            Kind::Nintendo => "nintendo",
+            Kind::Deck => "deck",
+        }
     }
 
     /// The words on a shoulder, a trigger, a stick (`LB`, `L2`, `ZL`, `LS`).

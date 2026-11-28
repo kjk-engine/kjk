@@ -740,12 +740,12 @@ impl GuiAssets {
         searched
     }
 
-    /// The campaign's files (its module's own first, once one is set).
     /// The campaign's talk table, when it reads.
     pub fn talk(&self) -> Option<&Tlk> {
         self.tlk.as_deref()
     }
 
+    /// The campaign's files (its module's own first, once one is set).
     pub fn resolver(&self) -> &Resolver {
         &self.resolver
     }

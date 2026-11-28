@@ -12,6 +12,14 @@ fn stories() -> Result<Vec<Stories>, String> {
     read_all(&ui::catalogue::folder())
 }
 
+fn by_key(
+    captures: &std::collections::BTreeMap<Game, String>,
+) -> std::collections::BTreeMap<&str, &str> {
+    (captures.iter())
+        .map(|(game, name)| (game.key(), name.as_str()))
+        .collect()
+}
+
 fn finish(result: Result<(), String>) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -22,8 +30,14 @@ fn finish(result: Result<(), String>) -> ExitCode {
     }
 }
 
-/// Every module's status and stories: one line each, or JSON.
+/// Every module's status and stories: one line each, or JSON. What breaks
+/// the catalogue's rules (`ui::catalogue::check`) is listed after them, and
+/// fails the verb.
 pub fn list(json: bool) -> ExitCode {
+    let problems: Vec<String> = ui::catalogue::check()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     finish(stories().map(|files| {
         if json {
             let modules: Vec<serde_json::Value> = (files.iter())
@@ -34,15 +48,15 @@ pub fn list(json: bool) -> ExitCode {
                                 "name": story.name,
                                 "slug": slug(&story.name),
                                 "screen": story.screen,
-                                "games": story.games,
-                                "capture": story.capture,
-                                "pad_capture": story.pad_capture,
+                                "games": story.games.iter().map(|game| game.key()).collect::<Vec<_>>(),
+                                "capture": by_key(&story.capture),
+                                "pad_capture": by_key(&story.pad_capture),
                             })
                         })
                         .collect();
                     serde_json::json!({
                         "module": file.module,
-                        "status": file.status,
+                        "status": file.status.name(),
                         "notes": file.notes,
                         "stories": stories,
                     })
@@ -52,13 +66,19 @@ pub fn list(json: bool) -> ExitCode {
                 .map(|size| serde_json::json!({ "name": size.name, "pixels": [size.pixels.0, size.pixels.1], "scale_factor": size.factor }))
                 .collect();
             let inputs: Vec<&str> = Input::ALL.iter().map(|input| input.name()).collect();
-            let out = serde_json::json!({ "modules": modules, "sizes": sizes, "inputs": inputs });
+            let out = serde_json::json!({ "modules": modules, "sizes": sizes, "inputs": inputs, "problems": problems });
             outln!("{}", serde_json::to_string_pretty(&out).unwrap_or_else(|error| error.to_string()));
         } else {
             for file in &files {
                 outln!("{} ({}): {} stories", file.module, file.status, file.stories.len());
             }
+            for problem in &problems {
+                outln!("problem: {problem}");
+            }
         }
+    }).and_then(|()| match problems.len() {
+        0 => Ok(()),
+        count => Err(format!("{count} problems in the catalogue")),
     }))
 }
 
@@ -72,12 +92,13 @@ pub fn show(module: &str) -> ExitCode {
             outln!("{}", file.notes);
         }
         for story in &file.stories {
+            let games: Vec<&str> = story.games.iter().map(|game| game.key()).collect();
             outln!(
                 "- {} [{}]: {} on {}",
                 story.name,
                 slug(&story.name),
                 story.screen,
-                story.games.join(", ")
+                games.join(", ")
             );
             for step in &story.steps {
                 outln!("    {step}");
@@ -87,7 +108,7 @@ pub fn show(module: &str) -> ExitCode {
             }
             for (input, captures) in [("mouse", &story.capture), ("pad", &story.pad_capture)] {
                 for (game, capture) in captures {
-                    outln!("    capture on {game} for the {input}: {capture}");
+                    outln!("    capture on {} for the {input}: {capture}", game.key());
                 }
             }
         }
@@ -101,9 +122,9 @@ pub fn show(module: &str) -> ExitCode {
 pub struct Choice<'a> {
     pub module: &'a str,
     pub story: Option<&'a str>,
-    pub size: Option<&'a str>,
-    pub input: Option<&'a str>,
-    pub game: Option<&'a str>,
+    pub size: Option<Size>,
+    pub input: Option<Input>,
+    pub game: Option<Game>,
 }
 
 /// Draws the chosen stories into `out`, by default the catalogue's
@@ -129,28 +150,23 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
                 choice.story.unwrap_or("")
             ));
         }
-        let sizes: Vec<Size> = match choice.size {
-            Some(name) => vec![Size::named(name).ok_or(format!("{name}: no such size"))?],
-            None => SIZES.to_vec(),
-        };
-        let inputs: Vec<Input> = match choice.input {
-            Some(name) => vec![Input::named(name).ok_or(format!("{name}: pad or mouse"))?],
-            None => Input::ALL.to_vec(),
-        };
+        let sizes: Vec<Size> = choice.size.map_or(SIZES.to_vec(), |size| vec![size]);
+        let inputs: Vec<Input> = choice
+            .input
+            .map_or(Input::ALL.to_vec(), |input| vec![input]);
         let mut drawn = 0;
         for story in chosen {
-            for game in &story.games {
+            for &game in &story.games {
                 if choice.game.is_some_and(|wanted| wanted != game) {
                     continue;
                 }
-                let key = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
-
                 for size in &sizes {
                     for input in &inputs {
                         let Some(capture) = story.capture_for(game, *input) else {
                             outln!(
-                                "{}: no capture on {game} with the {}",
+                                "{}: no capture on {} with the {}",
                                 story.name,
+                                game.key(),
                                 input.name()
                             );
                             continue;
@@ -159,7 +175,7 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
                         let mut steps = input.steps(*size);
                         steps.extend(story.steps.iter().cloned());
                         let scene = kjk_game::story_stage::Scene {
-                            game: key,
+                            game,
                             screen: story.screen.clone(),
                             steps,
                             error: story.error.clone(),
@@ -181,15 +197,14 @@ pub fn story(discovery: &Discovery, choice: &Choice<'_>, out: Option<PathBuf>) -
 
 fn drawn_path(
     out: &Path,
-    (game, module, story): (&str, &str, &str),
+    (game, module, story): (Game, &str, &str),
     size: Size,
     input: Input,
 ) -> PathBuf {
-    out.join(game).join(module).join(slug(story)).join(format!(
-        "{}-{}.png",
-        size.name,
-        input.name()
-    ))
+    out.join(game.key())
+        .join(module)
+        .join(slug(story))
+        .join(format!("{}-{}.png", size.name, input.name()))
 }
 
 /// What the layouts of each install use, counted: how many layouts, the

@@ -104,7 +104,7 @@ const FLOW_ARROW_IMAGE: &str = "uibit_abi_arrow";
 /// taken (KOTOR 2's feat flow), an item the member may not wear (the equip
 /// list's `CSWGuiInGameItemEntry::SetCanUse`), a number items and effects
 /// lower (`bonus_colour`).
-pub(crate) const RED: [f32; 3] = [0.74, 0.11, 0.0];
+pub(crate) const RED: [f32; 3] = tokens::REFUSED;
 /// KOTOR 2's `CGuiInGame::COLOR_NEW_BONUS` and `COLOR_NEW_TEXT`.
 const NEW_BONUS: [f32; 3] = [0.95, 0.66, 0.3];
 const NEW_TEXT: [f32; 3] = [0.1, 0.7, 0.55];
@@ -121,6 +121,13 @@ pub fn bonus_colour(bonus: i32) -> [f32; 3] {
     }
 }
 
+/// The palettes' colours, written by the build script from
+/// `data/ui/tokens.json`.
+pub(crate) mod tokens {
+    use super::Palette;
+    include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
     pub base: [f32; 3],
@@ -129,16 +136,8 @@ pub struct Palette {
 }
 
 impl Palette {
-    pub const K1: Palette = Palette {
-        base: [0.0, 0.639_216, 0.952_941],
-        hilight: [0.980_392, 1.0, 0.0],
-        disabled: [0.0, 0.349_02, 0.549_02],
-    };
-    pub const TSL: Palette = Palette {
-        base: [0.192_157, 0.768_627, 0.647_059],
-        hilight: [0.768_627, 0.768_627, 0.686_275],
-        disabled: [0.513_725, 0.513_725, 0.415_686],
-    };
+    pub const K1: Palette = tokens::K1;
+    pub const TSL: Palette = tokens::TSL;
 
     /// The colours of `game`'s own screens.
     pub fn of(game: vfs::Game) -> Palette {

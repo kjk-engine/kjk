@@ -25,7 +25,7 @@ pub fn system_file(name: &str) -> bool {
     matches!(name, ".ds_store" | "thumbs.db" | "desktop.ini")
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Game {
     Kotor1,
     Kotor2,

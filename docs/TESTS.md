@@ -165,7 +165,10 @@ model. The checks
 `tree_marks`, `tree_focus_links` and `palette_tokens` were added to
 `gui_layouts` the same day. They check the marks a painter leaves for the
 control trees, the focus links the trees record, and that the code's
-palettes have the colours of `data/ui/tokens.json`.
+palettes have the colours of `data/ui/tokens.json`. On 2026-11-28 the
+check `palette_tokens` was removed. The ui crate's build script now writes
+the palettes from `data/ui/tokens.json`, so the file is the only source of
+the colours and there is nothing left to compare.
 The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
 approval. It checks that a pause of eight hours, as when a computer sleeps
 with the game running, moves the game by one frame at most, and that the

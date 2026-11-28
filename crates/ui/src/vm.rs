@@ -1710,6 +1710,18 @@ pub struct BlockReticleView {
     pub unguarded: bool,
 }
 
+/// The words of `known` that are `word`, for a reader of a field of
+/// `CodeWords`. `what` says what such words are, for the error.
+fn code_words<E: serde::de::Error>(
+    word: &str,
+    known: &[CodeWords],
+    what: &str,
+) -> Result<CodeWords, E> {
+    (known.iter().copied())
+        .find(|known| *known == word)
+        .ok_or_else(|| E::custom(format!("{word:?}: not {what}")))
+}
+
 /// The HUD's status icons (`HudView::lit`) as their tags, read back as the
 /// HUD's own tags (`screens::hud::STATUS`).
 mod status_icons {
@@ -1720,14 +1732,13 @@ mod status_icons {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Vec<&'static str>, D::Error> {
-        let words = Vec::<String>::deserialize(from)?;
-        (words.iter())
+        (Vec::<String>::deserialize(from)?.iter())
             .map(|word| {
-                (crate::screens::hud::STATUS.into_iter())
-                    .find(|known| known == word)
-                    .ok_or_else(|| {
-                        serde::de::Error::custom(format!("{word}: not a status icon of the HUD"))
-                    })
+                super::code_words(
+                    word,
+                    &crate::screens::hud::STATUS,
+                    "a status icon of the HUD",
+                )
             })
             .collect()
     }
@@ -1752,13 +1763,22 @@ mod answer_wait {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         from: D,
     ) -> Result<Option<&'static str>, D::Error> {
-        let Some(word) = Option::<String>::deserialize(from)? else {
-            return Ok(None);
-        };
-        (KNOWN.into_iter())
-            .find(|known| *known == word)
-            .map(Some)
-            .ok_or_else(|| serde::de::Error::custom(format!("{word:?}: not why an answer waits")))
+        (Option::<String>::deserialize(from)?)
+            .map(|word| super::code_words(&word, &KNOWN, "why an answer waits"))
+            .transpose()
+    }
+}
+
+/// A game as its key (`k1`, `tsl`, `vfs::Game::key`).
+pub(crate) mod game {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(game: &vfs::Game, to: S) -> Result<S::Ok, S::Error> {
+        game.key().serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<vfs::Game, D::Error> {
+        super::games::game(&String::deserialize(from)?)
     }
 }
 

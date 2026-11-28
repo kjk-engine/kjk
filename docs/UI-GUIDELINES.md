@@ -34,6 +34,8 @@ Every screen is checked at six sizes. Each size has a scale factor, because kjk 
 | 4:3 | 1440 × 1080 | 100% | An old 4:3 monitor |
 | Ultrawide | 3440 × 1440 | 100% | A 21:9 monitor |
 
+The 4K monitor draws the same picture as the 4K TV. kjk scales its screens to the window, so the desktop's scaling does not change their size. The 4K monitor stays in the list to show that kjk does not follow the desktop's scaling. If kjk ever followed it, the two pictures would differ.
+
 A screen can also be seen from three distances. The Steam Deck is held at about 30 cm, which is the distance Valve's rules assume. A desktop monitor is seen from about 60 cm. A TV is seen from between 2.5 and 3 m, which is the "10-foot" view that Microsoft's TV numbers assume. The rules give the desk figure and the TV figure separately where they differ.
 
 Whether the TV rules apply always, only in a TV mode, or only with a large text option is not decided yet. The owner will decide after seeing them on real screens. Until then, the lint reports desk failures and TV failures separately, and a screen only needs to pass the desk rules and the Steam Deck rules.

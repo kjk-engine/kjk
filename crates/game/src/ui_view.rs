@@ -626,7 +626,8 @@ fn requests(
                 .push(Box::new(ui::screens::Layout(layout.to_string()))),
             // docs/UI.md, "Captures of play".
             ["capture", name, folder @ ..] => {
-                let folder = (!folder.is_empty()).then(|| std::path::PathBuf::from(folder.join(" ")));
+                let folder =
+                    (!folder.is_empty()).then(|| std::path::PathBuf::from(folder.join(" ")));
                 let window = [ui.floating.window.0, ui.floating.window.1];
                 let game = ui
                     .assets

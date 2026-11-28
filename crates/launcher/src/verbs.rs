@@ -804,9 +804,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 &gui_catalogue::Choice {
                     module: &module,
                     story: story.as_deref(),
-                    size: at.as_deref(),
-                    input: input.as_deref(),
-                    game: game.as_deref(),
+                    size: at,
+                    input,
+                    game,
                 },
                 out,
             ),
@@ -1334,9 +1334,9 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the player's, or a hand card played away) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`, `NextTab`: a screen move, after which the focus is printed), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`), `pazaak turn N` or `pazaak played N` (on `pazaak_game`: whose turn it is, 0 the main character's, or a hand card played away), `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1), or one of the others a wrong step lists
         #[arg(long = "step")]
-        steps: Vec<String>,
+        steps: Vec<ui::catalogue::Step>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
         #[arg(long)]
         out: Option<std::path::PathBuf>,
@@ -1380,13 +1380,13 @@ pub(crate) enum GuiVerb {
         /// `ultrawide`); all six by default. It is not called `size`, which
         /// is the headless frame size every verb takes.
         #[arg(long)]
-        at: Option<String>,
+        at: Option<ui::catalogue::Size>,
         /// `pad` or `mouse`; both by default
         #[arg(long)]
-        input: Option<String>,
+        input: Option<ui::catalogue::Input>,
         /// k1 or tsl; each the story names by default
-        #[arg(long)]
-        game: Option<String>,
+        #[arg(long, value_parser = ui::catalogue::game)]
+        game: Option<Game>,
         /// Output folder; defaults to kjk-artifacts/gui/catalogue
         #[arg(long)]
         out: Option<std::path::PathBuf>,

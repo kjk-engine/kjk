@@ -766,9 +766,14 @@ Running and checking:
   factor of 2, `4x3`, `ultrawide`) and with two inputs (`pad`, its hints
   shown, the Steam Deck's buttons on `deck`; `mouse`). The screens step in
   the logical window and are drawn at the physical size, as in play, so
-  `4k-monitor` draws as `4k-tv` does: the screens keep their size at any
-  desktop scaling. `kjk gui list [--json]` lists the modules, their
-  statuses and stories, and the sizes and inputs. `kjk gui show MODULE`
+  `4k-monitor` draws the same picture as `4k-tv`. The screens keep their
+  size at any desktop scaling. The size stays in the catalogue to show
+  that: kjk does not follow the desktop's scaling, and a change that made it
+  do so would make the two sizes differ. `kjk gui list [--json]` lists the modules, their
+  statuses and stories, and the sizes and inputs. It then lists what breaks
+  the catalogue's rules (`ui::catalogue::check`, the rules of the approved
+  test `ui_catalogue`) and fails when something does. A story's steps are
+  read with its story file, so a step that does not read is such a fault. `kjk gui show MODULE`
   gives a module's notes and its stories' steps. `kjk gui story MODULE
   [STORY] [--at SIZE] [--input pad|mouse] [--game k1|tsl]` draws stories,
   a PNG and a control tree each, into
@@ -885,9 +890,9 @@ Running and checking:
     reads each line of the talk table as stand-in words (`talk 1234`,
     `ui::catalogue::StandInTalk`).
 - **Design tokens** (`data/ui/tokens.json`, the W3C Design Tokens format
-  2025.10). They hold the screens' palettes, which are the source of the
-  colours in the code (the probe `palette_tokens` fails when a palette
-  differs), KOTOR's bitmap fonts by their use (`com.kjk.bitmapFont` holds
+  2025.10). They hold the screens' palettes. The ui crate's build script
+  writes the palettes of the code from this file, so it is the only source
+  of the colours. They also hold KOTOR's bitmap fonts by their use (`com.kjk.bitmapFont` holds
   the texture), and the smallest body heights of docs/UI-GUIDELINES.md.
   `kjk gui census` counts what the layouts of each install use into
   `data/ui/census.json`: the layouts, the controls of each kind, and the
