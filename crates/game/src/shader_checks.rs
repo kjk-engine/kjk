@@ -66,12 +66,14 @@ pub const SHADERS: &[(&str, &str)] = &[
     ("shell.wgsl", include_str!("shell.wgsl")),
     ("skin_once.wgsl", include_str!("skin_once.wgsl")),
     ("speed_blur.wgsl", include_str!("speed_blur.wgsl")),
+    ("ssr.wgsl", include_str!("ssr.wgsl")),
     ("sway.wgsl", include_str!("sway.wgsl")),
     ("ui.wgsl", include_str!("ui.wgsl")),
     ("ui_composite.wgsl", include_str!("ui_composite.wgsl")),
     ("upscale.wgsl", include_str!("upscale.wgsl")),
     ("sharpen.wgsl", include_str!("sharpen.wgsl")),
     ("video_effect.wgsl", include_str!("video_effect.wgsl")),
+    ("volumetrics.wgsl", include_str!("volumetrics.wgsl")),
 ];
 
 /// The lists in buffers that a shader reads at an index it got from a
@@ -99,6 +101,7 @@ const CLAMPED: &[(&str, &[&str])] = &[
     ("dangly.wgsl", &["sway["]),
     ("shell.wgsl", &["sway["]),
     ("glow_shell.wgsl", &["sway["]),
+    ("volumetrics.wgsl", &["vol.lights["]),
 ];
 
 /// The reads of `CLAMPED` whose index does not start with `min(`, as

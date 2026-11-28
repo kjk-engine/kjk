@@ -15,8 +15,13 @@
 #import bevy_pbr::mesh_view_bindings::normal_prepass_texture
 #endif
 #ifdef OCCLUDED
-#import bevy_pbr::mesh_view_bindings::{screen_space_ambient_occlusion_texture, depth_prepass_texture}
+#import bevy_pbr::mesh_view_bindings::screen_space_ambient_occlusion_texture
 #import bevy_pbr::ssao_utils::ssao_multibounce
+#endif
+#ifdef DEPTH_PREPASS
+#ifndef MULTISAMPLED
+#import bevy_pbr::mesh_view_bindings::depth_prepass_texture
+#endif
 #endif
 
 struct GpuLight {
@@ -284,10 +289,15 @@ const HAS_BUMPMAP: u32 = 33554432u;
 const HAS_NORMAL_MAP: u32 = 67108864u;
 const HAS_PBR_RM: u32 = 134217728u;
 const HAS_DIR_LIGHTMAP: u32 = 268435456u;
+const OPAQUE_SURFACE: u32 = 536870912u;
 // Bits of `LightList::enhanced` (`material.rs`).
 const ENHANCED_BIT: u32 = 1u;
 const LINEAR_MAIN_BIT: u32 = 2u;
 const PBR_BIT: u32 = 4u;
+const CONTACT_SHADOWS_BIT: u32 = 8u;
+const MODERN_WATER_BIT: u32 = 16u;
+const SSR_BIT: u32 = 32u;
+const SOFT_PARTICLES_BIT: u32 = 64u;
 const PI: f32 = 3.14159265;
 const BUMP_STRENGTH: f32 = 1.25;
 const PBR_SPEC_CAP: f32 = 12.0;
@@ -1429,12 +1439,17 @@ fn view_distance(depth: f32) -> f32 {
 
 fn ambient_open(pixel: vec4<f32>) -> f32 {
 #ifdef OCCLUDED
+#ifdef DEPTH_PREPASS
+#ifndef MULTISAMPLED
     let at = clamp(vec2<i32>(pixel.xy), vec2<i32>(0), vec2<i32>(textureDimensions(depth_prepass_texture)) - 1);
     let drawn = textureLoad(depth_prepass_texture, at, 0i);
     if view_distance(drawn) - view_distance(pixel.z) > OWN_GAP {
         return 1.0;
     }
-    return textureLoad(screen_space_ambient_occlusion_texture, at, 0i).r;
+#endif
+#endif
+    let ssao_at = clamp(vec2<i32>(pixel.xy), vec2<i32>(0), vec2<i32>(textureDimensions(screen_space_ambient_occlusion_texture)) - 1);
+    return textureLoad(screen_space_ambient_occlusion_texture, ssao_at, 0i).r;
 #else
     return 1.0;
 #endif
@@ -2296,6 +2311,171 @@ fn water_shine(in: VertexOutput, uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(envmap_texture, envmap_sampler, lookup, 0.0);
 }
 
+// Interleaved gradient noise for temporally jittered screen-space raymarching.
+fn ign_noise(pixel_xy: vec2<f32>, phase: f32) -> f32 {
+    let shifted = pixel_xy + vec2<f32>(phase * 5.588238, phase * 5.588238);
+    return fract(52.9829189 * fract(dot(shifted, vec2<f32>(0.06711056, 0.00583715))));
+}
+
+// Fast 8-step screen-space contact shadow raymarch along the dominant light direction
+// to ground boots, limbs, crates, and architectural trim.
+fn screen_contact_shadow(
+    world_pos: vec3<f32>,
+    surf_normal: vec3<f32>,
+    light_dir: vec3<f32>,
+    pixel_xy: vec2<f32>,
+) -> f32 {
+#ifdef DEPTH_PREPASS
+#ifndef MULTISAMPLED
+    let cam_dist = length(view.world_position - world_pos);
+    if cam_dist > 28.0 || dot(surf_normal, light_dir) <= 0.05 {
+        return 1.0;
+    }
+    let dist_fade = 1.0 - smoothstep(18.0, 28.0, cam_dist);
+    let origin = world_pos + surf_normal * (0.015 + cam_dist * 0.0012);
+    let max_len = clamp(0.32 + cam_dist * 0.012, 0.32, 0.65);
+    let cs_steps: u32 = 8u;
+    let step_len = max_len / f32(cs_steps);
+    let jitter = ign_noise(pixel_xy, f32(globals.frame_count & 63u));
+    let min_thick = 0.012 + cam_dist * 0.0015;
+    let max_thick = 0.14 + cam_dist * 0.012;
+    let vp_origin = view.main_pass_viewport.xy;
+    let vp_size = max(view.main_pass_viewport.zw, vec2<f32>(1.0));
+    let tex_max = vec2<i32>(textureDimensions(depth_prepass_texture)) - vec2<i32>(1);
+    let vp_min_i = clamp(vec2<i32>(vp_origin), vec2<i32>(0), tex_max);
+    let vp_max_i = clamp(vec2<i32>(vp_origin + vp_size) - vec2<i32>(1), vp_min_i, tex_max);
+    var occluded = 0.0;
+    for (var i = 0u; i < cs_steps; i++) {
+        let march_t = (f32(i) + 0.35 + 0.65 * jitter) * step_len;
+        let march_pos = origin + light_dir * march_t;
+        let clip_pos = view.clip_from_world * vec4<f32>(march_pos, 1.0);
+        if clip_pos.w <= 1e-4 {
+            break;
+        }
+        let ndc_xy = clip_pos.xy / clip_pos.w;
+        if abs(ndc_xy.x) > 1.0 || abs(ndc_xy.y) > 1.0 {
+            break;
+        }
+        let frame_uv = vec2<f32>(ndc_xy.x * 0.5 + 0.5, 0.5 - ndc_xy.y * 0.5);
+        let tap = clamp(vec2<i32>(vp_origin + frame_uv * vp_size), vp_min_i, vp_max_i);
+        let occ_depth = textureLoad(depth_prepass_texture, tap, 0i);
+        if occ_depth <= 1e-6 {
+            continue;
+        }
+        let ray_dist = view_distance(clip_pos.z / clip_pos.w);
+        let occ_dist = view_distance(occ_depth);
+        let delta = ray_dist - occ_dist;
+        if delta > min_thick && delta < max_thick {
+            let edge_fade = smoothstep(0.0, 0.08, min(frame_uv.x, 1.0 - frame_uv.x))
+                * smoothstep(0.0, 0.08, min(frame_uv.y, 1.0 - frame_uv.y));
+            let weight = (1.0 - march_t / max_len) * smoothstep(max_thick, min_thick, delta) * edge_fade;
+            occluded = max(occluded, weight);
+        }
+    }
+    return 1.0 - occluded * 0.52 * dist_fade;
+#else
+    return 1.0;
+#endif
+#else
+    return 1.0;
+#endif
+}
+
+// Phase 5 Modern Water shader: dual-layer animated ripple normals, depth-based
+// absorption, shoreline feathering & animated foam, Schlick Fresnel reflections,
+// and HDR GGX specular from Twin Suns, fitted lights, and combat beams.
+fn water_modern(in: VertexOutput, uv: vec2<f32>, linear_output: bool) -> vec4<f32> {
+    let tex_step = 1.0 / max(vec2<f32>(textureDimensions(base_texture, 0)), vec2<f32>(1.0));
+    let h1 = textureSampleLevel(base_texture, base_sampler, uv, 0.0).r;
+    let h1_u = textureSampleLevel(base_texture, base_sampler, uv + vec2<f32>(tex_step.x, 0.0), 0.0).r - h1;
+    let h1_v = textureSampleLevel(base_texture, base_sampler, uv + vec2<f32>(0.0, tex_step.y), 0.0).r - h1;
+
+    let uv2 = vec2<f32>(uv.x * 0.8 - uv.y * 0.6, uv.x * 0.6 + uv.y * 0.8) * 1.65
+        + vec2<f32>(-globals.time * 0.022, globals.time * 0.017);
+    let h2 = textureSampleLevel(base_texture, base_sampler, uv2, 0.0).r;
+    let h2_u = textureSampleLevel(base_texture, base_sampler, uv2 + vec2<f32>(tex_step.x, 0.0), 0.0).r - h2;
+    let h2_v = textureSampleLevel(base_texture, base_sampler, uv2 + vec2<f32>(0.0, tex_step.y), 0.0).r - h2;
+
+    let raw_has_n = dot(in.world_normal, in.world_normal) > 1e-8;
+    let normal = select(vec3<f32>(0.0, 1.0, 0.0), normalize(in.world_normal), raw_has_n);
+    let dp1 = dpdx(in.world_position.xyz);
+    let dp2 = dpdy(in.world_position.xyz);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
+    let dp2perp = cross(dp2, normal);
+    let dp1perp = cross(normal, dp1);
+    let tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+    let bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+    let scale = inverseSqrt(max(max(dot(tangent, tangent), dot(bitangent, bitangent)), 1e-20));
+    let along_u = h1_u * 0.68 + (h2_u * 0.8 + h2_v * 0.6) * 0.48;
+    let along_v = h1_v * 0.68 + (-h2_u * 0.6 + h2_v * 0.8) * 0.48;
+    let phase_a = in.world_position.x * 2.4 + globals.time * 1.45;
+    let phase_b = in.world_position.z * 2.9 - globals.time * 1.15;
+    let proc_ripple = vec3<f32>(cos(phase_a) * 0.028, 0.0, sin(phase_b) * 0.028);
+    let raw_water_n = normal - WATER_BUMP * (along_u * tangent + along_v * bitangent) * scale + proc_ripple;
+    let w_normal = normalize(mix(normal, normalize(raw_water_n), 0.92));
+
+    let v_dir = normalize(view.world_position - in.world_position.xyz);
+    let ndotv = max(dot(w_normal, v_dir), 0.0);
+    let fresnel = 0.02 + 0.98 * pow(1.0 - ndotv, 5.0);
+
+    let mirrored = reflect(-v_dir, w_normal);
+    let lookup = vec3<f32>(mirrored.x, -mirrored.z, mirrored.y);
+    let env_sample = textureSampleLevel(envmap_texture, envmap_sampler, lookup, 0.0);
+    let env_lin = decode_22(env_sample.rgb);
+
+    var water_depth = 2.5;
+    var shore_alpha = 1.0;
+    var foam = 0.0;
+#ifdef DEPTH_PREPASS
+#ifndef MULTISAMPLED
+    let tex_max = vec2<i32>(textureDimensions(depth_prepass_texture)) - vec2<i32>(1);
+    let tap = clamp(vec2<i32>(in.position.xy), vec2<i32>(0), tex_max);
+    let bg_depth = textureLoad(depth_prepass_texture, tap, 0i);
+    if bg_depth > 1e-6 {
+        water_depth = max(view_distance(bg_depth) - view_distance(in.position.z), 0.0);
+        shore_alpha = smoothstep(0.0, 0.22, water_depth);
+        let ripple_h = clamp((h1 + h2) * 0.5, 0.0, 1.0);
+        let foam_band = smoothstep(0.38, 0.04, water_depth) * smoothstep(0.0, 0.05, water_depth);
+        let foam_wave = 0.12 * sin(globals.time * 2.2 + in.world_position.x * 3.1 + in.world_position.z * 2.7);
+        foam = foam_band * smoothstep(0.42, 0.76, ripple_h + foam_wave) * 0.55;
+    }
+#endif
+#endif
+
+    let deep = 1.0 - exp(-water_depth * 0.55);
+    let body_tint = mix(vec3<f32>(0.015, 0.045, 0.055), env_lin * 0.22 + vec3<f32>(0.01, 0.035, 0.045), 0.55);
+    var spec = vec3<f32>(0.0);
+    let f0 = vec3<f32>(0.04);
+    if probe_list.sun_way.w > 0.5 {
+        spec = spec + probe_list.sun_colour.rgb * ggx_spec(w_normal, v_dir, probe_list.sun_way.xyz, 0.07, f0) * 1.4;
+    }
+    if probe_list.sun2_way.w > 0.5 {
+        spec = spec + probe_list.sun2_colour.rgb * ggx_spec(w_normal, v_dir, probe_list.sun2_way.xyz, 0.07, f0) * 1.4;
+    }
+    let room = mesh_room(in.instance_index);
+    spec = spec + fight_highlights_pbr(in.world_position.xyz, w_normal, normal, v_dir, 0.10, f0, room, no_casters());
+#ifdef FITTED_LIGHTS
+    let water_fitted = fitted_lights(in.world_position.xyz, w_normal, normal, true, room, no_casters(), 0.0, 0.0, false, true, v_dir, 0.12, f0);
+    spec = spec + water_fitted.spec * 0.75;
+#endif
+    let water_amb = clamp(
+        dot(decode_22(params.world_ambient.rgb), LUMA) * 1.8 + select(0.18, 0.65, probe_list.sun_way.w > 0.5),
+        0.18,
+        1.15,
+    );
+    var out_lin = mix(body_tint, env_lin * water_amb, clamp(fresnel * 1.15 + 0.12, 0.0, 0.96))
+        + spec
+        + vec3<f32>(0.85, 0.90, 0.92) * (foam * water_amb);
+    if !linear_output {
+        out_lin = encode_22(clamp(out_lin, vec3<f32>(0.0), vec3<f32>(1.0)));
+    }
+    let base_alpha = clamp(max(params.tint.a * 0.75, mix(0.28, 0.90, deep)), 0.0, 0.96);
+    let env_a = clamp(env_sample.a, 0.35, 1.0);
+    let final_alpha = clamp(max(base_alpha * env_a, fresnel * 0.92) + foam * 0.6, 0.0, 0.98) * shore_alpha;
+    return vec4<f32>(out_lin, final_alpha);
+}
+
 fn shade(in: VertexOutput) -> vec4<f32> {
 #ifdef RAY_QUERIES
     ray_pixel = floor(in.position.xy);
@@ -2966,11 +3146,49 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         }
     }
     let water = (params.flags & WATER) != 0u;
+    let modern_water = water && enhanced && (lights.enhanced & MODERN_WATER_BIT) != 0u;
     var water_alpha = 1.0;
     if water {
-        let shine = water_shine(in, uv);
+        var shine: vec4<f32>;
+        if modern_water {
+            shine = water_modern(in, uv, linear_output);
+        } else {
+            shine = water_shine(in, uv);
+        }
         colour = shine.rgb;
         water_alpha = shine.a;
+    }
+    var contact_vis = 1.0;
+    if enhanced && (lights.enhanced & CONTACT_SHADOWS_BIT) != 0u && !water
+        && probe_list.mode == 0u
+        && (params.flags & SHADOWED) != 0u && (params.flags & ON_TOP) == 0u
+        && raw_has_normal && !is_room_emissive
+    {
+        var cs_dir = vec3<f32>(0.0, 1.0, 0.0);
+        var cs_weight = 0.0;
+        let is_room = (params.flags & ROOM) != 0u;
+        if probe_list.sun_way.w > 0.5 && (!baked_room || lightmap_texel.a > 0.05) {
+            cs_dir = probe_list.sun_way.xyz;
+            cs_weight = 0.85;
+        } else if baked_room && (params.flags & HAS_DIR_LIGHTMAP) != 0u && dir_str > 0.12 {
+            cs_dir = dom_dir;
+            cs_weight = clamp(dir_str * 0.85, 0.32, 0.80);
+        } else if (params.flags & PROBED) != 0u && !is_room {
+            let rl = probe_list.room_lights[min(mesh_owner(in.instance_index), PROBE_SLOTS - 1u)];
+            if rl.w > 0.0 && dot(rl.xyz, rl.xyz) > 1e-4 {
+                cs_dir = normalize(rl.xyz);
+                cs_weight = 0.65;
+            } else {
+                cs_weight = 0.45;
+            }
+        } else if is_room {
+            cs_weight = 0.38;
+        }
+        if cs_weight > 0.01 {
+            let raw_cs = screen_contact_shadow(in.world_position.xyz, geom_normal, cs_dir, in.position.xy);
+            let tex_glow_keep = 1.0 - smoothstep(0.05, 0.5, max3(self_lit));
+            contact_vis = mix(1.0, raw_cs, cs_weight * tex_glow_keep);
+        }
     }
     if enhanced && !water {
         // The colour so far is the games' own, worked out on stored values
@@ -2981,7 +3199,13 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         // light would. A fragment that no fight's light reaches keeps its
         // stored colour bit for bit.
         var extra = vec3<f32>(0.0);
-        let hdr_over = baked_over + hybrid_over;
+        let hdr_over = (baked_over + hybrid_over) * contact_vis;
+        pbr_spec = pbr_spec * contact_vis;
+        if contact_vis < 0.999 {
+            let keep_glow = min(self_lit, colour);
+            let cs_gamma = pow(max(contact_vis, 1e-4), 1.0 / 2.2);
+            colour = keep_glow + (colour - keep_glow) * mix(1.0, cs_gamma, 0.78);
+        }
         if linear_output {
             if max3(fight_added) > 0.0 || max3(hdr_over) > 0.0 {
                 extra = decode_22(base.rgb) * diffuse_scale * (decode_22(fight_added) + hdr_over);
@@ -3023,7 +3247,7 @@ fn shade(in: VertexOutput) -> vec4<f32> {
         } else if max3(extra) > 0.0 || diffuse_scale < 0.999 {
             colour = encode(decode(colour) * diffuse_scale + extra);
         }
-    } else if linear_output {
+    } else if linear_output && !modern_water {
         colour = decode_22(colour);
     }
     // `KJK_PROBES=only`: the probe light alone, no lamps and no texture.
@@ -3061,7 +3285,11 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     // An env-mapped texture's alpha is the shine's mask, not coverage: a
     // see-through mesh takes only its own alpha (reone's OIT model does the
     // same), so Dantooine's crystals (alpha 0.9, DXT5 masks) stay solid.
-    let coverage = select(base.a, tint.a, (params.flags & ENVMAP) != 0u) * water_alpha;
+    let coverage = select(
+        select(base.a, tint.a, (params.flags & ENVMAP) != 0u) * water_alpha,
+        water_alpha,
+        modern_water,
+    );
     var alpha = select(coverage, 1.0, (params.flags & OPAQUE_ALPHA) != 0u);
 #ifdef VERTEX_COLORS
     // Effect primitives carry a colour and fading alpha per vertex (the
@@ -3091,11 +3319,51 @@ fn shade(in: VertexOutput) -> vec4<f32> {
     if (params.flags & ADD_FADE) != 0u {
         colour = colour * clamp(tint.a, 0.0, 1.0);
     }
+    if enhanced && (lights.enhanced & SOFT_PARTICLES_BIT) != 0u && !water
+        && (params.flags & (OPAQUE_SURFACE | DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA)) == 0u
+        && (params.flags & ON_TOP) == 0u
+    {
+#ifdef DEPTH_PREPASS
+#ifndef MULTISAMPLED
+        let sp_max = vec2<i32>(textureDimensions(depth_prepass_texture)) - vec2<i32>(1);
+        let sp_tap = clamp(vec2<i32>(in.position.xy), vec2<i32>(0), sp_max);
+        let bg_depth = textureLoad(depth_prepass_texture, sp_tap, 0i);
+        if bg_depth > 1e-6 {
+            let depth_diff = view_distance(bg_depth) - view_distance(in.position.z);
+            let soft = smoothstep(0.0, 0.42, max(depth_diff, 0.0));
+            alpha = alpha * soft;
+        }
+#endif
+#endif
+        if (params.flags & VERTEX_ALPHA) != 0u && (params.flags & UNLIT) != 0u && params.glow.x <= 1.0 {
+            let amb_src = select(params.world_ambient.rgb, decode_22(params.world_ambient.rgb), linear_output);
+            let amb_tint = clamp(amb_src * 1.45 + vec3<f32>(0.22), vec3<f32>(0.24), vec3<f32>(1.0));
+            colour = colour * mix(vec3<f32>(1.0), amb_tint, 0.45);
+        }
+    }
     // An effect that glows is brighter than white under Enhanced lighting,
     // and bloom spreads what is above white (`rolloff.rs`).
     if enhanced {
         let glow_scale = select(params.glow.x, pow(max(params.glow.x, 0.0), 2.2), linear_output);
         colour = colour * glow_scale;
+    }
+    if linear_output && pbr_on && (lights.enhanced & SSR_BIT) != 0u && !water
+        && (params.flags & OPAQUE_SURFACE) != 0u && (params.flags & ON_TOP) == 0u
+        && !is_room_emissive
+    {
+        var ssr_refl = 0.0;
+        if (params.flags & (ENVMAP | HAS_PBR_RM)) != 0u || pbr.shiny > 0.05 || pbr.metalness > 0.15 {
+            ssr_refl = clamp(max(pbr.shiny, pbr.metalness * 0.85), 0.12, 1.0);
+        } else if pbr.roughness < 0.38 {
+            ssr_refl = clamp((0.38 - pbr.roughness) * 1.35, 0.0, 0.36);
+        }
+        if pbr.roughness < 0.52 && ssr_refl > 0.04 {
+            let r_bin = u32(clamp(round((pbr.roughness / 0.52) * 15.0), 0.0, 15.0));
+            let s_bin = u32(clamp(round(ssr_refl * 15.0), 1.0, 15.0));
+            alpha = 2.0 + f32(r_bin * 16u + s_bin);
+        } else {
+            alpha = 1.0;
+        }
     }
     return vec4<f32>(colour, alpha);
 }

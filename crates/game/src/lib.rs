@@ -113,6 +113,8 @@ mod loot;
 mod made;
 mod map_view;
 pub mod material;
+pub mod ssr;
+pub mod volumetrics;
 mod menu_figure;
 mod merchant;
 mod message_log;

@@ -43,7 +43,11 @@ use bevy_post_process::bloom::{Bloom, BloomCompositeMode, BloomPlugin, BloomPref
 
 use crate::legacy_blend::LinearLegacyBlend;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::{AreaLights, ENHANCED_BIT, LINEAR_MAIN_BIT, PBR_BIT};
+use crate::material::{
+    AreaLights, CONTACT_SHADOWS_BIT, ENHANCED_BIT, LINEAR_MAIN_BIT, MODERN_WATER_BIT, PBR_BIT,
+    SOFT_PARTICLES_BIT, SSR_BIT,
+};
+use crate::prepasses::{DeclarePrepassNeeds, DepthCoverage, Need, PrepassNeeds};
 use crate::scene::AreaFogColor;
 
 const SHADER: Handle<Shader> = uuid_handle!("b47d0e92-5a1c-4f38-8e6b-91c3d2a7f054");
@@ -145,7 +149,12 @@ impl Plugin for RollOffPlugin {
             ))
             .add_systems(
                 Last,
-                (mark, tell_shader, sync_clear_color).after(crate::temporal::Applied),
+                (
+                    mark.in_set(DeclarePrepassNeeds),
+                    tell_shader,
+                    sync_clear_color,
+                )
+                    .after(crate::temporal::Applied),
             );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -187,12 +196,28 @@ type MarkedCamera = (
 fn mark(
     lighting: Res<LightingMode>,
     cameras: Query<MarkedCamera, SceneCamera>,
+    mut needs: ResMut<PrepassNeeds>,
     mut commands: Commands,
 ) {
     for (camera, hdr, msaa, rolled, legacy, decoded) in &cameras {
         let wanted = lighting.enhanced() && hdr;
         let wanted_legacy = wanted && *msaa == Msaa::Off;
         let wanted_decode = wanted && *msaa != Msaa::Off;
+
+        if wanted_legacy
+            && (crate::material::contact_shadows_enabled()
+                || crate::material::modern_water_enabled()
+                || crate::material::soft_particles_enabled())
+        {
+            needs.declare(
+                "phase5 depth",
+                Need {
+                    depth: DepthCoverage::Full,
+                    normals: false,
+                    motion: false,
+                },
+            );
+        }
 
         // A camera may be gone by the time this is applied.
         if wanted && !rolled {
@@ -248,7 +273,27 @@ fn tell_shader(
         } else {
             0
         };
-        ENHANCED_BIT | linear | pbr
+        let cs = if crate::material::contact_shadows_enabled() {
+            CONTACT_SHADOWS_BIT
+        } else {
+            0
+        };
+        let water = if crate::material::modern_water_enabled() {
+            MODERN_WATER_BIT
+        } else {
+            0
+        };
+        let ssr = if crate::material::ssr_enabled() {
+            SSR_BIT
+        } else {
+            0
+        };
+        let soft = if crate::material::soft_particles_enabled() {
+            SOFT_PARTICLES_BIT
+        } else {
+            0
+        };
+        ENHANCED_BIT | linear | pbr | cs | water | ssr | soft
     } else {
         0
     };

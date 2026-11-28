@@ -163,20 +163,74 @@ const HAS_NORMAL_MAP: u32 = 1 << 26;
 const HAS_PBR_RM: u32 = 1 << 27;
 /// A companion baked directional GI lightmap (`<lightmap>.dir.png`) is bound.
 const HAS_DIR_LIGHTMAP: u32 = 1 << 28;
+/// Surface uses a non-blended opaque pipeline (`Opaque`, `Cutout`, `OpaqueEnvMasked`)
+/// and may pack Screen-Space Reflection parameters into `ViewTarget.a`.
+const OPAQUE_SURFACE: u32 = 1 << 29;
 
 /// Bits of `LightList::enhanced`:
 /// - `ENHANCED_BIT`: Enhanced mode active (HDR lights/glows, AO, bloom, tonemap).
 /// - `LINEAR_MAIN_BIT`: Main pass renders in linear HDR (`enhanced && Msaa::Off`).
 /// - `PBR_BIT`: Phase 4 PBR normal mapping, GGX specular, and directional GI active.
+/// - `CONTACT_SHADOWS_BIT`: Phase 5 screen-space contact shadows.
+/// - `MODERN_WATER_BIT`: Phase 5 physical linear water shader.
+/// - `SSR_BIT`: Phase 5 screen-space reflections.
+/// - `SOFT_PARTICLES_BIT`: Phase 5 depth-softened & room-lit particles.
 pub const ENHANCED_BIT: u32 = 1;
 pub const LINEAR_MAIN_BIT: u32 = 2;
 pub const PBR_BIT: u32 = 4;
+pub const CONTACT_SHADOWS_BIT: u32 = 8;
+pub const MODERN_WATER_BIT: u32 = 16;
+pub const SSR_BIT: u32 = 32;
+pub const SOFT_PARTICLES_BIT: u32 = 64;
 
 /// Whether Phase 4 PBR material response, normal mapping, and directional GI
 /// shading are enabled under Enhanced mode (`KJK_PBR=off` disables for A/B).
 pub fn pbr_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("KJK_PBR").map_or(true, |value| value != "off"))
+}
+
+fn env_enabled(var: &str) -> bool {
+    std::env::var(var).map_or(true, |value| {
+        let trimmed = value.trim();
+        !trimmed.eq_ignore_ascii_case("off") && trimmed != "0"
+    })
+}
+
+/// Master Phase 5 toggle (`KJK_PHASE5=off` or `0` disables all Phase 5 effects).
+pub fn phase5_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| env_enabled("KJK_PHASE5"))
+}
+
+/// Whether Phase 5 screen-space contact shadows are enabled (`KJK_CONTACT_SHADOWS=off` disables).
+pub fn contact_shadows_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| phase5_enabled() && env_enabled("KJK_CONTACT_SHADOWS"))
+}
+
+/// Whether Phase 5 modern physical water is enabled (`KJK_WATER=off` reverts to Classic water).
+pub fn modern_water_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| phase5_enabled() && env_enabled("KJK_WATER"))
+}
+
+/// Whether Phase 5 screen-space reflections are enabled (`KJK_SSR=off` disables).
+pub fn ssr_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| phase5_enabled() && env_enabled("KJK_SSR"))
+}
+
+/// Whether Phase 5 volumetric light shafts and atmosphere scattering are enabled (`KJK_VOLUMETRICS=off` disables).
+pub fn volumetrics_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| phase5_enabled() && env_enabled("KJK_VOLUMETRICS"))
+}
+
+/// Whether Phase 5 depth-softened & room-lit particles are enabled (`KJK_SOFT_PARTICLES=off` disables).
+pub fn soft_particles_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| phase5_enabled() && env_enabled("KJK_SOFT_PARTICLES"))
 }
 
 /// The alpha a punch-through texel must be above to be drawn. Both games'
@@ -1581,7 +1635,7 @@ impl OdysseyMaterial {
     /// The same as another surface, with the flags `new` gives that surface
     /// (the pipeline warm-up's stand-ins: `warmup`).
     pub fn as_surface(mut self, surface: Surface) -> OdysseyMaterial {
-        let all = DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA;
+        let all = DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA | OPAQUE_SURFACE;
         self.params.flags = (self.params.flags & !all) | surface_flags(surface);
         self.surface = surface;
         self
@@ -1755,9 +1809,10 @@ pub struct MotionFacts {
 /// The flags a surface draws with (`OdysseyMaterial::new`).
 fn surface_flags(surface: Surface) -> u32 {
     match surface {
+        Surface::Opaque => OPAQUE_SURFACE,
         Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
-        Surface::Cutout => DISCARD_ZERO_ALPHA | PUNCH_THROUGH,
-        Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
+        Surface::Cutout => DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_SURFACE,
+        Surface::OpaqueEnvMasked => OPAQUE_ALPHA | OPAQUE_SURFACE,
         Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
         _ => 0,
     }
@@ -1991,9 +2046,119 @@ pub fn pbr_probes() -> sim::probe::Checks {
 
     vec![
         ("txi parses bumpmapscaling and isbumpmap", txi_check()),
-        ("detects grayscale bump vs rgb tangent normal map", normal_detect_check()),
-        ("directional lightmap pixel encode/decode roundtrip", dir_roundtrip_check()),
-        ("ggx microfacet brdf non-negative and fresnel monotonic", ggx_check()),
+        (
+            "detects grayscale bump vs rgb tangent normal map",
+            normal_detect_check(),
+        ),
+        (
+            "directional lightmap pixel encode/decode roundtrip",
+            dir_roundtrip_check(),
+        ),
+        (
+            "ggx microfacet brdf non-negative and fresnel monotonic",
+            ggx_check(),
+        ),
+    ]
+}
+
+/// Phase 5 SSR alpha pack/unpack, water Fresnel & absorption, volumetric HG phase,
+/// and feature bitmask uniqueness checks.
+#[cfg(feature = "probes")]
+pub fn phase5_probes() -> sim::probe::Checks {
+    let ssr_pack_check = || -> Result<String, String> {
+        let cases = [(0.10f32, 0.85f32), (0.32, 0.45), (0.04, 0.25)];
+        let mut errs = Vec::new();
+        for (roughness, refl) in cases {
+            let packed = crate::ssr::pack_alpha(roughness, refl);
+            if packed < 3.0 || packed > 257.0 || packed.fract() != 0.0 {
+                errs.push(format!("out of range packed {packed} for ({roughness}, {refl})"));
+                continue;
+            }
+            let Some((r_out, s_out)) = crate::ssr::unpack_alpha(packed) else {
+                errs.push(format!("failed unpack for {packed}"));
+                continue;
+            };
+            if (r_out - roughness).abs() > 0.04 || (s_out - refl).abs() > 0.08 {
+                errs.push(format!(
+                    "roundtrip ({roughness},{refl}) -> ({r_out},{s_out})"
+                ));
+            }
+        }
+        let matte = crate::ssr::pack_alpha(0.85, 0.10);
+        if matte != 1.0 || crate::ssr::unpack_alpha(matte).is_some() {
+            errs.push(format!("matte surface packed as {matte}"));
+        }
+        sim::probe::check(errs.is_empty(), format!("{errs:?}"))
+    };
+
+    let water_physics_check = || -> Result<String, String> {
+        let fresnel_schlick = |ndotv: f32| 0.02f32 + 0.98 * (1.0f32 - ndotv).powi(5);
+        let f_normal = fresnel_schlick(1.0);
+        let f_graze = fresnel_schlick(0.05);
+        let shore_alpha = 0.0f32;
+        let absorption = |d: f32| 1.0f32 - (-d * 0.55).exp();
+        let deep_0 = absorption(0.0);
+        let deep_2 = absorption(2.5);
+        sim::probe::check(
+            (f_normal - 0.02).abs() < 1e-5
+                && f_graze > 0.75
+                && shore_alpha == 0.0
+                && deep_0 == 0.0
+                && deep_2 > 0.70
+                && deep_2 < 1.0,
+            format!("f_normal={f_normal}, f_graze={f_graze}, deep_2={deep_2}"),
+        )
+    };
+
+    let volumetrics_hg_check = || -> Result<String, String> {
+        let fwd = crate::volumetrics::hg_phase(1.0, 0.68);
+        let side = crate::volumetrics::hg_phase(0.0, 0.68);
+        let back = crate::volumetrics::hg_phase(-1.0, 0.68);
+        sim::probe::check(
+            fwd > side && side > back && back > 0.0,
+            format!("fwd={fwd:.4}, side={side:.4}, back={back:.4}"),
+        )
+    };
+
+    let bitmask_check = || -> Result<String, String> {
+        let bits = [
+            ENHANCED_BIT,
+            LINEAR_MAIN_BIT,
+            PBR_BIT,
+            CONTACT_SHADOWS_BIT,
+            MODERN_WATER_BIT,
+            SSR_BIT,
+            SOFT_PARTICLES_BIT,
+        ];
+        let mut combined = 0u32;
+        let mut distinct = true;
+        for &b in &bits {
+            if !b.is_power_of_two() || (combined & b) != 0 {
+                distinct = false;
+            }
+            combined |= b;
+        }
+        let distinct_flags = (HAS_DIR_LIGHTMAP & OPAQUE_SURFACE) == 0 && OPAQUE_SURFACE.is_power_of_two();
+        sim::probe::check(
+            distinct && distinct_flags,
+            format!("bits={bits:?}, distinct_flags={distinct_flags}"),
+        )
+    };
+
+    vec![
+        ("ssr f16 alpha pack/unpack roundtrip", ssr_pack_check()),
+        (
+            "water fresnel, shore feathering, and beer-lambert depth bounds",
+            water_physics_check(),
+        ),
+        (
+            "volumetric henyey-greenstein phase positive and forward-peaked",
+            volumetrics_hg_check(),
+        ),
+        (
+            "phase 5 enhanced bitmask and opaque surface flag non-overlapping",
+            bitmask_check(),
+        ),
     ]
 }
 
@@ -2099,6 +2264,7 @@ pub struct OdysseyKey {
     motion_only: bool,
     on_top: bool,
     glowing: bool,
+    water: bool,
 }
 
 impl From<&OdysseyMaterial> for OdysseyKey {
@@ -2121,6 +2287,7 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             motion_only: material.motion_only,
             on_top: material.on_top,
             glowing: material.params.glow.x > 1.0,
+            water: material.params.flags & WATER != 0,
         }
     }
 }
@@ -2349,6 +2516,9 @@ impl Material for OdysseyMaterial {
             }
             if key.glowing {
                 fragment.shader_defs.push("HDR_GLOW".into());
+            }
+            if key.water && modern_water_enabled() {
+                fragment.shader_defs.push("MODERN_WATER".into());
             }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly

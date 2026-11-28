@@ -71,6 +71,7 @@ impl Plugin for HeatHazePlugin {
             (
                 hold_back
                     .after(main_opaque_pass_3d)
+                    .after(crate::ssr::SsrPass)
                     .before(main_transmissive_pass_3d),
                 give_back
                     .after(main_transparent_pass_3d)

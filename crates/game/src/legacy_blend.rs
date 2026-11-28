@@ -78,6 +78,7 @@ impl Plugin for LegacyBlendPlugin {
                 (
                     hold_back
                         .after(main_opaque_pass_3d)
+                        .after(crate::ssr::SsrPass)
                         .before(main_transparent_pass_3d),
                     draw_legacy_blend.after(main_transparent_pass_3d),
                     give_back.after(draw_legacy_blend),
@@ -158,11 +159,12 @@ fn mrt_copy(original: &RenderPipelineDescriptor) -> Option<RenderPipelineDescrip
     if !known_shader {
         return None;
     }
-    if fragment
-        .shader_defs
-        .iter()
-        .any(|d| matches!(d, ShaderDefVal::Bool(name, true) if name == "HDR_GLOW"))
-    {
+    if fragment.shader_defs.iter().any(|d| {
+        matches!(
+            d,
+            ShaderDefVal::Bool(name, true) if name == "HDR_GLOW" || name == "MODERN_WATER"
+        )
+    }) {
         return None;
     }
     if original
