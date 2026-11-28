@@ -1,118 +1,46 @@
 {
   "game": "tsl",
   "scale_factor": 1.0,
-  "screens": [
-    "journal"
-  ],
+  "screens": ["journal"],
   "view": {
     "character": {
-      "abilities": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "abilities": [0,0,0,0,0,0],
       "alignment": 0,
-      "attack": [
-        null,
-        null
-      ],
+      "attack": [null,null],
       "auto_level": null,
       "class_row": null,
-      "classes": [
-        [
-          {
-            "$talk": 357
-          },
-          3
-        ]
-      ],
+      "classes": [[{"$talk":357},3]],
       "credits": 0,
-      "damage": [
-        "",
-        ""
-      ],
+      "damage": ["",""],
       "defence": 0,
       "droid": false,
       "feats": [],
-      "fp": [
-        120,
-        120
-      ],
+      "fp": [120,120],
       "headgear_setting": null,
-      "hp": [
-        5,
-        30
-      ],
+      "hp": [5,30],
       "id": 0,
       "level": 3,
       "locked": 0,
       "may_level": false,
-      "name": {
-        "$talk": 5628
-      },
+      "name": {"$talk":5628},
       "next_level": null,
       "next_xp": null,
-      "own_abilities": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      "own_skills": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "own_abilities": [0,0,0,0,0,0],
+      "own_skills": [0,0,0,0,0,0,0,0],
       "owned": [],
       "portrait": "po_pt3m4",
       "powers": [],
-      "saves": [
-        0,
-        0,
-        0
-      ],
-      "skill_totals": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "saves": [0,0,0],
+      "skill_totals": [0,0,0,0,0,0,0,0],
       "skills": [],
       "stance": null,
       "stance_setting": null,
       "unspent": 0,
-      "weapons": [
-        null,
-        null
-      ],
+      "weapons": [null,null],
       "worn": [],
       "xp": 0
     },
-    "dialog": {
-      "focus": 0,
-      "host_only": [],
-      "leave": null,
-      "leave_key": [
-        76
-      ],
-      "marks": null,
-      "replies": [],
-      "said": []
-    },
+    "dialog": {"focus":0,"host_only":[],"leave":null,"leave_key":[76],"marks":null,"replies":[],"said":[]},
     "hud": {
       "bar": [
         {
@@ -120,12 +48,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":null,"words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -134,12 +57,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":null,"words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -148,12 +66,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":null,"words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -162,12 +75,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":null,"words":[52]},
           "kinds": 0,
           "lit": false
         },
@@ -176,12 +84,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              53
-            ]
-          },
+          "key": {"badge":null,"words":[53]},
           "kinds": 0,
           "lit": false
         },
@@ -190,12 +93,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              54
-            ]
-          },
+          "key": {"badge":null,"words":[54]},
           "kinds": 0,
           "lit": false
         }
@@ -205,25 +103,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        5,
-        30
-      ],
+      "fp": [0,0],
+      "hp": [5,30],
       "lit": [],
       "minimap": {
-        "at": [
-          0.5406328439712524,
-          0.1027328372001648
-        ],
+        "at": [0.5406328439712524,0.1027328372001648],
         "fog": {
-          "cells": [
-            18,
-            10
-          ],
+          "cells": [18,10],
           "explored": [
             true,
             true,
@@ -417,169 +303,53 @@
       "stealth": false
     },
     "journal": [
+      {"description":{"$talk":132189},"done":false,"name":{"$talk":132187},"planet":-1},
+      {"description":{"$talk":136018},"done":false,"name":{"$talk":128187},"planet":-1},
       {
         "description": {
-          "$talk": 132189
+          "$parts": ["is laying in the med-bay in critical condition. You can use a ",{"$talk":5962}," to stabilize his vitals. To fully revive  will require the medical facilities at the ",{"$talk":48350}," mining station."]
         },
         "done": false,
         "name": {
-          "$talk": 132187
+          "$parts": ["(",{"$talk":132457,"unbraced":true},") ",{"$talk":287}," : ",{"$talk":32129}," ",{"$talk":5627}]
         },
         "planet": -1
       },
-      {
-        "description": {
-          "$talk": 136018
-        },
-        "done": false,
-        "name": {
-          "$talk": 128187
-        },
-        "planet": -1
-      },
-      {
-        "description": {
-          "$parts": [
-            "is laying in the med-bay in critical condition. You can use a ",
-            {
-              "$talk": 5962
-            },
-            " to stabilize his vitals. To fully revive  will require the medical facilities at the ",
-            {
-              "$talk": 48350
-            },
-            " mining station."
-          ]
-        },
-        "done": false,
-        "name": {
-          "$parts": [
-            "(",
-            {
-              "$talk": 132457,
-              "unbraced": true
-            },
-            ") ",
-            {
-              "$talk": 287
-            },
-            " : ",
-            {
-              "$talk": 32129
-            },
-            " ",
-            {
-              "$talk": 5627
-            }
-          ]
-        },
-        "planet": -1
-      },
-      {
-        "description": {
-          "$talk": 130510
-        },
-        "done": false,
-        "name": {
-          "$talk": 132192
-        },
-        "planet": -1
-      }
+      {"description":{"$talk":130510},"done":false,"name":{"$talk":132192},"planet":-1}
     ],
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "party": [
       {
         "busy": null,
-        "class": {
-          "$talk": 357
-        },
+        "class": {"$talk":357},
         "debilitated": false,
         "dresses": true,
         "effects": [],
-        "fp": [
-          120,
-          120
-        ],
-        "hp": [
-          5,
-          30
-        ],
+        "fp": [120,120],
+        "hp": [5,30],
         "id": 177,
         "level": 3,
         "may_level": false,
-        "name": {
-          "$talk": 5628
-        },
+        "name": {"$talk":5628},
         "played_by": null,
         "poisoned": false,
         "portrait": "po_pt3m4"
@@ -614,8 +384,5 @@
       "feedback.tutorials": "true"
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

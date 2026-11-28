@@ -4,138 +4,14 @@
   "view": {
     "arena_panel": {
       "rows": [
-        {
-          "key": [
-            70,
-            50
-          ],
-          "on": true,
-          "state": {
-            "$talk": 5549
-          },
-          "words": [
-            83,
-            112,
-            97,
-            119,
-            110
-          ]
-        },
-        {
-          "key": [
-            70,
-            51
-          ],
-          "on": false,
-          "state": [],
-          "words": [
-            78,
-            101,
-            120,
-            116,
-            32,
-            102,
-            111,
-            101
-          ]
-        },
-        {
-          "key": [
-            70,
-            52
-          ],
-          "on": false,
-          "state": [
-            111,
-            102,
-            102
-          ],
-          "words": [
-            71,
-            111,
-            100,
-            32,
-            109,
-            111,
-            100,
-            101
-          ]
-        },
-        {
-          "key": [
-            70,
-            54
-          ],
-          "on": false,
-          "state": [],
-          "words": [
-            67,
-            108,
-            101,
-            97,
-            114,
-            32,
-            102,
-            111,
-            101,
-            115
-          ]
-        },
-        {
-          "key": [
-            91,
-            32,
-            93
-          ],
-          "on": false,
-          "state": [],
-          "words": [
-            80,
-            105,
-            99,
-            107,
-            32,
-            112,
-            111,
-            119,
-            101,
-            114
-          ]
-        },
-        {
-          "key": [
-            70
-          ],
-          "on": false,
-          "state": [],
-          "words": [
-            67,
-            97,
-            115,
-            116,
-            32,
-            112,
-            111,
-            119,
-            101,
-            114
-          ]
-        }
+        {"key":[70,50],"on":true,"state":{"$talk":5549},"words":[83,112,97,119,110]},
+        {"key":[70,51],"on":false,"state":[],"words":[78,101,120,116,32,102,111,101]},
+        {"key":[70,52],"on":false,"state":[111,102,102],"words":[71,111,100,32,109,111,100,101]},
+        {"key":[70,54],"on":false,"state":[],"words":[67,108,101,97,114,32,102,111,101,115]},
+        {"key":[91,32,93],"on":false,"state":[],"words":[80,105,99,107,32,112,111,119,101,114]},
+        {"key":[70],"on":false,"state":[],"words":[67,97,115,116,32,112,111,119,101,114]}
       ],
-      "title": [
-        67,
-        79,
-        77,
-        66,
-        65,
-        84,
-        32,
-        68,
-        69,
-        66,
-        85,
-        71
-      ]
+      "title": [67,79,77,66,65,84,32,68,69,66,85,71]
     },
     "crosshair": true,
     "hud": {
@@ -145,12 +21,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_wave",
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -159,12 +30,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_storm",
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -173,12 +39,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_deathfield",
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -187,12 +48,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_drainforce03",
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         }
@@ -202,25 +58,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        380,
-        380
-      ],
-      "hp": [
-        200,
-        200
-      ],
+      "fp": [380,380],
+      "hp": [200,200],
       "lit": [],
       "minimap": {
-        "at": [
-          0.38816532492637634,
-          0.8386424779891968
-        ],
+        "at": [0.38816532492637634,0.8386424779891968],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -547,74 +391,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "pad_playing": true,
     "session_rules": "ja",
@@ -646,8 +439,5 @@
       "feedback.tutorials": "true"
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

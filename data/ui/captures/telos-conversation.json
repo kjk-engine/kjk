@@ -6,14 +6,10 @@
       "focus": 0,
       "host_only": [],
       "leave": null,
-      "leave_key": [
-        76
-      ],
+      "leave_key": [76],
       "marks": null,
       "replies": [],
-      "said": {
-        "$talk": 79694
-      }
+      "said": {"$talk":79694}
     },
     "hud": {
       "bar": [
@@ -22,12 +18,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":null,"words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -36,12 +27,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":null,"words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -50,12 +36,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":null,"words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -64,12 +45,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":null,"words":[52]},
           "kinds": 0,
           "lit": false
         },
@@ -78,12 +54,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              53
-            ]
-          },
+          "key": {"badge":null,"words":[53]},
           "kinds": 0,
           "lit": false
         },
@@ -92,12 +63,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              54
-            ]
-          },
+          "key": {"badge":null,"words":[54]},
           "kinds": 0,
           "lit": false
         }
@@ -107,25 +73,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        12,
-        12
-      ],
+      "fp": [0,0],
+      "hp": [12,12],
       "lit": [],
       "minimap": {
-        "at": [
-          0.5276546478271484,
-          0.7983974814414978
-        ],
+        "at": [0.5276546478271484,0.7983974814414978],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -452,74 +406,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "session_rules": "ja",
     "settings": {
@@ -550,8 +453,5 @@
       "feedback.tutorials": "true"
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

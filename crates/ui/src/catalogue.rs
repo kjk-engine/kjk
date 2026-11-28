@@ -940,9 +940,9 @@ impl Capture {
             view.retain(|field, value| unset.get(field) != Some(value));
         }
         name_lines(&mut value, false, talk);
-        let text = serde_json::to_string_pretty(&value)
-            .map(|text| text + "\n")
-            .map_err(|error| error.to_string())?;
+        let mut text = String::new();
+        laid_out(&value, 0, &mut text);
+        text.push('\n');
         let left = game_words(&text, talk)?;
         if !left.is_empty() {
             return Err(format!(
@@ -1602,6 +1602,54 @@ pub fn write_capture(
     let path = capture_file(folder, name);
     std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(path)
+}
+
+/// The widest line `laid_out` writes a value on whole.
+const LINE: usize = 100;
+
+/// `value` as JSON laid out for a reader, indented by two spaces a level.
+/// An array or object that fits on one line is written on one, and so is
+/// the list of a text's parts (`$parts`), however long. Written one item a
+/// line, the parts of the long descriptions of an inventory's items took
+/// twice the room of the words.
+fn laid_out(value: &serde_json::Value, depth: usize, out: &mut String) {
+    use serde_json::Value;
+    let compact = value.to_string();
+    let parts = value
+        .as_array()
+        .is_some_and(|_| out.trim_end().ends_with("\"$parts\":"));
+    let nested = matches!(value, Value::Array(items) if !items.is_empty())
+        || matches!(value, Value::Object(fields) if !fields.is_empty());
+    if !nested || parts || depth * 2 + compact.len() <= LINE {
+        out.push_str(&compact);
+        return;
+    }
+    let indent = |depth: usize, out: &mut String| out.extend(std::iter::repeat_n("  ", depth));
+    match value {
+        Value::Array(items) => {
+            out.push_str("[\n");
+            for (at, item) in items.iter().enumerate() {
+                indent(depth + 1, out);
+                laid_out(item, depth + 1, out);
+                out.push_str(if at + 1 < items.len() { ",\n" } else { "\n" });
+            }
+            indent(depth, out);
+            out.push(']');
+        }
+        Value::Object(fields) => {
+            out.push_str("{\n");
+            for (at, (key, item)) in fields.iter().enumerate() {
+                indent(depth + 1, out);
+                out.push_str(&Value::String(key.clone()).to_string());
+                out.push_str(": ");
+                laid_out(item, depth + 1, out);
+                out.push_str(if at + 1 < fields.len() { ",\n" } else { "\n" });
+            }
+            indent(depth, out);
+            out.push('}');
+        }
+        _ => out.push_str(&compact),
+    }
 }
 
 /// A rule of a valid catalogue that the story files or the captures break.

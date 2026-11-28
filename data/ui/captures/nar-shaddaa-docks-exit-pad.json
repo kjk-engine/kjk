@@ -10,12 +10,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -24,12 +19,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -38,12 +28,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -52,12 +37,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         }
@@ -67,25 +47,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        12,
-        12
-      ],
+      "fp": [0,0],
+      "hp": [12,12],
       "lit": [],
       "minimap": {
-        "at": [
-          0.37483710050582886,
-          0.034079670906066895
-        ],
+        "at": [0.37483710050582886,0.034079670906066895],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -412,74 +380,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "pad_playing": true,
     "session_rules": "ja",
@@ -510,12 +427,7 @@
       "feedback.tooltips": "true",
       "feedback.tutorials": "true"
     },
-    "transition": {
-      "$talk": 86076
-    }
+    "transition": {"$talk":86076}
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

@@ -21,14 +21,10 @@
       "host": true,
       "planets": [
         {
-          "description": {
-            "$talk": 123722
-          },
+          "description": {"$talk":123722},
           "icon": "gal_dxun_2",
           "model": "planet_04",
-          "name": {
-            "$talk": 48344
-          },
+          "name": {"$talk":48344},
           "row": 1,
           "selectable": true,
           "tag": "LBL_Planet_Dxun"
@@ -37,74 +33,52 @@
           "description": [],
           "icon": "gal_ebonhawk_2",
           "model": "ebon_01",
-          "name": {
-            "$talk": 26237
-          },
+          "name": {"$talk":26237},
           "row": 2,
           "selectable": true,
           "tag": "LBL_EbonHawk"
         },
         {
-          "description": {
-            "$talk": 123730
-          },
+          "description": {"$talk":123730},
           "icon": "gal_korriban_2",
           "model": "planet_07",
-          "name": {
-            "$talk": 123729
-          },
+          "name": {"$talk":123729},
           "row": 3,
           "selectable": true,
           "tag": "LBL_Planet_Korriban"
         },
         {
-          "description": {
-            "$talk": 124112
-          },
+          "description": {"$talk":124112},
           "icon": "gal_m478_2",
           "model": "planet_08",
-          "name": {
-            "$talk": 48346
-          },
+          "name": {"$talk":48346},
           "row": 4,
           "selectable": true,
           "tag": "LBL_Planet_M478"
         },
         {
-          "description": {
-            "$talk": 123728
-          },
+          "description": {"$talk":123728},
           "icon": "gal_malachorv_2",
           "model": "planet_09",
-          "name": {
-            "$talk": 48347
-          },
+          "name": {"$talk":48347},
           "row": 5,
           "selectable": true,
           "tag": "LBL_Planet_MalachorV"
         },
         {
-          "description": {
-            "$talk": 123720
-          },
+          "description": {"$talk":123720},
           "icon": "gal_narshaddaa_2",
           "model": "planet_03",
-          "name": {
-            "$talk": 48348
-          },
+          "name": {"$talk":48348},
           "row": 6,
           "selectable": false,
           "tag": "LBL_Planet_NarShaddaa"
         },
         {
-          "description": {
-            "$talk": 123724
-          },
+          "description": {"$talk":123724},
           "icon": "gal_onderon_2",
           "model": "planet_05",
-          "name": {
-            "$talk": 48349
-          },
+          "name": {"$talk":48349},
           "row": 7,
           "selectable": false,
           "tag": "LBL_Planet_Onderon"
@@ -118,12 +92,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_wave",
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -132,12 +101,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_storm",
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -146,12 +110,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_deathfield",
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -160,12 +119,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_kill",
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         }
@@ -175,25 +129,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        78,
-        78
-      ],
-      "hp": [
-        54,
-        54
-      ],
+      "fp": [78,78],
+      "hp": [54,54],
       "lit": [],
       "minimap": {
-        "at": [
-          0.23518291115760803,
-          0.3677672743797302
-        ],
+        "at": [0.23518291115760803,0.3677672743797302],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -520,74 +462,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "pad_playing": true,
     "session_rules": "ja",
@@ -619,8 +510,5 @@
       "feedback.tutorials": "true"
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

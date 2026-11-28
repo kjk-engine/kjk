@@ -10,12 +10,7 @@
           "dim": true,
           "fire": null,
           "icon": "ip_wave",
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -24,12 +19,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_storm",
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -38,12 +28,7 @@
           "dim": true,
           "fire": null,
           "icon": "ip_deathfield",
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -52,12 +37,7 @@
           "dim": false,
           "fire": null,
           "icon": "ip_kill",
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         }
@@ -67,25 +47,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        21,
-        21
-      ],
-      "hp": [
-        54,
-        54
-      ],
+      "fp": [21,21],
+      "hp": [54,54],
       "lit": [],
       "minimap": {
-        "at": [
-          0.23518291115760803,
-          0.3677672743797302
-        ],
+        "at": [0.23518291115760803,0.3677672743797302],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -412,74 +380,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "pad_playing": true,
     "session_rules": "ja",
@@ -515,21 +432,9 @@
       "busy": false,
       "cycle": null,
       "hostile": true,
-      "hp": [
-        10,
-        10
-      ],
-      "name": {
-        "$talk": 127342,
-        "unbraced": true
-      },
-      "point": {
-        "at": [
-          0.4922022819519043,
-          0.49722641706466675
-        ],
-        "behind": false
-      },
+      "hp": [10,10],
+      "name": {"$talk":127342,"unbraced":true},
+      "point": {"at":[0.4922022819519043,0.49722641706466675],"behind":false},
       "poisoned": false,
       "progress": null,
       "selected": 0
@@ -538,10 +443,7 @@
       "arc": [],
       "arc_at": null,
       "at": null,
-      "bumpers": [
-        "",
-        "kjkpad_xbox_lefttrigger"
-      ],
+      "bumpers": ["","kjkpad_xbox_lefttrigger"],
       "entries": [
         {
           "count": null,
@@ -551,14 +453,7 @@
           "icon": "ip_push",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$parts": [
-              {
-                "$talk": 1060
-              },
-              " Pull"
-            ]
-          }
+          "name": {"$parts":[{"$talk":1060}," Pull"]}
         },
         {
           "count": null,
@@ -568,9 +463,7 @@
           "icon": "ip_fear",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 275
-          }
+          "name": {"$talk":275}
         },
         {
           "count": null,
@@ -580,9 +473,7 @@
           "icon": "ip_stun",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 305
-          }
+          "name": {"$talk":305}
         },
         {
           "count": null,
@@ -592,9 +483,7 @@
           "icon": "ip_plague",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 297
-          }
+          "name": {"$talk":297}
         },
         {
           "count": null,
@@ -604,9 +493,7 @@
           "icon": "ip_breach",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 278
-          }
+          "name": {"$talk":278}
         },
         {
           "count": null,
@@ -616,9 +503,7 @@
           "icon": "ip_masterspeed",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 296
-          }
+          "name": {"$talk":296}
         },
         {
           "count": null,
@@ -628,9 +513,7 @@
           "icon": "ip_heal",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 48359
-          }
+          "name": {"$talk":48359}
         },
         {
           "count": null,
@@ -640,9 +523,7 @@
           "icon": "ip_armor",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 276
-          }
+          "name": {"$talk":276}
         },
         {
           "count": null,
@@ -652,9 +533,7 @@
           "icon": "ip_immunity",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 279
-          }
+          "name": {"$talk":279}
         },
         {
           "count": null,
@@ -664,9 +543,7 @@
           "icon": "ip_dominate",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 273
-          }
+          "name": {"$talk":273}
         },
         {
           "count": null,
@@ -676,9 +553,7 @@
           "icon": "ip_fury03",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 48496
-          }
+          "name": {"$talk":48496}
         },
         {
           "count": null,
@@ -688,9 +563,7 @@
           "icon": "ip_forcesight",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 48518
-          }
+          "name": {"$talk":48518}
         },
         {
           "count": null,
@@ -700,9 +573,7 @@
           "icon": "ip_mastermind",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 295
-          }
+          "name": {"$talk":295}
         },
         {
           "count": null,
@@ -712,9 +583,7 @@
           "icon": "ip_resistenergy2",
           "kinds": 0,
           "lit": false,
-          "name": {
-            "$talk": 299
-          }
+          "name": {"$talk":299}
         },
         {
           "count": 3,
@@ -724,9 +593,7 @@
           "icon": "ii_medeqpmnt_002",
           "kinds": 1,
           "lit": false,
-          "name": {
-            "$talk": 5962
-          }
+          "name": {"$talk":5962}
         },
         {
           "count": 2,
@@ -736,20 +603,12 @@
           "icon": "iw_fraggren_001",
           "kinds": 1,
           "lit": false,
-          "name": {
-            "$talk": 513
-          }
+          "name": {"$talk":513}
         }
       ],
       "first": 0,
-      "pointer": [
-        0.0,
-        0.0
-      ]
+      "pointer": [0.0,0.0]
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

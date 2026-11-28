@@ -10,12 +10,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":null,"words":[49]},
           "kinds": 0,
           "lit": false
         },
@@ -24,12 +19,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":null,"words":[50]},
           "kinds": 0,
           "lit": false
         },
@@ -38,12 +28,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":null,"words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -52,12 +37,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":null,"words":[52]},
           "kinds": 0,
           "lit": false
         },
@@ -66,12 +46,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              53
-            ]
-          },
+          "key": {"badge":null,"words":[53]},
           "kinds": 0,
           "lit": false
         },
@@ -80,12 +55,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": [
-              54
-            ]
-          },
+          "key": {"badge":null,"words":[54]},
           "kinds": 0,
           "lit": false
         }
@@ -95,29 +65,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        12,
-        12
-      ],
-      "lit": [
-        "LBL_JOURNAL",
-        "LBL_CASH",
-        "LBL_PLOTXP"
-      ],
+      "fp": [0,0],
+      "hp": [12,12],
+      "lit": ["LBL_JOURNAL","LBL_CASH","LBL_PLOTXP"],
       "minimap": {
-        "at": [
-          0.38816532492637634,
-          0.8386424779891968
-        ],
+        "at": [0.38816532492637634,0.8386424779891968],
         "fog": {
-          "cells": [
-            24,
-            13
-          ],
+          "cells": [24,13],
           "explored": [
             false,
             false,
@@ -444,74 +398,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "session_rules": "ja",
     "settings": {
@@ -548,37 +451,13 @@
         "ok": null,
         "prompt": null,
         "rows": [
-          [
-            "Journal",
-            {
-              "$talk": 42436
-            }
-          ],
-          [
-            "Credits",
-            {
-              "$talk": 42437,
-              "filled": [
-                "100"
-              ]
-            }
-          ],
-          [
-            "Xp",
-            {
-              "$talk": 42438,
-              "filled": [
-                "50"
-              ]
-            }
-          ]
+          ["Journal",{"$talk":42436}],
+          ["Credits",{"$talk":42437,"filled":["100"]}],
+          ["Xp",{"$talk":42438,"filled":["50"]}]
         ],
         "slide": 0.7702761888504028
       }
     ]
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }

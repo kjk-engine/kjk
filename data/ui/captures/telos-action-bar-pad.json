@@ -1,112 +1,40 @@
 {
   "game": "tsl",
   "scale_factor": 1.0,
-  "screens": [
-    "action_bar"
-  ],
+  "screens": ["action_bar"],
   "view": {
     "bar_setup": {
-      "contents": [
-        {
-          "Item": 3
-        },
-        {
-          "Item": 0
-        },
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
+      "contents": [{"Item":3},{"Item":0},null,null,null,null,null,null,null,null],
       "feats": [],
       "items": [
         [
-          {
-            "Item": 0
-          },
+          {"Item":0},
           {
             "count": 5,
-            "description": {
-              "$parts": [
-                "The slot ",
-                {
-                  "$talk": 1420
-                },
-                " ",
-                {
-                  "$talk": 5962
-                },
-                ".\n\n",
-                {
-                  "$talk": 38943
-                }
-              ]
-            },
+            "description": {"$parts":["The slot ",{"$talk":1420}," ",{"$talk":5962},".\n\n",{"$talk":38943}]},
             "dim": false,
             "group": 0,
             "icon": "ii_medeqpmnt_002",
             "kinds": 0,
             "lit": false,
-            "name": [
-              77,
-              101,
-              100,
-              112,
-              97,
-              99,
-              115
-            ]
+            "name": [77,101,100,112,97,99,115]
           }
         ],
         [
-          {
-            "Item": 3
-          },
+          {"Item":3},
           {
             "count": 4,
-            "description": {
-              "$parts": [
-                "The slot ",
-                {
-                  "$talk": 1420
-                },
-                " ",
-                {
-                  "$talk": 513
-                },
-                ".\n\n",
-                {
-                  "$talk": 31856
-                }
-              ]
-            },
+            "description": {"$parts":["The slot ",{"$talk":1420}," ",{"$talk":513},".\n\n",{"$talk":31856}]},
             "dim": false,
             "group": 0,
             "icon": "iw_fraggren_001",
             "kinds": 0,
             "lit": false,
-            "name": {
-              "$talk": 34985
-            }
+            "name": {"$talk":34985}
           }
         ]
       ],
-      "keys": [
-        "Digit1",
-        "Digit2",
-        "Digit3",
-        "Digit4",
-        "Digit5",
-        "Digit6",
-        "Digit7",
-        "Digit8",
-        "Digit9",
-        "Digit0"
-      ],
+      "keys": ["Digit1","Digit2","Digit3","Digit4","Digit5","Digit6","Digit7","Digit8","Digit9","Digit0"],
       "powers": [],
       "slots": [
         {
@@ -114,12 +42,7 @@
           "dim": false,
           "fire": null,
           "icon": "iw_fraggren_001",
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 1,
           "lit": false
         },
@@ -128,12 +51,7 @@
           "dim": false,
           "fire": null,
           "icon": "ii_medeqpmnt_002",
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 1,
           "lit": false
         },
@@ -142,12 +60,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -156,12 +69,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         },
@@ -170,10 +78,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         },
@@ -182,10 +87,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         },
@@ -194,10 +96,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         },
@@ -206,10 +105,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         },
@@ -218,10 +114,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         },
@@ -230,10 +123,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": null,
-            "words": []
-          },
+          "key": {"badge":null,"words":[]},
           "kinds": 0,
           "lit": false
         }
@@ -241,46 +131,20 @@
       "who": 0
     },
     "character": {
-      "abilities": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "abilities": [0,0,0,0,0,0],
       "alignment": 0,
-      "attack": [
-        null,
-        null
-      ],
+      "attack": [null,null],
       "auto_level": null,
       "class_row": null,
-      "classes": [
-        [
-          {
-            "$talk": 134
-          },
-          1
-        ]
-      ],
+      "classes": [[{"$talk":134},1]],
       "credits": 0,
-      "damage": [
-        "",
-        ""
-      ],
+      "damage": ["",""],
       "defence": 0,
       "droid": false,
       "feats": [],
-      "fp": [
-        120,
-        120
-      ],
+      "fp": [120,120],
       "headgear_setting": null,
-      "hp": [
-        12,
-        12
-      ],
+      "hp": [12,12],
       "id": 0,
       "level": 1,
       "locked": 0,
@@ -288,50 +152,18 @@
       "name": [],
       "next_level": null,
       "next_xp": null,
-      "own_abilities": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
-      "own_skills": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "own_abilities": [0,0,0,0,0,0],
+      "own_skills": [0,0,0,0,0,0,0,0],
       "owned": [],
       "portrait": "po_pmha01",
       "powers": [],
-      "saves": [
-        0,
-        0,
-        0
-      ],
-      "skill_totals": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
-      ],
+      "saves": [0,0,0],
+      "skill_totals": [0,0,0,0,0,0,0,0],
       "skills": [],
       "stance": null,
       "stance_setting": null,
       "unspent": 0,
-      "weapons": [
-        null,
-        null
-      ],
+      "weapons": [null,null],
       "worn": [],
       "xp": 0
     },
@@ -342,12 +174,7 @@
           "dim": false,
           "fire": null,
           "icon": "iw_fraggren_001",
-          "key": {
-            "badge": "kjkpad_xbox_lb+south",
-            "words": [
-              49
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+south","words":[49]},
           "kinds": 1,
           "lit": false
         },
@@ -356,12 +183,7 @@
           "dim": false,
           "fire": null,
           "icon": "ii_medeqpmnt_002",
-          "key": {
-            "badge": "kjkpad_xbox_lb+east",
-            "words": [
-              50
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+east","words":[50]},
           "kinds": 1,
           "lit": false
         },
@@ -370,12 +192,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+west",
-            "words": [
-              51
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+west","words":[51]},
           "kinds": 0,
           "lit": false
         },
@@ -384,12 +201,7 @@
           "dim": false,
           "fire": null,
           "icon": null,
-          "key": {
-            "badge": "kjkpad_xbox_lb+north",
-            "words": [
-              52
-            ]
-          },
+          "key": {"badge":"kjkpad_xbox_lb+north","words":[52]},
           "kinds": 0,
           "lit": false
         }
@@ -399,25 +211,13 @@
       "duel": null,
       "feat": null,
       "form": null,
-      "fp": [
-        0,
-        0
-      ],
-      "hp": [
-        12,
-        12
-      ],
+      "fp": [0,0],
+      "hp": [12,12],
       "lit": [],
       "minimap": {
-        "at": [
-          0.27579396963119507,
-          0.5871632099151611
-        ],
+        "at": [0.27579396963119507,0.5871632099151611],
         "fog": {
-          "cells": [
-            18,
-            10
-          ],
+          "cells": [18,10],
           "explored": [
             false,
             false,
@@ -612,74 +412,23 @@
     },
     "pad_kind": "xbox",
     "pad_names": [
-      [
-        "South",
-        "A"
-      ],
-      [
-        "East",
-        "B"
-      ],
-      [
-        "West",
-        "X"
-      ],
-      [
-        "North",
-        "Y"
-      ],
-      [
-        "LeftTrigger",
-        "LB"
-      ],
-      [
-        "RightTrigger",
-        "RB"
-      ],
-      [
-        "LeftTrigger2",
-        "LT"
-      ],
-      [
-        "RightTrigger2",
-        "RT"
-      ],
-      [
-        "Select",
-        "View"
-      ],
-      [
-        "Start",
-        "Menu"
-      ],
-      [
-        "LeftThumb",
-        "LS"
-      ],
-      [
-        "RightThumb",
-        "RS"
-      ],
-      [
-        "DPadUp",
-        "Up"
-      ],
-      [
-        "DPadDown",
-        "Down"
-      ],
-      [
-        "DPadLeft",
-        "Left"
-      ],
-      [
-        "DPadRight",
-        "Right"
-      ],
-      [
-        "Mode",
-        "Guide"
-      ]
+      ["South","A"],
+      ["East","B"],
+      ["West","X"],
+      ["North","Y"],
+      ["LeftTrigger","LB"],
+      ["RightTrigger","RB"],
+      ["LeftTrigger2","LT"],
+      ["RightTrigger2","RT"],
+      ["Select","View"],
+      ["Start","Menu"],
+      ["LeftThumb","LS"],
+      ["RightThumb","RS"],
+      ["DPadUp","Up"],
+      ["DPadDown","Down"],
+      ["DPadLeft","Left"],
+      ["DPadRight","Right"],
+      ["Mode","Guide"]
     ],
     "pad_playing": true,
     "party": [
@@ -689,14 +438,8 @@
         "debilitated": false,
         "dresses": true,
         "effects": [],
-        "fp": [
-          120,
-          120
-        ],
-        "hp": [
-          12,
-          12
-        ],
+        "fp": [120,120],
+        "hp": [12,12],
         "id": 0,
         "level": 1,
         "may_level": false,
@@ -735,8 +478,5 @@
       "feedback.tutorials": "true"
     }
   },
-  "window": [
-    1920.0,
-    1080.0
-  ]
+  "window": [1920.0,1080.0]
 }
