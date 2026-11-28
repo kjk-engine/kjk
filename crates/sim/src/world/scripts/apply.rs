@@ -534,14 +534,14 @@ pub(in crate::world) fn apply(
                 // apartment's door (`a_grenn_intro`) must close and lock behind
                 // Grenn all the same.
                 let door_states: std::collections::BTreeMap<u32, crate::snapshot::ObjectState> =
-                    (!open)
-                        .then(|| {
-                            objects
-                                .iter()
-                                .map(|(_, object)| (object.index, object.state))
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                    if !open {
+                        objects
+                            .iter()
+                            .map(|(_, object)| (object.index, object.state))
+                            .collect()
+                    } else {
+                        std::collections::BTreeMap::new()
+                    };
                 let passing = !open
                     && players.iter().any(|(id, player)| {
                         let fighter = fighters.iter().find(|(of, _)| of.0 == id.0);
@@ -568,8 +568,12 @@ pub(in crate::world) fn apply(
                         not_stuck
                             && scripts.state.goals.get(&id.0.0).is_some_and(|goal| {
                                 let target = crate::walk::on_floor(&level.0, goal.point);
-                                let open_state =
-                                    |i: u32| door_states.get(&i).copied().unwrap_or_default();
+                                let open_state = |i: u32| {
+                                    door_states
+                                        .get(&i)
+                                        .copied()
+                                        .unwrap_or(crate::snapshot::ObjectState::GONE)
+                                };
                                 let shut_state = |i: u32| {
                                     if i == index {
                                         crate::snapshot::ObjectState {
