@@ -149,6 +149,11 @@ instead of a welcome (`net::session::lobby`, messages 16 to 20).
   controls those companions. With "Show chosen replies" on (the default),
   the reply a player takes is shown to every player in the conversation
   before it runs (`DIALOGUE.md`, "The chosen reply").
+- The host chooses who can use cheat console commands on the **Cheats**
+  row (`game.cheats`: `off`, `host` [default], or `all`; see `CONSOLE.md`).
+  The simulation enforces this rule on every cheat order. Under any rule,
+  players can only edit their own character and unclaimed companions, and
+  `warp` and `load` are always host-only.
 - Start writes the lobby's party into the save as the party changes the
   games' own scripts make (`Save::queue_party`), seeds each guest's seat
   with its companion (`Save::seat_companions`, through `Kept`), and plans

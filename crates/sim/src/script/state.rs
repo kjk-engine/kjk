@@ -76,6 +76,10 @@ pub struct Pending {
     /// `check_party_gui` keeps the party aboard the Ebon Hawk on 0, the
     /// screen cancelled); 0 for any other.
     pub script_var: i32,
+    /// What KOTOR 2's `GetScriptParameter` and `GetScriptStringParameter`
+    /// read in the run: the parameters a console command gave the script
+    /// (`CheatOrder::Script`); none for any other run.
+    pub params: Option<Arc<fmt_odyssey::dlg::Call>>,
 }
 
 impl Pending {
@@ -90,6 +94,7 @@ impl Pending {
             leads: None,
             asker: None,
             script_var: 0,
+            params: None,
         }
     }
 }
@@ -1987,6 +1992,16 @@ fn encode_pendings(out: &mut Writer, pendings: &[Pending]) {
         out.u32(pending.leads.map_or(u32::MAX, |id| id.0));
         out.u32(pending.asker.map_or(u32::MAX, |id| id.0));
         out.u32(pending.script_var as u32);
+        match &pending.params {
+            None => out.u8(0),
+            Some(call) => {
+                out.u8(1);
+                for number in call.ints {
+                    out.u32(number as u32);
+                }
+                out.string(&fmt_odyssey::code_page(&call.string));
+            }
+        }
     }
 }
 
@@ -1996,7 +2011,7 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
             let script = input.string()?;
             let caller = ObjectId(input.u32()?);
             let entering = optional_id(input)?;
-            Ok(Pending {
+            let mut pending = Pending {
                 script,
                 caller,
                 entering,
@@ -2010,9 +2025,39 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
                 } else {
                     0
                 },
-            })
+                params: None,
+            };
+            if input.since(crate::since::save::CONSOLE_MOD_COMMANDS) {
+                pending.params = decode_params(input, &pending.script)?;
+            }
+            Ok(pending)
         })
         .collect()
+}
+
+/// A waiting script's parameters (`Pending::params`): a flag, then the five
+/// numbers and the text.
+fn decode_params(
+    input: &mut Reader,
+    script: &str,
+) -> Result<Option<Arc<fmt_odyssey::dlg::Call>>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => {
+            let mut ints = [0; 5];
+            for number in &mut ints {
+                *number = input.u32()? as i32;
+            }
+            let string = fmt_odyssey::code_page_bytes(&input.string()?);
+            Ok(Some(Arc::new(fmt_odyssey::dlg::Call {
+                script: script.to_string(),
+                ints,
+                string,
+            })))
+        }
+        _ => Err(input.invalid("script parameters", at)),
+    }
 }
 
 fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {

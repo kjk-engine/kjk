@@ -288,17 +288,28 @@ impl Screen for KeyMapping {
 }
 
 /// `text` with each `{action}` (a settings' name, as `{zoom_in}`) as what
-/// the action is bound to now: the pad's button while a pad plays, else
-/// the key. A brace that names no action stays as written.
+/// the action is bound to now: the pad's button while a pad plays, falling
+/// back to the keyboard binding for keyboard-only actions (such as
+/// `{console}`). A brace that names no action stays as written.
 pub fn with_bindings(text: &str, vm: &ViewModel) -> String {
-    let device = if vm.pad_playing {
-        Device::Pad
-    } else {
-        Device::Keys
+    let substitute = |text: String, device: Device| {
+        device.rows(vm).iter().fold(text, |text, row| {
+            text.replace(&format!("{{{}}}", row.action), &device.shown(&row.key, vm))
+        })
     };
-    device.rows(vm).iter().fold(text.to_string(), |text, row| {
-        text.replace(&format!("{{{}}}", row.action), &device.shown(&row.key, vm))
-    })
+    let text = substitute(
+        text.to_string(),
+        if vm.pad_playing {
+            Device::Pad
+        } else {
+            Device::Keys
+        },
+    );
+    if vm.pad_playing && text.contains('{') {
+        substitute(text, Device::Keys)
+    } else {
+        text
+    }
 }
 
 /// The modifier keys a binding can ask to be held with its key or button,

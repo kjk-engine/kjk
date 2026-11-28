@@ -1,6 +1,6 @@
 //! The co-op lobby (`vm::LobbyView`): the players who gathered, the save
-//! about to be played, the saber rules, the collision and whether chosen
-//! replies are shown, and the companions each guest chooses before the host
+//! about to be played, the saber rules, the collision, whether chosen
+//! replies are shown, who may cheat, and the companions each guest chooses before the host
 //! starts the game.
 //!
 //! KOTOR 2 has no lobby, so the screen is assembled from the party
@@ -14,7 +14,7 @@
 //!   (`LBL_CHAR0`), and its frame a copy of a companion button
 //!   (`BTN_NPC0`), drawn in the highlight colour round the viewer's own
 //!   slot;
-//! - the saber rules, collision and chosen replies rows, Change Save and
+//! - the saber rules, collision, chosen replies and cheats rows, Change Save and
 //!   Invite Friends are copies of the Add button (`BTN_ACCEPT`) and the Back
 //!   button;
 //! - the companions keep the layout's portraits and buttons (`BTN_NPCn`,
@@ -29,7 +29,7 @@
 //! gamepad reach every control by the nearest one in each direction.
 //!
 //! The host chooses the saber rules, the collision, whether chosen replies
-//! are shown, and which companions the game controls in the places no guest
+//! are shown, who may use the console's cheats, and which companions the game controls in the places no guest
 //! took, and starts the game. A
 //! guest chooses a companion (one another player plays swaps the two) and
 //! marks Ready. Any player can choose the main character, which swaps
@@ -102,6 +102,11 @@ const ROW_FULL: usize = 11;
 const ROW_WIDTH: i32 = 644;
 const ROW_TOP: i32 = 372;
 const ROW_PORTRAIT: i32 = 38;
+/// The host's settings' rows, in the Game panel under the save, from the
+/// top: the first's top and the pitch between them.
+const SETTINGS: [&str; 4] = ["BTN_SABER", "BTN_COLLISION", "BTN_REPLIES", "BTN_CHEATS"];
+const SETTINGS_TOP: i32 = 236;
+const SETTINGS_PITCH: i32 = 25;
 /// The bottom row's buttons: tag, left, width.
 const BUTTONS: [(&str, i32, i32); 4] = [
     ("BTN_BACK", 75, 120),
@@ -356,12 +361,13 @@ impl Lobby {
             return ControlState::default();
         };
         let words = match focus {
-            "BTN_SABER" | "BTN_COLLISION" | "BTN_REPLIES" if !lobby.host => {
+            "BTN_SABER" | "BTN_COLLISION" | "BTN_REPLIES" | "BTN_CHEATS" if !lobby.host => {
                 strings::LOBBY_SETTINGS_GUEST.to_string()
             }
             "BTN_SABER" => super::key_mapping::with_bindings(strings::SABER_RULES_HELP, vm),
             "BTN_COLLISION" => strings::COLLISION_HELP.to_string(),
             "BTN_REPLIES" => strings::SHOW_REPLIES_HELP.to_string(),
+            "BTN_CHEATS" => strings::CHEATS_HELP.to_string(),
             tag => match index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)) {
                 Some(entry) => Lobby::told_of(lobby, entry),
                 None => return ControlState::default(),
@@ -528,31 +534,23 @@ impl Screen for Lobby {
             (
                 "LBL_NPC_NAME",
                 "LBL_GAMEINFO".into(),
-                [418, 160, 296, 86],
+                [418, 160, 296, 74],
                 small,
-            ),
-            ("BTN_ACCEPT", "BTN_SABER".into(), [418, 250, 296, 24], None),
-            (
-                "BTN_ACCEPT",
-                "BTN_COLLISION".into(),
-                [418, 278, 296, 24],
-                None,
-            ),
-            (
-                "BTN_ACCEPT",
-                "BTN_REPLIES".into(),
-                [418, 306, 296, 24],
-                None,
             ),
             (
                 "LBL_NPC_NAME",
                 "LBL_ADDRESS".into(),
-                [418, 334, 296, 16],
+                [418, 336, 296, 16],
                 small,
             ),
             ("LBL_NPC_NAME", "LBL_DESC".into(), [86, 456, 628, 42], small),
             ("BTN_BACK", "BTN_INVITE".into(), [0, 516, 0, 28], None),
         ]);
+        // The settings' rows, one under another.
+        for (at, tag) in SETTINGS.iter().enumerate() {
+            let top = SETTINGS_TOP + at as i32 * SETTINGS_PITCH;
+            made.push(("BTN_ACCEPT", tag.to_string(), [418, top, 296, 22], None));
+        }
         // The places the row does not use sit on its last one, hidden.
         let shown = self.places.clamp(ROW_FULL, ROW) as i32;
         let pitch = match shown <= ROW_FULL as i32 {
@@ -637,6 +635,14 @@ impl Screen for Lobby {
                 }
                 .to_string(),
             ),
+            "BTN_CHEATS" => Lobby::setting(
+                lobby,
+                format!(
+                    "{}: {}",
+                    strings::CHEATS,
+                    named(super::options::CHEAT_RULES, &lobby.cheats)
+                ),
+            ),
             "LBL_ADDRESS" if lobby.host => text(strings::lobby_address(&lobby.address)),
             "LBL_DESC" => self.description(vm),
             "BTN_BACK" => text(strings::LOBBY_LEAVE),
@@ -671,6 +677,8 @@ impl Screen for Lobby {
             "BTN_COLLISION" if host => next(super::options::COLLISIONS, &lobby.collision)
                 .map(|mode| LobbyIntent::Collision(mode.into())),
             "BTN_REPLIES" if host => Some(LobbyIntent::ShowReplies(!lobby.show_replies)),
+            "BTN_CHEATS" if host => next(super::options::CHEAT_RULES, &lobby.cheats)
+                .map(|rule| LobbyIntent::Cheats(rule.into())),
             tag => (index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)))
                 .and_then(|entry| Lobby::choose(lobby, entry)),
         };

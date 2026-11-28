@@ -4374,6 +4374,7 @@ impl Step<'_> {
                 guest,
                 asker: pending.asker,
                 script_var: pending.script_var,
+                params: pending.params.clone(),
                 cue,
                 ..Event::default()
             };

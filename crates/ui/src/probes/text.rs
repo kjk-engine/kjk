@@ -12,6 +12,7 @@ pub fn all() -> Vec<Check> {
         check("text_bytes_round_trip", round_trip()),
         check("text_code_pages", code_pages()),
         check("text_name_box", name_box()),
+        check("text_caret", caret()),
     ]
 }
 
@@ -105,4 +106,44 @@ fn name_box() -> Result<String, String> {
         return Err(format!("a game name starts the box as {:?}", edit.text));
     }
     Ok("typed letters become the code page's bytes".into())
+}
+
+/// The caret moves through the text, letters go in and come out at it, and
+/// a fresh box's first key still replaces its default.
+fn caret() -> Result<String, String> {
+    let page = CodePage::Western;
+    let mut edit = EditBox::new(16);
+    edit.type_text("gvecredts", page);
+    edit.home();
+    edit.step(1);
+    edit.type_text("i", page);
+    edit.end();
+    edit.step(-2);
+    edit.type_text("i", page);
+    let typed = (edit.as_str(), edit.caret());
+    edit.end();
+    edit.type_text("XYZ1234567", page);
+    let full = (edit.as_str(), edit.caret());
+    edit.step(-20);
+    edit.delete();
+    edit.step(3);
+    edit.backspace();
+    let cut = (edit.as_str(), edit.caret());
+    let mut fresh = EditBox::with("Player", 16);
+    fresh.step(-2);
+    fresh.type_text("R", page);
+    let replaced = (fresh.as_str(), fresh.caret());
+    let want = (
+        ("givecredits".to_string(), 9),
+        ("givecreditsXYZ12".to_string(), 16),
+        ("ivcreditsXYZ12".to_string(), 2),
+        ("R".to_string(), 1),
+    );
+    let got = (typed, full, cut, replaced);
+    match got == want {
+        true => Ok("typed at the caret, cut either side, the default replaced".into()),
+        false => Err(format!(
+            "typed, filled, cut and fresh {got:?}, not {want:?}"
+        )),
+    }
 }

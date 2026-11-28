@@ -380,6 +380,10 @@ fn saveload() -> Gui {
                 kind: Kind::Label,
                 ..button("LBL_SCREENSHOT", [317, 90, 272, 200], b"")
             },
+            Control {
+                kind: Kind::Label,
+                ..button("LBL_TIMEPLAYED", [317, 296, 272, 20], b"")
+            },
             linked("BTN_DELETE", 10, 410, -1, -1),
             linked("BTN_SAVELOAD", 11, 410, -1, -1),
             linked("BTN_BACK", 12, 410, -1, -1),
@@ -596,6 +600,50 @@ fn named(stack: &mut Stack) -> (&'static str, String) {
         stack.top().map_or("", |id| id.0),
         String::from_utf8_lossy(&name).into_owned(),
     )
+}
+
+/// A save made after a console command changed the game says "Cheats used"
+/// on the Load Game, Save Game and Solo screens, and no other save does.
+pub(super) fn save_cheats() -> Vec<Check> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("saveload", saveload());
+    let mut vm = saves_vm();
+    vm.saves[0].cheats = true;
+    // Each screen's label on its first row, then on the row under it.
+    let shown = |stack: &Stack| {
+        stack
+            .state_of("LBL_TIMEPLAYED", &vm)
+            .map(|state| (!state.hidden).then(|| state.text.unwrap_or_else(Vec::new)))
+    };
+    // The Solo screen's first key takes the focus to its list.
+    let mut told = |screen: &str, moves: &[Key]| {
+        let mut stack = opened(screen, &mut assets, &vm);
+        let first = shown(&stack);
+        stack.step(&mut assets, &vm, &keys(moves));
+        [first, shown(&stack)]
+    };
+    let used = Some(Some(crate::strings::bytes(crate::strings::CHEATS_USED)));
+    // Saving and on the Solo screen, the list's first row is a new save or
+    // a new game.
+    let down = [Key::Down];
+    let got = [
+        told("load", &down),
+        told("save", &down),
+        told("solo", &[Key::Up, Key::Down]),
+    ];
+    let want = [
+        [used.clone(), Some(None)],
+        [Some(None), used.clone()],
+        [Some(None), used],
+    ];
+    vec![check(
+        "save_cheats",
+        expect(
+            &format!("the label on two rows of load, save, solo: {got:?}"),
+            got == want,
+        )
+        .map(|()| "Cheats used on the marked save alone".into()),
+    )]
 }
 
 /// A save is chosen as the cursor comes to it, so a pad's A on it loads,
@@ -1883,9 +1931,7 @@ pub(super) fn options() -> Vec<Check> {
                 .any(|quad| quad.texture != crate::draw::TextureId::WHITE)
         });
     let mut gameplay = opened("options_gameplay", &mut assets, &vm);
-    let greyed = gameplay
-        .state_of("CB_LEVELUP", &vm)
-        .is_some_and(|state| state.disabled);
+    let console = press(&mut gameplay, &mut assets, &vm, "CB_LEVELUP");
     let inverted = press(&mut gameplay, &mut assets, &vm, "CB_INVERTCAM");
     // The gameplay page opens the controller's page from its difficulty
     // button and the sabers' from its reverse box.
@@ -1920,7 +1966,12 @@ pub(super) fn options() -> Vec<Check> {
             slid == vec![Intent::Setting("mouse.sensitivity".into(), "0.55".into())],
         )
         .and_then(|()| expect("the slider's thumb drawn", thumb_drawn))
-        .and_then(|()| expect("what is not built yet is greyed", greyed))
+        .and_then(|()| {
+            expect(
+                &format!("the level-up box turns the console on: {console:?}"),
+                console == vec![Intent::Setting(crate::screens::options::CONSOLE.into(), "true".into())],
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("the camera inverted: {inverted:?}"),
@@ -1951,7 +2002,7 @@ pub(super) fn options() -> Vec<Check> {
                     && main.top().is_none(),
             )
         })
-        .map(|()| "sliders, check boxes, greyed, stepped choices, keys, Debug".into())
+        .map(|()| "sliders, check boxes, the console, stepped choices, keys, Debug".into())
     })]
 }
 

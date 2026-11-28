@@ -18,15 +18,15 @@
 //! The sandbox has the Debug Mode terminal too: KOTOR 1's Rakatan computer
 //! beside the arrival (`terminal`), which opens a page that changes a
 //! party member's class, level, attributes, skills and alignment
-//! (`crate::debug_terminal`). The console gives its orders as `arena
-//! level`, `ability`, `skill`, `alignment` and `restore` (`console_order`).
+//! (`crate::debug_terminal`). The console's table of commands gives the
+//! same orders as `level`, `attribute`, `skill`, `alignment` and `restore`
+//! (`crates/commands`, run by `crate::console_view`).
 //! The arena's player starts with one of every item (`gear`).
 
 use std::sync::Arc;
 
 use bevy::prelude::*;
 use collision::{Brush, BrushWorld};
-use sim::SimId;
 use sim::action::{Action, ArenaOrder};
 use sim::combat::Sheet;
 
@@ -422,20 +422,13 @@ type Shown<'w> = (
     Option<Res<'w, crate::sim_host::OwnSeat>>,
 );
 
-/// Where the arena's orders go: the actions sent to the sim, and the
-/// console's orders taken.
-type Orders<'w> = (
-    Option<ResMut<'w, crate::loot::Outgoing>>,
-    Option<ResMut<'w, console::ArenaRequests>>,
-);
-
 /// F2 to F6 (see the module documentation), only on the arena's level;
 /// the line says whether the player's body is in god mode now.
 fn keys(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     (swap, presented, own): Shown,
     mut chosen: ResMut<Chosen>,
-    (mut outgoing, mut requests): Orders,
+    mut outgoing: Option<ResMut<crate::loot::Outgoing>>,
     (mut ui, map): (
         Option<ResMut<crate::ui_view::Ui>>,
         Option<Res<crate::settings::KeyMap>>,
@@ -444,21 +437,10 @@ fn keys(
     let Some(swap) = swap.filter(|swap| swap.level.arena_rules().is_some()) else {
         return;
     };
-    // The console's orders, as the keys and the Debug Mode terminal give
-    // them (`console_order`).
     let me = presented
         .as_ref()
         .zip(own.as_ref())
         .and_then(|(presented, own)| crate::cast::me(presented.0.current(), own.0));
-    let asked = requests.as_mut().map_or_else(Vec::new, |requests| {
-        std::mem::take(&mut requests.0)
-            .into_iter()
-            .filter_map(|words| console_order(&words, me, &swap.level))
-            .collect()
-    });
-    if let Some(outgoing) = outgoing.as_mut() {
-        outgoing.0.extend(asked.into_iter().map(Action::Arena));
-    }
     let god = presented
         .as_ref()
         .zip(own.as_ref())
@@ -505,78 +487,6 @@ fn keys(
             .then(|| map.shown(crate::settings::Action::Use));
         ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god, terminal));
     }
-}
-
-/// The console's names of the attributes (`Ability` order) and the skills
-/// (`skills.2da` rows).
-const ABILITY_NAMES: [&str; 6] = [
-    "strength",
-    "dexterity",
-    "constitution",
-    "intelligence",
-    "wisdom",
-    "charisma",
-];
-const SKILL_NAMES: [&str; 8] = [
-    "computer",
-    "demolitions",
-    "stealth",
-    "awareness",
-    "persuade",
-    "repair",
-    "security",
-    "treat",
-];
-
-/// The console's arena order `words` (`arena spawn TEMPLATE`, `clear`,
-/// `god`, `down N`), and the Debug Mode terminal's orders for the player's
-/// own body `me`: `level CLASS N` (total level N, with `CLASS2 N2` that
-/// many levels of a second class), `ability NAME N`, `skill NAME N`,
-/// `alignment N` and `restore` (to `level`'s
-/// starting character). A name may also be its number.
-fn console_order(words: &[String], me: Option<SimId>, level: &sim::Level) -> Option<ArenaOrder> {
-    let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let named = |names: &[&str], word: &str| {
-        let lower = word.to_ascii_lowercase();
-        (names.iter().position(|name| *name == lower))
-            .and_then(|at| u8::try_from(at).ok())
-            .or_else(|| word.parse().ok())
-    };
-    Some(match words.as_slice() {
-        ["spawn", template] => ArenaOrder::Spawn(template.to_string()),
-        ["clear"] => ArenaOrder::Clear,
-        ["god"] => ArenaOrder::God,
-        ["down", n] => ArenaOrder::Down(n.parse().ok()?),
-        ["level", class, n, second @ ..] => ArenaOrder::Rebuild {
-            who: me?,
-            class: class.parse().ok()?,
-            level: n.parse().ok()?,
-            second: match second {
-                [] => None,
-                [other, levels] => Some((other.parse().ok()?, levels.parse().ok()?)),
-                _ => return None,
-            },
-        },
-        ["ability", name, n] => ArenaOrder::Ability {
-            who: me?,
-            ability: named(&ABILITY_NAMES, name)?,
-            score: n.parse().ok()?,
-        },
-        ["skill", name, n] => ArenaOrder::Skill {
-            who: me?,
-            skill: named(&SKILL_NAMES, name)?,
-            ranks: n.parse().ok()?,
-        },
-        ["alignment", n] => ArenaOrder::Alignment {
-            who: me?,
-            good_evil: n.parse().ok()?,
-        },
-        ["restore"] => ArenaOrder::Restore {
-            who: me?,
-            sheet: Box::new(sheet_for(level)),
-        },
-        _ => return None,
-    })
 }
 
 /// The panel's title and rows (`ui::screens::arena_panel`): `foe` the one

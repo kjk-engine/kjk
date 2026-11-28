@@ -57,8 +57,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// host may open that page for a seat (`Screen::DebugTerminal`). 13: save
 /// copies use 16 KiB parts, transport hardens 64-bit acks/MTU, frames use
 /// LZ4 hot/cold encoding, and seats send conversation picks reliably as
-/// `Action::DialogPick` (wire tag 74).
-pub const PROTOCOL_VERSION: u16 = 13;
+/// `Action::DialogPick` (wire tag 74). 14: a seat may send console cheat
+/// orders (`Action::Cheat`, wire tag 75), and the lobby says who may cheat
+/// (`Lobby::cheats`).
+pub const PROTOCOL_VERSION: u16 = 14;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

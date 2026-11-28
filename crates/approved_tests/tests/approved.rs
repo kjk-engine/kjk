@@ -6768,6 +6768,31 @@ fn creature_env_maps() {
     );
 }
 
+/// The console's table of commands (`commands::probes`): every command
+/// is well formed, lines split and their arguments are checked as
+/// `docs/CONSOLE.md` says, the `arena` words of earlier scripts give the
+/// same orders, the original games' names resolve, completion and "did you
+/// mean" find the expected names, and random lines never panic. A mod's
+/// `kjkconsole.2da` adds its good rows as commands and skips its broken
+/// rows with their reasons, and a damaged table never panics.
+#[test]
+fn commands() {
+    probed("commands", &commands::probes::probes(), 16);
+}
+
+/// `docs/CONSOLE.md` is the page `cargo xtask console` writes from the
+/// table of commands.
+#[test]
+fn console_page() {
+    let root = approved_tests::workspace();
+    let page =
+        std::fs::read_to_string(root.join("docs/CONSOLE.md")).unwrap_or_else(|_| String::new());
+    assert!(
+        page == commands::page::markdown(),
+        "docs/CONSOLE.md is stale: run `cargo xtask console`"
+    );
+}
+
 /// The rulebook (`data/rules/`, proposed 2026-10-24): `docs/RULEBOOK.md`
 /// is the page `cargo xtask rulebook` writes from it; every rule is read by
 /// the code; every literal constant in `crates/sim` is a rule's alias or
