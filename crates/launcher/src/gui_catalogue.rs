@@ -295,19 +295,25 @@ pub fn captures(discovery: &Discovery, rewrite: bool) -> ExitCode {
         if tlks.is_empty() {
             return Err("no game is installed to read a talk table from".into());
         }
-        let talks: Vec<(Game, TalkTable<'_>)> = (tlks.iter()).map(|(game, tlk)| (*game, TalkTable::new(tlk))).collect();
+        let talks: Vec<(Game, TalkTable<'_>)> = (tlks.iter())
+            .map(|(game, tlk)| (*game, TalkTable::new(tlk)))
+            .collect();
         let mut names: Vec<String> = std::fs::read_dir(&folder)
             .map_err(|error| format!("{}: {error}", folder.display()))?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
             .filter_map(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
             .collect();
         names.sort();
         let mut found = 0;
         for name in &names {
             let path = folder.join(format!("{name}.json"));
-            let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
             let key = serde_json::from_str::<serde_json::Value>(&text)
                 .ok()
                 .and_then(|value| Some(value.get("game")?.as_str()?.to_string()))
@@ -320,7 +326,8 @@ pub fn captures(discovery: &Discovery, rewrite: bool) -> ExitCode {
                 let new = Capture::of(&old.view, *game, old.window, old.scale_factor);
                 write_capture(&folder, name, &new, talk).map_err(|why| format!("{name}: {why}"))?;
             }
-            let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
             for (game, talk) in &talks {
                 let own = game.key() == key;
                 for words in game_words(&text, talk).map_err(|why| format!("{name}: {why}"))? {
@@ -328,14 +335,22 @@ pub fn captures(discovery: &Discovery, rewrite: bool) -> ExitCode {
                         outln!("{name}: {} words at {words}", game.key());
                         found += 1;
                     } else {
-                        outln!("{name}: note, a line of {}'s talk table at {words}", game.key());
+                        outln!(
+                            "{name}: note, a line of {}'s talk table at {words}",
+                            game.key()
+                        );
                     }
                 }
             }
         }
-        outln!("{} captures, {found} fields with the game's words", names.len());
+        outln!(
+            "{} captures, {found} fields with the game's words",
+            names.len()
+        );
         if found > 0 {
-            return Err(format!("{found} fields of the captures hold the game's words"));
+            return Err(format!(
+                "{found} fields of the captures hold the game's words"
+            ));
         }
         Ok(())
     })())
