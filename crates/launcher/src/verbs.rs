@@ -789,6 +789,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             GuiVerb::Sweep { game, out } => gui_verbs::sweep(&discover(), game.as_deref(), out),
             GuiVerb::Sheet { game, out } => gui_verbs::sheet(&discover(), &game, out),
             GuiVerb::Census { out } => gui_catalogue::census(&discover(), out),
+            GuiVerb::Captures { rewrite } => gui_catalogue::captures(&discover(), rewrite),
             GuiVerb::List { json } => gui_catalogue::list(json),
             GuiVerb::Show { module } => gui_catalogue::show(&module),
             GuiVerb::Story {
@@ -1389,6 +1390,14 @@ pub(crate) enum GuiVerb {
         /// Output folder; defaults to kjk-artifacts/gui/catalogue
         #[arg(long)]
         out: Option<std::path::PathBuf>,
+    },
+    /// Check that no capture of play (data/ui/captures) holds the game's
+    /// words, against the talk table of each game installed
+    Captures {
+        /// Write each capture again first, keeping only what a capture
+        /// keeps today and naming its game's lines
+        #[arg(long)]
+        rewrite: bool,
     },
     /// Count what the layouts of each install use (fonts, colours, border
     /// textures, control kinds) into data/ui/census.json
