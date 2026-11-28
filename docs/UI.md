@@ -819,20 +819,24 @@ Running and checking:
     pad shows the Steam Deck's buttons at the `deck` size. The story then
     takes its own steps on top, such as `set display.target_top false`.
   - **What is drawn over play.** The screen `play` (`catalogue::PLAY`)
-    draws everything that stands over play besides the screens of the
-    stack, over a plain background (`ui::over_play::OverPlay::still`). It
-    draws them in the order a frame of play stacks them. First come
-    KOTOR's HUD and its floating target block, the words floating over
-    creatures, the area transition panel, the power wheel and the arena's
-    line and panel. Then come a terminal's camera feed, a bark, the
-    status summaries, the conversation, the host's request card and the
-    banner. A conversation hides the HUD and what stands with it, barks
-    and the summaries, as in play. The game draws the same layers each
-    frame through the same `ui::over_play::OverPlay`, so a story shows
-    what play shows. A minigame and a fade also hide the HUD in play, but
-    a capture does not record them. Its stories start from a capture. The
+    draws everything that stands over play, with the screens of the
+    stack among it, over a plain background. The game and the catalogue
+    both stack a frame through one function,
+    `ui::over_play::OverPlay::compose`, so a story shows what play shows.
+    First come KOTOR's HUD and its floating target block, the words
+    floating over creatures, the area transition panel, the power wheel
+    and the arena's line and panel. Then come a terminal's camera feed, a
+    bark, the status summaries, the conversation and the host's request
+    card. The screens of the stack come next. The banner of a break or a
+    ready check and photo mode's corner lines stand over the screens. A
+    conversation hides the HUD and what stands with it, barks and the
+    summaries. A minigame and a fade hide the HUD and the summaries in
+    play too, but a capture does not record them, so the catalogue never
+    draws them. Photo mode hides everything over play but the power wheel
+    and its own lines. The stories of play start from a capture. The
     step `feed on` turns a terminal's camera feed on, as the game does
-    while a computer conversation shows a camera. The wheel takes three
+    while a computer conversation shows a camera. The step `photo on`
+    turns photo mode on, with the corner lines it first shows. The wheel takes three
     steps of its own. `wheel at N` highlights entry N, counting from 0.
     `wheel pick NAME` highlights the first entry whose name holds NAME,
     such as `wheel pick Stun`. `wheel close` shuts the wheel. The pointer

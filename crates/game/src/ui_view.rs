@@ -12,13 +12,10 @@
 //! Intents that leave the screens wait in `UiIntents` for the systems
 //! that act on them; `UiOpen` says whether any screen is open.
 //!
-//! In play, KOTOR's HUD (`ui::screens::hud`) is drawn first, under the
-//! screens, fitted to the window's shape, but not during a conversation;
-//! `KotorHud` says it is in use (the fight's own HUD then stands down).
-//! Words floating over creatures (`ui::screens::floaty`) go over it, with
-//! it; a bark's bubble (`ui::screens::bark`) over them, under the screens;
-//! a conversation's screen (`ui::screens::dialog`) in its place while this
-//! player talks.
+//! In play, what is drawn over play and the screens are stacked by
+//! `ui::over_play::OverPlay::compose`. KOTOR's HUD (`ui::screens::hud`) is
+//! the first layer while it shows. `KotorHud` says it is in use (the
+//! fight's own HUD then stands down).
 //!
 //! The floating target block and the floating words follow points in the
 //! world. They are placed again in `PostUpdate`, after the scene's camera
@@ -110,7 +107,7 @@ pub struct Ui {
     /// Photo mode's corner lines while photo mode is on (`photo_mode`).
     /// The rest of the interface is hidden meanwhile, and the player's own
     /// Hide interface choice is kept for after.
-    pub(crate) photo: Option<crate::photo_mode::Line>,
+    pub(crate) photo: Option<ui::screens::photo::Lines>,
     /// Every save on disk with the game it belongs to, as last read
     /// (`save_view::refresh`). `vm.saves` lists only the saves of the
     /// campaign the menu or the game is on now.
@@ -1050,109 +1047,72 @@ fn step(
     let free = cursors.iter().next().is_some_and(|cursor| cursor.visible);
     ui.over.hud.float.tick(time.delta_secs());
     ui.float_pointer = input.pointer.filter(|_| free);
-    ui.floating.window = (size.x, size.y);
-    ui.floating.block_at = None;
-    ui.floating.shown = false;
-    let hud = presented
-        .is_some()
-        .then(|| hud_layer(ui, (size.x, size.y), false))
-        .flatten();
-    kotor_hud.0 = hud.is_some();
-    // As KOTOR's, it gives way to a conversation's screen, to a minigame's
-    // own (its models' HUD, `minigame_view`), and to a fade (the black
-    // between a cutscene's conversations).
-    let mut under = 0;
-    // The Hide interface key hides the HUD with the words floating over
-    // creatures, the area transition panel and the arena's panels. The
-    // power wheel still shows while its key is held, so the player sees
-    // what they choose.
-    let hidden = ui.hud_hidden || photo;
-    if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
-        if !hidden {
-            layers.insert(0, hud);
-            under = 1;
-            ui.floating.shown = true;
+    let window = (size.x, size.y);
+    ui.floating.window = window;
+    let mut composed = ui::over_play::Composed::default();
+    if presented.is_some() {
+        let screens = ui.stack.screens().zip(ui.stack.layouts());
+        let screens = (screens.zip(std::mem::take(&mut layers)))
+            .map(|((screen, layout), list)| ui::over_play::Shown {
+                screen: screen.0.to_string(),
+                layout: layout.to_string(),
+                list,
+            })
+            .collect();
+        let corner = ui.corner_notices();
+        let Ui {
+            over,
+            assets,
+            vm,
+            stack,
+            scale_factor,
+            settings_revision,
+            floating,
+            photo,
+            hud_hidden,
+            ..
+        } = &mut *ui;
+        let state = ui::over_play::PlayState {
+            talking,
+            minigame,
+            faded,
+            hidden: *hud_hidden,
+            photo: photo.as_ref(),
+            corner,
+            clock: stack.clock(),
+            floating: Some(ui::over_play::Floating {
+                block: floating.block.as_ref(),
+                words: floating.words.as_ref(),
+            }),
+        };
+        if let Some(mut frame) = drawing((assets, vm, stack), (*scale_factor, *settings_revision)) {
+            composed = over.compose(&mut frame, window, state, screens);
         }
-        let shown = |layer: Option<DrawList>| layer.filter(|_| !hidden);
-        for layer in [
-            // The floating words as last placed. `float_layers` places them
-            // again once the camera has moved.
-            shown(ui.floating.words.clone()),
-            shown(transition_layer(ui, (size.x, size.y))),
-            wheel_layer(ui, (size.x, size.y)),
-            shown(arena_layer(ui, (size.x, size.y))),
-            shown(arena_panel_layer(ui, (size.x, size.y))),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            layers.insert(under, layer);
-            under += 1;
-        }
-        // A click on a companion's portrait, the pointer free (in play the
-        // mouse looks, the cursor held); on its pazaak icon, watching its
-        // player's match instead; on the minimap, the map page; on the solo
-        // mode button, the end of solo mode. A hidden HUD takes no click.
-        if let Some(point) = input
-            .pointer
-            .filter(|_| input.click && free && !hidden && !ui.stack.is_open())
-        {
-            match hud_click(ui, (size.x, size.y), point) {
-                Some(ui::hud_layer::Click::Watch(id)) => watch.icon = Some(id),
-                Some(ui::hud_layer::Click::Portrait(id)) => picked.0 = Some(id),
-                Some(ui::hud_layer::Click::Solo) => solo.0 = true,
-                Some(ui::hud_layer::Click::Map) => {
-                    ui.stack.open("map", &ui.vm);
-                }
-                None => {}
+        layers = composed.layers.drain(..).map(|layer| layer.list).collect();
+    }
+    kotor_hud.0 = composed.hud;
+    ui.floating.block_at = composed.block_at;
+    ui.floating.shown = composed.hud_shown;
+    ui.summary_ok = composed.ok;
+    // A click on a companion's portrait, the pointer free (in play the
+    // mouse looks, the cursor held); on its pazaak icon, watching its
+    // player's match instead; on the minimap, the map page; on the solo
+    // mode button, the end of solo mode. A hidden HUD takes no click.
+    if let Some(point) = input
+        .pointer
+        .filter(|_| input.click && free && composed.hud_shown && !ui.stack.is_open())
+        && let Some(assets) = ui.assets.as_mut()
+    {
+        match ui.over.hud.click(assets, &ui.vm, window, point) {
+            Some(ui::hud_layer::Click::Watch(id)) => watch.icon = Some(id),
+            Some(ui::hud_layer::Click::Portrait(id)) => picked.0 = Some(id),
+            Some(ui::hud_layer::Click::Solo) => solo.0 = true,
+            Some(ui::hud_layer::Click::Map) => {
+                ui.stack.open("map", &ui.vm);
             }
+            None => {}
         }
     }
-    // A conversation's screen under the screens, the HUD and barks given
-    // way to it; the host's request card over both.
-    let in_play = presented.is_some() && !photo;
-    let dialog = in_play
-        .then(|| dialog_layer(ui, (size.x, size.y)))
-        .flatten();
-    let card = in_play.then(|| card_layer(ui, (size.x, size.y))).flatten();
-    for layer in [card, dialog].into_iter().flatten() {
-        layers.insert(under, layer);
-    }
-    // The status summary over the HUD, under the screens.
-    if let Some(summaries) = in_play
-        .then(|| summary_layer(ui, (size.x, size.y)))
-        .flatten()
-        .filter(|_| !talking && !minigame && !faded)
-    {
-        layers.insert(under, summaries);
-    }
-    // A bark over the HUD (a minigame's too), under the screens. The Hide
-    // interface key hides it with the HUD.
-    if let Some(bark) = presented
-        .is_some()
-        .then(|| bark_layer(ui, (size.x, size.y)))
-        .flatten()
-        .filter(|_| !talking && !hidden)
-    {
-        layers.insert(under, bark);
-    }
-    // A terminal's camera feed: its look over the view, under the screens.
-    if in_play && ui.vm.camera_feed {
-        layers.insert(
-            under,
-            ui::screens::feed::draw((size.x, size.y), ui.stack.clock()),
-        );
-    }
-    // A break's or ready check's banner over everything: the screens, a
-    // conversation, a watching player's view.
-    if let Some(banner) = in_play
-        .then(|| hud_layer(ui, (size.x, size.y), true))
-        .flatten()
-    {
-        layers.push(banner);
-    }
-    // Photo mode's corner lines over the world, alone.
-    layers.extend(photo_layer(ui, (size.x, size.y)));
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
     // holds the player as a screen does.
@@ -1176,55 +1136,24 @@ fn over_parts(ui: &mut Ui) -> Option<(&mut ui::over_play::OverPlay, ui::hud_laye
         settings_revision,
         ..
     } = ui;
-    let frame = ui::hud_layer::Frame {
-        assets: assets.as_mut()?,
-        vm,
-        palette: stack.palette,
-        pulse: stack.pulsing(),
-        scale_factor: *scale_factor,
-        settings: *settings_revision,
-        marked: false,
-    };
+    let frame = drawing((assets, vm, stack), (*scale_factor, *settings_revision))?;
     Some((over, frame))
 }
 
-/// The floating target block for a window of `window` pixels
-/// (`ui::hud_layer::Hud::target_block`). `float_layers` calls this once a
-/// frame, which `hud::FloatHold` counts on.
-fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let pointer = ui.float_pointer;
-    let (over, mut frame) = over_parts(ui)?;
-    over.hud.target_block(&mut frame, window, pointer)
-}
-
-/// The power wheel for a window of `window` pixels, while the wheel is open
-/// (`ui::hud_layer::Hud::wheel`).
-fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.hud.wheel(&mut frame, window)
-}
-
-/// What the click at `point` (window pixels) on the HUD is on, if anything.
-fn hud_click(ui: &mut Ui, window: (f32, f32), point: [f32; 2]) -> Option<ui::hud_layer::Click> {
-    ui.over
-        .hud
-        .click(ui.assets.as_mut()?, &ui.vm, window, point)
-}
-
-/// KOTOR's HUD for a window of `window` pixels, when the game is in play
-/// and its layout reads; with `banner`, only its banner
-/// (`ui::hud_layer::Hud::layer`). The floating target block as last placed
-/// is among its quads, where `float_layers` finds it.
-fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> {
-    let block = ui.floating.block.take();
-    let layer = over_parts(ui)
-        .and_then(|(over, mut frame)| over.hud.layer(&mut frame, window, banner, block.as_ref()));
-    ui.floating.block = block;
-    let layer = layer?;
-    if !banner {
-        ui.floating.block_at = layer.block_at;
-    }
-    Some(layer.list)
+/// What a frame drawn over play is drawn with, when the assets are read:
+/// the stack's brush, the display's scale factor and how many times the
+/// settings changed.
+fn drawing<'a>(
+    (assets, vm, stack): (&'a mut Option<GuiAssets>, &'a ViewModel, &Stack),
+    (scale_factor, settings): (f32, u32),
+) -> Option<ui::hud_layer::Frame<'a>> {
+    Some(ui::hud_layer::Frame {
+        assets: assets.as_mut()?,
+        vm,
+        brush: stack.brush(),
+        scale_factor,
+        settings,
+    })
 }
 
 /// Places the floating target block and the floating words with the
@@ -1244,7 +1173,10 @@ fn float_layers(mut ui: ResMut<Ui>) {
     // The block is placed whenever `step` made the HUD, also while a
     // conversation covers it, so that it holds its place as before.
     if let Some(at) = ui.floating.block_at {
-        let block = target_block(ui, window);
+        // Called once a frame, which `hud::FloatHold` counts on.
+        let pointer = ui.float_pointer;
+        let block = over_parts(ui)
+            .and_then(|(over, mut frame)| over.hud.target_block(&mut frame, window, pointer));
         if shown
             && block != before
             && let Some(hud) = ui.layers.first_mut()
@@ -1263,7 +1195,7 @@ fn float_layers(mut ui: ResMut<Ui>) {
     if !shown {
         return;
     }
-    let words = floaty_layer(ui, window);
+    let words = over_parts(ui).and_then(|(over, mut frame)| over.floaty(&mut frame, window));
     if words != before {
         match (before.is_some(), &words) {
             (true, Some(words)) => ui.layers[1] = words.clone(),
@@ -1282,97 +1214,6 @@ fn float_layers(mut ui: ResMut<Ui>) {
 /// drawn again.
 fn floated(ui: Res<Ui>) -> bool {
     ui.floating.changed
-}
-
-/// The words floating over creatures for a window of `window` pixels
-/// (`ui::over_play::OverPlay::floaty`).
-fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.floaty(&mut frame, window)
-}
-
-/// The combat arena's panel of keys for a window of `window` pixels, in the
-/// arena (`crate::arena`, `ui::over_play::OverPlay::arena_panel`).
-fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.arena_panel(&mut frame, window)
-}
-
-/// The floors stage's line for a window of `window` pixels
-/// (`crate::floor_arena`, `ui::over_play::OverPlay::arena_line`).
-fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.arena_line(&mut frame, window)
-}
-
-/// The area transition panel for a window of `window` pixels
-/// (`ui::over_play::OverPlay::transition`).
-fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.transition(&mut frame, window)
-}
-
-/// The status summaries for a window of `window` pixels
-/// (`ui::over_play::OverPlay::summaries`). Their OK as drawn is kept for
-/// the next frame's click.
-fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    ui.summary_ok = None;
-    let corner = ui.corner_notices();
-    let (over, mut frame) = over_parts(ui)?;
-    let summaries = over.summaries(&mut frame, window, corner)?;
-    ui.summary_ok = summaries.ok;
-    Some(summaries.list)
-}
-
-/// The bark bubble for a window of `window` pixels
-/// (`ui::over_play::OverPlay::bark`).
-fn bark_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.bark(&mut frame, window)
-}
-
-/// Photo mode's corner lines for a window of `window` pixels, in its lower
-/// left corner at the window's own pixels, one over the other, faded as
-/// photo mode asks.
-fn photo_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let line = ui.photo.as_ref().filter(|line| line.alpha > 0.0)?;
-    let (words, alpha) = (line.words.clone(), line.alpha);
-    let Ui { assets, stack, .. } = ui;
-    let mut out = DrawList {
-        size: window,
-        ..DrawList::default()
-    };
-    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    let mut bottom = window.1 - PHOTO_MARGIN;
-    for words in words.iter().rev() {
-        let first = out.quads.len();
-        painter.tooltip(words, [PHOTO_MARGIN, bottom], &mut out);
-        // The tip's box is its first quad: the next line stands over it.
-        bottom = out.quads.get(first).map_or(bottom, |tip| tip.rect[1]) - PHOTO_GAP;
-    }
-    for quad in &mut out.quads {
-        quad.color[3] *= alpha;
-    }
-    Some(out)
-}
-
-/// How far photo mode's corner lines stand from the window's left and
-/// lower edges, and apart (pixels).
-const PHOTO_MARGIN: f32 = 24.0;
-const PHOTO_GAP: f32 = 4.0;
-
-/// The conversation screen for a window of `window` pixels
-/// (`ui::over_play::OverPlay::dialog`).
-fn dialog_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.dialog(&mut frame, window)
-}
-
-/// The host's request card for a window of `window` pixels
-/// (`ui::over_play::OverPlay::card`).
-fn card_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let (over, mut frame) = over_parts(ui)?;
-    over.card(&mut frame, window)
 }
 
 /// KOTOR 2's status summary waiting for its OK (`progress`) takes this

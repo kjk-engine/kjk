@@ -287,8 +287,8 @@ fn drawn_at_rest(discovery: &Discovery, game: Game, folder: &Path) -> Result<usi
             continue;
         };
         let mut list = DrawList::default();
-        let mut painter = Painter::new(&mut assets, palette(game));
-        painter.marked = true;
+        let brush = ui::paint::Brush::new(palette(game), 1.0, true);
+        let mut painter = brush.painter(&mut assets, ui::skin::Source::Campaign);
         painter.layout(&gui, &|_| ui::paint::ControlState::default(), &mut list);
         let size = (list.size.0 as u32, list.size.1 as u32);
         let path = folder.join(format!("{name}.png"));

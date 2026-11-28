@@ -4,7 +4,7 @@
 //! in-game catalogue will show it.
 
 use ui::assets::GuiAssets;
-use ui::draw::DrawList;
+use ui::over_play::Shown;
 use vfs::{Discovery, Game};
 
 /// A screen as a story left it: the stack it is open in, the view model
@@ -21,14 +21,10 @@ pub struct Staged {
     /// What is drawn over play, for the story screen `play`
     /// (`ui::catalogue::PLAY`).
     pub over: Option<ui::over_play::OverPlay>,
-}
-
-/// One layer of a staged frame: the screen module that drew it, the layout
-/// it drew, and what it drew.
-pub struct Shown {
-    pub screen: String,
-    pub layout: String,
-    pub list: DrawList,
+    /// Photo mode's corner lines, after the step `photo on`.
+    photo: Option<ui::screens::photo::Lines>,
+    /// The kind of pad the step `pad` played with.
+    pad: crate::pad::PadKind,
 }
 
 /// The screen `name` of `game` opened as play opens it, in a window of
@@ -79,7 +75,7 @@ impl Staged {
             None => stand_ins(discovery, (game, name), (steps, error), &mut assets)?,
         };
         let mut stack = ui::screen::Stack::new(ui::screens::open);
-        stack.marked = true;
+        stack.mark_controls();
         let play = name == ui::catalogue::PLAY;
         if !play && !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
@@ -100,52 +96,47 @@ impl Staged {
             quiet,
             pointer: [window.0 / 2.0, window.1 / 2.0],
             over: play.then(ui::over_play::OverPlay::default),
+            photo: None,
+            pad: crate::pad::PadKind::default(),
         })
     }
 
-    /// The frame as it stands, bottom layer first: what is drawn over play,
-    /// then the screens of the stack. What a screen refused to draw is
-    /// printed.
+    /// The frame as it stands, bottom layer first, as a frame of play
+    /// stacks it (`ui::over_play::OverPlay::compose`): what is drawn over
+    /// play, the screens of the stack and what stands over them. What a
+    /// screen refused to draw is printed.
     pub fn frame(&mut self) -> Vec<Shown> {
         let frame = self.stack.step(&mut self.assets, &self.vm, &self.quiet);
         for why in &frame.refusals {
             outln!("refused: {why}");
         }
-        let mut shown = Vec::new();
-        if let Some(over) = self.over.as_mut() {
-            let mut drawing = ui::hud_layer::Frame {
-                assets: &mut self.assets,
-                vm: &self.vm,
-                palette: self.stack.palette,
-                pulse: self.stack.pulsing(),
-                scale_factor: self.quiet.scale_factor,
-                settings: 0,
-                marked: self.stack.marked,
-            };
-            let corner = ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES);
-            let still = over.still(
-                &mut drawing,
-                self.quiet.window,
-                (self.stack.clock(), corner),
-            );
-            for layer in still {
-                shown.push(Shown {
-                    screen: layer.module.to_string(),
-                    layout: layer.layout.to_string(),
-                    list: layer.list,
-                });
-            }
-        }
-        let screens = self.stack.screens().map(|id| id.0.to_string());
-        let layouts = self.stack.layouts().map(str::to_string);
-        for ((screen, layout), list) in screens.zip(layouts).zip(frame.layers) {
-            shown.push(Shown {
-                screen,
-                layout,
+        let screens = self.stack.screens().zip(self.stack.layouts());
+        let screens = (screens.zip(frame.layers))
+            .map(|((screen, layout), list)| Shown {
+                screen: screen.0.to_string(),
+                layout: layout.to_string(),
                 list,
-            });
-        }
-        shown
+            })
+            .collect();
+        let Some(over) = self.over.as_mut() else {
+            return screens;
+        };
+        let mut drawing = ui::hud_layer::Frame {
+            assets: &mut self.assets,
+            vm: &self.vm,
+            brush: self.stack.brush(),
+            scale_factor: self.quiet.scale_factor,
+            settings: 0,
+        };
+        let state = ui::over_play::PlayState {
+            talking: self.vm.dialog.is_some(),
+            photo: self.photo.as_ref(),
+            corner: ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES),
+            clock: self.stack.clock(),
+            ..ui::over_play::PlayState::default()
+        };
+        over.compose(&mut drawing, self.quiet.window, state, screens)
+            .layers
     }
 
     /// One step taken (`press TAG`, `type TEXT`, `scroll N`; `key MOVE` a
@@ -161,6 +152,8 @@ impl Staged {
             stack,
             quiet,
             pointer,
+            photo,
+            pad,
             ..
         } = self;
         let (game, quiet) = (*game, &*quiet);
@@ -238,6 +231,15 @@ impl Staged {
             // A terminal's camera feed over play, as the game turns it on
             // while a computer conversation shows a camera.
             Some(("feed", "on")) => vm.camera_feed = true,
+            // Photo mode on, its corner lines as it first shows them.
+            Some(("photo", "on")) => {
+                let device = if vm.pad_playing {
+                    crate::pad::Device::Pad(*pad)
+                } else {
+                    crate::pad::Device::Keys
+                };
+                *photo = Some(crate::photo_mode::first_lines(device));
+            }
             Some(("level", _)) => {}
             Some(("stands", folder)) => {
                 if let Some(me) = vm.character.as_mut() {
@@ -257,6 +259,7 @@ impl Staged {
                     .ok_or(format!("{kind}: xbox, playstation, nintendo or deck"))?;
                 repad(vm, kind.key())?;
                 padded(vm, kind);
+                *pad = kind;
                 vm.pad_playing = true;
             }
             Some(("raw", pressed)) => {
@@ -331,7 +334,7 @@ impl Staged {
             }
             _ => {
                 return Err(format!(
-                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on` or `pazaak turn N`"
+                    "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND`, `wheel at N`, `wheel pick NAME`, `wheel close`, `feed on`, `photo on` or `pazaak turn N`"
                 ));
             }
         }

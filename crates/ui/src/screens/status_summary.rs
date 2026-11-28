@@ -562,6 +562,7 @@ pub fn draw(
             quad.color[3] *= alpha;
             out.quads.push(quad);
         }
+        out.marks.extend(part.marks);
         // The panels under it close up as it goes.
         y += (placed.extent.height as f32 + margin) * alpha;
     }

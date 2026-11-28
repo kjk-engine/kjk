@@ -366,6 +366,49 @@ pub(crate) fn words_view(textures: &dyn Textures, state: &ControlState) -> Optio
     })
 }
 
+/// What every painter of one frame paints with besides its textures and
+/// its layout's source: the palette, a pulsing border's alpha this frame
+/// (`Stack::pulsing`), and whether each control leaves a mark for a
+/// control tree (`DrawList::marks`). Painters are handed out by
+/// `Brush::painter`, so none forgets the marks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Brush {
+    pub palette: Palette,
+    pulsing: f32,
+    marked: bool,
+}
+
+impl Brush {
+    pub fn new(palette: Palette, pulsing: f32, marked: bool) -> Brush {
+        Brush {
+            palette,
+            pulsing,
+            marked,
+        }
+    }
+
+    pub fn pulsing(self) -> f32 {
+        self.pulsing
+    }
+
+    /// The same brush with what pulses at full alpha, for a list kept over
+    /// frames that is dimmed by each frame's pulse (`Painter::pulses`).
+    pub fn steady(self) -> Brush {
+        Brush {
+            pulsing: 1.0,
+            ..self
+        }
+    }
+
+    pub fn painter<'a>(self, textures: &'a mut dyn Textures, source: Source) -> Painter<'a> {
+        let mut painter = Painter::new(textures, self.palette);
+        painter.source = source;
+        painter.pulsing = self.pulsing;
+        painter.marked = self.marked;
+        painter
+    }
+}
+
 pub struct Painter<'a> {
     pub textures: &'a mut dyn Textures,
     pub palette: Palette,
@@ -382,7 +425,7 @@ pub struct Painter<'a> {
     pub refusals: Vec<String>,
     /// Each control painted leaves a mark (`DrawList::marks`). Only the
     /// headless renders want them.
-    pub marked: bool,
+    marked: bool,
     /// The mark of the control being painted, which the words it sets are
     /// added to.
     marking: Option<usize>,

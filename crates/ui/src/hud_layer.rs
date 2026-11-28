@@ -20,9 +20,9 @@ use crate::vm::ViewModel;
 pub struct Frame<'a> {
     pub assets: &'a mut GuiAssets,
     pub vm: &'a ViewModel,
-    pub palette: crate::paint::Palette,
-    /// How lit what pulses is this frame (`Stack::pulsing`).
-    pub pulse: f32,
+    /// The palette, the pulse and the marks of the stack's painters
+    /// (`crate::screen::Stack::brush`).
+    pub brush: crate::paint::Brush,
     /// The display's physical pixels to each of the window's logical
     /// pixels.
     pub scale_factor: f32,
@@ -30,9 +30,13 @@ pub struct Frame<'a> {
     /// HUD reads settings such as "Hide Quick Menu Buttons" and the Text
     /// size, so any change of a setting draws it again.
     pub settings: u32,
-    /// Each control painted leaves a mark (`crate::paint::Painter::marked`)
-    /// for a control tree.
-    pub marked: bool,
+}
+
+impl Frame<'_> {
+    /// A painter of the frame's brush for a layout read from `source`.
+    pub fn painter(&mut self, source: Source) -> crate::paint::Painter<'_> {
+        self.brush.painter(self.assets, source)
+    }
 }
 
 /// KOTOR's HUD layout, once read, and the HUD as last drawn.
@@ -122,8 +126,9 @@ struct Drawn {
     scale_factor: f32,
     /// Whether the HUD's pictures keep their shape (`Hud::pictures`).
     pictures: bool,
-    /// The HUD's view without what `Hud::moving` draws: the player's place
-    /// and turn on the minimap, and how full the duel bars are.
+    /// The HUD's view without what `Hud::moving` draws: the main
+    /// character's place and turn on the minimap, and how full the duel
+    /// bars are.
     hud: Option<crate::vm::HudView>,
     party: Vec<crate::vm::MemberView>,
     /// The target as the HUD drawn under the floating block shows it: its
@@ -137,10 +142,10 @@ struct Drawn {
     calls: crate::vm::CallsView,
     requests: Option<crate::vm::RequestsView>,
     crosshair: bool,
-    palette: crate::paint::Palette,
+    /// The frame's brush with what pulses at full alpha (`Kept::pulses`).
+    brush: crate::paint::Brush,
     game: vfs::Game,
     released: u32,
-    marked: bool,
 }
 
 /// `draw` with KOTOR 2's sizes of text and borders, in the display's
@@ -165,6 +170,14 @@ pub fn sized<T>(
     drawn
 }
 
+/// `point` (window pixels) in the pixels of `gui`'s frame, fitted to a
+/// window of `window` pixels as `hud::place` fits the HUD.
+fn in_frame(gui: &Gui, window: (f32, f32), point: [f32; 2]) -> [f32; 2] {
+    let (width, height) = gui.frame();
+    let (scale, [left, top]) = fit(window, (width as f32, height as f32));
+    [(point[0] - left) / scale, (point[1] - top) / scale]
+}
+
 /// How many window pixels a pixel of the HUD's frame takes (`hud::place`
 /// fits the frame to the window at kjk's scale).
 pub fn scale(hud: &Gui, window: (f32, f32)) -> f32 {
@@ -180,7 +193,7 @@ pub fn target_top(vm: &ViewModel) -> bool {
 
 /// Whether the HUD draws its crosshair dot (`hud::crosshair`). A blaster
 /// draws its own crosshair instead. A character with a melee weapon readied
-/// has no crosshair. While the player blocks with targeted blocks on, the
+/// has no crosshair. While the main character blocks with targeted blocks on, the
 /// arcs of targeted blocks take the dot's place. The HUD's redraw key
 /// (`Drawn::crosshair`) holds this value, so the HUD is drawn again when it
 /// changes.
@@ -271,9 +284,7 @@ impl Hud {
         point: [f32; 2],
     ) -> Option<Click> {
         let (gui, ..) = self.gui(assets, vm, window)?;
-        let (width, height) = gui.frame();
-        let (scale, [left, top]) = fit(window, (width as f32, height as f32));
-        let at = [(point[0] - left) / scale, (point[1] - top) / scale];
+        let at = in_frame(&gui, window, point);
         hud::watch_at(&gui, vm, at)
             .map(Click::Watch)
             .or_else(|| hud::portrait_at(&gui, vm, at).map(Click::Portrait))
@@ -306,10 +317,8 @@ impl Hud {
         let Frame {
             assets,
             vm,
-            palette,
-            pulse,
+            brush,
             scale_factor,
-            marked,
             ..
         } = frame;
         let float = &mut self.float;
@@ -319,18 +328,11 @@ impl Hud {
             scale(&gui, window),
             |assets, sizing| {
                 hud::floated(&mut gui, &target, sizing.pixel, float);
-                let pointer = pointer.map(|point| {
-                    let (width, height) = gui.frame();
-                    let (scale, [left, top]) = fit(window, (width as f32, height as f32));
-                    [(point[0] - left) / scale, (point[1] - top) / scale]
-                });
+                let pointer = pointer.map(|point| in_frame(&gui, window, point));
                 float.point(Some((&gui, &target)), pointer);
                 gui.controls.retain(|control| hud::in_block(&control.tag));
                 let mut out = DrawList::default();
-                let mut painter = crate::paint::Painter::new(assets, *palette);
-                painter.source = source;
-                painter.pulsing = *pulse;
-                painter.marked = *marked;
+                let mut painter = brush.painter(assets, source);
                 painter.layout(&gui, &|control| hud::state(control, vm), &mut out);
                 hud::target_cycle(&gui, vm, &mut painter, &mut out);
                 Some(out)
@@ -344,16 +346,13 @@ impl Hud {
     pub fn wheel(&mut self, frame: &mut Frame<'_>, window: (f32, f32)) -> Option<DrawList> {
         let wheel = frame.vm.wheel.clone()?;
         let (gui, source, _) = self.gui(frame.assets, frame.vm, window)?;
-        let (palette, pulse, marked) = (frame.palette, frame.pulse, frame.marked);
+        let brush = frame.brush;
         sized(
             frame.assets,
             (window, frame.scale_factor),
             scale(&gui, window),
             |assets, sizing| {
-                let mut painter = crate::paint::Painter::new(assets, palette);
-                painter.source = source;
-                painter.pulsing = pulse;
-                painter.marked = marked;
+                let mut painter = brush.painter(assets, source);
                 Some(crate::screens::wheel::draw(
                     &gui,
                     &wheel,
@@ -405,10 +404,9 @@ impl Hud {
             calls: vm.calls.clone(),
             requests: vm.requests.clone(),
             crosshair: dot_shown(vm),
-            palette: frame.palette,
+            brush: frame.brush.steady(),
             game: frame.assets.game,
             released: frame.assets.released(),
-            marked: frame.marked,
         };
         let at = usize::from(banner);
         if !matches!(&self.drawn[at], Some((last, _)) if *last == from) {
@@ -443,7 +441,7 @@ impl Hud {
                 moved += moving.duel.len();
             }
             for quad in &mut quads[range.start + moved..range.end + moved] {
-                quad.color[3] *= frame.pulse;
+                quad.color[3] *= frame.brush.pulsing();
             }
         }
         let mut out = DrawList {
@@ -486,7 +484,7 @@ impl Hud {
             let gap = vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
                 gap_px(shown.cone, shown.fov, height)
             });
-            // While the player blocks with targeted blocks on, the arcs of
+            // While the main character blocks with targeted blocks on, the arcs of
             // targeted blocks take the crosshair's place.
             if let (Some(shown), None) = (vm.reticle, vm.block_reticle) {
                 out.quads
@@ -521,7 +519,7 @@ impl Hud {
             return None;
         }
         let (gui, source, stretch) = self.gui(frame.assets, frame.vm, window)?;
-        let (vm, palette) = (frame.vm, frame.palette);
+        let (vm, brush) = (frame.vm, frame.brush);
         sized(
             frame.assets,
             (window, frame.scale_factor),
@@ -535,8 +533,7 @@ impl Hud {
                     .and_then(|view| hud::minimap(&gui, view, stretch, assets, source));
                 let mut duel = DrawList::default();
                 if shown.duel.is_some() {
-                    let mut painter = crate::paint::Painter::new(assets, palette);
-                    painter.source = source;
+                    let mut painter = brush.painter(assets, source);
                     if let Some(art) = hud::BarArt::vitality(&gui, &mut painter) {
                         hud::duel_bars(&gui, vm, art, stretch, &mut duel);
                     }
@@ -559,7 +556,7 @@ impl Hud {
     /// Interface option "Target block at the top centre" on (`hud::to_top`).
     fn kept(&mut self, frame: &mut Frame<'_>, window: (f32, f32), banner: bool) -> Option<Kept> {
         let (gui, source, _) = self.gui(frame.assets, frame.vm, window)?;
-        let (vm, palette, marked) = (frame.vm, frame.palette, frame.marked);
+        let (vm, brush) = (frame.vm, frame.brush.steady());
         // The floating target block is drawn on its own (`Hud::target_block`).
         let floating = !target_top(vm);
         sized(
@@ -568,9 +565,7 @@ impl Hud {
             scale(&gui, window),
             |assets, sizing| {
                 let mut out = DrawList::default();
-                let mut painter = crate::paint::Painter::new(assets, palette);
-                painter.source = source;
-                painter.marked = marked;
+                let mut painter = brush.painter(assets, source);
                 painter.layout(
                     &gui,
                     &|control| {

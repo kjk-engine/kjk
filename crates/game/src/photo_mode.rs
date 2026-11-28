@@ -548,14 +548,6 @@ pub fn off(photo: Option<Res<PhotoMode>>) -> bool {
     photo.is_none_or(|photo| !photo.is_on())
 }
 
-/// The corner lines (`ui_view` draws them, the first on top): their
-/// words, and how much of them shows, from 0 to 1.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Line {
-    pub(crate) words: [Vec<u8>; 2],
-    pub(crate) alpha: f32,
-}
-
 /// One replay tick asked for by the step control, and whether a replay
 /// plays (`sim_host` says so each frame).
 #[derive(Resource, Default)]
@@ -733,6 +725,15 @@ enum Coop {
 /// The corner lines' words: "Photo mode" and the world's speed (in co-op,
 /// whether the break holds, `coop`), then the controls that leave and take
 /// a screenshot, as the device in use names them.
+/// The corner lines as photo mode shows them first in a world of one,
+/// with `device` played (the catalogue's step `photo on`).
+pub(crate) fn first_lines(device: Device) -> ui::screens::photo::Lines {
+    ui::screens::photo::Lines {
+        words: line_words(Speed::default(), None, device),
+        alpha: 1.0,
+    }
+}
+
 fn line_words(speed: Speed, coop: Option<Coop>, device: Device) -> [Vec<u8>; 2] {
     let state = match coop {
         None => speed.said(),
@@ -927,7 +928,7 @@ pub(crate) fn photo_keys(
         (None, false) => Coop::Running,
     });
     let fade = ((on.idle - LINE_AFTER) / LINE_FADE).clamp(0.0, 1.0);
-    ui.photo = Some(Line {
+    ui.photo = Some(ui::screens::photo::Lines {
         words: line_words(on.speed, state, keys.device),
         alpha: if photo.shot == Shot::None {
             1.0 - fade

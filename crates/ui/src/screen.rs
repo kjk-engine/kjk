@@ -446,8 +446,8 @@ pub struct Stack {
     down: bool,
     /// A screen as big as its frame was open after the last step.
     covered: bool,
-    /// Its frames' layers carry each control's mark (`Painter::marked`).
-    pub marked: bool,
+    /// Its frames' layers carry each control's mark (`Stack::mark_controls`).
+    marked: bool,
 }
 
 const PULSE: f32 = 1.6;
@@ -1276,6 +1276,18 @@ impl Stack {
         0.2 + 0.8 * rise
     }
 
+    /// From now on each control drawn leaves a mark for a control tree
+    /// (`DrawList::marks`), as the headless renders want.
+    pub fn mark_controls(&mut self) {
+        self.marked = true;
+    }
+
+    /// What this frame's painters paint with: the palette, the pulse and
+    /// the marks (`crate::paint::Brush`).
+    pub fn brush(&self) -> crate::paint::Brush {
+        crate::paint::Brush::new(self.palette, self.pulsing(), self.marked)
+    }
+
     /// A pulsing border's alpha now (`ControlState::pulsing`): KOTOR's, 1
     /// down to 0.4 and back up, 0.75 s each way.
     pub fn pulsing(&self) -> f32 {
@@ -1485,8 +1497,7 @@ impl Stack {
             });
         }
         self.covered = covered;
-        let pulse = self.pulse();
-        let pulsing = self.pulsing();
+        let (pulse, brush) = (self.pulse(), self.brush());
         let blink = self.clock % 1.0 < 0.5;
         let count = self.entries.len();
         let stepped = assets.sizing();
@@ -1507,11 +1518,8 @@ impl Stack {
                 stepped.at(input.window, input.scale_factor, scale).pixel
             });
             assets.set_sizing(Sizing { pixel, ..stepped });
-            let mut painter = Painter::new(assets, self.palette);
+            let mut painter = brush.painter(assets, entry.source);
             painter.pulse = pulse;
-            painter.pulsing = pulsing;
-            painter.source = entry.source;
-            painter.marked = self.marked;
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
             // A menu narrower or shorter than the window has black bars
             // beside it, and nothing of it shows on them. Nor does anything

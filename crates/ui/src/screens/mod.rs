@@ -32,6 +32,7 @@ pub mod options_in_game;
 pub mod pages;
 pub mod party;
 pub mod pazaak;
+pub mod photo;
 pub mod report;
 pub mod resolution;
 pub mod save_load;

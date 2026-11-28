@@ -7,8 +7,9 @@ use fmt_odyssey::gui::{Gui, MoveTo, Rect};
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::draw::DrawList;
-use crate::paint::{ControlState, Painter, Palette};
+use crate::paint::{Brush, ControlState, Painter, Palette};
 use crate::screen::layout_links;
+use crate::skin::Source;
 
 fn layout(left: i32, top: i32, controls: Vec<fmt_odyssey::gui::Control>) -> Gui {
     Gui {
@@ -38,8 +39,7 @@ pub(super) fn all() -> Vec<Check> {
         ],
     );
     let mut marked = DrawList::default();
-    let mut painter = Painter::new(&mut fake, Palette::K1);
-    painter.marked = true;
+    let mut painter = Brush::new(Palette::K1, 1.0, true).painter(&mut fake, Source::Campaign);
     painter.layout(&gui, &|_| ControlState::default(), &mut marked);
     let mut plain = DrawList::default();
     let mut painter = Painter::new(&mut fake, Palette::K1);

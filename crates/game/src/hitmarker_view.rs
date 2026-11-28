@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use sim::SimId;
 use sim::combat::{Delivery, Fighter, Outcome};
-use ui::screens::hud::{MARK_SHOWN_MS, Mark};
+use ui::screens::hud::{HitMark, MARK_SHOWN_MS};
 
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
@@ -55,33 +55,35 @@ fn show(
 }
 
 /// What one event shows, the one struck dead after it or not.
-pub fn classify(result: Outcome, dead: bool) -> Option<Mark> {
+pub fn classify(result: Outcome, dead: bool) -> Option<HitMark> {
     let strong = match result {
         Outcome::Hit => false,
         Outcome::Critical | Outcome::Automatic => true,
-        Outcome::Parried | Outcome::Deflected => return Some(Mark::Turned),
+        Outcome::Parried | Outcome::Deflected => return Some(HitMark::Turned),
         Outcome::Refused | Outcome::Visual => return None,
     };
     Some(match (dead, strong) {
-        (true, strong) => Mark::Kill { strong },
-        (false, true) => Mark::Strong,
-        (false, false) => Mark::Hit,
+        (true, strong) => HitMark::Kill { strong },
+        (false, true) => HitMark::Strong,
+        (false, false) => HitMark::Hit,
     })
 }
 
 /// The stronger of two marks: a kill over a strong hit over a hit over a
 /// turned bolt; a kill strong if either was.
-fn stronger(a: Mark, b: Mark) -> Mark {
-    let rank = |mark: Mark| match mark {
-        Mark::Turned => 0,
-        Mark::Hit => 1,
-        Mark::Strong => 2,
-        Mark::Kill { .. } => 3,
+fn stronger(a: HitMark, b: HitMark) -> HitMark {
+    let rank = |mark: HitMark| match mark {
+        HitMark::Turned => 0,
+        HitMark::Hit => 1,
+        HitMark::Strong => 2,
+        HitMark::Kill { .. } => 3,
     };
     match (a, b) {
-        (Mark::Kill { strong: x }, Mark::Kill { strong: y }) => Mark::Kill { strong: x || y },
-        (Mark::Kill { .. }, Mark::Strong) => Mark::Kill { strong: true },
-        (Mark::Strong, Mark::Kill { .. }) => Mark::Kill { strong: true },
+        (HitMark::Kill { strong: x }, HitMark::Kill { strong: y }) => {
+            HitMark::Kill { strong: x || y }
+        }
+        (HitMark::Kill { .. }, HitMark::Strong) => HitMark::Kill { strong: true },
+        (HitMark::Strong, HitMark::Kill { .. }) => HitMark::Kill { strong: true },
         _ if rank(b) > rank(a) => b,
         _ => a,
     }
@@ -94,7 +96,7 @@ pub struct Marks {
     /// Each fighter's next event unseen.
     seen: BTreeMap<SimId, u16>,
     /// The mark showing and since when (world ms).
-    pub live: Option<(Mark, u64)>,
+    pub live: Option<(HitMark, u64)>,
 }
 
 impl Marks {
@@ -106,7 +108,7 @@ impl Marks {
         fighters: impl Iterator<Item = (SimId, &'a Fighter)>,
         me: Option<SimId>,
     ) {
-        let mut step: Option<Mark> = None;
+        let mut step: Option<HitMark> = None;
         for (id, fighter) in fighters {
             let Some(last) = self.seen.insert(id, fighter.next_event) else {
                 continue;
@@ -136,13 +138,17 @@ pub fn probes() -> sim::probe::Checks {
     use sim::combat::{Event, Location};
     use sim::probe::check;
     let table = [
-        (Outcome::Hit, false, Some(Mark::Hit)),
-        (Outcome::Critical, false, Some(Mark::Strong)),
-        (Outcome::Automatic, false, Some(Mark::Strong)),
-        (Outcome::Hit, true, Some(Mark::Kill { strong: false })),
-        (Outcome::Critical, true, Some(Mark::Kill { strong: true })),
-        (Outcome::Parried, false, Some(Mark::Turned)),
-        (Outcome::Deflected, false, Some(Mark::Turned)),
+        (Outcome::Hit, false, Some(HitMark::Hit)),
+        (Outcome::Critical, false, Some(HitMark::Strong)),
+        (Outcome::Automatic, false, Some(HitMark::Strong)),
+        (Outcome::Hit, true, Some(HitMark::Kill { strong: false })),
+        (
+            Outcome::Critical,
+            true,
+            Some(HitMark::Kill { strong: true }),
+        ),
+        (Outcome::Parried, false, Some(HitMark::Turned)),
+        (Outcome::Deflected, false, Some(HitMark::Turned)),
         (Outcome::Refused, false, None),
         (Outcome::Visual, false, None),
     ];
@@ -195,7 +201,7 @@ pub fn probes() -> sim::probe::Checks {
         (
             "marks_merge",
             check(
-                volley == Some((Mark::Kill { strong: true }, 100)),
+                volley == Some((HitMark::Kill { strong: true }, 100)),
                 format!("a killing volley: {volley:?}"),
             ),
         ),

@@ -1601,7 +1601,7 @@ pub struct ViewModel {
     pub melee_out: bool,
     /// The mark a landed own blaster shot flashes about the crosshair, and
     /// how long ago it came (ms; `screens::hud::hitmarker`).
-    pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
+    pub hitmark: Option<(crate::screens::hud::HitMark, f32)>,
     /// The arcs of targeted blocks around the centre of the screen, while
     /// the player blocks with them on (`screens::hud::block_arcs`).
     pub block_reticle: Option<BlockReticleView>,
