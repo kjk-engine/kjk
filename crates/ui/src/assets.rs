@@ -491,21 +491,42 @@ impl GuiAssets {
         font
     }
 
+    fn read_font_sheet(&self, source: Source, file: &str) -> Option<(Loaded, Font)> {
+        let (loaded, txi) = self.decode(source, file, true)?;
+        let font = Font::from_txi(file, &txi, loaded.pixels.width, loaded.pixels.height).ok()?;
+        Some((loaded, font))
+    }
+
     fn read_font(
         &mut self,
         source: Source,
         name: &str,
         suffix: Option<char>,
     ) -> Option<LoadedFont> {
-        let resolver = self.resolver_of(source);
-        let file = font_file(name, suffix, |file| {
-            resolver
+        let exists = |file: &str| {
+            self.resolver_of(source)
                 .find_any(file, &[ResType::TPC, ResType::TGA])
                 .is_some()
-        });
-        let (id, txi) = self.load(source, &file, true)?;
-        let (width, height) = self.size(id);
-        let font = Font::from_txi(&file, &txi, width, height).ok()?;
+        };
+        let file = font_file(name, suffix, exists);
+        let (mut loaded, mut font) = self.read_font_sheet(source, &file)?;
+        // TSL's unsuffixed `dialogfont10x10` (256 × 128) has no `"a"` sheet
+        // and draws the same placeholder box for every byte 0x80..=0xFF. When
+        // Small Fonts or a narrow window picks such a sheet, fall back to its
+        // `"b"` sheet so Russian and Western names keep their letters.
+        if name != CONSOLE_FONT && !has_upper_glyphs(&font, &loaded.pixels) {
+            let large = format!("{name}b");
+            if file != large
+                && exists(&large)
+                && let Some((fallback_loaded, fallback_font)) = self.read_font_sheet(source, &large)
+                && has_upper_glyphs(&fallback_font, &fallback_loaded.pixels)
+            {
+                loaded = fallback_loaded;
+                font = fallback_font;
+            }
+        }
+        self.loaded.push(Some(loaded));
+        let id = TextureId(self.loaded.len() as u32);
         Some((id, Arc::new(font)))
     }
 
@@ -1346,23 +1367,25 @@ impl GuiAssets {
     }
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
-    fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
+    fn decode(&self, source: Source, name: &str, font: bool) -> Option<(Loaded, Txi)> {
         // A pad's buttons and the headgear eye are drawn here, not read
         // (`icons`).
         let drawn = crate::icons::pad_icon(name)
             .or_else(|| crate::icons::eye_icon(name))
             .or_else(|| crate::icons::key_icon(name));
         if let Some((width, height, rgba)) = drawn {
-            self.loaded.push(Some(Loaded {
-                pixels: Pixels {
-                    width,
-                    height,
-                    shape: false,
-                    rgba,
+            return Some((
+                Loaded {
+                    pixels: Pixels {
+                        width,
+                        height,
+                        shape: false,
+                        rgba,
+                    },
+                    additive: false,
                 },
-                additive: false,
-            }));
-            return Some((TextureId(self.loaded.len() as u32), Txi::default()));
+                Txi::default(),
+            ));
         }
         let (texture, txi, modded) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
@@ -1375,17 +1398,68 @@ impl GuiAssets {
             .get("blending")
             .and_then(|values| values.first())
             .is_some_and(|mode| mode.eq_ignore_ascii_case("additive"));
-        self.loaded.push(Some(Loaded {
-            pixels: Pixels {
-                width: texture.width() as u32,
-                height: texture.height() as u32,
-                shape: font || crate::raster::is_shape(&rgba),
-                rgba,
+        Some((
+            Loaded {
+                pixels: Pixels {
+                    width: texture.width() as u32,
+                    height: texture.height() as u32,
+                    shape: font || crate::raster::is_shape(&rgba),
+                    rgba,
+                },
+                additive,
             },
-            additive,
-        }));
+            txi,
+        ))
+    }
+
+    /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
+    fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
+        let (loaded, txi) = self.decode(source, name, font)?;
+        self.loaded.push(Some(loaded));
         Some((TextureId(self.loaded.len() as u32), txi))
     }
+}
+
+/// Whether `font`'s upper-byte glyphs (`0xC0..=0xFF`, used for Cyrillic and
+/// Western accented letters) hold distinct shapes rather than a repeated
+/// missing-glyph placeholder box.
+fn has_upper_glyphs(font: &Font, pixels: &Pixels) -> bool {
+    if font.glyphs.len() <= 0xC0 || pixels.width == 0 || pixels.height == 0 {
+        return false;
+    }
+    let alpha_shaped = pixels.rgba.chunks_exact(4).any(|p| p[3] < 240);
+    let (w, h) = (pixels.width as usize, pixels.height as usize);
+    let mut seen = std::collections::BTreeSet::new();
+    for glyph in &font.glyphs[0xC0..font.glyphs.len().min(256)] {
+        let x0 = ((glyph.uv[0].min(glyph.uv[2]) * w as f32).round() as isize).clamp(0, w as isize)
+            as usize;
+        let x1 = ((glyph.uv[0].max(glyph.uv[2]) * w as f32).round() as isize).clamp(0, w as isize)
+            as usize;
+        let y0 = ((glyph.uv[1].min(glyph.uv[3]) * h as f32).round() as isize).clamp(0, h as isize)
+            as usize;
+        let y1 = ((glyph.uv[1].max(glyph.uv[3]) * h as f32).round() as isize).clamp(0, h as isize)
+            as usize;
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let mut bits = Vec::with_capacity((x1 - x0) * (y1 - y0));
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = &pixels.rgba[(y * w + x) * 4..];
+                let lit = if alpha_shaped {
+                    p[3] > 128
+                } else {
+                    p[0].max(p[1]).max(p[2]) > 128
+                };
+                bits.push(u8::from(lit));
+            }
+        }
+        seen.insert((x1 - x0, y1 - y0, bits));
+        if seen.len() >= 16 {
+            return true;
+        }
+    }
+    false
 }
 
 /// What screens draw from: textures, fonts, text, and layouts by name.

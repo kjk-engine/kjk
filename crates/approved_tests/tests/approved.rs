@@ -7710,3 +7710,108 @@ fn prepass_readers_declared() {
     );
     println!("{} prepass readers, each declared", readers.len());
 }
+
+/// GH #823: TSL's `dialogfont10x10` (used by `mipc28x6_p`'s `LBL_NAME`
+/// for target character names) has no `"a"` sheet and its unsuffixed sheet
+/// is 256×128 with identical placeholder boxes for all bytes 0x80..=0xFF.
+/// With `SmallFonts::Small` or a window <= 1279 px wide, `GuiAssets` must
+/// fall back to `dialogfont10x10b` so Cyrillic and Western names render,
+/// while complete sheets (`dialogfont16x16`, `fnt_creditsa`, K1's
+/// `dialogfont10x10a`) and `fnt_console` stay untouched.
+#[test]
+fn small_fonts_keep_non_ascii_names() {
+    use ui::draw::{Sizing, SmallFonts, Textures};
+    use ui::skin::Source;
+
+    let discovery = discovery();
+    if let Some(install) = discovery.get(vfs::Game::Kotor2) {
+        let index = std::sync::Arc::new(vfs::DirIndex::of_install(install).expect("index opens"));
+        let base = vfs::resolver::Resolver::base(
+            vfs::Game::Kotor2,
+            &index,
+            vfs::resolver::TextureQuality::High,
+        )
+        .expect("base opens");
+        let mut assets = ui::assets::GuiAssets::with(vfs::Game::Kotor2, index, base.clone())
+            .with_skin(vfs::Game::Kotor2, base);
+
+        for (window, small) in [
+            ((1440.0, 900.0), SmallFonts::Small),
+            ((1024.0, 768.0), SmallFonts::Auto),
+        ] {
+            assets.set_sizing(Sizing::physical(window, 1.0, 1.0, small, 1.0));
+            let (id, font) = assets
+                .font(Source::Skin, "dialogfont10x10")
+                .expect("dialogfont10x10 loads");
+            let pixels = assets.pixels(id).expect("pixels exist");
+            assert!(
+                font.texture == "dialogfont10x10b",
+                "{small:?} at {window:?} loaded {:?}, expected dialogfont10x10b",
+                font.texture
+            );
+            // Verify Cyrillic bytes (CP1251 "Кимтик") map to distinct non-empty cells.
+            let sample: std::collections::BTreeSet<_> = [0xCAu8, 0xE8, 0xEC, 0xF2, 0xEA]
+                .into_iter()
+                .map(|b| {
+                    let g = font.glyph(b).expect("glyph present");
+                    [
+                        g.uv[0].to_bits(),
+                        g.uv[1].to_bits(),
+                        g.uv[2].to_bits(),
+                        g.uv[3].to_bits(),
+                    ]
+                })
+                .collect();
+            assert_eq!(sample.len(), 5, "distinct glyphs for Cyrillic letters");
+            assert_eq!(pixels.width, 256);
+            assert_eq!(pixels.height, 256);
+        }
+
+        // Complete sheets and `fnt_console` stay on their resolved sheets.
+        assets.set_sizing(Sizing::physical(
+            (1440.0, 900.0),
+            1.0,
+            1.0,
+            SmallFonts::Small,
+            1.0,
+        ));
+        let (_, big) = assets
+            .font(Source::Skin, "dialogfont16x16")
+            .expect("dialogfont16x16 loads");
+        assert_eq!(big.texture, "dialogfont16x16");
+        let (_, credits) = assets
+            .font(Source::Skin, "fnt_credits")
+            .expect("fnt_credits loads");
+        assert_eq!(credits.texture, "fnt_creditsa");
+        let (_, console) = assets
+            .font(Source::Skin, "fnt_console")
+            .expect("fnt_console loads");
+        assert_eq!(console.texture, "fnt_console");
+    } else {
+        println!("tsl: no install, skipped");
+    }
+
+    if let Some(install) = discovery.get(vfs::Game::Kotor1) {
+        let index = std::sync::Arc::new(vfs::DirIndex::of_install(install).expect("k1 index"));
+        let base = vfs::resolver::Resolver::base(
+            vfs::Game::Kotor1,
+            &index,
+            vfs::resolver::TextureQuality::High,
+        )
+        .expect("k1 base");
+        let mut assets = ui::assets::GuiAssets::with(vfs::Game::Kotor1, index, base);
+        assets.set_sizing(Sizing::physical(
+            (1440.0, 900.0),
+            1.0,
+            1.0,
+            SmallFonts::Small,
+            1.0,
+        ));
+        let (_, k1_small) = assets
+            .font(Source::Campaign, "dialogfont10x10")
+            .expect("k1 dialogfont10x10 loads");
+        assert_eq!(k1_small.texture, "dialogfont10x10a");
+    } else {
+        println!("k1: no install, skipped");
+    }
+}
