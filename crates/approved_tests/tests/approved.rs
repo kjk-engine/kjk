@@ -4299,7 +4299,7 @@ fn crosshair_drawn_meshes() {
 /// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 24);
+    probed("bash", &sim::objects::probes(), 25);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the

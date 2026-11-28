@@ -513,10 +513,19 @@ pub(super) fn objects(
             sneak: 0,
             aim: 0,
         };
+        // Lightsabers (and weapons with TSL's Door Sabering) bypass non-plot
+        // hardness (TSL's Onderon Sky Ramp force fields have Hardness 125).
+        let saber = matches!(
+            source,
+            Source::Weapon { weapon, .. }
+                if matches!(weapon.delivery, Delivery::Saber(_))
+                    || weapon.traits & weapon_traits::DOOR_SABERING != 0
+        );
+        let hardness = if saber { 0 } else { facts.toughness.hardness };
         let assessed = damage::assess(
             &blow,
             sheet.as_ref(),
-            &stand_in(facts.toughness.hardness, most),
+            &stand_in(hardness, most),
             level.0.friendly_fire,
             level.0.game(),
             &mut streams.authority,
