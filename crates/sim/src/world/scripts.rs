@@ -617,12 +617,21 @@ pub(super) fn scripts(
             in_combat: fighter.in_combat(now),
             fake_combat: fighter.faking(now),
             stuck: fighter.mind.walker.is_some_and(|walker| walker.stuck()),
+            bumped_stuck: fighter
+                .mind
+                .walker
+                .is_some_and(|walker| walker.bumped_stuck()),
             walking: fighter.mind.walker.is_some_and(|walker| walker.stalls == 0)
                 && player.is_some_and(|player| {
                     crate::math::flat_length(player.0.velocity) * collision::UNIT
                         >= rules::walking::pace::LEAST_WALK
                 }),
             airborne: player.is_some_and(|player| player.0.ground.is_none()),
+            held_still: fighter.pain_until > now
+                || fighter.grapple.is_some()
+                || player.is_some_and(|player| {
+                    player.0.flags & crate::motion::motion_flags::KNOCKBACK_HOLD != 0
+                }),
             struck: fighter.last_attacker.map(|(by, at)| (ObjectId(by.0), at)),
             downed: fighter.downed(),
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,

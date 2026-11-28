@@ -1036,6 +1036,13 @@ impl Walker {
         self.stalls >= STUCK_STALLS || self.bumps >= STUCK_STALLS
     }
 
+    /// Whether KOTOR's walker gave up specifically on bumping into a body in
+    /// the way (not on static geometry, an unpushable body on the goal, a
+    /// locked door, or zero speed).
+    pub fn bumped_stuck(&self) -> bool {
+        self.bumps >= STUCK_STALLS && self.bumped.is_some() && self.stalls < STUCK_STALLS
+    }
+
     /// A new move on the walk: its bumps counted afresh, a walk given up on
     /// them taken up again.
     pub fn count_bumps_afresh(&mut self) {
@@ -1056,6 +1063,7 @@ impl Walker {
     /// Given up, as KOTOR's walker gives up a walk.
     pub fn give_up(&mut self) {
         self.bumps = STUCK_STALLS;
+        self.bumped = None;
     }
 
     /// KOTOR's walker carried `player` on: it never steps aside, and its
@@ -1071,6 +1079,13 @@ impl Walker {
                 self.since_ms = now_ms;
             }
         }
+    }
+
+    /// The body cannot walk this step (stunned, knocked back, airborne,
+    /// grappled): hold the stall clock so waiting it out does not count as
+    /// stalling.
+    pub fn pause_stall(&mut self, now_ms: u64) {
+        self.since_ms = now_ms;
     }
 
     /// This step's command for `player` at sim time `now_ms`, planning
@@ -1355,7 +1370,7 @@ impl Walker {
             .flatten();
         match side {
             Some(side) => self.round(side),
-            None => self.give_up(),
+            None => self.bumps = STUCK_STALLS,
         }
     }
 }

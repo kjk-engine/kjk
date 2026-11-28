@@ -2133,10 +2133,14 @@ pub struct Character {
     /// Its walk has stalled again and again (`STUCK_STALLS`): it can come
     /// no nearer where it is going.
     pub stuck: bool,
+    /// KOTOR's walker gave up only on bumping into bodies (`bumped_stuck`).
+    pub bumped_stuck: bool,
     /// Its walk carries it on now: not stalled, its body moving.
     pub walking: bool,
     /// Off the floor: thrown, falling, jumping.
     pub airborne: bool,
+    /// Held still by pain, grapple or knockback.
+    pub held_still: bool,
     /// The last to hurt it, and when (sim ms).
     pub struck: Option<(ObjectId, u64)>,
     /// A party member down (I30 P11): out of the fight but still the
@@ -3508,14 +3512,17 @@ impl Step<'_> {
                             self.moved(thing, started, ended, at);
                             true
                         }
-                        // Off the floor (thrown by a blow, falling): its
-                        // clock waits for it to land, so the way there is
-                        // judged from where it stands, as KOTOR's movers,
-                        // never off the floor, plan theirs (Malak knocked
-                        // off the Star Forge's ledge as a drain begins).
+                        // Off the floor or immobilized (thrown by a blow,
+                        // falling, stunned, grappled): its clock waits for it
+                        // to land or recover, so the way there is judged from
+                        // where it stands, as KOTOR's movers plan theirs
+                        // (Malak knocked off the Star Forge's ledge or
+                        // Whirlwinded as a drain begins).
                         Some((at, _))
                             if force_ms.is_none()
-                                && thing.character.as_ref().is_some_and(|c| c.airborne) =>
+                                && thing.character.as_ref().is_some_and(|c| {
+                                    c.airborne || c.debilitated || c.held_still
+                                }) =>
                         {
                             if let Some(front) =
                                 self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
@@ -3556,6 +3563,17 @@ impl Step<'_> {
                         Some((at, _))
                             if force_ms.is_some()
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
+                        {
+                            self.out.changes.push(Change::Walk { who, anew: false });
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
+                            false
+                        }
+                        // `ActionMoveToObject` bumped into bodies (not a static
+                        // wall): KOTOR queues the move again once clear.
+                        Some((at, _))
+                            if force_ms.is_none()
+                                && matches!(to, Target::Object(..))
+                                && thing.character.as_ref().is_some_and(|c| c.bumped_stuck) =>
                         {
                             self.out.changes.push(Change::Walk { who, anew: false });
                             self.goal(id, at, self.arrival(thing, to, *range), *run);

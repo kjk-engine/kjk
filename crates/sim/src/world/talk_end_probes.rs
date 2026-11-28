@@ -713,7 +713,147 @@ fn door_waits_for_actor_walking_through() -> Result<(bool, bool), String> {
         .iter()
         .find(|entity| entity.id.0 == walker)
         .map(|entity| entity.position);
-    Ok((at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0), !open))
+    Ok((
+        at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0),
+        !open,
+    ))
+}
+
+/// An unforced `ActionMoveToObject` stunned longer than the stall threshold
+/// pauses its stall clock and resumes walking once the stun wears off.
+fn move_to_object_waits_out_stun() -> Result<bool, String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-4.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(-1.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let first = data.placements.len() as u32;
+    data.placements.extend(
+        [
+            ObjectData::creature("walker", "walker", near, Sheet::commoner()),
+            ObjectData {
+                kind: ObjectKind::Placeable,
+                tag: "post".into(),
+                ..ObjectData::unknown("post", far, 0.0)
+            },
+        ]
+        .map(Placement::Own),
+    );
+    let nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5]]);
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let walker = id_of(&mut world, first)?;
+    let post = id_of(&mut world, first + 1)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Object(ObjectId(post)),
+                run: true,
+                range: 0.5,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let first_snap = step(&mut world, 1, &TickInput::default());
+    let stun_ms = crate::walk::STALL_MS * u64::from(crate::script::STUCK_STALLS) + 1000;
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0.0 == walker {
+            fighting.0.force.stunned_until = first_snap.time_ms + stun_ms;
+        }
+    }
+    for tick in 2..=(ANSWER_STEPS * 3) as u64 {
+        let snapshot = step(&mut world, tick, &TickInput::default());
+        let at = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        if at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// An unforced `ActionMoveToObject` whose walker gave up only on body bumps
+/// clears the bumps and keeps walking instead of dropping the action.
+fn move_to_object_retries_after_body_bump() -> Result<bool, String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-4.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(-1.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let first = data.placements.len() as u32;
+    data.placements.extend(
+        [
+            ObjectData::creature("walker", "walker", near, Sheet::commoner()),
+            ObjectData {
+                kind: ObjectKind::Placeable,
+                tag: "post".into(),
+                ..ObjectData::unknown("post", far, 0.0)
+            },
+        ]
+        .map(Placement::Own),
+    );
+    let nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5]]);
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let walker = id_of(&mut world, first)?;
+    let post = id_of(&mut world, first + 1)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Object(ObjectId(post)),
+                run: true,
+                range: 0.5,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let mut bumped = false;
+    for tick in 1..=(ANSWER_STEPS * 2) as u64 {
+        let snapshot = step(&mut world, tick, &TickInput::default());
+        if !bumped && snapshot.time_ms >= 600 {
+            let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+            for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+                if id.0.0 == walker
+                    && let Some(w) = fighting.0.mind.walker.as_mut()
+                {
+                    w.bumps = crate::script::STUCK_STALLS;
+                    w.bumped = Some((crate::snapshot::SimId(0), [0.0, 0.0]));
+                    bumped = true;
+                }
+            }
+        }
+        let at = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        if bumped && at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn probes() -> Checks {
@@ -833,6 +973,26 @@ pub fn probes() -> Checks {
                 Ok((reached, closed)) => check(
                     reached && closed,
                     format!("actor reached far side {reached}, door closed after {closed}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "move_to_object_waits_out_stun",
+            match move_to_object_waits_out_stun() {
+                Ok(reached) => check(
+                    reached,
+                    format!("walker reached target after stun: {reached}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "move_to_object_retries_after_body_bump",
+            match move_to_object_retries_after_body_bump() {
+                Ok(reached) => check(
+                    reached,
+                    format!("walker reached target after body bump: {reached}"),
                 ),
                 Err(why) => Err(why),
             },
