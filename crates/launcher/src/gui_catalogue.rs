@@ -236,3 +236,70 @@ pub fn census(discovery: &Discovery, out: Option<PathBuf>) -> ExitCode {
         Ok(())
     })())
 }
+
+/// Checks that no capture of play in the checkout holds the words of its
+/// game's talk table (docs/UI.md, "Captures of play"). The words of the
+/// other game's talk table that a capture holds are listed as notes, and
+/// do not fail the check: kjk's own words, such as the floors stage's
+/// "TSL Malachor V", may be lines there. With `rewrite`, each capture is
+/// first written again from what it holds, read and written with its own
+/// game's talk table, so that it keeps only what `Capture::of` keeps today.
+pub fn captures(discovery: &Discovery, rewrite: bool) -> ExitCode {
+    use ui::catalogue::{Capture, TalkTable, game_words, read_capture, write_capture};
+    finish((|| {
+        let folder = ui::catalogue::captures();
+        let tlks: Vec<(Game, std::sync::Arc<fmt_odyssey::tlk::Tlk>)> = [Game::Kotor1, Game::Kotor2]
+            .into_iter()
+            .filter_map(|game| {
+                let install = kjk_game::installs::open(discovery, game).ok()?;
+                Some((game, install.base().ok()?.talk.get()?))
+            })
+            .collect();
+        if tlks.is_empty() {
+            return Err("no game is installed to read a talk table from".into());
+        }
+        let talks: Vec<(Game, TalkTable<'_>)> = (tlks.iter()).map(|(game, tlk)| (*game, TalkTable::new(tlk))).collect();
+        let mut names: Vec<String> = std::fs::read_dir(&folder)
+            .map_err(|error| format!("{}: {error}", folder.display()))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .filter_map(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
+            .collect();
+        names.sort();
+        let mut found = 0;
+        for name in &names {
+            let path = folder.join(format!("{name}.json"));
+            let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let key = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|value| Some(value.get("game")?.as_str()?.to_string()))
+                .ok_or(format!("{name}: names no game"))?;
+            if rewrite {
+                let (game, talk) = (talks.iter())
+                    .find(|(game, _)| game.key() == key)
+                    .ok_or(format!("{name}: {key} is not installed"))?;
+                let old = read_capture(&folder, name, talk)?;
+                let new = Capture::of(&old.view, *game, old.window, old.scale_factor);
+                write_capture(&folder, name, &new, talk).map_err(|why| format!("{name}: {why}"))?;
+            }
+            let text = std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            for (game, talk) in &talks {
+                let own = game.key() == key;
+                for words in game_words(&text, talk).map_err(|why| format!("{name}: {why}"))? {
+                    if own {
+                        outln!("{name}: {} words at {words}", game.key());
+                        found += 1;
+                    } else {
+                        outln!("{name}: note, a line of {}'s talk table at {words}", game.key());
+                    }
+                }
+            }
+        }
+        outln!("{} captures, {found} fields with the game's words", names.len());
+        if found > 0 {
+            return Err(format!("{found} fields of the captures hold the game's words"));
+        }
+        Ok(())
+    })())
+}

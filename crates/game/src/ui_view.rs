@@ -625,7 +625,8 @@ fn requests(
                 .stack
                 .push(Box::new(ui::screens::Layout(layout.to_string()))),
             // docs/UI.md, "Captures of play".
-            ["capture", name] => {
+            ["capture", name, folder @ ..] => {
+                let folder = (!folder.is_empty()).then(|| std::path::PathBuf::from(folder.join(" ")));
                 let window = [ui.floating.window.0, ui.floating.window.1];
                 let game = ui
                     .assets
@@ -636,12 +637,8 @@ fn requests(
                     .ok_or("no talk table to name the game's words by".to_string())
                     .and_then(|tlk| {
                         let talk = ui::catalogue::TalkTable::new(tlk);
-                        ui::catalogue::write_capture(
-                            &ui::catalogue::captures(),
-                            name,
-                            &capture,
-                            &talk,
-                        )
+                        let folder = ui::catalogue::capture_folder(folder.as_deref())?;
+                        ui::catalogue::write_capture(&folder, name, &capture, &talk)
                     });
                 match written {
                     Ok(path) => info!(target: "console", "ui capture: {}", path.display()),

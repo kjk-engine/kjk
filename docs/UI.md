@@ -670,7 +670,7 @@ Running and checking:
   offers Security too (below). The host's answer is the feedback log's,
   in the game's own lines. `kjk play --skill security=N` gives the
   players N ranks.
-- Console verbs: `ui open <screen>`, `ui show <layout>`, `ui capture NAME`
+- Console verbs: `ui open <screen>`, `ui show <layout>`, `ui capture NAME [FOLDER]`
   (the view model of that moment as a capture of play; "Captures of play"
   below), `ui press <TAG>`,
   `ui nav up|down|left|right|activate`, `ui type <text>`, `ui back`,
@@ -774,37 +774,68 @@ Running and checking:
   `kjk_game::story_stage`, so that the in-game catalogue can stage
   stories as the shell does.
 - **Captures of play** (`ui::catalogue::Capture`, `data/ui/captures`). A
-  capture is the UI's view model at one moment of a real run, written as
-  JSON with the window it was drawn in. It holds numbers, the names of
-  textures and kjk's own words, but no game art and no text of the game's,
-  so it can be committed (AGENT.md forbids committing the game's files and
-  dumps of them). Each of the game's words, such as a creature's or a
-  power's name, is written as its line in the install's talk table
-  (`{"$talk": 1234}`), and read back from the install when a story is
-  drawn (`ui::catalogue::TalkTable`). A line shown with its braces taken
-  out says `"unbraced": true`. The text fields `area` and `name` of a
-  save's summary say `"text": true`. A run of bytes is swapped only when
-  it has three bytes or more and a letter among them, so pairs of numbers
-  such as a character's health stay as they are. The settings are written
-  as they are. A capture also holds the key bindings of the run. The list
-  of saves on disk is left out, because it names the player's own saves.
-  - **Taking one.** The console command `ui capture NAME` writes the view
-    model of that moment to `data/ui/captures/NAME.json` in the checkout
-    the game was built from. A name is letters, digits, `-` and `_`. It
-    works in a `--cmds` script and in a headless run. Run such a script
-    with `KJK_SETTINGS` naming a copy of the settings file, so that its
-    `ui set` commands do not change the player's own settings. The game
-    fills the action bar and the key hints for the input in use, so a
-    story drawn with both inputs needs two captures of the same moment:
-    one taken with the mouse and one taken after `ui pad xbox`. For
-    example, the captures of the HUD's and the wheel's stories were taken
-    with `kjk play --stage 301nar --class jedi --power 9 --power 21
-    --power 26 --force-points 3 --item g_i_medeqpmnt01=3 --item
-    g_w_fraggren01=2 --hostile exchangethug2 --size 1920x1080 --headless
-    --cmds 'wait world; wait 40f; ui target exchangethug2; wait 30f; ui
-    powerwheel hold; wait 30f; ui capture nar-shaddaa-low-force; quit'`,
-    and again with `ui pad xbox` after `wait world` and the name
-    `nar-shaddaa-low-force-pad`.
+  capture is part of the UI's view model at one moment of a real run,
+  written as JSON with the window it was drawn in. It holds numbers, the
+  names of textures and kjk's own words, but no game art and no text of
+  the game's, so it can be committed (AGENT.md forbids committing the
+  game's files and dumps of them).
+  - **What it keeps.** A capture keeps only what the stories of captures
+    draw (`Capture::of`). It keeps what stands over play, the galaxy map,
+    the pad in use and the settings of the display and the feedback. It
+    leaves out the character's pages, the party, the key bindings, the
+    camera's and the sound's settings, the dialog and combat logs, the new
+    game's row and the saves on disk. A story that needs another field adds
+    it to `Capture::of`. The fields that are as a new view model's are not
+    written. The 38 captures took 15.2 MB before 2026-11-28 and take
+    0.43 MB since.
+  - **The game's words.** The view model holds the game's words as bytes,
+    and kjk's own words as text. The text fields `area` and `name` of a
+    save's summary and the lines of the logs also hold the game's words.
+    Each line of the install's talk table found in those words is written
+    as its number (`{"$talk": 1234}`) and read back from the install when
+    a story is drawn (`ui::catalogue::TalkTable`). A line shown with its
+    braces taken out says `"unbraced": true`, and a line in a text field
+    says `"text": true`. A line is found where it stands between the ends
+    of words, so words joined from lines are written as their parts. The
+    power wheel's "Force Pull" is the line "Force" and kjk's own " Pull",
+    written as `{"$parts": [{"$talk": 1060}, " Pull"]}`. A line of the
+    conversation log, the speaker's name and the line said, would be
+    written the same way. A line with tokens is written with
+    what fills each token, so the status summary's "Experience Points (XP)
+    Received: 50" is `{"$talk": 42438, "filled": ["50"]}`. A line that
+    starts with a token is not found. A run of words is looked at only
+    when it has three bytes or more and a letter among them, so pairs of
+    numbers such as a character's health stay as they are. The settings are
+    written as they are.
+  - **The check.** `kjk gui captures` reads every capture against the talk
+    table of each game installed, and fails when a capture holds words of
+    a line of its own game's talk table. Words that are a line of the other
+    game's talk table are listed as notes, because kjk's own words may be
+    lines there: the floors stage names its KOTOR 2 floors ("TSL Malachor
+    V") in a KOTOR 1 capture. `ui capture` makes the same check before it
+    writes a file, and also checks that the file reads back the same.
+    `kjk gui captures --rewrite` writes every capture again from what it
+    holds, so that a change to what a capture keeps reaches the files
+    without playing the game again.
+  - **Taking one.** The console command `ui capture NAME [FOLDER]` writes
+    the view model of that moment to `FOLDER/NAME.json`. Without a folder,
+    it writes into `data/ui/captures` of the checkout the game was built
+    from. A build away from its checkout has no such folder, so the
+    command then fails and says to name one. A name is letters, digits,
+    `-` and `_`. The command works in a `--cmds` script and in a headless
+    run. Run such a script with `KJK_SETTINGS` naming a copy of the
+    settings file, so that its `ui set` commands do not change the
+    player's own settings. The game fills the action bar and the key hints
+    for the input in use, so a story drawn with both inputs needs two
+    captures of the same moment: one taken with the mouse and one taken
+    after `ui pad xbox`. For example, the captures of the HUD's and the
+    wheel's stories were taken with `kjk play --stage 301nar --class jedi
+    --power 9 --power 21 --power 26 --force-points 3 --item
+    g_i_medeqpmnt01=3 --item g_w_fraggren01=2 --hostile exchangethug2
+    --size 1920x1080 --headless --cmds 'wait world; wait 40f; ui target
+    exchangethug2; wait 30f; ui powerwheel hold; wait 30f; ui capture
+    nar-shaddaa-low-force; quit'`, and again with `ui pad xbox` after
+    `wait world` and the name `nar-shaddaa-low-force-pad`.
   - **A story from a capture.** A story is one situation, such as a
     hostile target held, and names a capture of it in each game it is
     drawn on: `capture = { k1 = "taris-lower-city-target", tsl =
