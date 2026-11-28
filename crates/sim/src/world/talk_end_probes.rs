@@ -625,6 +625,97 @@ fn cutscene_one_liner_waits() -> Result<(bool, bool, usize, Vec<String>), String
     Err(format!("the cutscene one-liner did not end; told {said:?}"))
 }
 
+/// An open locked door told to close while an actor is queued to walk through
+/// it waits until the actor has cleared it (`a_102exitrun` closing `TO102PER`
+/// in the same step the PC walks through).
+fn door_waits_for_actor_walking_through() -> Result<(bool, bool), String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-2.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(2.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let Some(Placement::Own(gate)) = data.placements.first_mut() else {
+        return Err("the ground's first object is not its door".into());
+    };
+    gate.opens = Opens::Locked;
+    gate.state = 1;
+    let first = data.placements.len() as u32;
+    data.placements.push(Placement::Own(ObjectData::creature(
+        "walker",
+        "walker",
+        near,
+        Sheet::commoner(),
+    )));
+    let mut nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5], [-0.5, 0.5], [0.5, 7.5]]);
+    if let Some(level) = ground.collision().level() {
+        nav.mark(level);
+    }
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let gate_id = id_of(&mut world, 0)?;
+    let walker = id_of(&mut world, first)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Point(far, 0.0),
+                run: true,
+                range: 0.2,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    state.actions.insert(
+        gate_id,
+        vec![Queued {
+            action: Queue::Door {
+                door: ObjectId(gate_id),
+                open: false,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let mut last = world.snapshot();
+    for tick in 1..=ANSWER_STEPS as u64 {
+        last = step(&mut world, tick, &TickInput::default());
+        let open = last
+            .entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, 0))
+            .and_then(|entity| entity.object)
+            .is_some_and(|object| object.state != 0);
+        let at = last
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        let past_door = at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0);
+        if past_door && !open {
+            return Ok((true, true));
+        }
+    }
+    let open = last
+        .entities
+        .iter()
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, 0))
+        .and_then(|entity| entity.object)
+        .is_some_and(|object| object.state != 0);
+    let at = last
+        .entities
+        .iter()
+        .find(|entity| entity.id.0 == walker)
+        .map(|entity| entity.position);
+    Ok((at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0), !open))
+}
+
 pub fn probes() -> Checks {
     let all: Vec<String> = HEARERS
         .iter()
@@ -732,6 +823,16 @@ pub fn probes() -> Checks {
                 Ok((locked, open)) => check(
                     locked && !open,
                     format!("told it is locked {locked}, open after {open}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "door_waits_for_actor_walking_through",
+            match door_waits_for_actor_walking_through() {
+                Ok((reached, closed)) => check(
+                    reached && closed,
+                    format!("actor reached far side {reached}, door closed after {closed}"),
                 ),
                 Err(why) => Err(why),
             },
