@@ -7,6 +7,8 @@
 //! is far below the crosshair). A placeable with action points is in sight
 //! where its use would be (`seen_at_action_point`). A target holds
 //! `HOLD_MS` after nothing picks it, so it does not flicker at an edge.
+//! The crosshair rests on a placeable where its meshes are drawn (`Drawn`)
+//! as well as on its volume, and on the nearest object along its ray.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
 //! useable placeables (one hung up a wall, as a door's panel, picked where
@@ -98,7 +100,7 @@ pub fn body_choices(entity: &EntityState) -> Vec<Choice> {
 
 /// A targetable object: its number among the area's objects, its kind,
 /// where its feet are (metres) and its pick volume.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     pub index: u32,
     pub kind: ObjectKind,
@@ -114,9 +116,83 @@ pub struct Candidate {
     /// (`ObjectData::action_points`): where a use from beside it looks
     /// (`uses::Target::aimed`), so the crosshair sees it there too.
     pub points: [Option<Vec3>; 2],
+    /// A placeable's drawn meshes where it stands, which the crosshair
+    /// meets as well as its volume; `None` for the rest.
+    pub drawn: Option<Drawn>,
+}
+
+/// A placeable's drawn meshes where it stands (`ObjectData::drawn`): boxes
+/// in its own frame, that frame's origin at `at` (metres) and turned `yaw`
+/// degrees about Z. KOTOR's executables pick an object where its meshes
+/// are drawn, the nearest hit along the ray: a ship whose middle stands
+/// under its hull is picked anywhere on the hull.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Drawn {
+    pub boxes: std::sync::Arc<[crate::module::Bulk]>,
+    pub at: Vec3,
+    pub yaw: f32,
+}
+
+impl Drawn {
+    /// `p` (metres, the world's axes) in the placeable's frame; with
+    /// `moved` false, a direction turned only.
+    fn local(&self, p: Vec3, moved: bool) -> Vec3 {
+        let (sin, cos) = math::sin_cos_deg(self.yaw);
+        let p = if moved { math::sub(p, self.at) } else { p };
+        [cos * p[0] + sin * p[1], cos * p[1] - sin * p[0], p[2]]
+    }
+
+    /// Where along `look` (metres from its start) it enters the nearest of
+    /// the boxes, if it does. A box round the look's start is passed: the
+    /// camera stands inside it, and what is drawn round the camera is not
+    /// what the crosshair rests on.
+    fn entered(&self, look: &Look) -> Option<f32> {
+        let (from, forward) = (self.local(look.from, true), self.local(look.forward, false));
+        self.boxes
+            .iter()
+            .filter_map(|b| {
+                let (mut near, mut far) = (f32::NEG_INFINITY, f32::INFINITY);
+                for axis in 0..3 {
+                    let (o, d) = (from[axis], forward[axis]);
+                    if d.abs() < 1e-6 {
+                        if o < b.min[axis] || o > b.max[axis] {
+                            return None;
+                        }
+                        continue;
+                    }
+                    let (low, high) = ((b.min[axis] - o) / d, (b.max[axis] - o) / d);
+                    near = near.max(low.min(high));
+                    far = far.min(low.max(high));
+                }
+                (near > 0.0 && near <= far).then_some(near)
+            })
+            .min_by(f32::total_cmp)
+    }
+
+    /// How far across the floor (metres) `feet` stands from the nearest of
+    /// the boxes; 0 over one.
+    fn flat_distance(&self, feet: Vec3) -> f32 {
+        let p = self.local(feet, true);
+        self.boxes
+            .iter()
+            .map(|b| {
+                let off = |axis: usize| (b.min[axis] - p[axis]).max(p[axis] - b.max[axis]).max(0.0);
+                (off(0) * off(0) + off(1) * off(1)).sqrt()
+            })
+            .fold(f32::INFINITY, f32::min)
+    }
 }
 
 impl Candidate {
+    /// How far across the floor (metres) it stands from `feet`: from its
+    /// nearest drawn mesh where it has them, else from its own feet.
+    fn flat_distance(&self, feet: Vec3) -> f32 {
+        let own = math::flat_distance(self.feet, feet);
+        self.drawn
+            .as_ref()
+            .map_or(own, |drawn| own.min(drawn.flat_distance(feet)))
+    }
+
     fn middle(&self) -> Vec3 {
         self.up(0.5)
     }
@@ -178,6 +254,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                     height: BODY_HEIGHT,
                     ahead: false,
                     points: [None; 2],
+                    drawn: None,
                 });
             }
             let Kind::Object(kind, index) = entity.kind else {
@@ -207,6 +284,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                         height: TRAP_HEIGHT,
                         ahead: false,
                         points: [None; 2],
+                        drawn: None,
                     });
                 }
                 _ => return None,
@@ -227,7 +305,13 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 _ => (radius, height),
             };
             let mut points = [None; 2];
+            let mut drawn = None;
             if kind == ObjectKind::Placeable {
+                drawn = (!facts.drawn.is_empty()).then(|| Drawn {
+                    boxes: facts.drawn.clone(),
+                    at: entity.position,
+                    yaw: facts.yaw,
+                });
                 (feet[2], height) = hung(level, feet, height);
                 for (slot, point) in points.iter_mut().zip(facts.action_points(feet)) {
                     *slot = Some(point);
@@ -241,6 +325,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 height,
                 ahead: kind == ObjectKind::Creature && crate::world::party_member(entity),
                 points,
+                drawn,
             })
         })
         .collect()
@@ -394,9 +479,8 @@ pub fn pick(
         );
         !candidate.ahead || dx * looker.facing[0] + dy * looker.facing[1] > candidate.radius
     };
-    let near = |candidate: &&Candidate| {
-        math::flat_distance(candidate.feet, looker.feet) <= RANGE && clear(candidate)
-    };
+    let near =
+        |candidate: &&Candidate| candidate.flat_distance(looker.feet) <= RANGE && clear(candidate);
     // The crosshair's ray, as far as the range reaches past the camera.
     let length = RANGE + math::flat_distance(look.from, looker.feet);
     let end = math::mad(look.from, length, look.forward);
@@ -410,6 +494,8 @@ pub fn pick(
     let trace = ray(states);
     let sight = level.sight_states(states, None);
     let solid = ray(sight.as_deref().or(states)).fraction * length;
+    // The nearest of all hits along the ray wins, as in KOTOR: a creature
+    // before a placeable's drawn mesh is picked, one behind it is not.
     let hit = candidates
         .iter()
         .filter(near)
@@ -419,10 +505,17 @@ pub fn pick(
             } else {
                 // A volume poking through a wall is not hit through it, but
                 // one used from an action point in sight is.
-                enters(look, candidate).filter(|t| {
+                let volume = enters(look, candidate).filter(|t| {
                     (*t <= solid && body_seen(level, states, look.from, candidate))
                         || seen_at_action_point(level, states, look.from, looker.feet, candidate)
-                })?
+                });
+                // A drawn mesh is hit where the ray meets it before a wall.
+                let drawn = candidate
+                    .drawn
+                    .as_ref()
+                    .and_then(|drawn| drawn.entered(look))
+                    .filter(|t| *t <= solid.min(length));
+                volume.into_iter().chain(drawn).reduce(f32::min)?
             };
             Some((at, candidate.index))
         })
@@ -467,10 +560,10 @@ pub fn weighed(candidates: &[Candidate], looker: &Looker) -> Vec<Candidate> {
     candidates
         .iter()
         .filter(|candidate| {
-            math::flat_distance(candidate.feet, looker.feet) <= RANGE
+            candidate.flat_distance(looker.feet) <= RANGE
                 || crate::containers::ahead(looker.feet, looker.facing, candidate.feet).is_some()
         })
-        .copied()
+        .cloned()
         .collect()
 }
 
@@ -1278,4 +1371,4 @@ impl Hold {
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{action_point_probes, cage_probes, probes};
+pub use probes::{action_point_probes, cage_probes, drawn_probes, probes};

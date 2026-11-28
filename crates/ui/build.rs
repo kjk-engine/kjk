@@ -54,10 +54,11 @@ fn palettes(tokens: &Path) -> String {
     for (token, name) in PALETTES {
         let _ = writeln!(
             rust,
-            "pub const {name}: Palette = Palette {{ base: {}, hilight: {}, disabled: {} }};",
+            "pub const {name}: Palette = Palette {{ base: {}, hilight: {}, disabled: {}, panel: {} }};",
             colour(&format!("{token}.base")),
             colour(&format!("{token}.hilight")),
             colour(&format!("{token}.disabled")),
+            colour(&format!("{token}.panel")),
         );
     }
     let _ = writeln!(rust, "pub const REFUSED: [f32; 3] = {};", colour("refused"));

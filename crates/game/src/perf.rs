@@ -12,6 +12,11 @@ use std::time::Instant;
 static ORIGIN: OnceLock<Instant> = OnceLock::new();
 static SAMPLES: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
 
+/// Whether `KJK_PERF=1` counter recording is active.
+pub fn enabled() -> bool {
+    ORIGIN.get().is_some()
+}
+
 /// The trace starts now: counters are kept from here.
 pub fn start() {
     let _ = ORIGIN.set(Instant::now());

@@ -64,7 +64,7 @@ use crate::codec::{
 use crate::handshake::{self, Credentials, Refusal};
 use crate::link::{self, Link};
 use crate::wire::{self, Class, Header, WireError, frame};
-use crate::worker::{Queued, Worker};
+use crate::worker::{PendingSignal, Queued, Worker};
 use crate::{NetTime, Peer};
 
 /// The most ticks prediction runs past the newest authority snapshot.
@@ -75,9 +75,9 @@ pub const MAX_CATCH_UP: u64 = sim::MAX_CATCH_UP as u64;
 const REASSEMBLY: usize = 4;
 /// Packets remembered for their newest command (acks come back within
 /// far fewer).
-const SENT: usize = 256;
+const SENT: usize = 1024;
 /// Seat commands kept, by tick.
-const SEAT_COMMANDS: usize = 128;
+pub(crate) const SEAT_COMMANDS: usize = 256;
 /// Own commands and predictions kept, by tick.
 const OWN: usize = 128;
 /// Snapshots an in-process client keeps (`Client::in_process`): its
@@ -96,9 +96,16 @@ const IN_PROCESS_RING: usize = 16;
 pub const REBASE_EVERY_US: u64 = 32_000;
 /// Mismatches logged in full (all are counted).
 const LOGGED: usize = 64;
-/// The correction's half-life, µs, and the distance it snaps beyond
-/// (units, as the correction is kept).
-const HALF_LIFE_US: f32 = 50_000.0;
+/// The most actions a client holds while the host has not heard that it
+/// loaded (`Client::act`). Later ones are dropped.
+const HELD_ACTIONS: usize = 256;
+/// The correction's deadzone (below which sub-0.5-unit jitter is ignored),
+/// half-lives for small vs large knockbacks (µs), and the snap threshold
+/// (units).
+const DEADZONE_UNITS: f32 = 0.5;
+const FAST_HALF_LIFE_US: f32 = 30_000.0;
+const SLOW_HALF_LIFE_US: f32 = 65_000.0;
+const LARGE_CORRECTION_UNITS: f32 = 16.0;
 const SNAP_UNITS: f32 = 64.0;
 /// Positions in snapshots are metres; the correction is in units.
 const UNITS_PER_METRE: f32 = 1.0 / sim::motion::UNIT;
@@ -415,8 +422,8 @@ struct Play {
     /// This seat's commands by tick, each with its view lag (ms).
     own: VecDeque<(u64, Command, u16)>,
     /// The predicted clock's offset when each command was made, by tick
-    /// modulo 64 (for the host's slack reports).
-    offsets: [(u64, i64); 64],
+    /// modulo 128 (for the host's slack reports).
+    offsets: [(u64, i64); 128],
     /// This seat's avatar as predicted, and the bolts in flight
     /// (creatures', players'), by tick.
     history: VecDeque<(u64, EntityState, Bolts)>,
@@ -444,7 +451,7 @@ impl Play {
             started: false,
             own_id: own_id(snapshot, seat),
             own: VecDeque::new(),
-            offsets: [(u64::MAX, 0); 64],
+            offsets: [(u64::MAX, 0); 128],
             history: VecDeque::new(),
             others: TickInput::default(),
             predicted: Presented::new(snapshot.clone()),
@@ -507,12 +514,17 @@ struct Session {
     play: Option<Play>,
     /// The world steps (not stopped for an install).
     running: bool,
+    /// True between `Message::Hold` and `Message::Resume` so clock resume preserves jitter spread.
+    was_held: bool,
     clocks: Clocks,
     /// A snapshot newer than prediction's came.
     fresh: bool,
     /// Packet numbers and the newest command each carried.
     sent: Vec<(u16, u64)>,
     pending_newest: Option<u64>,
+    last_commands_made: Option<u64>,
+    last_idle_cmd: Option<Command>,
+    idle_cmds: u32,
     /// Every command up to this tick reached the host.
     acked_through: u64,
     /// Ticks the host reported missed.
@@ -532,6 +544,7 @@ struct Session {
     rebaser: Rebaser,
     /// The live world's new ticks, stepped beside the frames.
     beside: Beside,
+    starting_rebase: bool,
     rebased_at: Option<NetTime>,
     observed: u64,
     differs: bool,
@@ -546,6 +559,9 @@ struct Session {
     /// The host's save copy coming in (I30 P17). A reconnect makes a new
     /// session, so a copy cut by a drop is gone whole.
     copies: CopyAssembly,
+    /// This client told the host it loaded the world of the current epoch
+    /// (`Message::Loaded`), so the host takes its actions (`Client::act`).
+    told_loaded: bool,
 }
 
 enum State {
@@ -588,6 +604,9 @@ pub struct Client {
     /// one held.
     hold_loaded: bool,
     withheld: Option<Vec<u8>>,
+    /// This player's actions held until the host hears this client loaded
+    /// the world they name (`act`), at most `HELD_ACTIONS`.
+    unsent: Vec<sim::action::Action>,
 }
 
 impl Client {
@@ -621,6 +640,7 @@ impl Client {
             heard: false,
             hold_loaded: false,
             withheld: None,
+            unsent: Vec::new(),
         })
     }
 
@@ -757,6 +777,14 @@ impl Client {
             .map(|rebuilt| &*rebuilt.snapshot)
     }
 
+    /// The newest authority snapshot handle rebuilt.
+    pub fn authority_arc(&self) -> Option<Arc<Snapshot>> {
+        self.session()?
+            .ring
+            .newest()
+            .map(|rebuilt| rebuilt.snapshot.clone())
+    }
+
     fn end(&mut self, why: Refusal) {
         self.land_rebuild(true);
         let last = match &self.state {
@@ -770,6 +798,7 @@ impl Client {
         };
         self.state = State::Ended(last);
         self.rejoin = None;
+        self.unsent.clear();
         self.events.push_back(ClientEvent::Ended(why));
     }
 
@@ -788,6 +817,8 @@ impl Client {
         if now >= until {
             return self.end(Refusal::Timeout);
         }
+        // The actions held for the session that timed out go with it.
+        self.unsent.clear();
         self.nonce = next_nonce(&self.config.nonce_key, self.nonce);
         let credentials = Credentials {
             reconnect: self.token,
@@ -893,10 +924,14 @@ impl Client {
             install: None,
             play: None,
             running: true,
+            was_held: false,
             clocks,
             fresh: false,
             sent: vec![(u16::MAX, 0); SENT],
             pending_newest: None,
+            last_commands_made: None,
+            last_idle_cmd: None,
+            idle_cmds: 0,
             acked_through: 0,
             misses: VecDeque::new(),
             resync_asked: false,
@@ -907,6 +942,7 @@ impl Client {
             rebuilding: None,
             rebaser: Rebaser::new(self.config.rebase_on),
             beside: Beside::new(self.config.rebase_on),
+            starting_rebase: false,
             rebased_at: None,
             observed: 0,
             differs: false,
@@ -915,6 +951,7 @@ impl Client {
             die: (false, false),
             stats: ClientStats::default(),
             copies: CopyAssembly::default(),
+            told_loaded: false,
         }));
         self.events.push_back(ClientEvent::Accepted { session });
     }
@@ -980,7 +1017,7 @@ impl Client {
             return;
         };
         if fragment.count == 1 {
-            self.take_payload(now, fragment.bytes, false);
+            self.take_payload(now, fragment.bytes, false, true);
             return;
         }
         let rebuilding =
@@ -1023,15 +1060,29 @@ impl Client {
                 return;
             };
             let whole: Vec<u8> = held.parts.into_iter().flatten().flatten().collect();
-            self.take_payload(now, &whole, false);
+            self.take_payload(now, &whole, false, true);
         }
     }
 
-    /// Rebuilds a snapshot payload, and returns its tick. The tick may be
-    /// one held already, or one being rebuilt on a thread
-    /// (`ClientConfig::rebuild_beside`).
-    fn take_payload(&mut self, now: NetTime, bytes: &[u8], reliable: bool) -> Option<u64> {
-        self.land_rebuild(true);
+    /// Rebuilds a snapshot payload, and returns its tick when rebuilt
+    /// immediately (`None` while building asynchronously on a thread).
+    fn take_payload(
+        &mut self,
+        now: NetTime,
+        bytes: &[u8],
+        reliable: bool,
+        allow_beside: bool,
+    ) -> Option<u64> {
+        self.land_rebuild(false);
+        let State::Connected(session) = &mut self.state else {
+            return None;
+        };
+        if session.rebuilding.is_some() {
+            if !reliable && self.config.rebuild_beside {
+                return None;
+            }
+            self.land_rebuild(true);
+        }
         let State::Connected(session) = &mut self.state else {
             return None;
         };
@@ -1078,9 +1129,11 @@ impl Client {
             reliable,
             newest: session.ring.newest().map(|newest| newest.tick),
         };
-        if !reliable && self.config.rebuild_beside {
+        if allow_beside && self.config.rebuild_beside {
             match session.ring.begin(payload.frame) {
-                Ok(Begun::New { header, base, .. }) => {
+                Ok(Begun::New {
+                    header: _, base, ..
+                }) => {
                     let frame: Arc<[u8]> = payload.frame.into();
                     let (given, given_base) = (frame.clone(), base.clone());
                     let thread = REBUILDS.run(move || rebuild_frame(&given, given_base.as_deref()));
@@ -1091,7 +1144,7 @@ impl Client {
                             base,
                             after,
                         });
-                        return Some(header.tick);
+                        return None;
                     }
                 }
                 Ok(Begun::Held(_)) => {}
@@ -1155,7 +1208,12 @@ impl Client {
                 return;
             }
         }
+        let now = after.now;
+        let reliable = after.reliable;
         take_rebuilt(session, after);
+        if reliable && session.play.is_none() {
+            self.try_start(now);
+        }
     }
 
     /// Waits for a frame still being rebuilt on a thread
@@ -1179,7 +1237,7 @@ impl Client {
             // Only a command this side made: a tick it skipped after a long
             // frame (or a clock jump) had none to lose.
             if session.play.as_ref().is_some_and(|play| {
-                play.started && miss >= play.first && play.offsets[(miss % 64) as usize].0 == miss
+                play.started && miss >= play.first && play.offsets[(miss % 128) as usize].0 == miss
             }) {
                 session.clocks.missed(now);
             }
@@ -1194,7 +1252,7 @@ impl Client {
             && play.started
             && tick >= play.first
         {
-            let (made, offset) = play.offsets[(tick % 64) as usize];
+            let (made, offset) = play.offsets[(tick % 128) as usize];
             if made == tick {
                 session.clocks.report(offset, slack);
             }
@@ -1202,11 +1260,13 @@ impl Client {
     }
 
     fn take_message(&mut self, now: NetTime, message: Message<'_>) {
-        // These messages only tell the player something. Every other
-        // message may read or replace the snapshots the client keeps.
-        let told = matches!(
+        // These messages only tell the player something, or rebuild on
+        // their own thread. Every other message may read or replace the
+        // snapshots the client keeps.
+        let needs_settled_ring = !matches!(
             message,
-            Message::Notice(_)
+            Message::Snapshot(_)
+                | Message::Notice(_)
                 | Message::Screen(_)
                 | Message::Sound(_)
                 | Message::Explosion(_)
@@ -1215,7 +1275,7 @@ impl Client {
                 | Message::Start
                 | Message::Closed(_)
         );
-        if !told {
+        if needs_settled_ring {
             self.land_rebuild(true);
         }
         let State::Connected(session) = &mut self.state else {
@@ -1237,15 +1297,18 @@ impl Client {
             Message::Level(request) => {
                 session.wanted = Some(request.clone());
                 session.play = None;
+                session.told_loaded = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
                 self.events.push_back(ClientEvent::NeedLevel(request));
             }
             Message::Snapshot(payload) => {
-                if self.take_payload(now, payload, true).is_some() {
+                if self.take_payload(now, payload, true, true).is_some() {
                     self.try_start(now);
                 }
             }
             Message::Installing { request, payload } => {
-                let tick = self.take_payload(now, payload, true);
+                let tick = self.take_payload(now, payload, true, false);
                 let State::Connected(session) = &mut self.state else {
                     return;
                 };
@@ -1253,19 +1316,30 @@ impl Client {
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
                 session.running = false;
+                session.was_held = false;
+                session.starting_rebase = false;
                 session.install = Some(Install {
                     before,
                     announced: None,
                     level: None,
                 });
+                // The actions held name the world this install leaves.
+                session.told_loaded = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
+                self.unsent.clear();
                 self.events.push_back(ClientEvent::Installing(request));
             }
             Message::Hold { payload } => {
-                let tick = self.take_payload(now, payload, true);
+                let tick = self.take_payload(now, payload, true, false);
                 let State::Connected(session) = &mut self.state else {
                     return;
                 };
                 session.running = false;
+                session.was_held = true;
+                session.starting_rebase = false;
+                session.last_idle_cmd = None;
+                session.idle_cmds = 0;
                 let held = tick
                     .and_then(|tick| session.ring.get(tick))
                     .map(|rebuilt| (*rebuilt.snapshot).clone());
@@ -1286,6 +1360,8 @@ impl Client {
                         session.epoch = epoch;
                         session.ring.begin_epoch(epoch, None);
                         session.play = None;
+                        session.told_loaded = false;
+                        self.unsent.clear();
                     }
                 }
                 self.try_commit(now);
@@ -1300,7 +1376,12 @@ impl Client {
                     session.install = None;
                 }
                 session.running = true;
-                session.clocks.restart();
+                session.starting_rebase = false;
+                if std::mem::take(&mut session.was_held) {
+                    session.clocks.resume(now, tick);
+                } else {
+                    session.clocks.restart();
+                }
                 if let Some(play) = &mut session.play {
                     play.started = false;
                     play.generation = next_generation();
@@ -1356,6 +1437,10 @@ impl Client {
 
     /// Hands over the level asked for (`NeedLevel`, `Installing`), or why
     /// it could not be built (the session then ends: `Refusal::Plan`).
+    /// Levels are answered in the order they were asked for. A player
+    /// still building the level it joined in when the host starts an
+    /// install hands that level over first, then the install's. The host
+    /// waits for it as for any player still loading.
     pub fn provide_level(&mut self, now: NetTime, level: Result<Level, String>) {
         self.land_rebuild(true);
         let State::Connected(session) = &mut self.state else {
@@ -1368,10 +1453,11 @@ impl Client {
                 return;
             }
         };
+        let joining = session.wanted.is_some();
         if let Some(install) = session
             .install
             .as_mut()
-            .filter(|install| install.level.is_none())
+            .filter(|install| install.level.is_none() && !joining)
         {
             install.level = Some(level);
             self.try_commit(now);
@@ -1436,7 +1522,7 @@ impl Client {
             tick: snapshot.tick,
             check,
         };
-        let _ = session.link.send_reliable(&loaded.to_bytes());
+        tell_loaded(session, &loaded.to_bytes(), &mut self.unsent);
         session.play = Some(Play::new(world, &snapshot, session.seat));
         session.fresh = false;
         self.events.push_back(ClientEvent::Loaded {
@@ -1463,16 +1549,24 @@ impl Client {
             return;
         }
         let tick = announcement.tick;
-        let committed = install
+        let digest_only_stash = install
             .before
             .as_ref()
-            .zip(session.level.clone())
-            .and_then(|(before, old)| SimWorld::from_snapshot(before, old).ok())
-            .and_then(|mut world| {
-                let after = world.install(level.clone(), announcement.arrival()).ok()?;
-                Some((world, after))
+            .is_some_and(|before| before.stash.is_digest_only());
+        let committed = (!digest_only_stash)
+            .then(|| {
+                install
+                    .before
+                    .as_ref()
+                    .zip(session.level.clone())
+                    .and_then(|(before, old)| SimWorld::from_snapshot(before, old).ok())
+                    .and_then(|mut world| {
+                        let after = world.install(level.clone(), announcement.arrival()).ok()?;
+                        Some((world, after))
+                    })
+                    .filter(|(_, after)| announcement.check_after(after).is_ok())
             })
-            .filter(|(_, after)| announcement.check_after(after).is_ok());
+            .flatten();
         session.install = None;
         session.epoch = epoch;
         session.level = Some(level);
@@ -1494,7 +1588,9 @@ impl Client {
                 check
             }
             None => {
-                session.stats.installs_differed += 1;
+                if !digest_only_stash {
+                    session.stats.installs_differed += 1;
+                }
                 session.ring.begin_epoch(epoch, None);
                 session.play = None;
                 Check([0; 8])
@@ -1504,7 +1600,7 @@ impl Client {
         if self.hold_loaded {
             self.withheld = Some(loaded);
         } else {
-            let _ = session.link.send_reliable(&loaded);
+            tell_loaded(session, &loaded, &mut self.unsent);
         }
         self.events
             .push_back(ClientEvent::Installed { epoch, agreed });
@@ -1525,7 +1621,7 @@ impl Client {
         if let State::Connected(session) = &mut self.state
             && let Some(loaded) = self.withheld.take()
         {
-            let _ = session.link.send_reliable(&loaded);
+            tell_loaded(session, &loaded, &mut self.unsent);
         }
     }
 
@@ -1537,18 +1633,90 @@ impl Client {
             if session.install.as_ref().is_some_and(|install| install.level.is_none()))
     }
 
-    /// Sends an action of this player's to the host (reliably, in order);
-    /// nothing before the session is up.
+    /// Sends an action of this player's to the host (reliably, in order).
+    /// An action names objects by their index in the module, so the host
+    /// takes a player's actions only once it has heard that the player
+    /// loaded the world they name (`Message::Loaded`). An action made before
+    /// that, in the world this client goes on in, is held and sent right
+    /// after the `Loaded`. That is an action made while this client holds an
+    /// install's `Loaded` back (`hold_loaded`). For the host's own player
+    /// (`in_process`), whose game draws the host's world from its first
+    /// frame, it is also an action made before its client joined and
+    /// loaded. An action made while an install comes in names the world
+    /// being left, and is dropped, as the host would drop it. So is one a
+    /// guest made before its first `Loaded`, while its game drew no world of
+    /// the host's.
     pub fn act(&mut self, action: sim::action::Action) {
-        if let State::Connected(session) = &mut self.state {
-            let _ = session
-                .link
-                .send_reliable(&Message::Action(action).to_bytes());
+        let held = match &mut self.state {
+            State::Connected(session) if session.told_loaded => {
+                send_action(session, action);
+                return;
+            }
+            State::Connected(session) => {
+                session.install.is_none() && (self.in_process || self.withheld.is_some())
+            }
+            State::Joining(_) => self.in_process,
+            State::Ended(_) => false,
+        };
+        if held && self.unsent.len() < HELD_ACTIONS {
+            self.unsent.push(action);
         }
     }
 
     // -----------------------------------------------------------------
     // Frames.
+
+    /// Prepares for `frame(now, input)` without holding a lock across any
+    /// background rebuild, prediction step, or initial rewind. Callers
+    /// sharing `Client` behind a mutex call this in a loop, dropping the
+    /// lock to call `signal.wait()` whenever `Some(signal)` is returned.
+    pub fn prepare_frame(&mut self, now: NetTime) -> Option<PendingSignal> {
+        self.land_rebuild(false);
+        let State::Connected(session) = &mut self.state else {
+            return None;
+        };
+        if let Some(rebuilding) = &mut session.rebuilding {
+            return Some(rebuilding.thread.pending());
+        }
+        let session = &mut **session;
+        let link = session.link.stats();
+        if link.rtt_samples > 0 {
+            session.clocks.rtt_us = link.rtt_us as i64;
+            session.clocks.rtt_min_us = link.rtt_min_us as i64;
+        }
+        if let Some(signal) = session.beside.pending() {
+            return Some(signal);
+        }
+        if !session.running {
+            return None;
+        }
+        if session.starting_rebase {
+            if let Some(signal) = session.rebaser.pending() {
+                return Some(signal);
+            }
+            return None;
+        }
+        let started = session.play.as_ref().is_some_and(|p| p.started);
+        if !started && session.clocks.host_offset().is_some() && session.play.is_some() {
+            session.clocks.start();
+            let standing = tick_at(session.rate, session.clocks.predicted_at(now));
+            if let Some(play) = session.play.as_mut() {
+                play.started = true;
+                play.made = play.made.max(standing);
+                play.first = play.made + 1;
+                self.events
+                    .push_back(ClientEvent::Playing { tick: play.made });
+            }
+            session.fresh = false;
+            session.starting_rebase = true;
+            if session.rebaser.wait().is_some() {
+                session.stats.rewinds_dropped += 1;
+            }
+            start_rebase(session, now);
+            return session.rebaser.pending();
+        }
+        None
+    }
 
     /// One frame at `now` with the input sampled for it: the last frame's
     /// steps land, the clocks move on, a rewind lands or starts (`rebase`),
@@ -1563,8 +1731,8 @@ impl Client {
         let session = &mut **session;
         let elapsed = session.last_frame.map_or(0, |last| now.since(last) as i64);
         session.last_frame = Some(now);
-        // A stall (a load, a debugger) is not a frame length.
-        session.clocks.frame(elapsed.min(100_000));
+        // Hitch outliers (> 50 ms) are ignored by `Clocks::frame`'s rolling p90.
+        session.clocks.frame(elapsed);
         let link = session.link.stats();
         if link.rtt_samples > 0 {
             session.clocks.rtt_us = link.rtt_us as i64;
@@ -1574,7 +1742,10 @@ impl Client {
         let started = session.play.as_ref()?.started;
         let mut stepped = 0;
         if session.running {
-            if !started && session.clocks.host_offset().is_some() {
+            if session.starting_rebase {
+                session.starting_rebase = false;
+                finish_starting_rebase(session, now);
+            } else if !started && session.clocks.host_offset().is_some() {
                 session.clocks.start();
                 // The first command is for the tick after the one the
                 // clock stands in: the host steps those before it.
@@ -1796,6 +1967,24 @@ fn counted(
     }
 }
 
+/// Sends `action` to the host.
+fn send_action(session: &mut Session, action: sim::action::Action) {
+    let _ = session
+        .link
+        .send_reliable(&Message::Action(action).to_bytes());
+}
+
+/// Tells the host this client loaded the current epoch's world (`loaded`,
+/// an encoded `Message::Loaded`), then sends the actions held for it
+/// (`Client::act`). The link keeps their order, so the host takes them.
+fn tell_loaded(session: &mut Session, loaded: &[u8], unsent: &mut Vec<sim::action::Action>) {
+    let _ = session.link.send_reliable(loaded);
+    session.told_loaded = true;
+    for action in unsent.drain(..) {
+        send_action(session, action);
+    }
+}
+
 /// Counts a frame that did not rebuild, by its cause. A frame rebuilt to
 /// another hash, or to no snapshot, is a codec bug. The client then asks
 /// the host for a keyframe.
@@ -1967,14 +2156,9 @@ fn observe(session: &mut Session) {
     }
     let predicted = predicted.map(|(own, _)| own);
     if let (Some(predicted), Some(id)) = (predicted, play.own_id) {
-        let host = newest
-            .parts
-            .entities
-            .binary_search_by_key(&id, |(id, _)| *id)
-            .ok()
-            .map(|at| &newest.parts.entities[at].1);
+        let host = newest.snapshot.get(id);
         session.stats.compared += 1;
-        if host.is_none_or(|host| *host != Snapshot::record(&predicted)) {
+        if host.is_none_or(|host| !predict_key_eq(host, &predicted)) {
             session.differs = true;
             let missed = session
                 .misses
@@ -1997,6 +2181,115 @@ fn observe(session: &mut Session) {
             }
         }
     }
+}
+
+/// Prediction equivalence for the local player's avatar: matches movement,
+/// combat state, saber, active force casts, statuses (stun/stasis/knockdown/
+/// slow/fear), death/revival, and shooting while ignoring authority-only HP/FP/
+/// timers/sheet fields.
+fn predict_key_eq(a: &EntityState, b: &EntityState) -> bool {
+    if a.kind != b.kind
+        || a.position != b.position
+        || a.velocity != b.velocity
+        || a.player != b.player
+        || a.retarget_ms != b.retarget_ms
+        || a.life_ms != b.life_ms
+        || a.going != b.going
+        || a.object != b.object
+        || a.missile != b.missile
+    {
+        return false;
+    }
+    match (&a.fighter, &b.fighter) {
+        (None, None) => true,
+        (Some(a), Some(b)) => fighter_predict_eq(a, b),
+        _ => false,
+    }
+}
+
+fn fighter_predict_eq(a: &sim::combat::Fighter, b: &sim::combat::Fighter) -> bool {
+    a.life == b.life
+        && a.weapon_wait_ms == b.weapon_wait_ms
+        && a.hand == b.hand
+        && a.pain_until == b.pain_until
+        && a.punched_at == b.punched_at
+        && a.fists == b.fists
+        && a.grab_pick == b.grab_pick
+        && a.swung_at == b.swung_at
+        && a.grapple == b.grapple
+        && a.blasted_ms == b.blasted_ms
+        && a.stance_set == b.stance_set
+        && a.stance_queued == b.stance_queued
+        && a.faction == b.faction
+        && a.saber == b.saber
+        && force_predict_eq(&a.force, &b.force)
+        && a.shooting == b.shooting
+        && a.pack == b.pack
+        && a.pose == b.pose
+        && a.trails == b.trails
+        && a.swing == b.swing
+        && effects_predict_eq(&a.effects, &b.effects)
+        && a.acting == b.acting
+        && a.fallen == b.fallen
+        && a.covert == b.covert
+        && a.sheath == b.sheath
+        && a.mind.driver == b.mind.driver
+}
+
+fn force_predict_eq(
+    a: &sim::combat::force::ForceState,
+    b: &sim::combat::force::ForceState,
+) -> bool {
+    a.held == b.held
+        && a.speed_until == b.speed_until
+        && a.protect_until == b.protect_until
+        && a.absorb_until == b.absorb_until
+        && a.trick_until == b.trick_until
+        && a.speed_level == b.speed_level
+        && a.protect_level == b.protect_level
+        && a.absorb_level == b.absorb_level
+        && a.trick_level == b.trick_level
+        && a.channel == b.channel
+        && a.hand == b.hand
+        && a.push_pull_ready == b.push_pull_ready
+        && a.grip_ready == b.grip_ready
+        && a.lightning_ready == b.lightning_ready
+        && a.drain_ready == b.drain_ready
+        && a.gripped_by == b.gripped_by
+        && a.stunned_until == b.stunned_until
+        && a.immune_until == b.immune_until
+        && a.hold == b.hold
+        && a.confused_until == b.confused_until
+        && a.tricked == b.tricked
+        && a.jumping == b.jumping
+        && a.jump_paid_at == b.jump_paid_at
+        && a.rage_until == b.rage_until
+        && a.rage_level == b.rage_level
+        && a.rage_paid_at == b.rage_paid_at
+        && a.recover_until == b.recover_until
+        && a.sight_until == b.sight_until
+        && a.state == b.state
+        && a.state_until == b.state_until
+        && a.ears_until == b.ears_until
+        && a.cast_loop == b.cast_loop
+        && a.save == b.save
+        && a.save_due == b.save_due
+        && a.rolls == b.rolls
+        && a.recent == b.recent
+        && a.recent_until == b.recent_until
+}
+
+fn effects_predict_eq(
+    a: &sim::combat::effects::Effects,
+    b: &sim::combat::effects::Effects,
+) -> bool {
+    a.valor == b.valor
+        && a.resist == b.resist
+        && a.slowed == b.slowed
+        && a.lasting == b.lasting
+        && a.worn_immune == b.worn_immune
+        && a.worn_traits == b.worn_traits
+        && a.fury == b.fury
 }
 
 /// Starts a rewind from the newest authority snapshot when one is due:
@@ -2034,6 +2327,7 @@ fn start_rebase(session: &mut Session, now: NetTime) {
     };
     let base = newest.snapshot.clone();
     let (others, _) = others_at(session, base.tick);
+    let spare = session.rebaser.take_spare();
     let job = Job {
         generation: play.generation,
         own_id: own_id(&base, session.seat),
@@ -2046,6 +2340,7 @@ fn start_rebase(session: &mut Session, now: NetTime) {
         to: play.made,
         full_from: session.view_from.min(play.made.saturating_sub(1)),
         worked: play.world.as_deref().map(SimWorld::worked_out),
+        spare,
         base,
         level,
         seat: session.seat,
@@ -2057,6 +2352,20 @@ fn start_rebase(session: &mut Session, now: NetTime) {
     session.rebaser.start(job);
     session.rebased_at = Some(now);
     session.differs = false;
+}
+
+/// Finishes a starting rebase started by `Client::prepare_frame`.
+fn finish_starting_rebase(session: &mut Session, now: NetTime) {
+    let lost = session.rebaser.lost;
+    match session.rebaser.wait() {
+        Some(Some(done)) => apply(session, done, true),
+        Some(None) => {
+            if !failed(session, lost) {
+                rebase_now(session, now);
+            }
+        }
+        None => rebase_now(session, now),
+    }
 }
 
 /// The clocks (re)started: prediction starts from the newest authority
@@ -2168,8 +2477,9 @@ fn apply(session: &mut Session, done: Done, starting: bool) {
         _ => None,
     };
     let mut world = done.world;
-    if let Some(old) = play.world.as_deref_mut() {
-        world.keep_worked_out(old);
+    if let Some(mut old) = play.world.take() {
+        world.keep_worked_out(&mut old);
+        session.rebaser.give_spare(old);
     }
     play.world = Some(world);
     play.stepped = reached;
@@ -2340,15 +2650,19 @@ fn finish_rewind(session: &mut Session, landed: Vec<Arc<Snapshot>>) {
         kept.predicted.extend(shown);
     }
     if let Some(moved) = pending.moved.filter(|moved| *moved != [0.0; 3]) {
-        let stats = &mut session.stats;
-        stats.corrections += 1;
         let error: [f32; 3] = std::array::from_fn(|axis| play.correction[axis] + moved[axis]);
         let length = error.iter().map(|e| e * e).sum::<f32>().sqrt();
-        if length > SNAP_UNITS {
-            stats.snapped += 1;
+        if length < DEADZONE_UNITS {
             play.correction = [0.0; 3];
         } else {
-            play.correction = error;
+            let stats = &mut session.stats;
+            stats.corrections += 1;
+            if length > SNAP_UNITS {
+                stats.snapped += 1;
+                play.correction = [0.0; 3];
+            } else {
+                play.correction = error;
+            }
         }
     }
 }
@@ -2436,7 +2750,7 @@ fn make(
             while play.own.len() > OWN {
                 play.own.pop_front();
             }
-            play.offsets[(tick % 64) as usize] = (tick, offset);
+            play.offsets[(tick % 128) as usize] = (tick, offset);
             session.stats.commands += 1;
         }
         play.made = tick;
@@ -2462,7 +2776,7 @@ fn queue_lockstep(session: &mut Session, target: u64, command: Command) -> u64 {
         while play.own.len() > OWN {
             play.own.pop_front();
         }
-        play.offsets[(tick % 64) as usize] = (tick, 0);
+        play.offsets[(tick % 128) as usize] = (tick, 0);
         session.stats.commands += 1;
         play.made = tick;
         made += 1;
@@ -2473,6 +2787,21 @@ fn queue_lockstep(session: &mut Session, target: u64, command: Command) -> u64 {
     made
 }
 
+fn confirmed_mask(ring: &ClientRing, confirmed: Option<u64>) -> u8 {
+    let Some(top) = confirmed else {
+        return 0;
+    };
+    let mut mask = 0u8;
+    for bit in 0..8u64 {
+        if let Some(tick) = top.checked_sub(bit + 1)
+            && ring.get(tick).is_some()
+        {
+            mask |= 1 << bit;
+        }
+    }
+    mask
+}
+
 /// Queues every command the host has not acked, as many as fit,
 /// contiguous, up to the last made.
 fn send_commands(session: &mut Session) {
@@ -2480,17 +2809,53 @@ fn send_commands(session: &mut Session) {
         return;
     };
     let confirmed = session.ring.newest().map(|newest| newest.tick);
+    if session.last_commands_made == Some(play.made) && confirmed <= session.confirmed_sent {
+        return;
+    }
     let mut frame = Commands::new(session.epoch, confirmed);
+    frame.confirmed_mask = confirmed_mask(&session.ring, confirmed);
     let first =
         (session.acked_through + 1).max((play.made + 1).saturating_sub(MAX_COMMANDS as u64));
     let mut from = play.made + 1;
     while from > first && play.own_command(from - 1).is_some() {
         from -= 1;
     }
+    let mut is_idle_cmd = true;
+    let mut newest_cmd = None;
     for tick in from..=play.made {
         if let Some((command, lag)) = play.own_entry(tick) {
+            if command != command.idle() || session.last_idle_cmd != Some(command) {
+                is_idle_cmd = false;
+            }
+            newest_cmd = Some(command);
             frame.push(tick, command, lag);
         }
+    }
+    if frame.is_empty() && confirmed <= session.confirmed_sent {
+        return;
+    }
+    if is_idle_cmd && !frame.is_empty() {
+        let tick_us = session.clocks.tick_us();
+        let clocks_settled = session
+            .clocks
+            .predicted_error()
+            .is_some_and(|e| e.abs() * 2 < tick_us)
+            && session
+                .clocks
+                .remote_error()
+                .is_some_and(|e| e.abs() * 2 < tick_us);
+        if clocks_settled
+            && confirmed <= session.confirmed_sent
+            && let Some(last) = session.last_commands_made
+            && play.made >= last
+            && session.idle_cmds >= 16
+            && play.made - last < 2
+        {
+            return;
+        }
+        session.idle_cmds = session.idle_cmds.saturating_add(1);
+    } else if !is_idle_cmd {
+        session.idle_cmds = 0;
     }
     let mut payload = Vec::with_capacity(16 + 4 * frame.len());
     frame.encode(&mut payload);
@@ -2500,6 +2865,8 @@ fn send_commands(session: &mut Session) {
         .is_ok()
     {
         session.pending_newest = Some(play.made);
+        session.last_commands_made = Some(play.made);
+        session.last_idle_cmd = newest_cmd;
         session.confirmed_sent = confirmed;
     }
 }
@@ -2542,7 +2909,8 @@ fn confirm_idle(session: &mut Session) {
     if playing || session.confirmed_sent.is_some_and(|sent| sent >= newest) {
         return;
     }
-    let frame = Commands::new(session.epoch, Some(newest));
+    let mut frame = Commands::new(session.epoch, Some(newest));
+    frame.confirmed_mask = confirmed_mask(&session.ring, Some(newest));
     let mut payload = Vec::with_capacity(16);
     frame.encode(&mut payload);
     if session
@@ -2617,10 +2985,21 @@ fn present(session: &mut Session, now: NetTime, elapsed: i64) {
 
     // The correction decays (drawing only).
     if play.correction != [0.0; 3] && elapsed > 0 {
-        let keep = 0.5f32.powf(elapsed as f32 / HALF_LIFE_US);
-        play.correction = play.correction.map(|axis| axis * keep);
-        if play.correction.iter().all(|axis| axis.abs() < 1.0 / 64.0) {
+        let length = play.correction.iter().map(|e| e * e).sum::<f32>().sqrt();
+        if length < DEADZONE_UNITS {
             play.correction = [0.0; 3];
+        } else {
+            let half_life = if length < LARGE_CORRECTION_UNITS {
+                FAST_HALF_LIFE_US
+            } else {
+                SLOW_HALF_LIFE_US
+            };
+            let keep = 0.5f32.powf(elapsed as f32 / half_life);
+            play.correction = play.correction.map(|axis| axis * keep);
+            let after = play.correction.iter().map(|e| e * e).sum::<f32>().sqrt();
+            if after < DEADZONE_UNITS {
+                play.correction = [0.0; 3];
+            }
         }
     }
 }

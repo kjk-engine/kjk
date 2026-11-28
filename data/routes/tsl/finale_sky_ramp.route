@@ -28,12 +28,10 @@
 # - door_tower is Locked (OpenLockDC 28, no key): the Exile's Security.
 # - term_acc start 0 (c_local_notset and c_global_eq) offers Bostuco's code;
 #   once in, "Deactivate forceshield barrier." (a_kill_barrier).
-# - ffield_upper (KeyRequired, Locked; Hardness 125: a permanent damage
-#   resistance of 125 against every damage type but base damage,
-#   CSWSDoor::PostProcess) stays up on the Queen's side (a_kill_barrier
-#   opens it only for Vaklu's); Bao-Dur, whose blow opens it
-#   (a_ffield_baodur), is on Dxun, so the saber bashes it, Bostuco's way:
-#   a blow worth more than its hardness (--mighty's).
+# - ffield_upper (KeyRequired, Locked; Hardness 125 against normal blows)
+#   stays up on the Queen's side (a_kill_barrier opens it only for Vaklu's);
+#   Bao-Dur, whose blow opens it (a_ffield_baodur), is on Dxun, so a saber
+#   bashes through its non-plot hardness, Bostuco's way.
 say The Mandalorian exploits have left a profound impact # ro_sold, Mandalore
 talk                 # "A Basilisk? A Basilisk here?" (k_511_enter)
 to tr_cs_tal_3       # Bostuco; Talia, Kavar and Kadron in the Palace (cs_tal_3)

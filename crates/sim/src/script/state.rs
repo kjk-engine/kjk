@@ -76,6 +76,10 @@ pub struct Pending {
     /// `check_party_gui` keeps the party aboard the Ebon Hawk on 0, the
     /// screen cancelled); 0 for any other.
     pub script_var: i32,
+    /// What KOTOR 2's `GetScriptParameter` and `GetScriptStringParameter`
+    /// read in the run: the parameters a console command gave the script
+    /// (`CheatOrder::Script`); none for any other run.
+    pub params: Option<Arc<fmt_odyssey::dlg::Call>>,
 }
 
 impl Pending {
@@ -90,6 +94,7 @@ impl Pending {
             leads: None,
             asker: None,
             script_var: 0,
+            params: None,
         }
     }
 }
@@ -259,7 +264,7 @@ pub struct State {
     pub watch: Watch,
     /// What scripts changed of how factions stand (`AdjustReputation`),
     /// the game's from then on, in every module.
-    pub reputation: crate::module::Adjustments,
+    pub reputation: std::sync::Arc<crate::module::Adjustments>,
     /// What each trap in play keeps beyond its facts, by the trap's id
     /// (`world::traps`).
     pub traps: BTreeMap<u32, TrapState>,
@@ -997,7 +1002,7 @@ impl State {
         }
         self.watch.encode(out);
         out.u32(self.reputation.len() as u32);
-        for (&(a, b), by) in &self.reputation {
+        for (&(a, b), by) in self.reputation.iter() {
             out.u8(a);
             out.u8(b);
             out.u16(*by as u16);
@@ -1324,14 +1329,13 @@ impl State {
         }
         state.watch = Watch::decode(input)?;
         let by_cell = input.since(crate::since::save::REPUTATION_HELD);
+        let rep = std::sync::Arc::make_mut(&mut state.reputation);
         for _ in 0..input.u32()? {
             let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
             if by_cell {
-                state.reputation.insert((a, b), by);
+                rep.insert((a, b), by);
             } else {
-                state
-                    .reputation
-                    .extend(crate::module::adjustment_cells(a, b, by));
+                rep.extend(crate::module::adjustment_cells(a, b, by));
             }
         }
         for _ in 0..input.u32()? {
@@ -1988,6 +1992,16 @@ fn encode_pendings(out: &mut Writer, pendings: &[Pending]) {
         out.u32(pending.leads.map_or(u32::MAX, |id| id.0));
         out.u32(pending.asker.map_or(u32::MAX, |id| id.0));
         out.u32(pending.script_var as u32);
+        match &pending.params {
+            None => out.u8(0),
+            Some(call) => {
+                out.u8(1);
+                for number in call.ints {
+                    out.u32(number as u32);
+                }
+                out.string(&fmt_odyssey::code_page(&call.string));
+            }
+        }
     }
 }
 
@@ -1997,7 +2011,7 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
             let script = input.string()?;
             let caller = ObjectId(input.u32()?);
             let entering = optional_id(input)?;
-            Ok(Pending {
+            let mut pending = Pending {
                 script,
                 caller,
                 entering,
@@ -2011,9 +2025,39 @@ fn decode_pendings(input: &mut Reader) -> Result<Vec<Pending>, DecodeError> {
                 } else {
                     0
                 },
-            })
+                params: None,
+            };
+            if input.since(crate::since::save::CONSOLE_MOD_COMMANDS) {
+                pending.params = decode_params(input, &pending.script)?;
+            }
+            Ok(pending)
         })
         .collect()
+}
+
+/// A waiting script's parameters (`Pending::params`): a flag, then the five
+/// numbers and the text.
+fn decode_params(
+    input: &mut Reader,
+    script: &str,
+) -> Result<Option<Arc<fmt_odyssey::dlg::Call>>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => {
+            let mut ints = [0; 5];
+            for number in &mut ints {
+                *number = input.u32()? as i32;
+            }
+            let string = fmt_odyssey::code_page_bytes(&input.string()?);
+            Ok(Some(Arc::new(fmt_odyssey::dlg::Call {
+                script: script.to_string(),
+                ints,
+                string,
+            })))
+        }
+        _ => Err(input.invalid("script parameters", at)),
+    }
 }
 
 fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
@@ -2253,17 +2297,10 @@ impl State {
             self.uncommandable.remove(&id);
             left.uncommandable.insert(id);
         }
-        let dead: Vec<u32> = self
-            .corpses
-            .keys()
-            .copied()
-            .filter(|id| ids.contains(id))
-            .collect();
-        for id in dead {
-            if let Some(corpse) = self.corpses.remove(&id) {
-                left.corpses.insert(id, corpse);
-            }
-        }
+        // Every corpse waiting to fade or drop its remains bag belongs to the
+        // module being left, including one whose body `DESTROY_MS` already
+        // removed from `ids` while its bag still waits on `FADE_MS`.
+        left.corpses.extend(std::mem::take(&mut self.corpses));
         let ours: Vec<u32> = self
             .encounters
             .keys()

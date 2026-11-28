@@ -50,8 +50,17 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// shown (`Lobby::show_replies`). A seat may say whether it joins nearby
 /// conversations and whether a screen is open (`Action::JoinTalks`,
 /// `Action::Screen`). A seat other than the first may take over a companion
-/// that nobody plays (`Action::Play`, wire tag 69).
-pub const PROTOCOL_VERSION: u16 = 10;
+/// that nobody plays (`Action::Play`, wire tag 69). 11: the party
+/// selection screen's table carries each companion's alignment
+/// (`Roster::good_evil`). 12: a seat may give the Debug Mode character
+/// page's orders (`ArenaOrder::Rebuild` to `ArenaOrder::Restore`), and a
+/// host may open that page for a seat (`Screen::DebugTerminal`). 13: save
+/// copies use 16 KiB parts, transport hardens 64-bit acks/MTU, frames use
+/// LZ4 hot/cold encoding, and seats send conversation picks reliably as
+/// `Action::DialogPick` (wire tag 74). 14: a seat may send console cheat
+/// orders (`Action::Cheat`, wire tag 75), and the lobby says who may cheat
+/// (`Lobby::cheats`).
+pub const PROTOCOL_VERSION: u16 = 14;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;
@@ -60,9 +69,9 @@ pub const PACKET_DATA: u8 = 1;
 /// Session packet type: frames, from a peer that has received nothing yet
 /// (its ack fields are zero and mean nothing).
 pub const PACKET_FIRST: u8 = 2;
-/// A session packet header: kind 1, session 8, seq 2, ack 2, ack bits 4,
+/// A session packet header: kind 1, session 8, seq 2, ack 2, ack bits 8,
 /// ack delay 2.
-pub const HEADER_LEN: usize = 19;
+pub const HEADER_LEN: usize = 23;
 /// The frozen handshake prefix: magic 4, version 2, type 1, nonce 8.
 pub const HANDSHAKE_PREFIX_LEN: usize = 15;
 /// A LEB128 `u64` takes at most ten bytes.
@@ -70,6 +79,9 @@ pub const MAX_VARINT_LEN: usize = 10;
 /// The longest text on the wire (names, builds, games, groups, reasons),
 /// in bytes of UTF-8.
 pub const MAX_TEXT: usize = 128;
+/// The longest group label encoded in `Refusal::GameData` so worst-case
+/// `Deny` fits inside `MAX_DATAGRAM` (1120 B).
+pub const MAX_REFUSAL_GROUP_TEXT: usize = 96;
 /// The most games a `Credentials` names.
 pub const MAX_GAMES: usize = 4;
 /// The most groups per game in a `Credentials`, and in a
@@ -89,7 +101,7 @@ pub const PROOF_LEN: usize = 16;
 /// A reliable message is cut into slices of this many bytes (the last
 /// one may be shorter), so a slice and a packet's header always fit one
 /// datagram.
-pub const SLICE: usize = 1100;
+pub const SLICE: usize = 1020;
 /// The largest reliable message.
 pub const MAX_MESSAGE: usize = 4 * 1024 * 1024;
 /// The most slices of one message: `MAX_MESSAGE / SLICE`, rounded up.
@@ -427,13 +439,13 @@ pub struct Ack {
     /// The newest packet number received from the peer.
     pub seq: u16,
     /// Bit `n` set: packet `seq - 1 - n` was received too.
-    pub bits: u32,
+    pub bits: u64,
     /// How long ago `seq` arrived when this packet left, in 0.1 ms
     /// (saturating), so the peer measures RTT without shared clocks.
     pub delay: u16,
 }
 
-/// The header every session packet starts with (19 bytes).
+/// The header every session packet starts with (23 bytes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
     /// The id the host chose at accept; a packet with another is dropped
@@ -465,7 +477,7 @@ impl Header {
         put_u64(out, self.session);
         put_u16(out, self.seq);
         put_u16(out, ack.seq);
-        put_u32(out, ack.bits);
+        put_u64(out, ack.bits);
         put_u16(out, ack.delay);
     }
 
@@ -483,7 +495,7 @@ impl Header {
         let seq = input.u16("seq")?;
         let ack = Ack {
             seq: input.u16("ack")?,
-            bits: input.u32("ack bits")?,
+            bits: input.u64("ack bits")?,
             delay: input.u16("ack delay")?,
         };
         let ack = match kind & 0x0f {
@@ -925,7 +937,9 @@ impl Refusal {
                 let groups = &groups[..groups.len().min(MAX_GROUPS)];
                 put_varint(out, groups.len() as u64);
                 for group in groups {
-                    put_text(out, group);
+                    let group = clip_to(group, MAX_REFUSAL_GROUP_TEXT);
+                    put_varint(out, group.len() as u64);
+                    out.extend_from_slice(group.as_bytes());
                 }
             }
             Refusal::Full { seats } => {
@@ -1066,16 +1080,25 @@ impl fmt::Display for Refusal {
                         None => format!("{group} folder"),
                     })
                     .collect();
-                let Some((last, rest)) = named.split_last() else {
-                    return write!(f, "your {game} data differs from the host's");
+                let name = match game.as_str() {
+                    "k1" => "KOTOR",
+                    "tsl" => "KOTOR 2",
+                    "ja" => "Jedi Academy",
+                    other => other,
                 };
-                let list = if rest.is_empty() {
-                    last.clone()
-                } else {
-                    format!("{} and {last}", rest.join(", "))
-                };
-                let verb = if rest.is_empty() { "differs" } else { "differ" };
-                write!(f, "your {game} {list} {verb} from the host's")
+                write!(f, "Your {name} files do not match the host's.")?;
+                if let Some((last, rest)) = named.split_last() {
+                    let list = if rest.is_empty() {
+                        format!("The {last} differs.")
+                    } else {
+                        format!("The {} and {last} differ.", rest.join(", "))
+                    };
+                    write!(f, " {list}")?;
+                }
+                write!(
+                    f,
+                    " Check that you and the host have the same game files, the same mods and the same Steam Workshop items."
+                )
             }
             Refusal::Full { seats } => write!(f, "the host's {seats} seats are all taken"),
             Refusal::Level(text) => {

@@ -33,6 +33,10 @@ impl Source for ResolverSource<'_> {
         self.0.module_names(restype)
     }
 
+    fn override_names(&self, restype: ResType) -> Vec<String> {
+        self.0.override_names(restype)
+    }
+
     fn voice(&self, resref: &str) -> Option<Vec<u8>> {
         self.0.voice(resref)?.read().ok()
     }

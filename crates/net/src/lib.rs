@@ -35,9 +35,9 @@ mod worker;
 
 use std::net::SocketAddr;
 
-/// The most a datagram carries (UDP payload): it fits IPv6's minimum MTU
-/// and common tunnels, so no path is probed.
-pub const MAX_DATAGRAM: usize = 1200;
+/// The most a datagram carries (UDP payload): stays below PPPoE/WireGuard/VPN
+/// inner MTUs (`1120` B) as well as IPv6's minimum MTU, so no path fragments.
+pub const MAX_DATAGRAM: usize = 1120;
 
 /// A moment in microseconds on a monotonic clock the caller keeps (the
 /// wall clock over a socket, virtual time over `io::SimNet`).

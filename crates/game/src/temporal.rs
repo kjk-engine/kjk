@@ -64,6 +64,7 @@ use bevy::shader::ShaderRef;
 use crate::display::Display;
 use crate::lifecycle_view::OverlayCamera;
 use crate::prepasses::{DerivedPrepasses, Need, PrepassNeeds};
+use crate::sharpen::Sharpen;
 use crate::upscale::Upscale;
 
 const DEBUG_SHADER: Handle<Shader> = uuid_handle!("3c1d7e92-5a40-4f6b-9e21-8d0b6f4a2c75");
@@ -289,6 +290,7 @@ impl Plugin for TemporalPlugin {
         app.add_plugins((
             MaterialPlugin::<MotionDebugMaterial>::default(),
             crate::upscale::UpscalePlugin,
+            crate::sharpen::SharpenPlugin,
         ))
         .init_resource::<Temporal>()
         .init_resource::<TemporalCut>()
@@ -453,11 +455,13 @@ fn on_world_target(
 }
 
 /// Every camera on the world's target takes the samples and texture of the
-/// choice. The scene camera also takes its jitter and resolve. A temporal
-/// choice declares the prepasses it reads.
+/// choice. The scene camera also takes its jitter, its resolve and, under a
+/// temporal choice, its sharpening (`sharpen`). A temporal choice declares
+/// the prepasses it reads.
 #[allow(clippy::type_complexity)]
 fn apply(
     temporal: Res<Temporal>,
+    display: Option<Res<Display>>,
     mut needs: ResMut<PrepassNeeds>,
     lighting: Option<Res<crate::rolloff::LightingMode>>,
     capture: Option<Res<console::CaptureTarget>>,
@@ -473,10 +477,13 @@ fn apply(
         &mut CameraMainTextureUsages,
         Has<TemporalJitter>,
         Option<&Upscale>,
+        Option<&Sharpen>,
     )>,
     mut commands: Commands,
 ) {
     let used = temporal.used;
+    // A run without the options (a viewer) has the default strength.
+    let sharpen = crate::sharpen::wanted(used, display.as_deref().unwrap_or(&Display::default()));
     let reader = match used {
         Antialias::Msaa(_) => None,
         Antialias::Taa => Some("TAA"),
@@ -499,7 +506,7 @@ fn apply(
     // new choice.
     if !dlss {
         let mut leaving = false;
-        for (entity, .., dlss_on, _, _, _) in &cameras {
+        for (entity, .., dlss_on, _, _, _, _) in &cameras {
             if dlss_on.is_some() {
                 remove_dlss(&mut commands.entity(entity));
                 leaving = true;
@@ -533,6 +540,7 @@ fn apply(
         mut main_usages,
         has_jitter,
         upscale,
+        sharpened,
     ) in &mut cameras
     {
         if !on_world_target(target, capture.as_deref()) {
@@ -596,6 +604,16 @@ fn apply(
             }
             (None, Some(_)) => {
                 camera.remove::<Upscale>();
+            }
+            (None, None) => {}
+        }
+        match (sharpen, sharpened) {
+            (Some(sharpen), Some(had)) if *had == sharpen => {}
+            (Some(sharpen), _) => {
+                camera.insert(sharpen);
+            }
+            (None, Some(_)) => {
+                camera.remove::<Sharpen>();
             }
             (None, None) => {}
         }

@@ -402,6 +402,7 @@ pub(super) fn think(
             fighting.0.mind.task = Task::Idle;
             fighting.0.target = None;
         }
+        let held_still = immobilized(&fighting.0, &player.0, now);
         let mind = &mut fighting.0.mind;
         let Some(goal) = scripts.state.goals.get(&id.0.0) else {
             mind.walker = None;
@@ -409,6 +410,9 @@ pub(super) fn think(
         };
         if let Some(walker) = mind.walker.as_mut().filter(|_| carried(&player.0)) {
             walker.keep_headway(now, &player.0);
+        }
+        if let Some(walker) = mind.walker.as_mut().filter(|_| held_still) {
+            walker.pause_stall(now);
         }
         let waits = crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
         let ways = crate::walk::ThroughShut(&party_ways, waits);
@@ -462,6 +466,9 @@ pub(super) fn think(
             || fighter.force.confused_until > now
             || fighter.grapple.is_some()
         {
+            if let Some(walker) = fighter.mind.walker.as_mut() {
+                walker.pause_stall(now);
+            }
             mark_charge(fighter, id.0, now, None);
             fighter.last_command = idle;
             continue;
@@ -697,6 +704,7 @@ pub(super) fn think(
         // When its last round's swing began (sim ms): its next round waits
         // a round on (`begin_round`).
         let swung_at = scripts.state.swung.get(&id.0.0).copied();
+        let held_still = immobilized(fighter, ps, now);
         let mind = &mut fighter.mind;
         // What it did last step, for its leash (`ai::leashed`).
         let was = mind.task;
@@ -801,6 +809,9 @@ pub(super) fn think(
         let kotor = carried(ps);
         if let Some(walker) = mind.walker.as_mut().filter(|_| kotor) {
             walker.keep_headway(now, ps);
+        }
+        if let Some(walker) = mind.walker.as_mut().filter(|_| held_still) {
+            walker.pause_stall(now);
         }
         if let Some(walker) = mind
             .walker
@@ -1478,6 +1489,15 @@ const MEDITATE_SALT: u64 = 0x6d65_6469;
 /// goes straight in, as KOTOR's mover stops on the spot itself: the walker
 /// stood 0.3 m off the Unknown World's elder's mark, his move never done
 /// and his conversation paused on it.
+fn immobilized(fighter: &super::Fighter, ps: &MotionState, now: u64) -> bool {
+    fighter.pain_until > now
+        || fighter.force.stunned(now)
+        || fighter.force.confused_until > now
+        || fighter.grapple.is_some()
+        || ps.ground.is_none()
+        || ps.flags & crate::motion::motion_flags::KNOCKBACK_HOLD != 0
+}
+
 fn scripted_walk(
     mind: &mut Mind,
     level: &super::Level,

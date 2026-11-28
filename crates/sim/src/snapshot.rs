@@ -6,8 +6,9 @@
 //! It is complete: `SimWorld::from_snapshot` rebuilds a world that steps
 //! exactly as the original would have.
 
+use std::cell::RefCell;
 use std::fmt;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use script_ncs::vm::ObjectId;
 
@@ -1119,9 +1120,13 @@ pub struct Stashed {
 /// snapshot's copy is a pointer, and their encoding and its BLAKE3 are made
 /// once, when they are, not each tick. Equal when their encodings are. One
 /// copy a process: a stash made or read that is one held already (a solo
-/// player's client rebuilds its own host's) is that one (`LIVE`).
+/// player's client rebuilds its own host's) is that one (`LIVE`). Over the
+/// network a client holds only the digest and max stashed entity id (`DigestOnly`).
 #[derive(Clone)]
-pub struct Stash(Arc<Left>);
+pub enum Stash {
+    Full(Arc<Left>),
+    DigestOnly { digest: [u8; 32], ids_end: u32 },
+}
 
 /// The stashes this process holds, by their digest.
 static LIVE: Mutex<Vec<Weak<Left>>> = Mutex::new(Vec::new());
@@ -1133,10 +1138,11 @@ fn live(digest: &[u8; 32]) -> Option<Stash> {
     live.iter()
         .filter_map(Weak::upgrade)
         .find(|left| left.digest == *digest)
-        .map(Stash)
+        .map(Stash::Full)
 }
 
-struct Left {
+#[doc(hidden)]
+pub struct Left {
     modules: Vec<Stashed>,
     /// Their encoding: what a snapshot's encoding ends with.
     bytes: Vec<u8>,
@@ -1175,18 +1181,49 @@ impl Stash {
         LIVE.lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(Arc::downgrade(&left));
-        Stash(left)
+        Stash::Full(left)
+    }
+
+    /// Digest of an empty `Stash` (`0` modules).
+    pub fn empty_digest() -> [u8; 32] {
+        static EMPTY: OnceLock<[u8; 32]> = OnceLock::new();
+        *EMPTY.get_or_init(|| *blake3::hash(&0u32.to_le_bytes()).as_bytes())
+    }
+
+    /// A digest-only placeholder received over the network (`Full([])` if empty).
+    pub fn digest_only(digest: [u8; 32], ids_end: u32) -> Stash {
+        if digest == Self::empty_digest() && ids_end == 0 {
+            return Stash::default();
+        }
+        Stash::DigestOnly { digest, ids_end }
+    }
+
+    pub fn is_digest_only(&self) -> bool {
+        matches!(self, Stash::DigestOnly { .. })
+    }
+
+    pub fn ids_end(&self) -> u32 {
+        match self {
+            Stash::Full(left) => left.ids_end,
+            Stash::DigestOnly { ids_end, .. } => *ids_end,
+        }
     }
 
     /// The BLAKE3 of their encoding: what a snapshot's tail and hash carry
     /// for them.
     pub fn digest(&self) -> [u8; 32] {
-        self.0.digest
+        match self {
+            Stash::Full(left) => left.digest,
+            Stash::DigestOnly { digest, .. } => *digest,
+        }
     }
 
-    /// Their encoding (`Snapshot::encode`'s last bytes).
+    /// Their encoding (`Snapshot::encode`'s last bytes); empty for `DigestOnly`.
     pub fn bytes(&self) -> &[u8] {
-        &self.0.bytes
+        match self {
+            Stash::Full(left) => &left.bytes,
+            Stash::DigestOnly { .. } => &[],
+        }
     }
 
     /// The modules left that `bytes` encode (`bytes`), in name order: the
@@ -1247,13 +1284,19 @@ impl std::ops::Deref for Stash {
     type Target = [Stashed];
 
     fn deref(&self) -> &[Stashed] {
-        &self.0.modules
+        match self {
+            Stash::Full(left) => &left.modules,
+            Stash::DigestOnly { .. } => &[],
+        }
     }
 }
 
 impl PartialEq for Stash {
     fn eq(&self, other: &Stash) -> bool {
-        Arc::ptr_eq(&self.0, &other.0) || self.0.digest == other.0.digest
+        match (self, other) {
+            (Stash::Full(a), Stash::Full(b)) => Arc::ptr_eq(a, b) || a.digest == b.digest,
+            _ => self.digest() == other.digest() && self.ids_end() == other.ids_end(),
+        }
     }
 }
 
@@ -1474,16 +1517,16 @@ pub struct Snapshot {
     /// Conversations under way, barks, custom tokens.
     pub talk: Told,
     /// The party's gold and items, the trades under way and their stock.
-    pub goods: Goods,
+    pub goods: Arc<Goods>,
     pub spawned: Arc<Vec<Spawned>>,
     /// The module's placements as first installed, which a changed module
     /// is matched against (`crate::reconcile`); none for a module whose
     /// save did not keep them.
-    pub roster: Option<Vec<Origin>>,
+    pub roster: Option<Arc<Vec<Origin>>>,
     /// The journal and the party's XP.
-    pub progress: Progress,
+    pub progress: Arc<Progress>,
     /// Who each seat's player is, by seat (`persona`).
-    pub personas: Vec<crate::persona::Persona>,
+    pub personas: Arc<Vec<crate::persona::Persona>>,
     /// The seats the session holds (`WorldConfig::seats`): its players and
     /// its guests, a body or not (I30 P1).
     pub seats_held: u8,
@@ -1515,7 +1558,7 @@ pub struct Snapshot {
     pub pazaak: Vec<crate::pazaak::Match>,
     /// What the party explored of each area's map, by module, here and in
     /// the modules left (`fog`).
-    pub explored: Vec<crate::fog::Explored>,
+    pub explored: Arc<Vec<crate::fog::Explored>>,
     /// The scripts' visual effects on the module's doors and placeables,
     /// until they end (`visuals`).
     pub visuals: Vec<crate::visuals::OnObject>,
@@ -1532,7 +1575,7 @@ pub struct Snapshot {
     /// reads a creature's hostility by (`standings`), on a host and a guest
     /// alike. The scripts' state is the save's truth; this is made again
     /// each step.
-    pub standing: crate::module::Adjustments,
+    pub standing: Arc<crate::module::Adjustments>,
     /// TSL's puppets in the party (`script::party::Party::puppet_creatures`:
     /// Bao-Dur's remote), by body: they follow the first seat but are no
     /// party member it lists or leads (`follows`). Made each step from the
@@ -1552,6 +1595,9 @@ pub struct Snapshot {
     /// The share of the normal damage the party and the enemies take, the
     /// session's (`combat::damage::Taken`).
     pub damage_taken: crate::combat::damage::Taken,
+    /// The session's cheat rule, and whether a cheat was ever carried out
+    /// outside an arena level (`world::cheats`).
+    pub cheats: crate::cheats::Cheats,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -2216,24 +2262,36 @@ impl Snapshot {
         let mut head = Writer::default();
         self.encode_head(&mut head);
         let mut tail = Writer::default();
-        self.encode_tail(&mut tail);
+        self.encode_tail_hot(&mut tail);
         Parts {
             head: head.0,
-            entities: self
-                .entities
-                .iter()
-                .map(|entity| (entity.id, Snapshot::record(entity)))
-                .collect(),
+            entities: self.entities.iter().map(Snapshot::record_parts).collect(),
             tail: tail.0,
+            tail_cold: self.encode_tail_cold_parts(),
             stash: self.stash.clone(),
         }
     }
 
-    /// One entity's record, as `split` cuts it.
+    /// One entity's whole record (`hot` then `cold`).
     pub fn record(entity: &EntityState) -> Vec<u8> {
         let mut record = Writer::default();
         encode_entity(entity, &mut record);
         record.0
+    }
+
+    /// One entity's record split into per-tick hot bytes and memoized cold sheet bytes.
+    pub fn record_parts(entity: &EntityState) -> EntityPart {
+        let mut hot = Writer::default();
+        encode_entity_hot(entity, &mut hot);
+        let cold = match &entity.sheet {
+            None => absent_cold_byte(),
+            Some(sheet) => intern_sheet_bytes(sheet),
+        };
+        EntityPart {
+            id: entity.id,
+            hot: Arc::from(hot.0),
+            cold,
+        }
     }
 
     /// The snapshot `parts` cut from: their bytes joined and decoded, so a
@@ -2264,6 +2322,13 @@ impl Snapshot {
     }
 
     fn encode_tail(&self, out: &mut Writer) {
+        self.encode_tail_hot(out);
+        for cold in self.encode_tail_cold_parts() {
+            out.bytes(&cold);
+        }
+    }
+
+    fn encode_tail_hot(&self, out: &mut Writer) {
         match &self.transition {
             Some(transition) => {
                 out.u8(1);
@@ -2276,10 +2341,6 @@ impl Snapshot {
         }
         out.bytes(&self.stash.digest());
         self.talk.encode(out);
-        encode_spawned(&self.spawned, out);
-        self.goods.encode(out);
-        self.progress.encode(out);
-        crate::persona::encode(&self.personas, out);
         write_fixed(out, self.lost.as_ref(), &0, |ms, out| out.u64(*ms));
         out.u8(u8::from(self.in_combat));
         match self.paused_by {
@@ -2314,7 +2375,6 @@ impl Snapshot {
             None => out.u8(0),
         }
         crate::pazaak::encode_tables(&self.pazaak, out);
-        crate::fog::encode(&self.explored, out);
         crate::visuals::encode(&self.visuals, out);
         out.u32(u32::try_from(self.departing.len()).expect("fewer than 2^32 departing"));
         for going in &self.departing {
@@ -2324,13 +2384,6 @@ impl Snapshot {
         }
         self.screens.encode(out);
         crate::remote::encode(&self.remotes, out);
-        crate::reconcile::encode(self.roster.as_deref(), out);
-        out.u32(u32::try_from(self.standing.len()).expect("fewer than 2^32 standings"));
-        for (&(a, b), &by) in &self.standing {
-            out.u8(a);
-            out.u8(b);
-            out.u16(by as u16);
-        }
         out.u8(u8::try_from(self.puppets.len()).expect("fewer than 256 puppets"));
         for puppet in &self.puppets {
             out.u32(puppet.0);
@@ -2343,6 +2396,22 @@ impl Snapshot {
         }
         out.u16(self.damage_taken.party());
         out.u16(self.damage_taken.enemies());
+        self.cheats.encode(out);
+    }
+
+    fn encode_tail_cold_parts(&self) -> [Arc<[u8]>; 7] {
+        [
+            memo_spawned(&self.spawned),
+            memo_goods(&self.goods),
+            memo_progress(&self.progress),
+            memo_personas(&self.personas),
+            memo_explored(&self.explored),
+            match &self.roster {
+                Some(roster) => memo_roster(roster),
+                None => absent_cold_byte(),
+            },
+            memo_standing(&self.standing),
+        ]
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2388,149 +2457,195 @@ impl Snapshot {
         let world_fade_in = WorldFadeIn::decode(&mut input)?;
         let video_effect = read_fixed(&mut input, &0, |input| input.u16(), "video effect flag")?;
         let entities = decode_entities(&mut input, next_id)?;
-        let at = input.at();
-        let transition = match input.u8()? {
-            0 => None,
-            1 => Some(Transition {
-                seat: Seat(input.u8()?),
-                via: SimId(input.u32()?),
-                module: input.string()?,
-                tag: input.string()?,
-            }),
-            _ => return Err(input.invalid("transition flag", at)),
-        };
+        let current = input.since(crate::since::snapshot::FEAT_COOP_NET_OVERHAUL);
+        let transition = decode_transition(&mut input)?;
         let digest_at = input.at();
         let digest: [u8; 32] = input.array()?;
         let talk = Told::decode(&mut input)?;
-        let spawned = Arc::new(decode_spawned(&mut input)?);
-        let goods = Goods::decode(&mut input)?;
-        let progress = Progress::decode(&mut input)?;
-        let personas = crate::persona::decode(&mut input)?;
-        let lost = read_fixed(&mut input, &0, |input| input.u64(), "lost flag")?;
-        let at = input.at();
-        let in_combat = match input.u8()? {
-            0 => false,
-            1 => true,
-            _ => return Err(input.invalid("in combat flag", at)),
-        };
-        let at = input.at();
-        let paused_by = match input.u8()? {
-            0 => None,
-            1 => Some(Seat(input.u8()?)),
-            _ => return Err(input.invalid("break flag", at)),
-        };
-        let at = input.at();
-        let ready = match input.u8()? {
-            0 => None,
-            1 => Some(ReadyCheck::decode(&mut input)?),
-            _ => return Err(input.invalid("ready check flag", at)),
-        };
-        // By seat, one each, below `MAX_SEATS`: one state, one encoding.
-        let mut kept: Vec<Kept> = Vec::new();
-        for _ in 0..input.u8()? {
-            let at = input.at();
-            let seat = Seat(input.u8()?);
-            if seat.0 >= crate::MAX_SEATS || kept.last().is_some_and(|last| last.seat >= seat) {
-                return Err(input.invalid("kept seat", at));
-            }
-            kept.push(Kept {
-                seat,
-                npc: input.u8()?,
-                at_ms: input.u64()?,
-            });
-        }
-        let leading = read_fixed(
-            &mut input,
-            &SimId(0),
-            |input| Ok(SimId(input.u32()?)),
-            "leading flag",
-        )?;
-        let at = input.at();
-        let solo = match input.since(crate::since::snapshot::CLAUDE_BR_TSL_STORY) {
-            false => false,
-            true => match input.u8()? {
-                0 => false,
-                1 => true,
-                _ => return Err(input.invalid("solo flag", at)),
-            },
-        };
-        let at = input.at();
-        let minigame = match input.u8()? {
-            0 => None,
-            1 => Some(crate::minigame::Course::decode(&mut input)?),
-            _ => return Err(input.invalid("minigame flag", at)),
-        };
-        let pazaak = crate::pazaak::decode_tables(&mut input)?;
-        let explored = crate::fog::decode(&mut input)?;
-        let visuals = crate::visuals::decode(&mut input)?;
-        let mut departing: Vec<Departing> = Vec::new();
-        for _ in 0..input.u32()? {
-            let at = input.at();
-            let entity = decode_entity(&mut input, departing.last().map(|d| &d.entity), next_id)?;
-            let (left_ms, fade_ms) = (input.u32()?, input.u32()?);
-            if left_ms == 0 || entity.life_ms.is_some() {
-                return Err(input.invalid("departing", at));
-            }
-            departing.push(Departing {
-                entity,
-                left_ms,
-                fade_ms,
-            });
-        }
-        let screens = Screens::decode(&mut input)?;
-        let remotes = if input.since(crate::since::snapshot::REMOTE_DROID) {
-            crate::remote::decode(&mut input)?
+        let (
+            spawned,
+            goods,
+            progress,
+            personas,
+            lost,
+            in_combat,
+            paused_by,
+            ready,
+            kept,
+            leading,
+            solo,
+            minigame,
+            pazaak,
+            explored,
+            visuals,
+            departing,
+            screens,
+            remotes,
+            roster,
+            standing,
+            puppets,
+            saber_rules,
+            targeted_blocks,
+            waiting,
+            damage_taken,
+            cheats,
+        ) = if current {
+            let lost = read_fixed(&mut input, &0, |input| input.u64(), "lost flag")?;
+            let in_combat = decode_bool(&mut input, "in combat flag")?;
+            let paused_by = decode_paused_by(&mut input)?;
+            let ready = decode_ready(&mut input)?;
+            let kept = decode_kept(&mut input)?;
+            let leading = read_fixed(
+                &mut input,
+                &SimId(0),
+                |input| Ok(SimId(input.u32()?)),
+                "leading flag",
+            )?;
+            let solo = decode_bool(&mut input, "solo flag")?;
+            let minigame = decode_minigame(&mut input)?;
+            let pazaak = crate::pazaak::decode_tables(&mut input)?;
+            let visuals = crate::visuals::decode(&mut input)?;
+            let departing = decode_departing(&mut input, next_id)?;
+            let screens = Screens::decode(&mut input)?;
+            let remotes = crate::remote::decode(&mut input)?;
+            let puppets = decode_sim_id_list_u8(&mut input)?;
+            let saber_rules = crate::combat::saber::SaberRules::decode(&mut input)?;
+            let targeted_blocks = decode_targeted(&mut input)?;
+            let waiting = decode_sim_id_list_u8(&mut input)?;
+            let damage_taken = crate::combat::damage::Taken::new(input.u16()?, input.u16()?);
+            // Older snapshots carried none: the rule is Off until the host's
+            // game sends it, and no cheat was used.
+            let cheats = if input.since(crate::since::snapshot::CONSOLE) {
+                crate::cheats::Cheats::decode(&mut input)?
+            } else {
+                Default::default()
+            };
+            let spawned = Arc::new(decode_spawned(&mut input)?);
+            let goods = Arc::new(Goods::decode(&mut input)?);
+            let progress = Arc::new(Progress::decode(&mut input)?);
+            let personas = Arc::new(crate::persona::decode(&mut input)?);
+            let explored = Arc::new(crate::fog::decode(&mut input)?);
+            let roster = crate::reconcile::decode(&mut input)?.map(Arc::new);
+            let standing = Arc::new(decode_standing(&mut input, true)?);
+            (
+                spawned,
+                goods,
+                progress,
+                personas,
+                lost,
+                in_combat,
+                paused_by,
+                ready,
+                kept,
+                leading,
+                solo,
+                minigame,
+                pazaak,
+                explored,
+                visuals,
+                departing,
+                screens,
+                remotes,
+                roster,
+                standing,
+                puppets,
+                saber_rules,
+                targeted_blocks,
+                waiting,
+                damage_taken,
+                cheats,
+            )
         } else {
-            Vec::new()
-        };
-        let roster = if input.since(crate::since::snapshot::CLAUDE_SAVE_RECONCILE) {
-            crate::reconcile::decode(&mut input)?
-        } else {
-            None
-        };
-        // Older snapshots carried none: the next step makes it again from
-        // the scripts' state.
-        let mut standing = crate::module::Adjustments::new();
-        if input.since(crate::since::snapshot::TUSKEN_STANDING) {
-            for _ in 0..input.u32()? {
-                let at = input.at();
-                let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
-                if standing
-                    .last_key_value()
-                    .is_some_and(|(last, _)| *last >= (a, b))
-                {
-                    return Err(input.invalid("standing order", at));
-                }
-                standing.insert((a, b), by);
-            }
-        }
-        // Older snapshots carried none: the next step makes them again from
-        // the scripts' party table.
-        let mut puppets: Vec<SimId> = Vec::new();
-        if input.since(crate::since::snapshot::BR9_PARTY) {
-            for _ in 0..input.u8()? {
-                puppets.push(SimId(input.u32()?));
-            }
-        }
-        let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
-            crate::combat::saber::SaberRules::decode(&mut input)?
-        } else {
-            crate::combat::saber::SaberRules::Ja
-        };
-        let targeted_blocks = decode_targeted(&mut input)?;
-        // Older snapshots carried none: the next step makes them again from
-        // the scripts' party table.
-        let mut waiting: Vec<SimId> = Vec::new();
-        if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
-            for _ in 0..input.u8()? {
-                waiting.push(SimId(input.u32()?));
-            }
-        }
-        // Older snapshots carried none: both sides take the normal damage.
-        let damage_taken = if input.since(crate::since::snapshot::FEAT_DAMAGE_MULTIPLIERS) {
-            crate::combat::damage::Taken::new(input.u16()?, input.u16()?)
-        } else {
-            Default::default()
+            let spawned = Arc::new(decode_spawned(&mut input)?);
+            let goods = Arc::new(Goods::decode(&mut input)?);
+            let progress = Arc::new(Progress::decode(&mut input)?);
+            let personas = Arc::new(crate::persona::decode(&mut input)?);
+            let lost = read_fixed(&mut input, &0, |input| input.u64(), "lost flag")?;
+            let in_combat = decode_bool(&mut input, "in combat flag")?;
+            let paused_by = decode_paused_by(&mut input)?;
+            let ready = decode_ready(&mut input)?;
+            let kept = decode_kept(&mut input)?;
+            let leading = read_fixed(
+                &mut input,
+                &SimId(0),
+                |input| Ok(SimId(input.u32()?)),
+                "leading flag",
+            )?;
+            let solo = if input.since(crate::since::snapshot::CLAUDE_BR_TSL_STORY) {
+                decode_bool(&mut input, "solo flag")?
+            } else {
+                false
+            };
+            let minigame = decode_minigame(&mut input)?;
+            let pazaak = crate::pazaak::decode_tables(&mut input)?;
+            let explored = Arc::new(crate::fog::decode(&mut input)?);
+            let visuals = crate::visuals::decode(&mut input)?;
+            let departing = decode_departing(&mut input, next_id)?;
+            let screens = Screens::decode(&mut input)?;
+            let remotes = if input.since(crate::since::snapshot::REMOTE_DROID) {
+                crate::remote::decode(&mut input)?
+            } else {
+                Vec::new()
+            };
+            let roster = if input.since(crate::since::snapshot::CLAUDE_SAVE_RECONCILE) {
+                crate::reconcile::decode(&mut input)?.map(Arc::new)
+            } else {
+                None
+            };
+            let standing = {
+                let present = input.since(crate::since::snapshot::TUSKEN_STANDING);
+                Arc::new(decode_standing(&mut input, present)?)
+            };
+            let puppets = if input.since(crate::since::snapshot::BR9_PARTY) {
+                decode_sim_id_list_u8(&mut input)?
+            } else {
+                Vec::new()
+            };
+            let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
+                crate::combat::saber::SaberRules::decode(&mut input)?
+            } else {
+                crate::combat::saber::SaberRules::Ja
+            };
+            let targeted_blocks = decode_targeted(&mut input)?;
+            let waiting = if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
+                decode_sim_id_list_u8(&mut input)?
+            } else {
+                Vec::new()
+            };
+            let damage_taken = if input.since(crate::since::snapshot::FEAT_DAMAGE_MULTIPLIERS) {
+                crate::combat::damage::Taken::new(input.u16()?, input.u16()?)
+            } else {
+                Default::default()
+            };
+            let cheats = Default::default();
+            (
+                spawned,
+                goods,
+                progress,
+                personas,
+                lost,
+                in_combat,
+                paused_by,
+                ready,
+                kept,
+                leading,
+                solo,
+                minigame,
+                pazaak,
+                explored,
+                visuals,
+                departing,
+                screens,
+                remotes,
+                roster,
+                standing,
+                puppets,
+                saber_rules,
+                targeted_blocks,
+                waiting,
+                damage_taken,
+                cheats,
+            )
         };
         let stash = match stash {
             Some(stash) => stash.clone(),
@@ -2541,7 +2656,7 @@ impl Snapshot {
         if stash.digest() != digest && version == VERSION {
             return Err(input.invalid("stash digest", digest_at));
         }
-        if stash.0.ids_end > next_id {
+        if stash.ids_end() > next_id {
             return Err(input.invalid("stashed entity id", digest_at));
         }
         input.finish()?;
@@ -2582,6 +2697,7 @@ impl Snapshot {
             targeted_blocks,
             waiting,
             damage_taken,
+            cheats,
             shared,
             authority,
             next_id,
@@ -2962,18 +3078,37 @@ impl Progress {
     }
 }
 
-/// A snapshot's encoding in four cuts: the head (signature, tick, time,
-/// random streams, next id, module), each live entity's record by id (in
-/// id order), the tail (the transition asked for, the modules left's
-/// digest, what the party shares), and the modules left, shared with the
-/// snapshot (`Stash`). Every record of a kind has one length, so two
-/// snapshots' records line up byte for byte: what the network's deltas XOR.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// One entity's split network record: per-tick hot state + `Arc`-memoized cold sheet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPart {
+    pub id: SimId,
+    pub hot: Arc<[u8]>,
+    pub cold: Arc<[u8]>,
+}
+
+/// A snapshot's encoding split for delta compression (`head`, entity hot/cold parts,
+/// `tail`, `tail_cold` [spawned, goods, progress, personas, explored, roster, standing],
+/// and `stash`). Concatenated in canonical order, `state()` matches
+/// `Snapshot::encode_state()` byte for byte so `Parts::hash()` equals `Snapshot::hash()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parts {
     pub head: Vec<u8>,
-    pub entities: Vec<(SimId, Vec<u8>)>,
+    pub entities: Vec<EntityPart>,
     pub tail: Vec<u8>,
+    pub tail_cold: [Arc<[u8]>; 7],
     pub stash: Stash,
+}
+
+impl Default for Parts {
+    fn default() -> Self {
+        Parts {
+            head: Vec::new(),
+            entities: Vec::new(),
+            tail: Vec::new(),
+            tail_cold: std::array::from_fn(|_| empty_bytes()),
+            stash: Stash::default(),
+        }
+    }
 }
 
 impl Parts {
@@ -2985,34 +3120,295 @@ impl Parts {
     }
 
     /// The snapshot's hash (`Snapshot::hash`): of the head, the records
-    /// and the tail, not the stash's bytes.
+    /// and the tail (hot + cold), not the stash's bytes.
     pub fn hash(&self) -> SnapshotHash {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.head);
         hasher.update(&self.count().to_le_bytes());
-        for (_, record) in &self.entities {
-            hasher.update(record);
+        for entity in &self.entities {
+            hasher.update(&entity.hot);
+            hasher.update(&entity.cold);
         }
         hasher.update(&self.tail);
+        for cold in &self.tail_cold {
+            hasher.update(cold);
+        }
         SnapshotHash(*hasher.finalize().as_bytes())
     }
 
     /// The encoding up to the stash's bytes.
     fn state(&self) -> Vec<u8> {
-        let records: usize = self.entities.iter().map(|(_, record)| record.len()).sum();
-        let mut out = Vec::with_capacity(self.head.len() + 4 + records + self.tail.len());
+        let records: usize = self
+            .entities
+            .iter()
+            .map(|entity| entity.hot.len() + entity.cold.len())
+            .sum();
+        let cold: usize = self.tail_cold.iter().map(|blob| blob.len()).sum();
+        let mut out = Vec::with_capacity(self.head.len() + 4 + records + self.tail.len() + cold);
         out.extend_from_slice(&self.head);
         out.extend_from_slice(&self.count().to_le_bytes());
-        for (_, record) in &self.entities {
-            out.extend_from_slice(record);
+        for entity in &self.entities {
+            out.extend_from_slice(&entity.hot);
+            out.extend_from_slice(&entity.cold);
         }
         out.extend_from_slice(&self.tail);
+        for blob in &self.tail_cold {
+            out.extend_from_slice(blob);
+        }
         out
     }
 
     fn count(&self) -> u32 {
         u32::try_from(self.entities.len()).expect("fewer than 2^32 entities")
     }
+}
+
+fn empty_bytes() -> Arc<[u8]> {
+    static EMPTY: OnceLock<Arc<[u8]>> = OnceLock::new();
+    EMPTY.get_or_init(|| Arc::from(&[][..])).clone()
+}
+
+fn absent_cold_byte() -> Arc<[u8]> {
+    static ZERO: OnceLock<Arc<[u8]>> = OnceLock::new();
+    ZERO.get_or_init(|| Arc::from(&[0u8][..])).clone()
+}
+
+fn encode_standing(standing: &crate::module::Adjustments, out: &mut Writer) {
+    out.u32(u32::try_from(standing.len()).expect("fewer than 2^32 standings"));
+    for (&(a, b), &by) in standing {
+        out.u8(a);
+        out.u8(b);
+        out.u16(by as u16);
+    }
+}
+
+fn decode_standing(
+    input: &mut Reader,
+    present: bool,
+) -> Result<crate::module::Adjustments, DecodeError> {
+    let mut standing = crate::module::Adjustments::new();
+    if !present {
+        return Ok(standing);
+    }
+    for _ in 0..input.u32()? {
+        let at = input.at();
+        let (a, b, by) = (input.u8()?, input.u8()?, input.u16()? as i16);
+        if standing
+            .last_key_value()
+            .is_some_and(|(last, _)| *last >= (a, b))
+        {
+            return Err(input.invalid("standing order", at));
+        }
+        standing.insert((a, b), by);
+    }
+    Ok(standing)
+}
+
+fn decode_bool(input: &mut Reader, what: &'static str) -> Result<bool, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(input.invalid(what, at)),
+    }
+}
+
+fn decode_transition(input: &mut Reader) -> Result<Option<Transition>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => Ok(Some(Transition {
+            seat: Seat(input.u8()?),
+            via: SimId(input.u32()?),
+            module: input.string()?,
+            tag: input.string()?,
+        })),
+        _ => Err(input.invalid("transition flag", at)),
+    }
+}
+
+fn decode_paused_by(input: &mut Reader) -> Result<Option<Seat>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => Ok(Some(Seat(input.u8()?))),
+        _ => Err(input.invalid("break flag", at)),
+    }
+}
+
+fn decode_ready(input: &mut Reader) -> Result<Option<ReadyCheck>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => Ok(Some(ReadyCheck::decode(input)?)),
+        _ => Err(input.invalid("ready check flag", at)),
+    }
+}
+
+fn decode_kept(input: &mut Reader) -> Result<Vec<Kept>, DecodeError> {
+    let mut kept: Vec<Kept> = Vec::new();
+    for _ in 0..input.u8()? {
+        let at = input.at();
+        let seat = Seat(input.u8()?);
+        if seat.0 >= crate::MAX_SEATS || kept.last().is_some_and(|last| last.seat >= seat) {
+            return Err(input.invalid("kept seat", at));
+        }
+        kept.push(Kept {
+            seat,
+            npc: input.u8()?,
+            at_ms: input.u64()?,
+        });
+    }
+    Ok(kept)
+}
+
+fn decode_minigame(input: &mut Reader) -> Result<Option<crate::minigame::Course>, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(None),
+        1 => Ok(Some(crate::minigame::Course::decode(input)?)),
+        _ => Err(input.invalid("minigame flag", at)),
+    }
+}
+
+fn decode_departing(input: &mut Reader, next_id: u32) -> Result<Vec<Departing>, DecodeError> {
+    let mut departing: Vec<Departing> = Vec::new();
+    for _ in 0..input.u32()? {
+        let at = input.at();
+        let entity = decode_entity(input, departing.last().map(|d| &d.entity), next_id)?;
+        let (left_ms, fade_ms) = (input.u32()?, input.u32()?);
+        if left_ms == 0 || entity.life_ms.is_some() {
+            return Err(input.invalid("departing", at));
+        }
+        departing.push(Departing {
+            entity,
+            left_ms,
+            fade_ms,
+        });
+    }
+    Ok(departing)
+}
+
+fn decode_sim_id_list_u8(input: &mut Reader) -> Result<Vec<SimId>, DecodeError> {
+    let count = usize::from(input.u8()?);
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        ids.push(SimId(input.u32()?));
+    }
+    Ok(ids)
+}
+
+type MemoCache<T> = RefCell<[Option<(Weak<T>, Arc<[u8]>)>; 2]>;
+type SheetTable = RefCell<Vec<Option<(u64, Weak<[u8]>)>>>;
+
+fn memo_arc<T>(
+    cache: &MemoCache<T>,
+    value: &Arc<T>,
+    encode: impl FnOnce(&T, &mut Writer),
+) -> Arc<[u8]> {
+    let mut cache = cache.borrow_mut();
+    for slot in 0..2 {
+        if let Some((weak, bytes)) = &cache[slot]
+            && weak
+                .upgrade()
+                .is_some_and(|alive| Arc::ptr_eq(&alive, value))
+        {
+            return bytes.clone();
+        }
+    }
+    let mut writer = Writer::default();
+    encode(value, &mut writer);
+    let bytes: Arc<[u8]> = Arc::from(writer.0.as_slice());
+    cache[1] = cache[0].take();
+    cache[0] = Some((Arc::downgrade(value), bytes.clone()));
+    bytes
+}
+
+fn memo_spawned(value: &Arc<Vec<Spawned>>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Vec<Spawned>> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, |v, out| encode_spawned(v, out)))
+}
+
+fn memo_goods(value: &Arc<Goods>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Goods> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, Goods::encode))
+}
+
+fn memo_progress(value: &Arc<Progress>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Progress> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, Progress::encode))
+}
+
+fn memo_personas(value: &Arc<Vec<crate::persona::Persona>>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Vec<crate::persona::Persona>> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, |v, out| crate::persona::encode(v, out)))
+}
+
+fn memo_explored(value: &Arc<Vec<crate::fog::Explored>>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Vec<crate::fog::Explored>> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, |v, out| crate::fog::encode(v, out)))
+}
+
+fn memo_roster(value: &Arc<Vec<Origin>>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<Vec<Origin>> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| {
+        memo_arc(cache, value, |v, out| {
+            crate::reconcile::encode(Some(v), out)
+        })
+    })
+}
+
+fn memo_standing(value: &Arc<crate::module::Adjustments>) -> Arc<[u8]> {
+    thread_local! {
+        static CACHE: MemoCache<crate::module::Adjustments> = const { RefCell::new([None, None]) };
+    }
+    CACHE.with(|cache| memo_arc(cache, value, encode_standing))
+}
+
+fn intern_sheet_bytes(sheet: &Sheet) -> Arc<[u8]> {
+    thread_local! {
+        static SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+        static TABLE: SheetTable = RefCell::new(vec![None; 128]);
+    }
+    SCRATCH.with(|scratch| {
+        let mut scratch = scratch.borrow_mut();
+        scratch.clear();
+        let mut writer = Writer(std::mem::take(&mut *scratch));
+        writer.u8(1);
+        encode_sheet(sheet, &mut writer);
+        *scratch = writer.0;
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for &byte in scratch.iter() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        TABLE.with(|table| {
+            let mut table = table.borrow_mut();
+            let idx = (hash as usize) & (table.len() - 1);
+            if let Some((slot_hash, weak)) = &table[idx]
+                && *slot_hash == hash
+                && let Some(alive) = weak.upgrade()
+                && alive.as_ref() == scratch.as_slice()
+            {
+                return alive;
+            }
+            let arc: Arc<[u8]> = Arc::from(scratch.as_slice());
+            table[idx] = Some((hash, Arc::downgrade(&arc)));
+            arc
+        })
+    })
 }
 
 /// Entity counts: live by kind, and per module left.
@@ -3099,6 +3495,11 @@ fn encode_entities(entities: &[EntityState], out: &mut Writer) {
 }
 
 fn encode_entity(entity: &EntityState, out: &mut Writer) {
+    encode_entity_hot(entity, out);
+    encode_entity_cold(entity, out);
+}
+
+fn encode_entity_hot(entity: &EntityState, out: &mut Writer) {
     out.u32(entity.id.0);
     match entity.kind {
         Kind::Avatar(seat) => {
@@ -3119,8 +3520,10 @@ fn encode_entity(entity: &EntityState, out: &mut Writer) {
             out.u32(index);
         }
     }
-    for value in entity.position.iter().chain(&entity.velocity) {
-        out.f32(*value);
+    if !is_actor(entity.kind) {
+        for value in entity.position.iter().chain(&entity.velocity) {
+            out.f32(*value);
+        }
     }
     out.u32(entity.retarget_ms);
     match &entity.player {
@@ -3163,17 +3566,20 @@ fn encode_entity(entity: &EntityState, out: &mut Writer) {
         }
         None => out.u8(0),
     }
-    match &entity.sheet {
-        Some(sheet) => {
-            out.u8(1);
-            encode_sheet(sheet, out);
-        }
-        None => out.u8(0),
-    }
     match &entity.missile {
         Some(missile) => {
             out.u8(1);
             missile.encode(out);
+        }
+        None => out.u8(0),
+    }
+}
+
+fn encode_entity_cold(entity: &EntityState, out: &mut Writer) {
+    match &entity.sheet {
+        Some(sheet) => {
+            out.u8(1);
+            encode_sheet(sheet, out);
         }
         None => out.u8(0),
     }
@@ -3236,9 +3642,13 @@ fn decode_entity(
         ),
         _ => return Err(input.invalid("entity kind", at)),
     };
+    let current = input.since(crate::since::snapshot::FEAT_COOP_NET_OVERHAUL);
+    let actor = is_actor(kind);
     let mut values = [0.0; 6];
-    for value in &mut values {
-        *value = input.f32()?;
+    if !current || !actor {
+        for value in &mut values {
+            *value = input.f32()?;
+        }
     }
     let retarget_ms = input.u32()?;
     let at = input.at();
@@ -3247,9 +3657,20 @@ fn decode_entity(
         1 => Some(decode_player(input)?),
         _ => return Err(input.invalid("player flag", at)),
     };
-    if player.is_some() != is_actor(kind) {
+    if player.is_some() != actor {
         return Err(input.invalid("player state", at));
     }
+    let [position, velocity] = if let Some(player) = player.as_ref().filter(|_| current) {
+        [
+            crate::math::scale(player.origin, collision::UNIT),
+            crate::math::scale(player.velocity, collision::UNIT),
+        ]
+    } else {
+        [
+            [values[0], values[1], values[2]],
+            [values[3], values[4], values[5]],
+        ]
+    };
     let at = input.at();
     let (life_ms, going) = match (input.u8()?, input.u32()?) {
         (1, life) => (Some(life), Going::decode(input)?),
@@ -3298,9 +3719,35 @@ fn decode_entity(
         1 => Some(Fighter::decode(input)?),
         _ => return Err(input.invalid("fighter flag", at)),
     };
-    if fighter.is_some() != is_actor(kind) {
+    if fighter.is_some() != actor {
         return Err(input.invalid("fighter", at));
     }
+    let (sheet, missile) = if current {
+        let missile = decode_entity_missile(input, kind)?;
+        let sheet = decode_entity_sheet(input, kind)?;
+        (sheet, missile)
+    } else {
+        let sheet = decode_entity_sheet(input, kind)?;
+        let missile = decode_entity_missile(input, kind)?;
+        (sheet, missile)
+    };
+    Ok(EntityState {
+        id,
+        kind,
+        position,
+        velocity,
+        player,
+        retarget_ms,
+        life_ms,
+        going,
+        object,
+        fighter,
+        sheet,
+        missile,
+    })
+}
+
+fn decode_entity_sheet(input: &mut Reader, kind: Kind) -> Result<Option<Sheet>, DecodeError> {
     let at = input.at();
     let sheet = match input.u8()? {
         0 => None,
@@ -3313,6 +3760,10 @@ fn decode_entity(
     if (required && sheet.is_none()) || (sheet.is_some() && !is_actor(kind)) {
         return Err(input.invalid("sheet", at));
     }
+    Ok(sheet)
+}
+
+fn decode_entity_missile(input: &mut Reader, kind: Kind) -> Result<Option<Missile>, DecodeError> {
     let at = input.at();
     let missile = match input.u8()? {
         0 => None,
@@ -3322,20 +3773,7 @@ fn decode_entity(
     if missile.is_some() != (kind == Kind::Missile) {
         return Err(input.invalid("missile", at));
     }
-    Ok(EntityState {
-        id,
-        kind,
-        position: [values[0], values[1], values[2]],
-        velocity: [values[3], values[4], values[5]],
-        player,
-        retarget_ms,
-        life_ms,
-        going,
-        object,
-        fighter,
-        sheet,
-        missile,
-    })
+    Ok(missile)
 }
 
 fn encode_part(part: &Part, out: &mut Writer) {
@@ -3517,6 +3955,15 @@ impl Presented {
             previous: first.clone(),
             current: first,
             alpha: 1.0,
+        }
+    }
+
+    /// Two snapshots to blend between (`previous` at `alpha = 0`, `current` at `alpha = 1`).
+    pub fn between(previous: Arc<Snapshot>, current: Arc<Snapshot>, alpha: f32) -> Self {
+        Presented {
+            previous,
+            current,
+            alpha: alpha.clamp(0.0, 1.0),
         }
     }
 

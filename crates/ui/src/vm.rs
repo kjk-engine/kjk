@@ -1027,6 +1027,27 @@ pub struct ComputerView {
     pub leave_key: Vec<u8>,
 }
 
+/// The Debug Mode character page (`screens::debug_character`): its title,
+/// its rows, and whether its Restore button shows (only for a player's own
+/// character).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DebugCharacterView {
+    pub title: Vec<u8>,
+    pub rows: Vec<OptionRowView>,
+    pub restore: bool,
+}
+
+/// A row of an options list whose value is stepped with its arrows: its
+/// name, its value and what the description box says of it, in the game's
+/// code page. A `fixed` row only shows its value, with no arrows.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OptionRowView {
+    pub name: Vec<u8>,
+    pub value: Vec<u8>,
+    pub help: Vec<u8>,
+    pub fixed: bool,
+}
+
 /// A saved game as the save and load screens list it: its folder's id,
 /// the name it was given, whose game it is when it is a copy of a host's
 /// save (shown beside the name, never part of it), the area's name and
@@ -1040,6 +1061,9 @@ pub struct SaveView {
     pub area: String,
     pub module: String,
     pub when: String,
+    /// A console command changed the game before this save
+    /// (`saves::Meta::cheats`).
+    pub cheats: bool,
 }
 
 /// One screen module of the UI catalogue as its list shows it: its status
@@ -1119,6 +1143,9 @@ pub struct LobbyView {
     /// Whether a reply a player takes is shown to the other players in a
     /// conversation before it runs ("Show chosen replies").
     pub show_replies: bool,
+    /// Who may use console commands that change the game, by its settings
+    /// value (`screens::options::CHEAT_RULES`).
+    pub cheats: String,
     /// The story's character and who plays it; `None` while the host
     /// chooses a save.
     pub hero: Option<LobbyHeroView>,
@@ -1287,6 +1314,45 @@ pub struct ArenaRow {
     pub on: bool,
 }
 
+/// The console while it is open (`screens::console`): its log, the line
+/// being typed with its caret, and the words Tab offers for the word under
+/// the caret. All of it is in the game's code page.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ConsoleView {
+    /// The log, oldest line first.
+    pub log: Vec<ConsoleLine>,
+    /// How many lines of the log are scrolled away under its foot.
+    pub scrolled: usize,
+    pub input: Vec<u8>,
+    /// How many bytes of `input` are before the caret.
+    pub caret: usize,
+    /// The caret shows in this frame (it blinks).
+    pub blink: bool,
+    /// The words suggested for the word being typed, and the one the
+    /// player picked, if any.
+    pub candidates: Vec<ConsoleChoice>,
+    pub chosen: Option<usize>,
+    /// The arguments still to type, drawn dim after the line (`TEMPLATE
+    /// [COUNT]`).
+    pub hint: Vec<u8>,
+}
+
+/// A word Tab offers in the console, and the game's name for what it names
+/// (an item's name beside its template), empty when there is none.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ConsoleChoice {
+    pub word: Vec<u8>,
+    pub name: Vec<u8>,
+}
+
+/// A line of the console's log, and whether it tells of a mistake (drawn
+/// in KOTOR 2's red).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ConsoleLine {
+    pub text: Vec<u8>,
+    pub error: bool,
+}
+
 /// Words floating over a creature's head (`screens::floaty`,
 /// `launcher::floaty_view`): a kill's XP over its dead.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1387,8 +1453,7 @@ pub enum BreakButton {
     #[default]
     Break,
     Resume,
-    /// Greyed: the party is in combat, or another player's break this one
-    /// cannot end.
+    /// Greyed: another player's break this one cannot end.
     Off,
 }
 
@@ -1605,6 +1670,10 @@ pub struct ViewModel {
     /// In play: the HUD's.
     pub hud: Option<HudView>,
     pub computer: Option<ComputerView>,
+    /// The Debug Mode character page, while it is open
+    /// (`screens::debug_character`).
+    #[serde(skip)]
+    pub debug_character: Option<DebugCharacterView>,
     /// A computer's conversation is on a camera feed (`screens::feed`).
     pub camera_feed: bool,
     /// What the player looks at, for the HUD's target block.
@@ -1645,6 +1714,9 @@ pub struct ViewModel {
     /// The combat arena's panel of keys under the minimap, in the arena
     /// (`screens::arena_panel`).
     pub arena_panel: Option<ArenaPanelView>,
+    /// The console, while it is open (`screens::console`).
+    #[serde(skip)]
+    pub console: Option<ConsoleView>,
     /// The power wheel, while it is open (`screens::wheel`).
     pub wheel: Option<WheelView>,
     /// The action bar setup screen's view, while that screen is open.

@@ -210,12 +210,25 @@ fn grid<'g>(grids: &'g mut Vec<Explored>, module: &str, chart: &Chart) -> &'g mu
 
 /// A party member at world point `at` (metres) in `module` explores the
 /// cells within `REVEAL_M` of it.
-pub(crate) fn explore(grids: &mut Vec<Explored>, module: &str, chart: &Chart, at: [f32; 2]) {
+pub(crate) fn explore(
+    grids: &mut std::sync::Arc<Vec<Explored>>,
+    module: &str,
+    chart: &Chart,
+    at: [f32; 2],
+) {
     let near = chart.near(at, REVEAL_M);
     if near.is_empty() {
         return;
     }
-    let grid = grid(grids, module, chart);
+    if let Some(existing) = of(grids, module)
+        && existing.cells == chart.cells
+        && near
+            .iter()
+            .all(|&[column, row]| existing.explored(column, row))
+    {
+        return;
+    }
+    let grid = grid(std::sync::Arc::make_mut(grids), module, chart);
     for cell in near {
         grid.explore(cell);
     }

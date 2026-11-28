@@ -24,6 +24,9 @@ pub struct OverPlay {
     dialog: Option<Option<dialog::Dialog>>,
     summary: Option<Option<(Gui, Source)>>,
     transition: Option<Option<transition::Panel>>,
+    /// The scroll bar of KOTOR 2's Messages page, which the console's log
+    /// scrolls with, once read (`OverPlay::console`).
+    console_bar: Option<Option<fmt_odyssey::gui::Control>>,
 }
 
 /// The status summaries' layer and their OK as drawn (window pixels: left,
@@ -319,6 +322,27 @@ impl OverPlay {
     /// The host's request card for a window of `window` pixels while a
     /// guest asks it in (`crate::screens::dialog::Dialog::card`), whether the
     /// host talks (under its top bar) or walks.
+    /// The console, while it is open, in KOTOR 2's colours whichever game is
+    /// played (`crate::screens::console`). It is drawn over everything, so
+    /// the game draws it after `compose`, in play and out of it.
+    pub fn console(&mut self, frame: &mut Frame<'_>, window: (f32, f32)) -> Option<DrawList> {
+        let view = frame.vm.console.as_ref()?;
+        let assets = &mut *frame.assets;
+        let bar = self.console_bar.get_or_insert_with(|| {
+            let (gui, _) = assets.screen_layout("messages").ok()?;
+            gui.find("LB_MESSAGES")?.scrollbar.as_deref().cloned()
+        });
+        let mut brush = frame.brush;
+        brush.palette = crate::paint::Palette::TSL;
+        let mut painter = brush.painter(assets, Source::Campaign);
+        Some(crate::screens::console::draw(
+            &mut painter,
+            view,
+            window,
+            bar.as_ref(),
+        ))
+    }
+
     fn card(&mut self, frame: &mut Frame<'_>, window: (f32, f32)) -> Option<DrawList> {
         let talking = self.dialog_placed(frame, window);
         let requests = frame.vm.requests.as_ref()?;

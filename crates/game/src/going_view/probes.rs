@@ -20,16 +20,11 @@ fn hidden_after(frames: &[(&[u32], bool)]) -> Vec<Vec<u32>> {
     frames
         .iter()
         .map(|&(present, same_module)| {
-            let present: BTreeSet<u32> = present.iter().copied().collect();
-            let module = || {
-                if same_module {
-                    MODULE.to_vec()
-                } else {
-                    Vec::new()
-                }
-            };
-            let gone = fading.placed_gone(present, module);
-            fading.placed_hidden.extend(gone);
+            if same_module {
+                let present: BTreeSet<u32> = present.iter().copied().collect();
+                let gone = fading.placed_gone(present, || MODULE.to_vec());
+                fading.placed_hidden.extend(gone);
+            }
             fading.placed_hidden.iter().copied().collect()
         })
         .collect()
@@ -44,7 +39,7 @@ type Case = (
 );
 
 pub(super) fn checks() -> sim::probe::Checks {
-    let cases: [Case; 3] = [
+    let cases: [Case; 4] = [
         // A save loaded in which a script had destroyed placeable 1: its
         // module's first snapshot lacks it, and it is hidden at once.
         (
@@ -63,6 +58,13 @@ pub(super) fn checks() -> sim::probe::Checks {
         (
             "another_modules_snapshot",
             &[(&[], false), (&[], false), (&[0, 1, 2], true)],
+            vec![vec![], vec![], vec![]],
+        ),
+        // Once the scene's module has been seen, a stale snapshot from
+        // another module hides nothing.
+        (
+            "another_modules_snapshot_after_seen",
+            &[(&[0, 1, 2], true), (&[], false), (&[0, 1, 2], true)],
             vec![vec![], vec![], vec![]],
         ),
     ];

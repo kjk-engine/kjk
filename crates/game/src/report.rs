@@ -653,6 +653,17 @@ fn make(world: &mut World) {
     let settings = world.get_resource::<crate::settings::Settings>().cloned();
     let me = Identity::here();
     let mut parts = gather(&run, &note, now, settings.as_ref());
+    if crashed.is_none()
+        && !parts.iter().any(|part| part.name == "net.json")
+        && let Some(report) = crate::sim_host::live_net_json(world)
+        && let Ok(bytes) = serde_json::to_vec_pretty(&report)
+    {
+        parts.push(Part {
+            name: "net.json".to_string(),
+            bytes,
+            text: true,
+        });
+    }
     // Where the camera was at F12, else where it is now (a report made
     // without F12, by the console's `ui` commands).
     let camera = world
@@ -668,6 +679,18 @@ fn make(world: &mut World) {
         parts.push(Part {
             name: "camera.txt".into(),
             bytes: camera.into_bytes(),
+            text: true,
+        });
+    }
+    // Whether a console command changed the game shown, and the console's
+    // log: a report of a state normal play cannot reach says so.
+    let cheated = world
+        .get_resource::<crate::sim_host::PresentedSnapshot>()
+        .map(|presented| presented.0.current().cheats.used);
+    if let Some(log) = world.get_resource::<crate::console_view::ConsoleLog>() {
+        parts.push(Part {
+            name: "console.txt".into(),
+            bytes: crate::console_view::report_text(cheated, log).into_bytes(),
             text: true,
         });
     }

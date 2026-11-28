@@ -37,9 +37,9 @@ use crate::netem::Conditions;
 /// Clocks must settle within this after each start (µs).
 pub const CONVERGE_US: u64 = 2_000_000;
 /// The longest an install may reach a player after the host's, with a
-/// save copy going out ahead of it: one part (64 KiB, a quarter second at
-/// the link's budget), round trips and a retransmit under loss.
-pub const INSTALL_BEHIND_COPY_US: u64 = 800_000;
+/// save copy going out ahead of it: one part (16 KiB, ~62 ms at the
+/// link's budget), round trips and a retransmit under loss.
+pub const INSTALL_BEHIND_COPY_US: u64 = 180_000;
 
 /// What a session's checks expect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +220,7 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         expect: Expect::Clean,
     };
     vec![
-        session(lan, 6 * hz, None, Expect::Clean),
+        session(lan.clone(), 6 * hz, None, Expect::Clean),
         session(wan, 8 * hz, None, Expect::Lossy),
         session(soak, soak_install, None, Expect::Lossy),
         session(hostile, 6 * hz, None, Expect::Hostile),
@@ -234,6 +234,44 @@ pub fn determinism(soak_minutes: u64) -> Vec<Session> {
         session(threaded_clean, 6 * hz, None, Expect::Clean),
         session(hold_threaded, 12 * hz, None, Expect::Clean),
         session(threads_die, 6 * hz, None, Expect::Clean),
+        session(
+            Setup {
+                name: "vpn_hamachi".into(),
+                clients: probes::joiners(0, 200_000),
+                conditions: Conditions {
+                    rate_bps: Some(1_500_000),
+                    ..probes::conditions(30, 20, 5, 3)
+                },
+                seconds: 18,
+                seed: 21,
+                ..lan.clone()
+            },
+            6 * hz,
+            None,
+            Expect::Lossy,
+        ),
+        Session {
+            setup: Setup {
+                name: "late_game_3p".into(),
+                clients: probes::joiners(0, 100_000),
+                conditions: probes::conditions(30, 5, 1, 2),
+                seconds: 24,
+                seed: 22,
+                cut: Some(Cut {
+                    from_us: 9_500_000,
+                    until_us: 15_000_000,
+                    comeback: Comeback::Rejoins,
+                }),
+                hold: Some((18_500_000, 21_000_000)),
+                ..lan.clone()
+            },
+            scenario: Box::new(
+                probes::Determinism::new(6 * hz + hz / 5)
+                    .with_stash(3 * hz)
+                    .with_save(Some(6 * hz)),
+            ),
+            expect: Expect::Lossy,
+        },
     ]
 }
 
@@ -366,7 +404,7 @@ pub fn checks(report: &Report, expect: Expect) -> Vec<Check> {
                 && c.memory_max.reassembly <= 4
                 && c.memory_max.own <= 128
                 && c.memory_max.history <= 128
-                && c.memory_max.seat_commands <= 128
+                && c.memory_max.seat_commands <= crate::session::client::SEAT_COMMANDS
         });
     check(
         "memory",

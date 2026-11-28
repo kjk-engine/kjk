@@ -10,8 +10,10 @@ pub mod catalogue_list;
 pub mod chargen;
 pub mod companion_places;
 pub mod computer;
+pub mod console;
 pub mod container;
 pub mod credits;
+pub mod debug_character;
 pub mod dialog;
 pub mod feed;
 pub mod filter;
@@ -117,6 +119,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "join" => Box::new(join::Join::new()),
         "container" => Box::new(container::Container::default()),
         "computer" => Box::new(computer::Computer),
+        "debug_character" => Box::new(debug_character::DebugCharacter::default()),
         "options_in_game" => Box::new(tab::Tab::new(options_in_game::OptionsInGame)),
         "equip" => Box::new(tab::Tab::new(pages::Equip::default())),
         "inventory" => Box::new(tab::Tab::new(pages::Inventory::default())),

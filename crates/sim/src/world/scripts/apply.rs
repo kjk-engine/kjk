@@ -394,16 +394,35 @@ pub(in crate::world) fn apply(
             } => {
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                     && !fighting.0.dead()
-                    && fighting
-                        .0
-                        .acting
-                        .is_none_or(|acting| acting.animation != animation)
                 {
-                    fighting.0.acting = Some(Acting {
-                        animation,
-                        since: clock.time_ms,
-                        ms,
-                    });
+                    let acting = &mut fighting.0.acting;
+                    match acting {
+                        // Going on with it; one asked to loop until stopped
+                        // now loops so.
+                        Some(going)
+                            if going.animation == animation && going.playing(clock.time_ms) =>
+                        {
+                            if ms == u32::MAX {
+                                going.ms = ms;
+                            }
+                        }
+                        _ => {
+                            *acting = Some(Acting {
+                                animation,
+                                since: clock.time_ms,
+                                ms,
+                            });
+                        }
+                    }
+                }
+            }
+            Change::StopAnimating { who, animation } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && fighting.0.acting.is_some_and(|acting| {
+                        acting.animation == animation && acting.ms == u32::MAX
+                    })
+                {
+                    fighting.0.acting = None;
                 }
             }
             Change::Animate {
@@ -484,11 +503,18 @@ pub(in crate::world) fn apply(
             // `ActionOpenDoor` (`k_drd_death`) and its `OnOpen` (`a_luxa`)
             // begins Slusk's scene.
             Change::Door { door, open, by } => {
-                let Some((_, mut object)) = objects.iter_mut().find(|(id, _)| id.0.0 == door.0)
-                else {
+                let target = objects
+                    .iter()
+                    .find(|(id, _)| id.0.0 == door.0)
+                    .map(|(_, object)| (object.index, object.state, object.facts.clone()));
+                let Some((index, state, facts)) = target else {
                     continue;
                 };
-                if (object.state.state != 0) == open {
+                if (state.state != 0) == open {
+                    continue;
+                }
+                // Nor does one broken open (`world::objects`).
+                if !open && facts.as_deref().is_some_and(|facts| state.broken(facts)) {
                     continue;
                 }
                 // A door closes on no one passing through its doorway: it
@@ -497,38 +523,77 @@ pub(in crate::world) fn apply(
                 // once (its close looks for no one in the way), so it closes
                 // once no one in the doorway is on the move: its own queue
                 // asks again (Citadel Station's Exchange door, shut and locked
-                // behind Slusk as he walks through it to his desk). One
-                // standing still there with nothing left to do does not keep
-                // it open: the door closes, and the body is put beside it
-                // (`shut_in`), never left inside it. Grenn's officer stops a
-                // metre short of his mark outside the Exile's apartment in
-                // Residential 082 East, in the doorway, and the apartment's
-                // door (`a_grenn_intro`) must close and lock behind Grenn all
-                // the same.
-                let index = object.index;
-                let passing = players.iter().any(|(id, player)| {
-                    let alive = fighters
-                        .iter()
-                        .find(|(of, _)| of.0 == id.0)
-                        .is_none_or(|(_, fighting)| fighting.0.alive());
-                    let [x, y, _] = player.0.velocity;
-                    let busy =
-                        (scripts.state.actions.get(&id.0.0)).is_some_and(|queue| !queue.is_empty());
-                    alive
-                        && (x != 0.0 || y != 0.0 || busy)
-                        && crate::world::in_doorway(
-                            &level.0,
-                            index,
-                            player.0.origin,
-                            player.0.maxs_z,
-                        )
-                });
-                // Nor does one broken open (`world::objects`).
-                let broken =
-                    (object.facts.as_deref()).is_some_and(|facts| object.state.broken(facts));
-                if !open && broken {
-                    continue;
-                }
+                // behind Slusk as he walks through it to his desk). Nor does it
+                // lock shut across the path of an active mover whose goal is
+                // still through it (Peragus's airlock door `TO102PER` during
+                // `k_102exit`). One standing still there with nothing left to
+                // do does not keep it open: the door closes, and the body is
+                // put beside it (`shut_in`), never left inside it. Grenn's
+                // officer stops a metre short of his mark outside the Exile's
+                // apartment in Residential 082 East, in the doorway, and the
+                // apartment's door (`a_grenn_intro`) must close and lock behind
+                // Grenn all the same.
+                let door_states: std::collections::BTreeMap<u32, crate::snapshot::ObjectState> =
+                    if !open {
+                        objects
+                            .iter()
+                            .map(|(_, object)| (object.index, object.state))
+                            .collect()
+                    } else {
+                        std::collections::BTreeMap::new()
+                    };
+                let passing = !open
+                    && players.iter().any(|(id, player)| {
+                        let fighter = fighters.iter().find(|(of, _)| of.0 == id.0);
+                        let alive = fighter.is_none_or(|(_, fighting)| fighting.0.alive());
+                        if !alive {
+                            return false;
+                        }
+                        let [x, y, _] = player.0.velocity;
+                        let busy = (scripts.state.actions.get(&id.0.0))
+                            .is_some_and(|queue| !queue.is_empty());
+                        let in_way = (x != 0.0 || y != 0.0 || busy)
+                            && crate::world::in_doorway(
+                                &level.0,
+                                index,
+                                player.0.origin,
+                                player.0.maxs_z,
+                            );
+                        if in_way {
+                            return true;
+                        }
+                        let not_stuck = fighter.is_none_or(|(_, fighting)| {
+                            fighting.0.mind.walker.is_none_or(|w| !w.stuck())
+                        });
+                        not_stuck
+                            && scripts.state.goals.get(&id.0.0).is_some_and(|goal| {
+                                let target = crate::walk::on_floor(&level.0, goal.point);
+                                let open_state = |i: u32| {
+                                    door_states
+                                        .get(&i)
+                                        .copied()
+                                        .unwrap_or(crate::snapshot::ObjectState::GONE)
+                                };
+                                let shut_state = |i: u32| {
+                                    if i == index {
+                                        crate::snapshot::ObjectState {
+                                            state: 0,
+                                            lock: crate::snapshot::lock::LOCKED,
+                                            ..open_state(i)
+                                        }
+                                    } else {
+                                        open_state(i)
+                                    }
+                                };
+                                crate::walk::leads(&level.0, player.0.origin, target, &open_state)
+                                    && !crate::walk::leads(
+                                        &level.0,
+                                        player.0.origin,
+                                        target,
+                                        &shut_state,
+                                    )
+                            })
+                    });
                 if !open && passing {
                     let again = script::actions::Queued {
                         action: script::actions::Action::Door { door, open },
@@ -542,6 +607,10 @@ pub(in crate::world) fn apply(
                         .insert(0, again);
                     continue;
                 }
+                let Some((_, mut object)) = objects.iter_mut().find(|(id, _)| id.0.0 == door.0)
+                else {
+                    continue;
+                };
                 let from = players
                     .iter()
                     .find(|(id, _)| id.0.0 == by.0 && by != door)
@@ -571,7 +640,12 @@ pub(in crate::world) fn apply(
                 let chart = level.0.module().and_then(|module| module.map);
                 let module = area.place.as_ref().map(|place| place.module.clone());
                 if let (Some(chart), Some(module)) = (chart, module) {
-                    crate::fog::reveal(&mut area.explored, &module, &chart, how);
+                    crate::fog::reveal(
+                        std::sync::Arc::make_mut(&mut area.explored),
+                        &module,
+                        &chart,
+                        how,
+                    );
                 }
             }
             Change::MapPin {
@@ -692,6 +766,16 @@ pub(in crate::world) fn apply(
                     let gained = i32::from(after.force_points()) - i32::from(before.force_points());
                     fighter.hp = i32::from(after.max_hp) * script::HUNDREDTHS;
                     fighter.fp = (fighter.fp + gained * script::HUNDREDTHS).max(0);
+                }
+            }
+            Change::Whole { who, sheet } => {
+                if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
+                    && fighting.0.alive()
+                {
+                    let fighter = &mut fighting.0;
+                    let now = crate::combat::effects::sheet_now(sheet, fighter, clock.time_ms);
+                    fighter.hp = i32::from(now.max_hp) * script::HUNDREDTHS;
+                    fighter.fp = i32::from(now.pool()) * script::HUNDREDTHS;
                 }
             }
             Change::CancelCombat { who } => {

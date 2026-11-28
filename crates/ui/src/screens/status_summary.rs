@@ -378,14 +378,12 @@ pub fn place(
     (placed, y)
 }
 
-/// The rows' words' colour: K1's own layout's blue, which the skin's
-/// recolouring of KOTOR 2's would turn to K1's yellow.
-const WORDS: [f32; 3] = [0.0, 0.658_823_55, 0.980_392_16];
-
-/// How the summary shows `control`: a row's words its own, in K1's blue; a
-/// datapad's row its datapad's icon; the OK lit while the pointer is over
-/// it.
-pub fn state(control: &Control, view: &SummaryView) -> ControlState {
+/// How the summary shows `control`: a row's words its own, in `colour`
+/// (the game's interface colour, `Painter::interface_colour`); a datapad's
+/// row its datapad's icon; the OK lit while the pointer is over it. The
+/// layout's own colour is not used, because the skin's recolouring of
+/// KOTOR 2's would turn it to KOTOR 1's yellow.
+pub fn state(control: &Control, view: &SummaryView, colour: [f32; 3]) -> ControlState {
     if control.tag == OK {
         return ControlState {
             selected: view.ok == Some(true),
@@ -404,7 +402,7 @@ pub fn state(control: &Control, view: &SummaryView) -> ControlState {
         .then(|| view.icon.clone())
         .flatten();
     ControlState {
-        tint: words.as_ref().map(|_| WORDS),
+        tint: words.as_ref().map(|_| colour),
         text: words,
         fill: icon,
         ..ControlState::default()
@@ -439,7 +437,7 @@ fn prompt(
         }
     };
     let left = x + wide + gap;
-    let [r, g, b] = WORDS;
+    let [r, g, b] = painter.interface_colour();
     painter.text(
         font,
         words,
@@ -538,7 +536,8 @@ pub fn draw(
             placed.extent.left = left.round() as i32;
         }
         let mut part = DrawList::default();
-        painter.layout(&placed, &|control| state(control, view), &mut part);
+        let colour = painter.interface_colour();
+        painter.layout(&placed, &|control| state(control, view, colour), &mut part);
         if let Some(said) = &view.prompt {
             // Where KOTOR 2's OK stands: under the rows, from the icons'
             // left to as far in from the panel's right.

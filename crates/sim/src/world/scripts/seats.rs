@@ -67,7 +67,10 @@ pub(super) fn seat_actions(
             // change the party, if it may not.
             Action::ShowParty => {
                 let refusal = script::party_refusal(view, state, player);
-                let roster = state.party.roster(refusal, &state.items);
+                let good_evil = |id| {
+                    script::influence::sheet(view, out, ObjectId(id)).map(|sheet| sheet.good_evil)
+                };
+                let roster = state.party.roster(refusal, &state.items, &good_evil);
                 let screen = crate::notice::Screen::PartySelection(roster);
                 notices.push((Some(player), crate::notice::Notice::Show(screen)));
                 continue;
@@ -470,6 +473,15 @@ pub(super) fn answers(
             let by = bodies
                 .iter()
                 .find(|(of, _)| *of == seat)
+                .map_or(ObjectId::INVALID, |(_, body)| *body);
+            answers.insert(seat.0, Answer { by, pick });
+        }
+    }
+    for (seat, action) in inputs.actions() {
+        if let crate::action::Action::DialogPick(pick) = *action {
+            let by = bodies
+                .iter()
+                .find(|(of, _)| *of == *seat)
                 .map_or(ObjectId::INVALID, |(_, body)| *body);
             answers.insert(seat.0, Answer { by, pick });
         }

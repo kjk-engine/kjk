@@ -18,6 +18,8 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod commands_verb;
+mod headless_net;
 mod installs_report;
 mod levels;
 mod lighting_verbs;
@@ -244,6 +246,13 @@ enum Command {
         /// Check one folder for a game instead: `--check k1 <folder>`
         #[arg(long, num_args = 2, value_names = ["GAME", "FOLDER"])]
         check: Option<Vec<String>>,
+    },
+    /// Every console command (`docs/CONSOLE.md`): its usage, the other
+    /// names it is accepted by and its help. Opens no window.
+    Commands {
+        /// Print the table as JSON, one object for each command
+        #[arg(long)]
+        json: bool,
     },
     /// Turn every module (or one, dumped in full) into the module IR.
     Modules {
@@ -612,6 +621,15 @@ enum LightingVerb {
         #[arg(long)]
         json: bool,
     },
+    /// Add the exact lines of a second manifest to the installed lighting
+    /// download of the same zip, without the zip
+    Refresh {
+        /// The second manifest, `kjk-lighting-<game>-<label>.manifest-2.txt`
+        manifest: std::path::PathBuf,
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+    },
     /// What lighting download is installed for each game
     Status {
         /// Print one JSON object on one line
@@ -643,6 +661,18 @@ enum LightingVerb {
         /// Only the sets under a folder of this name, e.g. the round c1
         #[arg(long)]
         round: Option<String>,
+    },
+    /// Write the second manifest of a lighting download packed before the
+    /// exact lines, stamped over this machine's files (`lighting_pack`)
+    #[cfg(feature = "probes")]
+    Restamp {
+        /// The download's manifest, `kjk-lighting-<game>-<label>.txt`
+        manifest: std::path::PathBuf,
+        /// The zip the manifest names
+        zip: std::path::PathBuf,
+        /// The second manifest to write
+        #[arg(long)]
+        out: std::path::PathBuf,
     },
 }
 
@@ -887,6 +917,7 @@ pub fn run() -> ExitCode {
             resource,
             module,
         }) => show::run(&discover(), &game, &resource, module.as_deref()),
+        Some(Command::Commands { json }) => commands_verb::run(json),
         Some(Command::Rules { game, out }) => rules_page::run(&discover(), &game, out),
         Some(Command::Texture {
             game,
@@ -945,6 +976,7 @@ pub fn run() -> ExitCode {
                 zip,
                 json,
             } => lighting_verbs::install(&manifest, &zip, json),
+            LightingVerb::Refresh { manifest, json } => lighting_verbs::refresh(&manifest, json),
             LightingVerb::Status { json } => lighting_verbs::status(json),
             LightingVerb::Remove { game, json } => lighting_verbs::remove(&game, json),
             #[cfg(feature = "probes")]
@@ -955,6 +987,10 @@ pub fn run() -> ExitCode {
                 label,
                 round,
             } => lighting_pack::run(&game, &folder, &out, &label, round.as_deref()),
+            #[cfg(feature = "probes")]
+            LightingVerb::Restamp { manifest, zip, out } => {
+                lighting_pack::restamp(&manifest, &zip, &out)
+            }
         },
         Some(Command::Store { verb }) => match verb {
             StoreVerb::Path => store_verbs::path(),
@@ -994,6 +1030,10 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
             return ExitCode::from(2);
         }
     };
+    if let Err(error) = commands_verb::check_script(&commands) {
+        eprintln!("--cmds: {error}");
+        return ExitCode::from(2);
+    }
     let options = runtime::RunOptions {
         commands,
         script: script.to_string(),

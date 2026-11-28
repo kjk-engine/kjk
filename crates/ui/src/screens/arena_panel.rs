@@ -25,9 +25,10 @@ const PAD: f32 = 12.0;
 const KEY: f32 = 34.0;
 const GAP: f32 = 6.0;
 /// How far in from the rim's outer edge the dark fill starts (inside the
-/// corners' curve), and how dark it is.
+/// corners' curve), and how opaque it is. The fill takes the game's panel
+/// colour (`Palette::panel`).
 const INSET: f32 = 4.0;
-const FILL: [f32; 4] = [0.0, 0.02, 0.05, 0.8];
+const FILL_ALPHA: f32 = 0.8;
 /// A state that is off, as a share of the words' colour.
 const OFF: f32 = 0.55;
 
@@ -52,9 +53,10 @@ pub fn draw(
     let tall = 2.0 * PAD + line + GAP + rows * line;
     let rect = [at[0], at[1] + GAP, WIDTH, tall];
     let [l, t, w, h] = rect;
+    let [r, g, b] = painter.palette.panel;
     out.quads.push(Quad::solid(
         [l + INSET, t + INSET, w - 2.0 * INSET, h - 2.0 * INSET],
-        FILL,
+        [r, g, b, FILL_ALPHA],
     ));
     let palette = painter.palette;
     let rgba = |[r, g, b]: [f32; 3], a: f32| [r, g, b, a];

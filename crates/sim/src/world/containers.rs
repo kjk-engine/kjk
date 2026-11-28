@@ -304,9 +304,11 @@ pub(super) fn containers(
             | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_)
+            | Action::Cheat(_)
             | Action::PickStance { .. }
             | Action::JoinTalks(_)
-            | Action::Screen(_) => continue,
+            | Action::Screen(_)
+            | Action::DialogPick(_) => continue,
             Action::Close(_) => {
                 object.state.tenants &= !bit;
                 if object.state.tenants == 0 {

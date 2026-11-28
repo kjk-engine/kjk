@@ -603,6 +603,72 @@ fn baton(traits: u8) -> Weapon {
     }
 }
 
+/// A lightsaber (`Delivery::Saber`) without `DOOR_SABERING` trait bits.
+fn saber() -> Weapon {
+    Weapon {
+        base_item: 8,
+        delivery: crate::combat::Delivery::Saber(crate::combat::sheet::SaberShape::Single),
+        traits: 0,
+        ..weapon(GATE_BLOW)
+    }
+}
+
+/// An NPC beside `GATE` (`hardness`, `plot`) ordered to bash it with `sheet`'s
+/// held weapon via `Action::Bash`, stepped through `BY_HAND_MS`. Used where
+/// JA saber clips are absent from the proving ground (`AnimTable::stand_in`).
+fn scripted_bash(
+    sheet: crate::combat::Sheet,
+    hardness: u8,
+    plot: bool,
+) -> Result<ObjectState, String> {
+    let mut world = world(|data| {
+        let Some(Placement::Own(gate)) = data.placements.first_mut() else {
+            return Err("the ground's first object is not its door".into());
+        };
+        gate.opens = Opens::Locked;
+        gate.hit_points = Some((10, 10));
+        gate.toughness.hardness = hardness;
+        gate.toughness.plot = plot;
+        data.placements.push(Placement::Own(ObjectData::creature(
+            "bruiser",
+            "bruiser",
+            floor_at(NEAR),
+            sheet,
+        )));
+        Ok(())
+    })?;
+    let mut ids = world
+        .world
+        .query::<(&super::super::Id, Option<&super::super::Object>)>();
+    let gate = ids
+        .iter(&world.world)
+        .find(|(_, object)| object.is_some_and(|object| object.index == GATE))
+        .map(|(id, _)| id.0)
+        .ok_or("no gate")?;
+    let bruiser = ids
+        .iter(&world.world)
+        .find(|(_, object)| object.is_some_and(|object| object.kind == ObjectKind::Creature))
+        .map(|(id, _)| id.0)
+        .ok_or("no bruiser")?;
+    world
+        .world
+        .resource_mut::<super::super::scripts::Scripts>()
+        .state
+        .queue(
+            script_ncs::vm::ObjectId(bruiser.0),
+            crate::script::actions::Action::Bash {
+                door: script_ncs::vm::ObjectId(gate.0),
+            },
+        );
+    let input = crate::TickInput::default();
+    let mut last = None;
+    for tick in 1..=BY_HAND_MS / 100 {
+        let snapshot = crate::step(&mut world, tick, &input, 100, crate::StepReason::Authority);
+        last = state(std::slice::from_ref(&snapshot), 0, GATE);
+    }
+    last.ok_or("no gate".into())
+}
+
 /// How long a script's attack of an object may take (sim ms), and how long
 /// the player stands out of its reach first, stepped 100 ms at a time.
 const ATTACK_WITHIN_MS: u64 = 30_000;
@@ -1087,6 +1153,27 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                     ))
                 }
                 (plain, cut) => Err(format!("plain baton {plain:?}, door cutting {cut:?}")),
+            },
+        ),
+        (
+            "saber_cuts_hard_door",
+            match (
+                scripted_bash(holding(baton(0)), 125, false),
+                scripted_bash(holding(saber()), 125, false),
+                scripted_bash(holding(saber()), 125, true),
+            ) {
+                (Ok(plain), Ok(cut), Ok(plot))
+                    if plain.damage == 0
+                        && cut.lock == lock::UNLOCKED
+                        && cut.state != 0
+                        && plot.damage == 0 =>
+                {
+                    Ok(format!(
+                        "hardness 125 stopped baton ({}); saber broke non-plot ({cut:?}) and left plot untouched ({})",
+                        plain.damage, plot.damage
+                    ))
+                }
+                (plain, cut, plot) => Err(format!("baton {plain:?}, saber {cut:?}, plot {plot:?}")),
             },
         ),
         (

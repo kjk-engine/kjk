@@ -67,7 +67,7 @@ impl Plugin for ScriptScreensPlugin {
 }
 
 /// A screen as the console's `ui script` names it (as a host would send
-/// it): `upgrade`, `levelup`, `party` (no companions: `ui open party` in
+/// it): `upgrade`, `levelup`, `debugterminal`, `party` (no companions: `ui open party` in
 /// play shows the host's table), `death`, `credits`, `end`, `box <strref>`,
 /// `movie <name>`, `tutorial <row>`, `datapad <item template>`,
 /// `galaxy <planet> [<available> <selectable>]` (rows by
@@ -81,6 +81,7 @@ pub fn parse(words: &[&str]) -> Option<Screen> {
     Some(match words {
         ["upgrade"] => Screen::Upgrade { item: None },
         ["levelup"] => Screen::LevelUp,
+        ["debugterminal"] => Screen::DebugTerminal,
         ["party"] => Screen::PartySelection(Roster::default()),
         ["death"] => Screen::Death,
         ["end"] => Screen::End,
@@ -138,6 +139,7 @@ fn name(screen: Screen) -> String {
         Screen::Tutorial { .. } | Screen::Datapad { .. } => "pages".into(),
         // No screen of its own yet: `open` warns of it.
         Screen::SwoopUpgrade => "swoopupgrade".into(),
+        Screen::DebugTerminal => crate::debug_terminal::SCREEN.into(),
     }
 }
 
@@ -243,8 +245,9 @@ fn galaxy(
 /// The party selection screen's table: each available companion's
 /// portrait and name, by its template; its figure in what it wears now
 /// (the table's), else what its template starts with. Its portrait and
-/// figure follow its alignment as `good_evil` gives it by its template
-/// (the party table's; `alignment_look`).
+/// figure follow its alignment (`alignment_look`): its creature's as the
+/// table tells it, else, for a companion never made, its template's as
+/// `good_evil` gives it.
 fn party(
     assets: &mut GuiAssets,
     roster: &Roster,
@@ -260,7 +263,7 @@ fn party(
     let companions = (0..NPCS)
         .map(|npc| {
             let template = roster.template(npc)?;
-            let alignment = good_evil(template);
+            let alignment = roster.good_evil(npc).or_else(|| good_evil(template));
             let step = alignment.map_or(0, |good_evil| {
                 crate::alignment_look::in_game(assets.game, good_evil).step
             });
@@ -478,7 +481,7 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                // A companion's alignment as the party table keeps it.
+                // The alignment of a companion never made, by its template.
                 let good_evil = |template: &str| {
                     let level = &swap.as_ref()?.level;
                     let facts = level.template(sim::module::ObjectKind::Creature, template)?;

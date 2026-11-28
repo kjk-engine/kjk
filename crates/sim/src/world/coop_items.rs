@@ -73,7 +73,7 @@ fn catalog() -> Catalog {
 
 /// Two classes of twenty levels alike: a d10, 2 skill points, every skill
 /// its own and recommended in row order, nothing to pick.
-fn classes() -> Classes {
+pub(super) fn classes() -> Classes {
     let class = Class {
         hit_die: 10,
         skill_points: 2,

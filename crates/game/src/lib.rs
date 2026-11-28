@@ -47,9 +47,11 @@ pub mod cast;
 pub mod character;
 pub mod clip_events;
 mod combat_fx;
+pub mod console_view;
 pub mod course;
 pub mod crash;
 pub mod dangly;
+pub mod debug_terminal;
 pub mod dialogue_view;
 pub mod display;
 mod dotenv;
@@ -120,6 +122,7 @@ mod motion_proxy;
 pub mod movie_verbs;
 mod movie_view;
 pub mod net_feel;
+mod net_graph;
 pub mod net_join;
 mod net_thread;
 pub mod own_fx;
@@ -160,6 +163,7 @@ mod particle_surfaces;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;
+pub mod reshade;
 mod rig_ground;
 pub mod rig_timeline;
 #[cfg(feature = "probes")]
@@ -184,16 +188,17 @@ mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
 pub mod shadows;
+pub mod sharpen;
 mod shell;
 pub mod shot_fx;
 pub mod shots;
 mod sim_blades;
 pub mod sim_host;
 mod sim_view;
-mod sim_worker;
+pub mod sim_worker;
 pub mod skeleton;
 mod skin_once;
-mod solo;
+pub mod solo;
 #[cfg(feature = "probes")]
 pub use solo::reload_probes as solo_reload_probes;
 pub mod sound;
@@ -354,7 +359,16 @@ pub fn listen_socket(
     address: std::net::SocketAddr,
     steam: bool,
 ) -> Result<net::io::Socket, String> {
-    let udp = net::io::Udp::bind(address, solo::clock())
+    listen_socket_for(address, steam, 3)
+}
+
+/// Like `listen_socket`, sizing socket buffers for `seats`.
+pub fn listen_socket_for(
+    address: std::net::SocketAddr,
+    steam: bool,
+    seats: u8,
+) -> Result<net::io::Socket, String> {
+    let udp = net::io::Udp::bind_with(address, solo::clock(), net::io::SocketConfig::host(seats))
         .map_err(|error| format!("listen on {address}: {error}"))?;
     // A host no IPv4 player can reach would wait for players who all time
     // out (issue 340).
@@ -380,7 +394,7 @@ pub fn host_session(
     let socket = match spec.lobby {
         Some(open) => solo::Listening::Lobby(Box::new(open)),
         None => solo::Listening::Socket(Box::new(net::netem::Netem::new(
-            listen_socket(spec.address, spec.steam)?,
+            listen_socket_for(spec.address, spec.steam, spec.seats)?,
             spec.conditions,
         ))),
     };
@@ -489,7 +503,7 @@ fn beside_steam(socket: net::io::Socket) -> net::io::Socket {
 /// (`world_fingerprint`). The fingerprint cache is used: the first time
 /// hashes them (seconds on a fast disk, minutes on a slow one, which
 /// `status` tells as it goes), later only what changed.
-fn world_data(
+pub fn world_data(
     discovery: &vfs::Discovery,
     games: &[Game],
     status: &dyn Fn(String),
@@ -711,6 +725,19 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 /// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
 /// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
+    discover_with(default_var)
+}
+
+/// The installs as a player's build finds them, whatever this build is. The
+/// Steam Workshop items are read unless `KJK_WORKSHOP` says otherwise. The
+/// lighting download is stamped over these files, because they are the
+/// files a player's game reads.
+pub fn discover_as_player() -> vfs::Discovery {
+    discover_with(|_| None)
+}
+
+/// The installs, with `default` for a variable that nothing else sets.
+fn discover_with(default: impl Fn(&str) -> Option<String>) -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));
     vfs::discover(|name| {
@@ -718,7 +745,7 @@ pub fn discover() -> vfs::Discovery {
             .ok()
             .or_else(|| chosen.get(name).cloned())
             .or_else(|| env_file.get(name).cloned())
-            .or_else(|| default_var(name))
+            .or_else(|| default(name))
     })
 }
 

@@ -132,10 +132,10 @@ pub(crate) fn ready_line(
 
 /// What the menu's break button does for `seat`.
 fn button(snapshot: &Snapshot, seat: Seat) -> BreakButton {
-    match (snapshot.paused_by, snapshot.in_combat) {
-        (Some(by), _) if may_resume(by, seat) => BreakButton::Resume,
-        (Some(_), _) | (None, true) => BreakButton::Off,
-        (None, false) => BreakButton::Break,
+    match snapshot.paused_by {
+        Some(by) if may_resume(by, seat) => BreakButton::Resume,
+        Some(_) => BreakButton::Off,
+        None => BreakButton::Break,
     }
 }
 

@@ -386,7 +386,11 @@ fn photo_camera() {
 /// the same two blades as with its own names. A blade core that a mod
 /// ships with its hilt, with no self-illumination and a decal texture,
 /// glows at full light (the Schematic Lightsaber Mod's cores; proposed
-/// 2026-11-25, awaiting approval). Needs `--features rig`
+/// 2026-11-25, awaiting approval). A made-up crossguard hilt builds its
+/// main blade and a side blade for each of its two side nodes, each side
+/// blade along its own node and as long as its own box, lit with the main
+/// blade (Crazy34's crossguard lightsabers; proposed 2026-11-26, awaiting
+/// approval). Needs `--features rig`
 /// (proposed 2026-11-21, awaiting approval).
 #[test]
 fn double_blades_sharing_a_name() {
@@ -395,7 +399,7 @@ fn double_blades_sharing_a_name() {
         "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
     );
     #[cfg(feature = "rig")]
-    probed("saber blades", &kjk_game::weapons::blade_probes(), 3);
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 4);
 }
 
 /// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
@@ -622,6 +626,34 @@ fn reload_while_held() {
     println!("reload_while_held skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
     probed("solo reload", &kjk_game::solo_reload_probes(), 1);
+}
+
+/// Persistent async step queue (`kjk_game::sim_worker::queue_probes`,
+/// also `kjk sim probes --only "sim worker queue"`). Bit-exact async vs
+/// sync parity, break and proving-ground transition cuts returning
+/// unstepped actions in FIFO order, save-checkout draining, live
+/// talk streaming while checked in, and direct step-thread publishing
+/// for co-op hosts. Needs `--features rig`; no installs.
+#[test]
+fn sim_worker_queue() {
+    #[cfg(not(feature = "rig"))]
+    println!("sim_worker_queue skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("sim worker queue", &kjk_game::sim_worker::queue_probes(), 6);
+}
+
+/// Monotonic `ViewClock` interpolation for async sim presentation
+/// (`kjk_game::sim_host::view_clock_probes`, also `kjk sim probes --only "view clock"`).
+/// Verifies monotonic render time under slow/burst ticks, no extrapolation with
+/// `view_held_frames`, safe equal-`time_ms` handling across paused ticks,
+/// slow-motion/pause invariance, and queue-mode leave/re-enter continuity.
+/// Needs `--features rig`; no installs.
+#[test]
+fn view_clock() {
+    #[cfg(not(feature = "rig"))]
+    println!("view_clock skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("view clock", &kjk_game::sim_host::view_clock_probes(), 5);
 }
 
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
@@ -856,6 +888,32 @@ fn lighting_fingerprints() {
     );
 }
 
+/// A lighting bake's exact lines (`kjk_game::bake_fingerprint::probes`,
+/// `exact_probes`), on rooms, models and fingerprints made here. A
+/// fingerprint with exact lines reads back the same, and kjk v0.21.0's
+/// reader reads the same area, format and digests from it. A lightmap's
+/// digest stays the same when its mesh is split, reordered, renamed, moved
+/// to another node at the same places, or joined by meshes without a baked
+/// lightmap. It changes when a corner or the room moves by 1 cm or a
+/// lightmap coordinate by 1/1000. Each lightmap falls back by itself, a sky
+/// model replaced leaves the bake whole, and an area where no lightmap
+/// matches is not baked. A placeable added before the others leaves their
+/// baked light under their old numbers, and one turned in place loses its
+/// own. Needs `--features rig`; no installs (proposed 2026-11-26).
+#[test]
+fn lighting_fingerprints_by_lightmap() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_fingerprints_by_lightmap skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting fingerprints by lightmap",
+        &kjk_game::bake_fingerprint::probes::exact_probes(),
+        4,
+    );
+}
+
 /// The stored fill's files and numbers (`kjk_game::stored_fill::probes`).
 /// A word `@<map>:<texel>` and a lightmap's line read back, and the texel
 /// 513 of a map 512 texels wide is the middle of the second texel of the
@@ -899,12 +957,18 @@ fn placeable_light_sets() {
 /// The lighting download (`kjk_game::lighting_bakes::probes`), on
 /// manifests, game folders and zips made here. A KOTOR 1 and a KOTOR 2
 /// manifest read back, and malformed ones do not. A download installs when
-/// at least 9 areas in 10 match the player's files. The check's key
-/// changes with a mod's texture and not with a voice line. An install
-/// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
-/// replaces the last install whole, is left alone by the store's gc, and
-/// refuses a zip with a file outside the areas' folders. Needs `--features
-/// rig`; no installs (approved 2026-11-23).
+/// at least one area matches the player's files fully or partly. The
+/// check's key changes with a mod's texture and not with a voice line. An
+/// install refuses a zip of the wrong size or BLAKE3, unpacks into the
+/// store, replaces the last install whole, is left alone by the store's
+/// gc, and refuses a zip with a file outside the areas' folders. A refusal
+/// names the mods that replace the room files of the areas that differ.
+/// The second manifest reads back. A refresh adds the exact lines and
+/// keeps every byte of `manifest.txt` and what kjk v0.21.0 reads in each
+/// `fingerprint.txt`. Needs `--features rig`; no installs (approved
+/// 2026-11-23; the fifth probe, `a_refusal_names_the_mods_that_differ`,
+/// proposed 2026-11-26; the gate of one area, the second manifest and the
+/// refresh proposed 2026-11-26).
 #[test]
 fn lighting_downloads() {
     #[cfg(not(feature = "rig"))]
@@ -913,7 +977,7 @@ fn lighting_downloads() {
     probed(
         "lighting downloads",
         &kjk_game::lighting_bakes::probes::probes(),
-        4,
+        7,
     );
 }
 
@@ -933,6 +997,29 @@ fn lighting_bake_in_the_viewer() {
     probed(
         "lighting bake in the viewer",
         &kjk_game::viewer::bake_probes::probes(),
+        3,
+    );
+}
+
+/// How the viewer takes a lighting bake with exact lines
+/// (`kjk_game::viewer::bake_probes`, `fit_probes`), on sets, fits and
+/// placeables made here. A room lightmap whose PNG does not fit the
+/// player's rooms, and one that a mod adds or renames, is drawn at its
+/// stored light with no fill. A backdrop the bake left alone is kept as it
+/// is. An area where no baked lightmap matches is not baked. A placeable
+/// that a mod adds first leaves the others their baked light under their
+/// old numbers, and a placeable turned in place loses its own. Needs
+/// `--features rig`; no installs (proposed 2026-11-26).
+#[test]
+fn lighting_bake_by_lightmap_in_the_viewer() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_bake_by_lightmap_in_the_viewer skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting bake by lightmap in the viewer",
+        &kjk_game::viewer::bake_probes::fit_probes(),
         3,
     );
 }
@@ -3363,6 +3450,52 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
+/// A texture whose TXI says `wateralpha` below 1 and names a bump map and an
+/// env map is drawn as water (`kjk_game::material::water`), blended,
+/// whatever its own alpha and the mesh's. The TXI of Dantooine's river
+/// (`dan_water03n`, a DXT1 without alpha) is the example. Without
+/// `wateralpha`, or with it at 1, the texture is drawn as before. Needs
+/// `--features rig`; no installs (proposed 2026-11-26, not yet approved).
+#[test]
+fn water_textures_drawn_as_water() {
+    #[cfg(not(feature = "rig"))]
+    println!("water_textures_drawn_as_water skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureFacts;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, water};
+
+        let river = "wateralpha 0.75\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n";
+        for (txi, expected, drawn) in [
+            (river, Some((0.75, "dan_water03nb")), Surface::Blend),
+            (
+                "wateralpha 1\nbumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "bumpyshinytexture CM_dskN\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+            (
+                "wateralpha 0.75\nbumpmaptexture DAN_water03Nb\n",
+                None,
+                Surface::Opaque,
+            ),
+        ] {
+            let facts = TextureFacts::from_txi(&Txi::parse(txi.as_bytes()), false);
+            assert_eq!(water(Some(&facts)), expected, "{txi:?}");
+            assert_eq!(
+                surface((0, false), 1.0, (Some(&facts), &[&facts])),
+                drawn,
+                "{txi:?}"
+            );
+        }
+    }
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a
@@ -3371,7 +3504,10 @@ fn lightmapped_cut_out_by_diffuse() {
 /// the override files read. On installs written there; no
 /// installs needed (approved 2026-11-05). A texture held as both a TPC and
 /// a TGA loads the copy the games load (`texture_formats`, proposed
-/// 2026-11-24, not yet approved).
+/// 2026-11-24, not yet approved). The conversations in the override
+/// folders are listed, the game's and the Workshop items', and none of a
+/// module's own (`override_conversations`, proposed 2026-11-27, not yet
+/// approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);
@@ -4102,7 +4238,7 @@ fn mod_routines() {
 /// same. The sim alone.
 #[test]
 fn corpse_remains() {
-    probed("remains", &sim::remains::probes(), 10);
+    probed("remains", &sim::remains::probes(), 11);
 }
 
 /// Items a module gives a resref of its own, and what a creature joining
@@ -4190,6 +4326,18 @@ fn crosshair_into_cages() {
     probed("crosshair cage", &sim::target::cage_probes(), 5);
 }
 
+/// The crosshair on placeables' drawn meshes (proposed 2026-11-26, the
+/// Yavin IV shuttle of the mod Echoes of the Republic, usable only from its
+/// top): on a floor, a ship whose middle stands under its raised hull is
+/// picked on its hull, also from where its middle is out of range, and
+/// neither is picked without its drawn meshes. A creature before the hull
+/// is picked over the ship, and one behind it is not. A camera inside the
+/// hull looks out past it. The sim alone.
+#[test]
+fn crosshair_drawn_meshes() {
+    probed("crosshair drawn", &sim::target::drawn_probes(), 5);
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
@@ -4214,7 +4362,7 @@ fn crosshair_into_cages() {
 /// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 24);
+    probed("bash", &sim::objects::probes(), 25);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -4928,13 +5076,16 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// So does the check that a conversation's end scripts begin no
+/// conversation again (`ending_begins_nothing`, TSLRCM's HK-50s and
+/// sisters).
 /// The nineteen checks of shared conversations (`shared_*`: free players
 /// near the main character's player joining its conversations, and the
 /// reply a player takes shown to the others before it runs; issues 636 and
 /// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 166);
+    probed("coop talk", &sim::coop_talk::probes(), 167);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4981,10 +5132,13 @@ fn scene_mode() {
 /// a break's freeze and the ready check, and what enters a trigger; the sim
 /// alone. The check that the view and the shots agree on whom a player's
 /// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
-/// the other player only with friendly fire full) awaits approval.
+/// the other player only with friendly fire full) awaits approval. So
+/// does the check that a member of the party stands as the player's
+/// faction (`party_stands_as_the_player`: Bao-Dur's Remote against the
+/// storm beasts on Malachor).
 #[test]
 fn party_calls() {
-    probed("party", &sim::party::probes(), 20);
+    probed("party", &sim::party::probes(), 21);
 }
 
 /// Which companions a player may choose (`sim::script::party_choice`),
@@ -5511,7 +5665,10 @@ fn net_checks(probes: net::probes::Probes) -> Vec<(String, Result<String, String
 /// packets with no panic. The check "handshake: a timeout says whether the
 /// host answered" was added and approved on 2026-11-12 (issue 340). A join
 /// no host answers times out with the host never heard. A join whose host
-/// challenges and never accepts times out with the host heard.
+/// challenges and never accepts times out with the host heard. The check
+/// "actions: held until the host hears the player loaded" was added on
+/// 2026-11-26. A real client holds an action made before the host heard it
+/// loaded the world the action names, and sends it right after.
 #[test]
 fn net_core() {
     for (name, run) in net::probes::groups() {
@@ -5605,10 +5762,11 @@ const OWN_SESSION_TESTS: [&str; 7] = [
 ];
 
 /// Whole sessions (`kjk net session`, no install): the determinism world's
-/// `lan`, `wan`, a one-minute `soak`, `hostile`, `reconnect`, `restart`
-/// and `save_copy` (`hold`, `reload` and the rewinds' are their own tests)
-/// played over a `SimNet`, every binding check passing; and a million
-/// corrupted session encodings through their decoders, none panicking.
+/// `lan`, `wan`, a one-minute `soak`, `hostile`, `reconnect`, `restart`,
+/// `save_copy`, `vpn_hamachi`, and `late_game_3p` (`hold`, `reload` and the
+/// rewinds' are their own tests) played over a `SimNet`, every binding check
+/// passing; and a million corrupted session encodings through their decoders,
+/// none panicking.
 #[test]
 fn net_sessions() {
     use net::session::sessions;
@@ -5616,7 +5774,7 @@ fn net_sessions() {
         .into_iter()
         .filter(|session| !OWN_SESSION_TESTS.contains(&session.setup.name.as_str()))
         .collect();
-    assert_eq!(played.len(), 7, "sessions went missing");
+    assert_eq!(played.len(), 9, "sessions went missing");
     std::thread::scope(|scope| {
         let handles: Vec<_> = played
             .into_iter()
@@ -5724,6 +5882,367 @@ fn hold_and_resume() {
         let held = format!("client {index} held and started again");
         assert!(names.contains(&held), "no check: {held}");
     }
+}
+
+/// `SimWorld::restore_from` reuses the ECS world across snapshots (same level,
+/// cross-level, entity spawns/despawns, and benched/away avatars) and steps
+/// identically to a fresh `SimWorld::from_snapshot`.
+#[test]
+fn restore_from_matches_from_snapshot() {
+    let setup = sim::determinism::Setup::pinned();
+    let arena = sim::Level::arena();
+    let proving = sim::determinism::proving_ground();
+    let mut live = sim::SimWorld::new(setup.world, arena.clone()).expect("arena world");
+
+    let step_firing = |world: &mut sim::SimWorld, count: u64| {
+        let from = world.snapshot().tick;
+        for tick in from + 1..=from + count {
+            let mut input = sim::TickInput::default();
+            for seat in 0..4 {
+                input.insert(
+                    sim::Seat(seat),
+                    sim::Command {
+                        angles: sim::moves::view_angles(
+                            0.0,
+                            ((tick + u64::from(seat) * 19) % 360) as f32,
+                        ),
+                        forward: if tick % 3 == 0 { 127 } else { -64 },
+                        buttons: if tick % 2 == 0 {
+                            sim::buttons::ATTACK
+                        } else {
+                            0
+                        },
+                        ..sim::Command::default()
+                    },
+                );
+            }
+            sim::step(
+                world,
+                tick,
+                &input,
+                setup.rate.msec(tick),
+                sim::StepReason::Authority,
+            );
+        }
+    };
+
+    step_firing(&mut live, 60);
+    let snap_arena = live.snapshot();
+
+    step_firing(&mut live, 30);
+    live.install(proving.clone(), None).expect("proving ground");
+    step_firing(&mut live, 60);
+    let snap_proving_early = live.snapshot();
+
+    step_firing(&mut live, 40);
+    let snap_proving_late = live.snapshot();
+
+    // Build a TSL module variant containing a placed Creature so seat 1 can
+    // drive it and leave seat 1's own avatar benched + away.
+    let mut tsl_builder = collision::LevelBuilder::new();
+    let floor = collision::Tag::level(collision::Contents::SOLID, 1);
+    tsl_builder.triangle(
+        [[-12.0, -12.0, 0.0], [12.0, -12.0, 0.0], [12.0, 12.0, 0.0]],
+        floor,
+    );
+    tsl_builder.triangle(
+        [[-12.0, -12.0, 0.0], [12.0, 12.0, 0.0], [-12.0, 12.0, 0.0]],
+        floor,
+    );
+    let mut tsl_module = (**proving.module().expect("proving module")).clone();
+    tsl_module.game = "tsl".into();
+    tsl_module.name = "proving_tsl".into();
+    tsl_module.area = "proving_tsl".into();
+    tsl_module.entry.position = [0.0, 0.0, 0.0];
+    let mut creature = match &tsl_module.placements[0] {
+        sim::module::Placement::Own(gate) => gate.clone(),
+        _ => panic!("proving_ground first placement"),
+    };
+    creature.kind = sim::module::ObjectKind::Creature;
+    creature.tag = "companion_standin".into();
+    creature.opens = sim::module::Opens::Never;
+    creature.position = [0.0, 2.0, 0.0];
+    creature.sheet = Some(sim::combat::Sheet::dev_soldier());
+    tsl_module.placements = vec![sim::module::Placement::Own(creature)];
+    let tsl_proving = sim::Level::new(
+        "proving_tsl",
+        std::sync::Arc::new(tsl_builder.build()),
+        std::sync::Arc::new(sim::motion::AnimTable::stand_in()),
+    )
+    .with_module(tsl_module);
+
+    live.install(tsl_proving.clone(), None)
+        .expect("tsl proving");
+    step_firing(&mut live, 20);
+    let snap_tsl = live.snapshot();
+
+    let mut snap_benched = snap_tsl.clone();
+    if let Some(entity) = snap_benched.entities.iter_mut().find(|entity| {
+        matches!(
+            entity.kind,
+            sim::Kind::Object(sim::module::ObjectKind::Creature, _)
+        ) && entity.fighter.is_some()
+    }) {
+        entity.fighter.as_mut().expect("fighter").mind.driver = Some(sim::Seat(1));
+    }
+    assert!(
+        snap_benched
+            .entities
+            .iter()
+            .any(|entity| snap_benched.away(entity)),
+        "snapshot should exercise a benched/away avatar"
+    );
+
+    let cases: [(&str, &sim::Snapshot, &sim::Level); 5] = [
+        ("same_level_proving", &snap_proving_early, &proving),
+        ("same_level_proving_late", &snap_proving_late, &proving),
+        ("tsl_benched_away", &snap_benched, &tsl_proving),
+        ("unbench_tsl", &snap_tsl, &tsl_proving),
+        ("cross_level_arena", &snap_arena, &arena),
+    ];
+
+    for (label, target, level) in cases {
+        live.restore_from(target, level)
+            .unwrap_or_else(|error| panic!("{label}: restore_from failed: {error}"));
+        let mut fresh = sim::SimWorld::from_snapshot(target, level.clone())
+            .unwrap_or_else(|error| panic!("{label}: from_snapshot failed: {error}"));
+        assert_eq!(
+            live.snapshot().hash(),
+            fresh.snapshot().hash(),
+            "{label}: immediate snapshot mismatch"
+        );
+        for n in 1..=40 {
+            step_firing(&mut live, 1);
+            step_firing(&mut fresh, 1);
+            assert_eq!(
+                live.snapshot().hash(),
+                fresh.snapshot().hash(),
+                "{label}: hash diverged at step {n}"
+            );
+        }
+    }
+}
+
+/// Phase 1 bandwidth and single-MTU framing budget: in 3-player co-op fight
+/// (`seats: 3, wanderers: 4`) downlink stays at or below 20 KB/s, in 3-player
+/// idle (`wanderers: 0`) at or below 4 KB/s, and over 95% of snapshot frames
+/// fit in a single MTU datagram.
+#[test]
+fn net_bandwidth_budget() {
+    use net::session::probes;
+    use net::session::sessions;
+    let lan = sessions::determinism(1)
+        .into_iter()
+        .find(|session| session.setup.name == "lan")
+        .expect("lan setup")
+        .setup;
+
+    let pinned = sim::determinism::Setup::pinned();
+    let fight_world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 3,
+            wanderers: 4,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let fight_setup = probes::Setup {
+        name: "fight_budget".into(),
+        seconds: 15,
+        ..lan.clone()
+    };
+    let mut fight = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .with_setup(fight_world);
+    let fight_report = probes::run(&mut fight, &fight_setup);
+    let fight_checks = sessions::checks(&fight_report, sessions::Expect::Clean);
+    let fight_failed: Vec<&str> = fight_checks
+        .iter()
+        .filter(|check| check.failed())
+        .map(|check| check.name.as_str())
+        .collect();
+    assert!(
+        fight_failed.is_empty(),
+        "fight session failed: {fight_failed:?}"
+    );
+    for (i, client) in fight_report.clients.iter().enumerate() {
+        println!(
+            "fight client {i}: down={:.1} B/s, up={:.1} B/s",
+            client.down_bps, client.up_bps
+        );
+    }
+    for conn in &fight_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        println!(
+            "fight seat {}: snapshots={}, keyframes={}, fragments={}, single_mtu_ratio={:.4}",
+            conn.seat.0, conn.stats.snapshots, conn.stats.keyframes, conn.stats.fragments, ratio
+        );
+    }
+    let idle_world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 3,
+            wanderers: 0,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let idle_setup = probes::Setup {
+        name: "idle_budget".into(),
+        seconds: 10,
+        ..lan
+    };
+    let mut idle = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .idle()
+        .with_setup(idle_world);
+    let idle_report = probes::run(&mut idle, &idle_setup);
+    for (i, client) in idle_report.clients.iter().enumerate() {
+        println!(
+            "idle client {i}: down={:.1} B/s, up={:.1} B/s",
+            client.down_bps, client.up_bps
+        );
+    }
+    for conn in &idle_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        println!(
+            "idle seat {}: snapshots={}, keyframes={}, fragments={}, single_mtu_ratio={:.4}",
+            conn.seat.0, conn.stats.snapshots, conn.stats.keyframes, conn.stats.fragments, ratio
+        );
+        assert!(
+            ratio > 0.95,
+            "idle seat {} single-MTU ratio {:.3} <= 0.95",
+            conn.seat.0,
+            ratio
+        );
+    }
+    for (i, client) in fight_report.clients.iter().enumerate() {
+        assert!(
+            client.down_bps <= 20_000.0,
+            "fight client {i} downlink {:.1} B/s exceeds 20 KB/s budget",
+            client.down_bps
+        );
+    }
+    for conn in &fight_report.server.connections {
+        let single_mtu = conn.stats.snapshots.saturating_sub(conn.stats.fragments);
+        let ratio = single_mtu as f64 / conn.stats.snapshots.max(1) as f64;
+        assert!(
+            ratio > 0.95,
+            "fight seat {} single-MTU ratio {:.3} <= 0.95 ({} fragments / {} snapshots)",
+            conn.seat.0,
+            ratio,
+            conn.stats.fragments,
+            conn.stats.snapshots
+        );
+    }
+    for (i, client) in idle_report.clients.iter().enumerate() {
+        assert!(
+            client.down_bps <= 4_000.0,
+            "idle client {i} downlink {:.1} B/s exceeds 4 KB/s budget",
+            client.down_bps
+        );
+    }
+}
+
+/// Phase 3A/3B 64-player battle test: 64 avatars on `proving_ground` for 10s,
+/// asserting all 64 join, stay connected, stay within ring limits, rebuild valid
+/// snapshots, and stay within downlink budget.
+#[test]
+fn session_64p_battle() {
+    use net::session::probes;
+    use net::session::sessions;
+    let lan = sessions::determinism(1)
+        .into_iter()
+        .find(|session| session.setup.name == "lan")
+        .expect("lan setup")
+        .setup;
+
+    let pinned = sim::determinism::Setup::pinned();
+    let world = sim::determinism::Setup {
+        world: sim::WorldConfig {
+            seats: 64,
+            wanderers: 0,
+            guests: sim::Guests::Avatars,
+            ..pinned.world
+        },
+        ..pinned
+    };
+    let clients: Vec<probes::Joiner> = (0..64)
+        .map(|i| probes::Joiner {
+            at_us: (i as u64) * 35_000,
+            frame_us: 16_667,
+            plan_us: 100_000,
+        })
+        .collect();
+    let setup = probes::Setup {
+        name: "battle_64p".into(),
+        clients,
+        seconds: 10,
+        every: 4,
+        load_wait_us: 8_000_000,
+        ..lan
+    };
+    let mut scenario = probes::Determinism::new(u64::MAX)
+        .in_ground()
+        .with_setup(world);
+    let report = probes::run(&mut scenario, &setup);
+
+    let connected = report
+        .clients
+        .iter()
+        .filter(|c| c.seat.is_some() && c.ended.is_none())
+        .count();
+    let check_failures: u64 = report.clients.iter().map(|c| c.stats.check_failures).sum();
+    let rebuilt: u64 = report.clients.iter().map(|c| c.stats.rebuilt).sum();
+    let down_mean_kbps = report.clients.iter().map(|c| c.down_bps).sum::<f64>()
+        / report.clients.len().max(1) as f64
+        / 1024.0;
+    let down_max_kbps = report
+        .clients
+        .iter()
+        .map(|c| c.down_bps / 1024.0)
+        .fold(0.0f64, f64::max);
+    let snaps: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.snapshots)
+        .sum();
+    let frags: u64 = report
+        .server
+        .connections
+        .iter()
+        .map(|c| c.stats.fragments)
+        .sum();
+    let single_mtu = if snaps > 0 {
+        snaps.saturating_sub(frags) as f64 / snaps as f64
+    } else {
+        1.0
+    };
+    println!(
+        "battle_64p: connected={connected}/64 rebuilt={rebuilt} check_failures={check_failures} down_mean={down_mean_kbps:.2}KB/s down_max={down_max_kbps:.2}KB/s single_mtu={single_mtu:.4}"
+    );
+    assert_eq!(connected, 64, "all 64 clients stay connected");
+    assert_eq!(check_failures, 0, "all rebuilt snapshots pass check");
+    assert!(rebuilt > 0, "clients rebuilt snapshots");
+    assert!(
+        down_max_kbps <= 45.0,
+        "max client downlink {down_max_kbps:.2} KB/s exceeds 45 KB/s budget"
+    );
+    assert!(
+        single_mtu >= 0.90,
+        "single-MTU ratio {single_mtu:.4} below 0.90"
+    );
+    assert!(
+        report
+            .server
+            .connections
+            .iter()
+            .all(|_| report.server.ring <= 256),
+        "host ring bounded: {}",
+        report.server.ring
+    );
 }
 
 /// Character creation (`sim::creation`): scores bought with 30 points from 8
@@ -6309,6 +6828,31 @@ fn creature_env_maps() {
             .areas
             .iter()
             .all(|area| area.default_envmap.is_none())
+    );
+}
+
+/// The console's table of commands (`commands::probes`): every command
+/// is well formed, lines split and their arguments are checked as
+/// `docs/CONSOLE.md` says, the `arena` words of earlier scripts give the
+/// same orders, the original games' names resolve, completion and "did you
+/// mean" find the expected names, and random lines never panic. A mod's
+/// `kjkconsole.2da` adds its good rows as commands and skips its broken
+/// rows with their reasons, and a damaged table never panics.
+#[test]
+fn commands() {
+    probed("commands", &commands::probes::probes(), 16);
+}
+
+/// `docs/CONSOLE.md` is the page `cargo xtask console` writes from the
+/// table of commands.
+#[test]
+fn console_page() {
+    let root = approved_tests::workspace();
+    let page =
+        std::fs::read_to_string(root.join("docs/CONSOLE.md")).unwrap_or_else(|_| String::new());
+    assert!(
+        page == commands::page::markdown(),
+        "docs/CONSOLE.md is stale: run `cargo xtask console`"
     );
 }
 

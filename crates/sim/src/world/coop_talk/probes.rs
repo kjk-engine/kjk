@@ -226,6 +226,7 @@ pub fn probes() -> Vec<Case> {
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
     cases.push(("unspoken_begins_nothing", unspoken_begins_nothing()));
+    cases.push(("ending_begins_nothing", ending_begins_nothing()));
     cases.push((
         "first_seat_away_in_talk_answers_once",
         first_seat_away_in_talk(),
@@ -775,10 +776,11 @@ impl Run {
         let barker = object(&self.last, BARKER)?;
         let mut state = self.world.script_state().clone();
         let war = crate::module::cell(HOSTILE_1, PLAYER);
+        let rep = std::sync::Arc::make_mut(&mut state.reputation);
         if on {
-            state.reputation.insert(war, -50);
+            rep.insert(war, -50);
         } else {
-            state.reputation.remove(&war);
+            rep.remove(&war);
         }
         self.world.set_script_state(state);
         let now = self.now();
@@ -5002,6 +5004,38 @@ fn unspoken_begins_nothing() -> Result<String, String> {
     check(
         unspoken == 0 && clicked == Some(host.0),
         format!("conversations begun unspoken {unspoken}, clicked with {clicked:?}"),
+    )
+}
+
+/// A conversation's end begins no conversation again. The hooked creature
+/// has its dialogue hook as its end-of-conversation script too, as the
+/// HK-50s in TSLRCM's HK factory and two of the Handmaiden's sisters have
+/// (`k_def_dialogue01`, whose `k_ai_master` branch calls
+/// `BeginConversation()`). The host clicks it and talks, so the host is its
+/// last speaker, and says goodbye. The end script's `BeginConversation` is
+/// refused, as TSL's executable refuses one while a conversation is still
+/// on screen, and no conversation follows.
+fn ending_begins_nothing() -> Result<String, String> {
+    let mut run = Run::on_ground(1, None, |data| {
+        for placement in &mut data.placements {
+            if let Placement::Own(object) = placement
+                && object.tag == "hooked"
+            {
+                (object.scripts).push(("ScriptEndDialogu".into(), "probe_begin".into()));
+            }
+        }
+    })?;
+    run.click(0, HOOK_FROM, 0.0)?;
+    let begun = run.talk().is_some();
+    run.goodbye();
+    run.idle(USE_GAP);
+    let after = run.last.talk.conversations.len();
+    let refused = refusals(&run, "a conversation is ending");
+    check(
+        begun && after == 0 && refused >= 1,
+        format!(
+            "clicked begun {begun}, conversations after its end {after}, ends refused {refused}"
+        ),
     )
 }
 

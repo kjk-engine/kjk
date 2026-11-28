@@ -10,7 +10,7 @@ use sim::{Parts, Snapshot, SnapshotHash};
 
 use crate::worker::{Queued, Worker};
 
-use super::{CodecError, Reader, decode, encode, put_varint};
+use super::{CodecError, Reader, decode, encode, put_varint, wire};
 
 /// The first 8 bytes of a snapshot's BLAKE3 hash: what a frame is checked
 /// against.
@@ -95,6 +95,30 @@ pub struct Stepped {
     split: Arc<Split>,
 }
 
+/// Per-entity `(id, avatar_seat, position)` extracted for `seats > 4` interest culling.
+pub type EntityPosition = (u32, Option<u8>, [f32; 3]);
+pub(crate) type EntityPositions = Arc<[EntityPosition]>;
+
+fn extract_positions(snapshot: &Snapshot) -> Option<EntityPositions> {
+    if snapshot.seats() <= 4 {
+        return None;
+    }
+    Some(
+        snapshot
+            .entities
+            .iter()
+            .map(|entity| {
+                let seat = match entity.kind {
+                    sim::Kind::Avatar(seat) => Some(seat.0),
+                    _ => None,
+                };
+                (entity.id.0, seat, entity.position)
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    )
+}
+
 /// A stepped snapshot's parts and check, made once, from the snapshot
 /// kept until then. A snapshot made beside (`Stepped::beside`) takes its
 /// parts and check from the net check thread, with the delta that thread
@@ -105,6 +129,7 @@ struct Split {
     done: OnceLock<(Arc<Parts>, Check)>,
     beside: Mutex<Option<Queued<Made>>>,
     packed: OnceLock<Packed>,
+    positions: Option<EntityPositions>,
 }
 
 /// What a thread made of a stepped snapshot (`Stepped::beside`).
@@ -125,23 +150,33 @@ struct Packed {
 static CHECKS: Worker = Worker::new("net check");
 
 impl Split {
-    fn new(snapshot: Option<Arc<Snapshot>>, done: OnceLock<(Arc<Parts>, Check)>) -> Split {
+    fn new(
+        snapshot: Option<Arc<Snapshot>>,
+        done: OnceLock<(Arc<Parts>, Check)>,
+        positions: Option<EntityPositions>,
+    ) -> Split {
         Split {
             snapshot: Mutex::new(snapshot),
             done,
             beside: Mutex::new(None),
             packed: OnceLock::new(),
+            positions,
         }
     }
 }
 
 impl Stepped {
     pub fn new(snapshot: &Snapshot) -> Stepped {
+        let positions = extract_positions(snapshot);
         let parts = snapshot.split();
         let check = Check::of(&parts.hash());
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
+            split: Arc::new(Split::new(
+                None,
+                OnceLock::from((Arc::new(parts), check)),
+                positions,
+            )),
         }
     }
 
@@ -149,21 +184,27 @@ impl Stepped {
     /// from: a host's step thread splits each tick for its players and its
     /// `hashes.txt` at once (issue 229).
     pub fn new_hashed(snapshot: &Snapshot) -> (Stepped, SnapshotHash) {
+        let positions = extract_positions(snapshot);
         let parts = snapshot.split();
         let hash = parts.hash();
         let check = Check::of(&hash);
         let stepped = Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
+            split: Arc::new(Split::new(
+                None,
+                OnceLock::from((Arc::new(parts), check)),
+                positions,
+            )),
         };
         (stepped, hash)
     }
 
     /// A shared snapshot, split when its parts or check are first read.
     pub fn shared(snapshot: Arc<Snapshot>) -> Stepped {
+        let positions = extract_positions(&snapshot);
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split::new(Some(snapshot), OnceLock::new())),
+            split: Arc::new(Split::new(Some(snapshot), OnceLock::new(), positions)),
         }
     }
 
@@ -177,6 +218,7 @@ impl Stepped {
     /// frame splits it. If the thread cannot start or the job panics, the
     /// first read splits the snapshot itself.
     pub fn beside(snapshot: Arc<Snapshot>, base: Option<&Stepped>) -> Stepped {
+        let positions = extract_positions(&snapshot);
         let base = base.filter(|base| base.tick < snapshot.tick).cloned();
         let kept = snapshot.clone();
         let thread = CHECKS.run(move || {
@@ -196,7 +238,7 @@ impl Stepped {
                 packed,
             }
         });
-        let split = Split::new(Some(kept.clone()), OnceLock::new());
+        let split = Split::new(Some(kept.clone()), OnceLock::new(), positions);
         *split.beside.lock().unwrap_or_else(PoisonError::into_inner) = thread;
         Stepped {
             tick: kept.tick,
@@ -251,12 +293,40 @@ impl Stepped {
         self.split.done.get().is_some()
     }
 
+    /// Per-entity `(id, avatar_seat, position)` snapshot metadata when `seats > 4`.
+    pub fn positions(&self) -> Option<&[EntityPosition]> {
+        self.split.positions.as_deref()
+    }
+
     /// The delta packed beside (`beside`), if it is a delta from `base`.
     fn packed_against(&self, base: &Stepped) -> Option<&[u8]> {
         self.done();
         let packed = self.split.packed.get()?;
         std::ptr::eq(packed.base.as_ptr(), Arc::as_ptr(&base.split)).then_some(&packed.bytes[..])
     }
+}
+
+/// Appends a frame of `now_parts` in `epoch` against `base` (`(tick, parts)`,
+/// or `None` for a keyframe), computing `Check` directly from `now_parts` so
+/// filtered `Parts` verify cleanly with zero wire-format changes.
+pub fn encode_parts_frame(
+    epoch: u16,
+    tick: u64,
+    now_parts: &Parts,
+    base: Option<(u64, &Parts)>,
+    out: &mut Vec<u8>,
+) {
+    let base = base.filter(|(bt, _)| *bt < tick);
+    FrameHeader {
+        epoch,
+        tick,
+        baseline: base.map(|(bt, _)| bt),
+        check: Check::of(&now_parts.hash()),
+    }
+    .write(out);
+    let mut delta = Vec::new();
+    encode(base.map(|(_, parts)| parts), now_parts, &mut delta);
+    out.extend_from_slice(&pack(&delta));
 }
 
 /// Appends a frame of `now` in `epoch` against `base` (`None`, or a
@@ -280,29 +350,29 @@ pub fn encode_frame(epoch: u16, now: &Stepped, base: Option<&Stepped>, out: &mut
     out.extend_from_slice(&pack(&delta));
 }
 
-/// A packed delta's first byte: the delta as it is, or deflated.
+/// A packed delta's first byte: the delta as it is, or LZ4-compressed.
 const RAW: u8 = 0;
-const DEFLATED: u8 = 1;
-/// The deflate level: 9 packs no smaller on snapshots, 1 about 8% larger.
-const LEVEL: u8 = 6;
-/// The longest delta a deflated one may unpack to (a keyframe of a full
+const LZ4: u8 = 1;
+/// The longest delta a compressed one may unpack to (a keyframe of a full
 /// module is a few hundred KB).
 pub const MAX_DELTA: usize = 32 << 20;
 
 /// A delta packed for the wire: one byte, then the delta as it is or, when
-/// smaller, deflated (raw DEFLATE, RFC 1951). A delta's records of one kind
-/// change alike (their masks and the bytes of the same fields), which
-/// halves a fight's deltas.
+/// smaller, `varint(uncompressed_len) + lz4_flex::block`.
 pub fn pack(delta: &[u8]) -> Vec<u8> {
-    let deflated = miniz_oxide::deflate::compress_to_vec(delta, LEVEL);
-    let (kind, body) = if deflated.len() < delta.len() {
-        (DEFLATED, &deflated[..])
-    } else {
-        (RAW, delta)
-    };
-    let mut out = Vec::with_capacity(1 + body.len());
-    out.push(kind);
-    out.extend_from_slice(body);
+    if delta.len() >= 16 {
+        let compressed = lz4_flex::block::compress(delta);
+        let mut header = Vec::with_capacity(11);
+        header.push(LZ4);
+        put_varint(&mut header, delta.len() as u64);
+        if header.len() + compressed.len() < 1 + delta.len() {
+            header.extend_from_slice(&compressed);
+            return header;
+        }
+    }
+    let mut out = Vec::with_capacity(1 + delta.len());
+    out.push(RAW);
+    out.extend_from_slice(delta);
     out
 }
 
@@ -314,13 +384,34 @@ pub fn unpack(packed: &[u8]) -> Result<Cow<'_, [u8]>, CodecError> {
             at: 0,
         }),
         Some((&RAW, delta)) => Ok(Cow::Borrowed(delta)),
-        Some((&DEFLATED, body)) => {
-            miniz_oxide::inflate::decompress_to_vec_with_limit(body, MAX_DELTA)
-                .map(Cow::Owned)
-                .map_err(|_| CodecError::Invalid {
-                    what: "deflated delta",
+        Some((&LZ4, rest)) => {
+            let (len_u64, consumed) = wire::read_varint(rest).map_err(|_| CodecError::Invalid {
+                what: "lz4 delta",
+                at: 1,
+            })?;
+            let body = &rest[consumed..];
+            // Bound uncompressed length both by `MAX_DELTA` and the physical LZ4 limit (~260x).
+            let max_possible = body.len().saturating_mul(260).saturating_add(32);
+            let Some(len) = usize::try_from(len_u64)
+                .ok()
+                .filter(|&n| n <= MAX_DELTA && n <= max_possible)
+            else {
+                return Err(CodecError::Limit {
+                    what: "lz4 delta",
                     at: 1,
-                })
+                });
+            };
+            let out = lz4_flex::block::decompress(body, len).map_err(|_| CodecError::Invalid {
+                what: "lz4 delta",
+                at: 1 + consumed,
+            })?;
+            if out.len() != len {
+                return Err(CodecError::Invalid {
+                    what: "lz4 delta",
+                    at: 1 + consumed,
+                });
+            }
+            Ok(Cow::Owned(out))
         }
         Some(_) => Err(CodecError::Invalid {
             what: "packing",
@@ -375,7 +466,7 @@ pub fn rebuild(
             .entities
             .iter()
             .zip(&parts.entities)
-            .all(|(entity, (id, _))| entity.id == *id);
+            .all(|(entity, part)| entity.id == part.id);
     if snapshot.tick != header.tick || !ids_match {
         return Err(CodecError::Invalid {
             what: "frame against its snapshot",

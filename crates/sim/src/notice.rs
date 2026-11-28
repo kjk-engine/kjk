@@ -74,6 +74,9 @@ pub enum Screen {
     /// TSL's `ShowSwoopUpgradeScreen`: the swoop bike's upgrades (the
     /// executable's `ShowSwoopUpgradeScreen(OBJECT_INVALID)`).
     SwoopUpgrade,
+    /// The Debug Mode map's terminal, used by the seat's body
+    /// (`world::arena`): the page that changes a party member.
+    DebugTerminal,
 }
 
 /// A workbench or lab station a script opened (`Screen::Workbench`): the
@@ -135,6 +138,7 @@ const WORKBENCH: u8 = 12;
 const TUTORIAL: u8 = 13;
 const DATAPAD: u8 = 14;
 const SWOOP_UPGRADE: u8 = 15;
+const DEBUG_TERMINAL: u8 = 16;
 
 /// The most companions a party selection screen shows (KOTOR 2's twelve;
 /// KOTOR 1 has nine).
@@ -151,11 +155,15 @@ pub const NPCS: usize = 12;
 /// each companion the table has a creature of wears in its body slot now
 /// (an item template; `None`, nothing), which its 3D view is dressed in, as
 /// KOTOR's screen shows the creature the table keeps; one never made
-/// (absent) wears its template's.
+/// (absent) wears its template's. `good_evil` is the alignment (0 dark to
+/// 100 light) of each companion the table has a creature of, as that
+/// creature has it now. The screen's portrait and the cloud behind its 3D
+/// view follow it. A companion never made (absent) shows its template's.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Roster {
     pub available: BTreeMap<u8, String>,
     pub worn: BTreeMap<u8, Option<String>>,
+    pub good_evil: BTreeMap<u8, u8>,
     pub unselectable: u16,
     pub members: u16,
     pub forced: u16,
@@ -263,6 +271,12 @@ impl Roster {
             .map(Option::as_deref)
     }
 
+    /// `npc`'s alignment (0 dark to 100 light) as its creature has it now,
+    /// when the table has a creature of it; `None` for one never made.
+    pub fn good_evil(&self, npc: usize) -> Option<u8> {
+        self.good_evil.get(&u8::try_from(npc).ok()?).copied()
+    }
+
     /// Whether `npc` is in `bits` (`unselectable`, `members`, `forced`).
     pub fn has(bits: u16, npc: usize) -> bool {
         u32::try_from(npc)
@@ -307,6 +321,16 @@ impl Roster {
             out.u8(u8::from(armour.is_some()));
             out.string(armour.as_deref().unwrap_or(""));
         }
+        let good_evil: Vec<_> = self
+            .good_evil
+            .iter()
+            .filter(|(npc, _)| usize::from(**npc) < NPCS)
+            .collect();
+        out.u8(good_evil.len() as u8);
+        for (npc, alignment) in good_evil {
+            out.u8(*npc);
+            out.u8(*alignment);
+        }
     }
 
     fn decode(input: &mut Reader) -> Result<Roster, DecodeError> {
@@ -327,6 +351,10 @@ impl Roster {
             let some = input.u8()? != 0;
             let armour = input.string()?;
             roster.worn.insert(npc, some.then_some(armour));
+        }
+        for _ in 0..input.u8()? {
+            let npc = input.u8()?;
+            roster.good_evil.insert(npc, input.u8()?);
         }
         Ok(roster)
     }
@@ -466,6 +494,7 @@ impl Screen {
             Screen::Credits => out.u8(CREDITS),
             Screen::Pazaak => out.u8(PAZAAK),
             Screen::SwoopUpgrade => out.u8(SWOOP_UPGRADE),
+            Screen::DebugTerminal => out.u8(DEBUG_TERMINAL),
             Screen::Workbench(ref bench) => {
                 out.u8(WORKBENCH);
                 bench.encode(&mut out);
@@ -512,6 +541,7 @@ impl Screen {
             }
             TUTORIAL => Screen::Tutorial { row: input.u8()? },
             SWOOP_UPGRADE => Screen::SwoopUpgrade,
+            DEBUG_TERMINAL => Screen::DebugTerminal,
             DATAPAD => Screen::Datapad {
                 template: input.string()?,
             },
@@ -752,6 +782,9 @@ pub enum Notice {
     /// executables set the sound system's music volume, which no save
     /// keeps. Told to the host alone, whose sound the executables set.
     MusicVolume(u32),
+    /// Why the seat's cheat order was refused (`world::cheats`), told to
+    /// that seat's player. An order carried out sends no notice.
+    Cheat(crate::cheats::Outcome),
 }
 
 impl Notice {

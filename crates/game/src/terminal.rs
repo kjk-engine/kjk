@@ -49,6 +49,8 @@ pub struct TerminalPlugin;
 
 impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
+        // The Debug Mode map's computer opens a page of its own.
+        app.add_plugins(crate::debug_terminal::DebugTerminalPlugin);
         app.add_systems(
             Update,
             (

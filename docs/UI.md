@@ -235,8 +235,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   soldier's) `appearance_l`, a Consular's (K1's scoundrel's)
   `appearance_s`, any other's `appearancenumber`. Scores as K1's (30
   points from 8, 18 at most, a raise 1 to 3). Skill points are the
-  class's and the INT modifier whole, not K1's half of them, at least 1,
-  times 4 (TSL's tables halve `skillpointbase` instead:
+  class's and the INT modifier whole (`rules::skill_points`, where TSL's
+  tables already halve `skillpointbase` and K1 halves only `skillpointbase`
+  at level 1 before adding the INT modifier, times 4:
   `Classes::whole_skill_points`). The first level's feat picks
   (`featgain.2da`) and granted feats as K1's; no powers: neither game's
   creation has a power step, and TSL saves its character knowing none
@@ -642,7 +643,7 @@ Running and checking:
 - Breaks and ready checks (`game::party_calls`, `PARTY.md`): Z calls
   or ends a break (during another's, it asks and is told it is not its
   own), Y is ready (the host's after 5 s: go now), the in-game
-  menu's autopause button is Break/Resume, the banner (KOTOR's combat
+  menu's autopause button is Pause/Resume (in combat too), the banner (KOTOR's combat
   message) over everything; console `ui break|resume|ready|force`.
 - The party's leader (`game::leader_view`, `WORLD-STATE.md`, "The
   leader"): Tab (KOTOR's `ChangeChar`; key mapping "Switch party leader")
@@ -1497,7 +1498,8 @@ Running and checking:
   `COMBAT.md`); only the main menu opens that page.
 - The Interface page (`options_interface`) is kjk's own. KOTOR 2 has no
   such page. The graphics page opens it from the unused force speed box,
-  drawn as a button. The page is a list of option rows on the Feedback
+  drawn as a button (or added one row below the grass box when a
+  pre-Aspyr or modded graphics layout lacks `CB_FORCESPEED`). The page is a list of option rows on the Feedback
   page's layout (`optfeedback`), under the title "Interface", with the
   Feedback page's description box, Default button and Close button. Any
   options page can be built as such a list (`screens::options::Line`). A
@@ -2011,6 +2013,58 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).
+
+## The console
+
+The console is disabled by default until you turn on **Console** in
+Gameplay options (KOTOR 2's unused level-up checkbox). Runs started with
+`--cmds` or `KJK_CONSOLE=1` have the console enabled automatically. By
+default, `` ` `` (Backquote, rebound in Key Mapping) opens and closes the
+console without typing into the input line. The console cannot open while
+a movie is playing.
+
+The console drops down from the top of the window (40% of window height,
+minimum 8 log lines) and draws over the HUD, menus, and dialogue without
+pushing a screen onto the stack. It always uses KOTOR 2's UI colors and
+button-rim art, with the Messages log font (errors in red) and Messages
+scrollbar.
+
+While open, the console captures all keyboard, mouse wheel, and mouse
+button input so gameplay and underlying screens stay idle. It counts as an
+open UI (`UiOpen`), freeing the cursor and marking the player busy in
+co-op, without pausing the game.
+
+- `Left`, `Right`, `Home`, `End` move the cursor; `Backspace` and `Delete`
+  delete characters (max 256 characters per line).
+- `Enter` runs the current input line. When no suggestions are open, `Up`
+  and `Down` browse the last 200 commands (persisted in
+  `console-history.txt` next to the settings file).
+- `Ctrl+V` (`Cmd+V` on macOS) pastes text; multi-line pastes run each
+  non-empty line in order (up to 64 lines). `Ctrl+C` copies the input line;
+  `Ctrl+L` clears the output log.
+- `Page Up`, `Page Down`, and the mouse wheel scroll the log.
+- Typing updates up to 8 autocomplete suggestions below the console
+  (hidden when the line is empty); item suggestions also display the
+  in-game item name. `Tab`, `Shift+Tab`, `Up`, and `Down` highlight a
+  suggestion, and `Enter` or clicking inserts it. Suggestions are never
+  applied unless explicitly selected.
+- `Tab` completes the word before the cursor, filling it immediately when
+  only one match exists.
+- `Escape` closes the suggestion list first, then closes the console.
+- After typing a command name, remaining usage arguments appear dimmed
+  after the line (e.g. `giveitem ` shows `TEMPLATE [COUNT]`).
+
+Headless scripts drive the overlay with `ui console open`, `ui console
+close`, `ui console type WORDS`, `ui console paste WORDS` (`\n` between
+lines), and `ui console key NAME` (`tab`, `backtab`, `enter`, `backspace`,
+`delete`, `left`, `right`, `home`, `end`, `up`, `down`, `pageup`,
+`pagedown`, `escape`, `copy`, `clear`, `space`)
+(`game::console_view`, `ui::screens::console`).
+
+Saves created after using a cheat command outside test maps display
+**Cheats used** on the Load Game, Save Game, Solo, and Host screens (in
+KOTOR 2's unused time-played label). Bug reports include `console.txt`
+with the cheats flag and console log.
 
 ## The minimap and the map page
 

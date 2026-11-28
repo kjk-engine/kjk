@@ -323,9 +323,10 @@ pub struct OverlayCamera;
 pub type SceneCamera = (With<Camera3d>, Without<OverlayCamera>);
 
 /// Drawn as it is (the texture, or white, times `tint`), blended by the
-/// tint's alpha.
+/// tint's alpha, over whatever its camera's target already shows
+/// (`OdysseyMaterial::on_top`).
 pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMaterial {
-    OdysseyMaterial::new(
+    let mut material = OdysseyMaterial::new(
         tint,
         texture,
         None,
@@ -342,7 +343,9 @@ pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMateri
             fogged: false,
         },
         &AreaLight::ambient([1.0; 3]),
-    )
+    );
+    material.on_top = true;
+    material
 }
 
 /// A quad in the screen's 640 × 480 layout (GUI pixels, top left origin),
@@ -487,7 +490,7 @@ fn loading_screen(
     picture: Res<Picture>,
 ) {
     let overlay = &mut *overlay;
-    let game = ui.is_some_and(|ui| ui.assets.is_some());
+    let game = ui.as_ref().is_some_and(|ui| ui.assets.is_some());
     // `wait loading_screen`: up, with the module's image.
     let drawn = if game {
         up(&loading)
@@ -518,7 +521,7 @@ fn loading_screen(
             .next()
             .and_then(|(_, target)| target.cloned());
         let mut camera = commands.spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             scene::over_world(10),
             Projection::Orthographic(OrthographicProjection {
                 scaling_mode: ScalingMode::FixedVertical {
@@ -580,10 +583,15 @@ fn loading_screen(
             .bar
             .as_ref()
             .map(|texture| images.add(scene::image(texture)));
+        // Without the bar's art, the bar is filled with the game's
+        // interface colour.
         let fill_color = if bar.is_some() {
             Vec4::ONE
         } else {
-            Vec4::new(0.0, 0.66, 0.98, 1.0)
+            let campaign = ui.as_ref().and_then(|ui| ui.vm.session.campaign);
+            let palette = campaign.map_or(ui::paint::Palette::K1, ui::paint::Palette::of);
+            let [r, g, b] = palette.base;
+            Vec4::new(r, g, b, 1.0)
         };
         let fill = part(
             &mut commands,
@@ -703,20 +711,22 @@ fn way(clips: &[Option<Animator>; 2], state: u8) -> Option<&Animator> {
 }
 
 /// Door `object`'s state in `snapshot`, and whether blows broke it
-/// (`sim::objects`).
-fn door_state(snapshot: &sim::Snapshot, instances: &sim::Instances, object: u32) -> (u8, bool) {
-    let Some(entity) = snapshot
+/// (`sim::objects`), or `None` once the door is destroyed and gone from the
+/// world so its pose is left alone until hidden.
+fn door_state(
+    snapshot: &sim::Snapshot,
+    instances: &sim::Instances,
+    object: u32,
+) -> Option<(u8, bool)> {
+    let entity = snapshot
         .entities
         .iter()
-        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, object))
-    else {
-        return (0, false);
-    };
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, object))?;
     let state = entity.object.unwrap_or(sim::ObjectState::default());
     let broken = instances
         .of_entity(entity)
         .is_some_and(|facts| state.broken(facts));
-    (state.state, broken)
+    Some((state.state, broken))
 }
 
 /// What a door's keyed alpha is shown through: its meshes' materials, and
@@ -758,7 +768,8 @@ fn doors(
                 clip.as_ref()
                     .and_then(|clip| scene::animator(placed, clip, nodes))
             };
-            let (state, broken) = door_state(current, &instances, door.object);
+            let (state, broken) =
+                door_state(current, &instances, door.object).unwrap_or((0, false));
             doors.0.push(DoorAnim {
                 object: door.object,
                 opening: [bind(&door.opening[0]), bind(&door.opening[1])],
@@ -778,7 +789,9 @@ fn doors(
     let now = previous.time_ms as f64
         + (current.time_ms as f64 - previous.time_ms as f64) * f64::from(alpha);
     for door in &mut doors.0 {
-        let (state, broken) = door_state(current, &instances, door.object);
+        let Some((state, broken)) = door_state(current, &instances, door.object) else {
+            continue;
+        };
         // Broken where it stood open: its `busted` from now.
         if broken != door.broken || state != door.state {
             door.since = Some(current.time_ms as f64);

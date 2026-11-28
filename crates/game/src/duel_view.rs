@@ -797,6 +797,7 @@ fn real_fight() -> Result<String, String> {
         yaw: entry.yaw,
         pit: -3.0,
         respawn_ms: 500,
+        terminal: None,
     };
     let mut foe = ObjectData::creature(FOE, FOE, [0.0; 3], Sheet::dev_soldier());
     if let Some(sheet) = foe.sheet.as_mut() {

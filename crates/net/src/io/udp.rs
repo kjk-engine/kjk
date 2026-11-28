@@ -12,9 +12,15 @@
 //! (`ipv4_refused`), since no IPv4 player can reach the host then. A
 //! machine with IPv6 turned off binds the IPv4 wildcard alone.
 //!
-//! **Receive buffer.** It asks the OS for `RECV_BUFFER` bytes (on macOS
-//! and Linux; Windows keeps its default) and says what it got, so a reader
-//! held up a moment drops nothing.
+//! **Buffers.** It asks the OS for `RECV_BUFFER` receive and
+//! `SEND_BUFFER` send bytes (both Unix and Windows, or larger buffers when
+//! hosting many seats) and says what it got, so a reader or sender held up
+//! a moment drops nothing.
+//!
+//! **Wakeups.** `Udp::wait` polls every bound socket (both IPv6 and IPv4)
+//! alongside an optional `Waker` (`poll`/`select` on Unix, `WSAPoll` on
+//! Windows), so incoming IPv4 packets and main-thread wakeups return at
+//! once instead of sleeping out the timeout.
 //!
 //! Sending never blocks: a datagram the socket will not take now (its
 //! buffer full) is dropped and counted, as the network would drop it; the
@@ -22,10 +28,13 @@
 //! a datagram longer than `MAX_DATAGRAM` is dropped whole. An error a
 //! datagram socket reports for an earlier send (Windows turns an ICMP
 //! "port unreachable" into a connection reset on the next receive) is not
-//! a reason to stop: it is counted and reading goes on.
+//! a reason to stop: it is counted and reading goes on (and on host sockets
+//! Windows `SIO_UDP_CONNRESET` can be disabled so one vanished peer cannot
+//! stall receives).
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::Clock;
@@ -33,9 +42,95 @@ use crate::{Datagram, MAX_DATAGRAM, Peer, Transport};
 
 /// Receive errors in a row after which `recv` returns for now.
 const MAX_ERRORS_IN_A_ROW: u32 = 16;
-/// The receive buffer asked of the OS (bytes): a second of a busy host's
-/// traffic.
-pub const RECV_BUFFER: usize = 1 << 20;
+/// The receive buffer asked of the OS by default (bytes): 2 MiB.
+pub const RECV_BUFFER: usize = 2 << 20;
+/// The send buffer asked of the OS by default (bytes): 1 MiB.
+pub const SEND_BUFFER: usize = 1 << 20;
+/// Buffers used when hosting more than 8 seats.
+pub const LARGE_RECV_BUFFER: usize = 8 << 20;
+pub const LARGE_SEND_BUFFER: usize = 4 << 20;
+
+/// Socket tuning applied at `Udp::bind_with`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SocketConfig {
+    pub recv_buffer: usize,
+    pub send_buffer: usize,
+    /// Disable Windows `SIO_UDP_CONNRESET` so a vanished remote peer's ICMP
+    /// "port unreachable" does not surface as `WSAECONNRESET` on host
+    /// receives. Keep `false` on joining sockets so handshake port checks
+    /// still report `errors > 0`.
+    pub ignore_connreset: bool,
+}
+
+impl Default for SocketConfig {
+    fn default() -> Self {
+        Self {
+            recv_buffer: RECV_BUFFER,
+            send_buffer: SEND_BUFFER,
+            ignore_connreset: false,
+        }
+    }
+}
+
+impl SocketConfig {
+    /// Host socket sizing scaled for `seats`.
+    pub fn host(seats: u8) -> Self {
+        if seats > 8 {
+            Self {
+                recv_buffer: LARGE_RECV_BUFFER,
+                send_buffer: LARGE_SEND_BUFFER,
+                ignore_connreset: true,
+            }
+        } else {
+            Self {
+                recv_buffer: RECV_BUFFER,
+                send_buffer: SEND_BUFFER,
+                ignore_connreset: true,
+            }
+        }
+    }
+}
+
+/// Cross-thread wakeup handle for `Socket::wait` / `Udp::wait`.
+#[derive(Clone)]
+pub struct Waker {
+    inner: Option<Arc<sys::WakerInner>>,
+}
+
+impl Default for Waker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Waker {
+    /// Allocates a new wakeup pipe (Unix) or loopback socket (Windows).
+    pub fn new() -> Self {
+        Self {
+            inner: sys::WakerInner::new().ok().map(Arc::new),
+        }
+    }
+
+    /// Wakes a thread blocked inside `wait`, coalescing repeated calls.
+    pub fn wake(&self) {
+        if let Some(inner) = &self.inner {
+            inner.wake();
+        }
+    }
+
+    /// Sleeps up to `timeout` or until `wake()` fires (used when there is no
+    /// UDP socket, e.g. Steam-only connections).
+    pub(super) fn wait_alone(&self, timeout: Duration) {
+        if timeout.is_zero() {
+            return;
+        }
+        if let Some(inner) = &self.inner {
+            sys::wait_sockets(&[], Some(inner), timeout);
+        } else {
+            std::thread::sleep(timeout);
+        }
+    }
+}
 
 /// What the socket did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -80,6 +175,16 @@ impl Udp {
     /// Binds `address` (port 0: any free port), non-blocking. The IPv6
     /// wildcard falls back to IPv4's on a machine whose IPv6 is turned off.
     pub fn bind(address: SocketAddr, clock: Clock) -> std::io::Result<Udp> {
+        Self::bind_with(address, clock, SocketConfig::default())
+    }
+
+    /// Binds `address` with explicit `config` buffer sizes and Windows
+    /// connection-reset behaviour.
+    pub fn bind_with(
+        address: SocketAddr,
+        clock: Clock,
+        config: SocketConfig,
+    ) -> std::io::Result<Udp> {
         let wildcard_v6 = matches!(address, SocketAddr::V6(v6) if v6.ip().is_unspecified());
         let first = match UdpSocket::bind(address) {
             Ok(socket) => socket,
@@ -105,7 +210,7 @@ impl Udp {
         let mut recv_buffer = None;
         for socket in &sockets {
             socket.set_nonblocking(true)?;
-            recv_buffer = sys::grow_recv_buffer(socket, RECV_BUFFER).or(recv_buffer);
+            recv_buffer = sys::configure_socket(socket, config).or(recv_buffer);
         }
         Ok(Udp {
             sockets,
@@ -150,19 +255,20 @@ impl Udp {
         self.stats
     }
 
-    /// Waits until a datagram is ready to read on the bound socket or
-    /// `timeout` passes (without reading it): a loop with nothing else to
-    /// do sleeps here. One that came in on the IPv4 socket beside it waits
-    /// for the timeout.
+    /// Waits until a datagram is ready to read on any bound socket or
+    /// `timeout` passes (without reading it).
     pub fn wait(&self, timeout: Duration) {
-        let socket = &self.sockets[0];
-        if timeout.is_zero() || socket.set_nonblocking(false).is_err() {
+        self.wait_with(timeout, None);
+    }
+
+    /// Waits until a datagram is ready on any bound socket, `waker` fires,
+    /// or `timeout` passes.
+    pub(super) fn wait_with(&self, timeout: Duration, waker: Option<&Waker>) {
+        if timeout.is_zero() {
             return;
         }
-        let _ = socket.set_read_timeout(Some(timeout));
-        let mut probe = [0u8; 1];
-        let _ = socket.peek_from(&mut probe);
-        let _ = socket.set_nonblocking(true);
+        let wake_inner = waker.and_then(|w| w.inner.as_deref());
+        sys::wait_sockets(&self.sockets, wake_inner, timeout);
     }
 
     /// The socket to send to `to` from, and the address as that socket
@@ -246,37 +352,103 @@ impl Udp {
     }
 }
 
-/// The receive buffer, where the standard library has no word for it.
+/// OS-specific socket options, multi-socket readiness polling, and wakeup.
 #[cfg(unix)]
 mod sys {
     use std::net::UdpSocket;
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsRawFd, RawFd};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
 
-    /// Asks for `bytes` of receive buffer; what the OS gave.
-    pub fn grow_recv_buffer(socket: &UdpSocket, bytes: usize) -> Option<usize> {
-        let fd = socket.as_raw_fd();
+    use super::SocketConfig;
+
+    pub(super) struct WakerInner {
+        read_fd: RawFd,
+        write_fd: RawFd,
+        pending: AtomicBool,
+    }
+
+    impl WakerInner {
+        pub(super) fn new() -> std::io::Result<Self> {
+            let mut fds = [0 as libc::c_int; 2];
+            // SAFETY: `fds` points to 2 writable `c_int` slots.
+            if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            for fd in fds {
+                let ok = unsafe {
+                    let flags = libc::fcntl(fd, libc::F_GETFD);
+                    let set_cloexec =
+                        flags >= 0 && libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) == 0;
+                    let status = libc::fcntl(fd, libc::F_GETFL);
+                    let set_nonblock = status >= 0
+                        && libc::fcntl(fd, libc::F_SETFL, status | libc::O_NONBLOCK) == 0;
+                    set_cloexec && set_nonblock
+                };
+                if !ok {
+                    let err = std::io::Error::last_os_error();
+                    // SAFETY: both pipe fds were returned by `pipe` above.
+                    unsafe {
+                        libc::close(fds[0]);
+                        libc::close(fds[1]);
+                    }
+                    return Err(err);
+                }
+            }
+            Ok(Self {
+                read_fd: fds[0],
+                write_fd: fds[1],
+                pending: AtomicBool::new(false),
+            })
+        }
+
+        pub(super) fn wake(&self) {
+            if !self.pending.swap(true, Ordering::SeqCst) {
+                let byte = [1u8];
+                // SAFETY: `write_fd` is non-blocking and valid until `Drop`.
+                unsafe {
+                    libc::write(self.write_fd, byte.as_ptr().cast(), 1);
+                }
+            }
+        }
+
+        pub(super) fn drain(&self) {
+            self.pending.store(false, Ordering::SeqCst);
+            let mut buf = [0u8; 64];
+            loop {
+                // SAFETY: `read_fd` is non-blocking and valid until `Drop`.
+                let n = unsafe { libc::read(self.read_fd, buf.as_mut_ptr().cast(), buf.len()) };
+                if n <= 0 {
+                    break;
+                }
+            }
+        }
+    }
+
+    impl Drop for WakerInner {
+        fn drop(&mut self) {
+            // SAFETY: `read_fd` and `write_fd` are owned exclusively by `WakerInner`.
+            unsafe {
+                libc::close(self.read_fd);
+                libc::close(self.write_fd);
+            }
+        }
+    }
+
+    fn set_sockbuf(fd: RawFd, opt: libc::c_int, bytes: usize) -> Option<usize> {
         let size = libc::c_int::try_from(bytes).ok()?;
         let len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
-        // SAFETY: `fd` is this socket's, open while `socket` lives; the
-        // option's value is a `c_int` and `len` its size.
-        let set = unsafe {
-            libc::setsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                (&raw const size).cast(),
-                len,
-            )
-        };
+        // SAFETY: `fd` is open while `socket` lives; `size` is a `c_int`.
+        let set =
+            unsafe { libc::setsockopt(fd, libc::SOL_SOCKET, opt, (&raw const size).cast(), len) };
         let mut given: libc::c_int = 0;
         let mut given_len = len;
-        // SAFETY: as above; `given` and `given_len` are writable and sized
-        // for a `c_int`.
+        // SAFETY: as above; `given` and `given_len` are writable `c_int`/`socklen_t`.
         let got = unsafe {
             libc::getsockopt(
                 fd,
                 libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
+                opt,
                 (&raw mut given).cast(),
                 &raw mut given_len,
             )
@@ -285,15 +457,251 @@ mod sys {
             .then(|| usize::try_from(given).ok())
             .flatten()
     }
+
+    /// Configures receive and send buffers; returns the OS receive buffer size.
+    pub(super) fn configure_socket(socket: &UdpSocket, config: SocketConfig) -> Option<usize> {
+        let fd = socket.as_raw_fd();
+        let recv = set_sockbuf(fd, libc::SO_RCVBUF, config.recv_buffer);
+        let _ = set_sockbuf(fd, libc::SO_SNDBUF, config.send_buffer);
+        recv
+    }
+
+    pub(super) fn wait_sockets(
+        sockets: &[UdpSocket],
+        waker: Option<&WakerInner>,
+        timeout: Duration,
+    ) {
+        let max_fd = sockets
+            .iter()
+            .map(|s| s.as_raw_fd())
+            .chain(waker.map(|w| w.read_fd))
+            .max();
+        let Some(max_fd) = max_fd else {
+            return;
+        };
+        // Use `select` when all fds fit in `fd_set` so sub-ms timeouts
+        // retain microsecond precision on both macOS and Linux.
+        if max_fd >= 0 && (max_fd as usize) < libc::FD_SETSIZE {
+            let mut tv = libc::timeval {
+                tv_sec: timeout.as_secs().min(i32::MAX as u64) as _,
+                tv_usec: timeout.subsec_micros() as _,
+            };
+            // SAFETY: all fds are valid and `< FD_SETSIZE`.
+            unsafe {
+                let mut readfds: libc::fd_set = std::mem::zeroed();
+                libc::FD_ZERO(&raw mut readfds);
+                for s in sockets {
+                    libc::FD_SET(s.as_raw_fd(), &raw mut readfds);
+                }
+                if let Some(w) = waker {
+                    libc::FD_SET(w.read_fd, &raw mut readfds);
+                }
+                let ready = libc::select(
+                    max_fd + 1,
+                    &raw mut readfds,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &raw mut tv,
+                );
+                if ready > 0
+                    && let Some(w) = waker
+                    && libc::FD_ISSET(w.read_fd, &raw const readfds)
+                {
+                    w.drain();
+                }
+            }
+            return;
+        }
+        let mut fds = Vec::with_capacity(sockets.len() + usize::from(waker.is_some()));
+        for s in sockets {
+            fds.push(libc::pollfd {
+                fd: s.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            });
+        }
+        let wake_idx = waker.map(|w| {
+            let idx = fds.len();
+            fds.push(libc::pollfd {
+                fd: w.read_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+            idx
+        });
+        let timeout_ms = timeout.as_millis().clamp(1, i32::MAX as u128) as libc::c_int;
+        // SAFETY: `fds` points to `fds.len()` initialized `pollfd` entries.
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
+        if ready > 0
+            && let Some(idx) = wake_idx
+            && (fds[idx].revents & libc::POLLIN) != 0
+            && let Some(w) = waker
+        {
+            w.drain();
+        }
+    }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod sys {
+    use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+    use std::os::windows::io::AsRawSocket;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use windows_sys::Win32::Networking::WinSock::{
+        POLLRDNORM, SIO_UDP_CONNRESET, SO_RCVBUF, SO_SNDBUF, SOCKET, SOCKET_ERROR, SOL_SOCKET,
+        WSAIoctl, WSAPOLLFD, WSAPoll, getsockopt, setsockopt,
+    };
+
+    use super::SocketConfig;
+
+    pub(super) struct WakerInner {
+        recv_socket: UdpSocket,
+        send_socket: UdpSocket,
+        recv_addr: SocketAddr,
+        pending: AtomicBool,
+    }
+
+    impl WakerInner {
+        pub(super) fn new() -> std::io::Result<Self> {
+            let recv_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))?;
+            recv_socket.set_nonblocking(true)?;
+            let recv_addr = recv_socket.local_addr()?;
+            let send_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))?;
+            send_socket.set_nonblocking(true)?;
+            Ok(Self {
+                recv_socket,
+                send_socket,
+                recv_addr,
+                pending: AtomicBool::new(false),
+            })
+        }
+
+        pub(super) fn wake(&self) {
+            if !self.pending.swap(true, Ordering::SeqCst) {
+                let _ = self.send_socket.send_to(&[1u8], self.recv_addr);
+            }
+        }
+
+        pub(super) fn drain(&self) {
+            self.pending.store(false, Ordering::SeqCst);
+            let mut buf = [0u8; 64];
+            while self.recv_socket.recv_from(&mut buf).is_ok() {}
+        }
+    }
+
+    fn set_sockbuf(sock: SOCKET, opt: i32, bytes: usize) -> Option<usize> {
+        let size = i32::try_from(bytes).ok()?;
+        let len = std::mem::size_of::<i32>() as i32;
+        // SAFETY: `sock` is open while `socket` lives; `size` is an `i32`.
+        let set = unsafe { setsockopt(sock, SOL_SOCKET, opt, (&raw const size).cast(), len) };
+        let mut given: i32 = 0;
+        let mut given_len = len;
+        // SAFETY: as above; `given` and `given_len` are writable `i32`s.
+        let got = unsafe {
+            getsockopt(
+                sock,
+                SOL_SOCKET,
+                opt,
+                (&raw mut given).cast(),
+                &raw mut given_len,
+            )
+        };
+        (set != SOCKET_ERROR && got != SOCKET_ERROR)
+            .then(|| usize::try_from(given).ok())
+            .flatten()
+    }
+
+    pub(super) fn configure_socket(socket: &UdpSocket, config: SocketConfig) -> Option<usize> {
+        let sock = socket.as_raw_socket() as SOCKET;
+        if config.ignore_connreset {
+            let mut enable: u32 = 0;
+            let mut returned: u32 = 0;
+            // SAFETY: `sock` is valid; `enable` and `returned` are valid `u32` buffers.
+            unsafe {
+                WSAIoctl(
+                    sock,
+                    SIO_UDP_CONNRESET,
+                    (&raw mut enable).cast(),
+                    std::mem::size_of::<u32>() as u32,
+                    std::ptr::null_mut(),
+                    0,
+                    &raw mut returned,
+                    std::ptr::null_mut(),
+                    None,
+                );
+            }
+        }
+        let recv = set_sockbuf(sock, SO_RCVBUF, config.recv_buffer);
+        let _ = set_sockbuf(sock, SO_SNDBUF, config.send_buffer);
+        recv
+    }
+
+    pub(super) fn wait_sockets(
+        sockets: &[UdpSocket],
+        waker: Option<&WakerInner>,
+        timeout: Duration,
+    ) {
+        let mut fds = Vec::with_capacity(sockets.len() + usize::from(waker.is_some()));
+        for s in sockets {
+            fds.push(WSAPOLLFD {
+                fd: s.as_raw_socket() as SOCKET,
+                events: POLLRDNORM as i16,
+                revents: 0,
+            });
+        }
+        let wake_idx = waker.map(|w| {
+            let idx = fds.len();
+            fds.push(WSAPOLLFD {
+                fd: w.recv_socket.as_raw_socket() as SOCKET,
+                events: POLLRDNORM as i16,
+                revents: 0,
+            });
+            idx
+        });
+        if fds.is_empty() {
+            return;
+        }
+        let timeout_ms = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+        // SAFETY: `fds` points to `fds.len()` valid `WSAPOLLFD` structs.
+        let ready = unsafe { WSAPoll(fds.as_mut_ptr(), fds.len() as u32, timeout_ms) };
+        if ready > 0
+            && let Some(idx) = wake_idx
+            && (fds[idx].revents & POLLRDNORM as i16) != 0
+            && let Some(w) = waker
+        {
+            w.drain();
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 mod sys {
     use std::net::UdpSocket;
+    use std::time::Duration;
 
-    /// Windows keeps its default (the standard library has no word for
-    /// it, and nothing here binds winsock).
-    pub fn grow_recv_buffer(_socket: &UdpSocket, _bytes: usize) -> Option<usize> {
+    use super::SocketConfig;
+
+    pub(super) struct WakerInner;
+
+    impl WakerInner {
+        pub(super) fn new() -> std::io::Result<Self> {
+            Ok(Self)
+        }
+        pub(super) fn wake(&self) {}
+        pub(super) fn drain(&self) {}
+    }
+
+    pub(super) fn configure_socket(_socket: &UdpSocket, _config: SocketConfig) -> Option<usize> {
         None
+    }
+
+    pub(super) fn wait_sockets(
+        _sockets: &[UdpSocket],
+        _waker: Option<&WakerInner>,
+        timeout: Duration,
+    ) {
+        std::thread::sleep(timeout);
     }
 }

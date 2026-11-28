@@ -53,6 +53,7 @@ const REJOIN: Duration = Duration::from_secs(45);
 pub struct Joining {
     client: Shared<Client>,
     net: Option<NetThread>,
+    host: Peer,
     /// The host's level (the stage the run loaded), and the host's seat
     /// for this player.
     pub request: LevelRequest,
@@ -76,6 +77,13 @@ impl Joining {
     /// The client, locked from the net thread.
     fn client(&self) -> MutexGuard<'_, Client> {
         lock(&self.client)
+    }
+
+    /// Wakes the net thread immediately so outbound packets leave without delay.
+    fn wake(&self) {
+        if let Some(net) = &self.net {
+            net.wake();
+        }
     }
 }
 
@@ -296,7 +304,7 @@ fn attempt_through_lobby(
         crate::solo::now(),
         ClientConfig {
             link: net::link::Config::default(),
-            audit: true,
+            audit: crate::solo::net_audit_enabled(),
             keep: true,
             rejoin_us: REJOIN.as_micros() as u64,
             key,
@@ -305,6 +313,7 @@ fn attempt_through_lobby(
             // while this seat's body agrees (issue 229).
             rebase_on: net::session::client::RebaseOn::Thread,
             rebase_every_us: net::session::client::REBASE_EVERY_US,
+            rebuild_beside: true,
             ..ClientConfig::default()
         },
     )
@@ -358,6 +367,7 @@ fn attempt_through_lobby(
                     return Ok(Joining {
                         client,
                         net: Some(net),
+                        host,
                         request,
                         seat,
                         seats,
@@ -461,6 +471,8 @@ pub(crate) struct Joined {
     /// net feel's samples.
     facts: serde_json::Value,
     feel: crate::net_feel::Feel,
+    #[cfg(feature = "steam")]
+    steam_info: Option<(Instant, Option<net::io::SteamLinkInfo>)>,
 }
 
 /// A joined player's session is under way (its systems run).
@@ -479,8 +491,9 @@ pub fn install(
     lifecycle: Option<Lifecycle>,
 ) {
     let folder = app.resource::<RunFolder>().0.clone();
-    let rebuilt = std::fs::File::create(folder.join("rebuilt.txt"))
-        .ok()
+    let rebuilt = crate::solo::net_audit_enabled()
+        .then(|| std::fs::File::create(folder.join("rebuilt.txt")).ok())
+        .flatten()
         .map(std::io::BufWriter::new);
     // Until the host's snapshots come, the stage's own start is shown.
     let first = Presented::new(start);
@@ -488,6 +501,9 @@ pub fn install(
     states.0.insert("world".into(), true);
     states.0.insert("loading".into(), false);
     let seat = joining.seat;
+    app.insert_resource(crate::sim_host::AuthoritySnapshot(
+        first.current_shared().clone(),
+    ));
     app.insert_resource(PresentedSnapshot(
         first.clone(),
         vec![first.current_shared().clone()],
@@ -528,6 +544,8 @@ pub fn install(
         frames: 0,
         facts: serde_json::Value::Null,
         feel: crate::net_feel::Feel::default(),
+        #[cfg(feature = "steam")]
+        steam_info: None,
     });
 }
 
@@ -565,6 +583,41 @@ fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
     }
 }
 
+impl Joined {
+    /// Live network facts + `feel` samples for bug reports (`report::make`)
+    /// before the run exits and writes `net.json` to disk.
+    pub fn live_net_json(&mut self) -> serde_json::Value {
+        let mut report = self.facts.clone();
+        report["feel"] = self.feel.report();
+        report
+    }
+
+    /// Non-blocking snapshot of client network counters for `net_graph`.
+    pub(crate) fn graph_sample(&self) -> Option<crate::net_graph::NetGraphSample> {
+        let client = self.joining.client.try_lock().ok()?;
+        let link = client.link_stats()?;
+        let stats = client.stats();
+        let clock = client.clock();
+        let path = match self.joining.host {
+            Peer::Steam(_) => "Steam P2P",
+            Peer::Addr(_) => "UDP Direct",
+            Peer::Local(_) => "Loopback",
+        };
+        Some(crate::net_graph::NetGraphSample {
+            rtt_ms: link.rtt_us as f64 / 1000.0,
+            jitter_ms: link.jitter_us as f64 / 1000.0,
+            loss_pct: link.loss_ppm as f64 / 10_000.0,
+            bytes_down: link.bytes_received,
+            bytes_up: link.bytes_sent,
+            snaps: stats.rebuilt,
+            rewinds: stats.rewinds,
+            lead_ticks: clock.map_or(0.0, |c| c.lead),
+            delay_ticks: clock.map_or(0.0, |c| c.delay),
+            path,
+        })
+    }
+}
+
 /// The loading screen's line while a joined player waits for the host's
 /// world.
 const WAITING_FOR_HOST: &str = "Waiting for the host";
@@ -573,7 +626,10 @@ const WAITING_FOR_HOST: &str = "Waiting for the host";
 pub(crate) fn advance(
     input: PlayerInput,
     mut joined: ResMut<Joined>,
-    mut presented: ResMut<PresentedSnapshot>,
+    (mut presented, mut authority): (
+        ResMut<PresentedSnapshot>,
+        ResMut<crate::sim_host::AuthoritySnapshot>,
+    ),
     mut own: ResMut<OwnView>,
     mut facts: ResMut<DumpFacts>,
     (mut loading, mut states, mut swap, mut commands, mut selected, mut replies): (
@@ -616,21 +672,27 @@ pub(crate) fn advance(
     let unseen = picture
         .as_deref()
         .is_some_and(|picture| picture.holds(loading.committed));
+    let mut woke = false;
     let events: Vec<ClientEvent> = {
         let mut client = joined.joining.client();
         client.hold_loaded(unseen);
         if let Some(outgoing) = outgoing.as_deref_mut() {
             for action in outgoing.0.drain(..) {
                 client.act(action);
+                woke = true;
             }
         }
         if joined.provide {
             joined.provide = false;
             log_built(&joined.level);
             client.provide_level(now, Ok(joined.level.clone()));
+            woke = true;
         }
         std::iter::from_fn(|| client.poll_event()).collect()
     };
+    if woke {
+        joined.joining.wake();
+    }
     for event in events {
         match event {
             ClientEvent::Installing(request) => {
@@ -794,6 +856,7 @@ pub(crate) fn advance(
                 client.hold_loaded(picture.is_some());
                 client.provide_level(now, Ok(prepared.plan.level.clone()));
                 drop(client);
+                joined.joining.wake();
                 joined.generation += 1;
                 let mut body = None;
                 let scene = prepared.scene.is_some();
@@ -820,6 +883,7 @@ pub(crate) fn advance(
             Err(error) => {
                 error!(target: "net", "cannot plan the host's module: {error}");
                 joined.joining.client().provide_level(now, Err(error));
+                joined.joining.wake();
                 loading.active = false;
             }
         }
@@ -842,15 +906,19 @@ pub(crate) fn advance(
     }
     // A scripted run's screens answer into the script's command, as the
     // host's do (`Controls::scripted`).
-    let talk = own.presented.current().talk_for(joined.joining.seat);
+    let talk = authority.0.talk_for(joined.joining.seat);
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
     let scripted = matches!(joined.driver, Driver::Player(Some(_)));
-    if let Some(pick) = picked.filter(|_| scripted && talk.is_some()) {
-        joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
+    let mut dialog_action = None;
+    if let Some(pick) = picked.filter(|_| talk.is_some()) {
+        if scripted {
+            joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
+        } else {
+            dialog_action = Some(sim::action::Action::DialogPick(pick));
+        }
     }
     if let Some(actions) = &actions {
-        let picked = picked.filter(|_| !scripted);
-        joined.controls.update(actions, talk, picked);
+        joined.controls.update(actions, talk, None);
     }
     let bar = bar_use
         .as_deref()
@@ -880,13 +948,29 @@ pub(crate) fn advance(
         aim: camera_aim.0,
         ..command
     };
+    // Wait for any background rebuild / step / initial rewind OUTSIDE
+    // `Mutex<Client>` so `kjk-net` can keep receiving and stamping packets.
+    loop {
+        let pending = lock(&joined.joining.client).prepare_frame(now);
+        let Some(signal) = pending else {
+            break;
+        };
+        signal.wait();
+    }
     // The frame makes its commands with the client locked (the net thread
     // waits); the client steps no world in it (issue 229).
+    let perf_lock = crate::perf::enabled().then(Instant::now);
     let mut client = lock(&joined.joining.client);
+    let dialog_woke = dialog_action.is_some();
+    if let Some(action) = dialog_action {
+        client.act(action);
+    }
     // The view reads no prediction before the tick it last followed.
     client.set_view_from(own.followed.unwrap_or(0));
     let span = info_span!("net.frame").entered();
+    let frame_t = crate::perf::enabled().then(Instant::now);
     let frame = client.frame(now, command);
+    let stepped = frame.as_ref().map_or(0, |f| f.stepped);
     drop(span);
     if let Some(frame) = frame {
         // The same snapshots, not ones of the same ticks: an install's
@@ -905,6 +989,9 @@ pub(crate) fn advance(
         own.presented.set_alpha(frame.predicted.alpha());
         own.correction = frame.correction;
     }
+    if let Some(snap) = client.authority_arc() {
+        authority.0 = snap;
+    }
     // A break holds the host's world: the sounds wait with it, the beds go
     // on (`Waited`).
     let on_break = presented.0.current().paused_by.is_some();
@@ -917,22 +1004,70 @@ pub(crate) fn advance(
     let kept = client.take_snapshots();
     presented.1 = kept.rebuilt;
     own.fresh = kept.predicted;
-    if let Some(file) = &mut joined.rebuilt {
-        for (epoch, tick, hash) in client.take_audit() {
-            let _ = writeln!(file, "{epoch} {tick} {hash}");
-        }
-    }
+    let audit = if joined.rebuilt.is_some() {
+        client.take_audit()
+    } else {
+        Vec::new()
+    };
 
-    if joined.feel.frame() {
+    #[cfg(feature = "steam")]
+    let steam_link = if let Peer::Steam(id) = joined.joining.host {
+        let refresh = joined
+            .steam_info
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(1));
+        if refresh {
+            let info = net::io::steam::connection_info(id);
+            joined.steam_info = Some((Instant::now(), info));
+        }
+        joined.steam_info.as_ref().and_then(|(_, info)| *info)
+    } else {
+        None
+    };
+
+    let sampled = joined.feel.frame();
+    if sampled {
         crate::net_feel::sample_player(&mut joined.feel, &client);
+        #[cfg(feature = "steam")]
+        if let Some(info) = steam_link {
+            crate::net_feel::sample_steam(&mut joined.feel, "steam", info);
+        }
     }
     let stats = client.stats();
     let link = client.link_stats();
     let clock = client.clock();
     let seat = client.seat();
     drop(client);
-    joined.facts = serde_json::json!({
-            "path": "udp",
+    if let Some(t) = perf_lock {
+        crate::perf::counter(
+            "net.join",
+            &[
+                ("mutex_hold_us", t.elapsed().as_secs_f64() * 1e6),
+                ("keyframes", stats.keyframes as f64),
+            ],
+        );
+    }
+    if let Some(t) = frame_t {
+        crate::perf::counter(
+            "net.join_frame",
+            &[("rebuild_ms", t.elapsed().as_secs_f64() * 1000.0)],
+        );
+    }
+    if stepped > 0 || dialog_woke {
+        joined.joining.wake();
+    }
+    if let Some(file) = &mut joined.rebuilt {
+        for (epoch, tick, hash) in audit {
+            let _ = writeln!(file, "{epoch} {tick} {hash}");
+        }
+    }
+    let path = match joined.joining.host {
+        Peer::Steam(_) => "steam",
+        _ => "udp",
+    };
+    #[cfg_attr(not(feature = "steam"), allow(unused_mut))]
+    let mut net_facts = serde_json::json!({
+            "path": path,
             "recv_buffer": joined.joining.recv_buffer,
             "seat": seat.map(|seat| seat.0),
             "ended": joined.ended,
@@ -964,6 +1099,17 @@ pub(crate) fn advance(
             "bytes_up": link.map(|l| l.bytes_sent),
             "bytes_down": link.map(|l| l.bytes_received),
     });
+    #[cfg(feature = "steam")]
+    if let Some(info) = steam_link {
+        net_facts["steam"] = serde_json::json!({
+            "connected": info.connected,
+            "ping_ms": info.ping_ms,
+            "quality_local": info.quality_local,
+            "quality_remote": info.quality_remote,
+            "pending_unreliable": info.pending_unreliable,
+        });
+    }
+    joined.facts = net_facts;
     facts.0.insert("net".into(), joined.facts.clone());
 }
 

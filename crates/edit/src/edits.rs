@@ -79,7 +79,7 @@ impl<'a> Editor<'a> {
             return Err(format!("{credits} credits: credits are never below 0"));
         }
         self.save.script.gold = credits;
-        self.save.snapshot.goods.gold = credits;
+        std::sync::Arc::make_mut(&mut self.save.snapshot.goods).gold = credits;
         Ok(())
     }
 
@@ -88,7 +88,7 @@ impl<'a> Editor<'a> {
     pub fn set_party_xp(&mut self, xp: i32) -> Result<(), String> {
         let party = sim::inventory::PARTY;
         self.save.script.set_xp(party, xp);
-        self.save.snapshot.progress.xp = self.save.script.xp(party);
+        std::sync::Arc::make_mut(&mut self.save.snapshot.progress).xp = self.save.script.xp(party);
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl<'a> Editor<'a> {
         }
         self.save.script.set_quest(tag, entry, true);
         let journal = self.save.script.journal.clone();
-        self.save.snapshot.progress.journal = journal;
+        std::sync::Arc::make_mut(&mut self.save.snapshot.progress).journal = journal;
         Ok(())
     }
 

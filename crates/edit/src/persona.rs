@@ -100,10 +100,7 @@ impl Editor<'_> {
     }
 
     fn put_persona(&mut self, persona: Persona) {
-        if let Some(held) = self
-            .save
-            .snapshot
-            .personas
+        if let Some(held) = std::sync::Arc::make_mut(&mut self.save.snapshot.personas)
             .iter_mut()
             .find(|held| held.seat == persona.seat)
         {

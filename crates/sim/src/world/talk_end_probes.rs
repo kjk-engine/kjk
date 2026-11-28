@@ -118,6 +118,16 @@ fn library() -> crate::script::Library {
     let dialogues: BTreeMap<String, fmt_odyssey::dlg::Dlg> = [
         ("probe_talk", talking(2, "")),
         ("probe_one_liner", talking(0, "")),
+        ("probe_cutscene_one_liner", {
+            let mut dlg = talking(0, "");
+            dlg.animated_cut = true;
+            dlg.camera_model = "cam".into();
+            dlg.entries[0].text.strref = u32::MAX;
+            dlg.entries[0].text.strings.clear();
+            dlg.entries[0].delay = Some(1);
+            dlg.replies[0].script.script = "probe_tell_tag".into();
+            dlg
+        }),
         ("probe_destroyed_talk", talking(2, "probe_destroy_self")),
         ("probe_nothing_to_say", {
             let mut dlg = talking(2, "");
@@ -573,6 +583,307 @@ fn refused(fails: &str) -> Result<(bool, bool), String> {
     Ok((locked, open))
 }
 
+/// A one-entry cutscene with a silent entry (`delay = 1s`) and a silent
+/// leaf reply whose script runs only once the entry finishes: it enters
+/// full conversation mode (`conversations.len() == 1`) rather than barking
+/// and firing the leaf reply on step 1.
+fn cutscene_one_liner_waits() -> Result<(bool, bool, usize, Vec<String>), String> {
+    let owner = ObjectData::creature("owner", "owner", by_entry(1.5, 0.0), Sheet::commoner());
+    let (mut world, first) = world_with(vec![owner], None, library())?;
+    let owner = id_of(&mut world, first)?;
+    let mut tick = 1;
+    let player = step(&mut world, tick, &TickInput::default())
+        .body(Seat(0))
+        .map(|entity| entity.id.0)
+        .ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state.talk.asked.push(Start {
+        owner: ObjectId(owner),
+        pc: ObjectId(player),
+        asker: ObjectId(player),
+        dialog: "probe_cutscene_one_liner".into(),
+        bark: false,
+        cue: None,
+    });
+    world.set_script_state(state);
+    let mut still = TickInput::default();
+    still.insert(Seat(0), Command::default());
+    tick += 1;
+    let at_start = step(&mut world, tick, &still);
+    let mut said = Vec::new();
+    told(&mut world, &mut said);
+    let started_conv = at_start.talk.conversations.len() == 1 && at_start.talk.barks.is_empty();
+    let ran_at_start = !said.is_empty();
+    for step_n in 1..=ANSWER_STEPS {
+        tick += 1;
+        let snapshot = step(&mut world, tick, &still);
+        told(&mut world, &mut said);
+        if snapshot.talk.conversations.is_empty() {
+            return Ok((started_conv, ran_at_start, step_n, said));
+        }
+    }
+    Err(format!("the cutscene one-liner did not end; told {said:?}"))
+}
+
+/// An open locked door told to close while an actor is queued to walk through
+/// it waits until the actor has cleared it (`a_102exitrun` closing `TO102PER`
+/// in the same step the PC walks through).
+fn door_waits_for_actor_walking_through() -> Result<(bool, bool), String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-2.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(2.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let Some(Placement::Own(gate)) = data.placements.first_mut() else {
+        return Err("the ground's first object is not its door".into());
+    };
+    gate.opens = Opens::Locked;
+    gate.state = 1;
+    let first = data.placements.len() as u32;
+    data.placements.push(Placement::Own(ObjectData::creature(
+        "walker",
+        "walker",
+        near,
+        Sheet::commoner(),
+    )));
+    let mut nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5], [-0.5, 0.5], [0.5, 7.5]]);
+    if let Some(level) = ground.collision().level() {
+        nav.mark(level);
+    }
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let gate_id = id_of(&mut world, 0)?;
+    let walker = id_of(&mut world, first)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Point(far, 0.0),
+                run: true,
+                range: 0.2,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    state.actions.insert(
+        gate_id,
+        vec![Queued {
+            action: Queue::Door {
+                door: ObjectId(gate_id),
+                open: false,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let mut last = world.snapshot();
+    for tick in 1..=ANSWER_STEPS as u64 {
+        last = step(&mut world, tick, &TickInput::default());
+        let open = last
+            .entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, 0))
+            .and_then(|entity| entity.object)
+            .is_some_and(|object| object.state != 0);
+        let at = last
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        let past_door = at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0);
+        if past_door && !open {
+            return Ok((true, true));
+        }
+    }
+    let open = last
+        .entities
+        .iter()
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Door, 0))
+        .and_then(|entity| entity.object)
+        .is_some_and(|object| object.state != 0);
+    let at = last
+        .entities
+        .iter()
+        .find(|entity| entity.id.0 == walker)
+        .map(|entity| entity.position);
+    Ok((
+        at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0),
+        !open,
+    ))
+}
+
+/// An unforced `ActionMoveToObject` stunned longer than the stall threshold
+/// pauses its stall clock and resumes walking once the stun wears off.
+fn move_to_object_waits_out_stun() -> Result<bool, String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-4.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(-1.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let first = data.placements.len() as u32;
+    data.placements.extend(
+        [
+            ObjectData::creature("walker", "walker", near, Sheet::commoner()),
+            ObjectData {
+                kind: ObjectKind::Placeable,
+                tag: "post".into(),
+                ..ObjectData::unknown("post", far, 0.0)
+            },
+        ]
+        .map(Placement::Own),
+    );
+    let nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5]]);
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let walker = id_of(&mut world, first)?;
+    let post = id_of(&mut world, first + 1)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Object(ObjectId(post)),
+                run: true,
+                range: 0.5,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let first_snap = step(&mut world, 1, &TickInput::default());
+    let stun_ms = crate::walk::STALL_MS * u64::from(crate::script::STUCK_STALLS) + 1000;
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0.0 == walker {
+            fighting.0.force.stunned_until = first_snap.time_ms + stun_ms;
+        }
+    }
+    for tick in 2..=(ANSWER_STEPS * 3) as u64 {
+        let snapshot = step(&mut world, tick, &TickInput::default());
+        let at = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        if at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Who stands in the way of `move_after_body_bump`'s walker.
+#[derive(Clone, Copy)]
+enum Blocker {
+    /// The player's own character, once: the walk is taken up again.
+    Player,
+    /// A creature standing still, on every step: the move is given up.
+    StillCreature,
+}
+
+/// An unforced `ActionMoveToObject` whose walker gave up only on bumping into
+/// `blocker`: whether the walker reached its object, and whether its move
+/// ended (its queue empty) short of it.
+fn move_after_body_bump(blocker: Blocker) -> Result<(bool, bool), String> {
+    use crate::script::actions::{Action as Queue, Queued, Target};
+    let near = crate::determinism::ground_point(-4.5, 0.0, 0.0);
+    let far = crate::determinism::ground_point(-1.5, 0.0, 0.0);
+    let aside = crate::determinism::ground_point(-6.5, 0.0, 0.0);
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let first = data.placements.len() as u32;
+    data.placements.extend(
+        [
+            ObjectData::creature("walker", "walker", near, Sheet::commoner()),
+            ObjectData {
+                kind: ObjectKind::Placeable,
+                tag: "post".into(),
+                ..ObjectData::unknown("post", far, 0.0)
+            },
+            ObjectData::creature("statue", "statue", aside, Sheet::commoner()),
+        ]
+        .map(Placement::Own),
+    );
+    let nav = crate::world::uses::probes::floor_nav(&[[-7.5, -0.5]]);
+    let library = library().with_move_rates(crate::script::MoveRates {
+        player: Some((1.6, 4.0)),
+        default: Some((1.6, 4.0)),
+    });
+    let level = ground.with_module(data).with_scripts(library).with_nav(nav);
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    let walker = id_of(&mut world, first)?;
+    let post = id_of(&mut world, first + 1)?;
+    let mut state = world.script_state().clone();
+    state.actions.insert(
+        walker,
+        vec![Queued {
+            action: Queue::Move {
+                to: Target::Object(ObjectId(post)),
+                run: true,
+                range: 0.5,
+                force_ms: None,
+            },
+            started_ms: None,
+        }],
+    );
+    world.set_script_state(state);
+    let body = match blocker {
+        Blocker::Player => world
+            .world
+            .query::<(&Id, &super::Avatar)>()
+            .iter(&world.world)
+            .map(|(id, _)| id.0)
+            .next()
+            .ok_or("the ground has no player")?,
+        Blocker::StillCreature => crate::snapshot::SimId(id_of(&mut world, first + 2)?),
+    };
+    let mut bumped = false;
+    for tick in 1..=(ANSWER_STEPS * 2) as u64 {
+        let snapshot = step(&mut world, tick, &TickInput::default());
+        let again = matches!(blocker, Blocker::StillCreature) || !bumped;
+        if again && snapshot.time_ms >= 600 {
+            let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+            for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+                if id.0.0 == walker
+                    && let Some(w) = fighting.0.mind.walker.as_mut()
+                {
+                    w.bumps = crate::script::STUCK_STALLS;
+                    w.bumped = Some((body, [0.0, 0.0]));
+                    bumped = true;
+                }
+            }
+        }
+        let at = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == walker)
+            .map(|entity| entity.position);
+        if bumped && at.is_some_and(|p| crate::math::flat_distance(p, far) <= 1.0) {
+            return Ok((true, false));
+        }
+        let ended =
+            (world.script_state().actions.get(&walker)).is_none_or(|queue| queue.is_empty());
+        if bumped && ended {
+            return Ok((false, true));
+        }
+    }
+    Ok((false, false))
+}
+
 pub fn probes() -> Checks {
     let all: Vec<String> = HEARERS
         .iter()
@@ -653,6 +964,18 @@ pub fn probes() -> Checks {
             },
         ),
         (
+            "cutscene_one_liner_waits_for_line",
+            match cutscene_one_liner_waits() {
+                Ok((started, immediate, steps, said)) => check(
+                    started && !immediate && steps >= 100 && said == ["owner".to_string()],
+                    format!(
+                        "started conv {started}, ran at start {immediate}, steps {steps}, said {said:?}"
+                    ),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
             "door_opening_itself_says_nothing",
             match opened {
                 Ok((locked, open)) => check(
@@ -672,5 +995,42 @@ pub fn probes() -> Checks {
                 Err(why) => Err(why),
             },
         ),
+        (
+            "door_waits_for_actor_walking_through",
+            match door_waits_for_actor_walking_through() {
+                Ok((reached, closed)) => check(
+                    reached && closed,
+                    format!("actor reached far side {reached}, door closed after {closed}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
+            "move_to_object_waits_out_stun",
+            match move_to_object_waits_out_stun() {
+                Ok(reached) => check(
+                    reached,
+                    format!("walker reached target after stun: {reached}"),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
     ]
+    .into_iter()
+    .chain(
+        [
+            ("move_to_object_retries_after_body_bump", Blocker::Player, (true, false)),
+            ("move_to_object_gives_up_on_still_body", Blocker::StillCreature, (false, true)),
+        ]
+        .map(|(name, blocker, want)| {
+            let result = move_after_body_bump(blocker).and_then(|(reached, ended)| {
+                check(
+                    (reached, ended) == want,
+                    format!("walker reached its object {reached}, move ended short {ended}"),
+                )
+            });
+            (name, result)
+        }),
+    )
+    .collect()
 }

@@ -1184,6 +1184,12 @@ impl Resolver {
         })
     }
 
+    /// Every resref of `restype` in an `override/` folder, the game's own or
+    /// a Workshop item's, lowercase, once each: the files mods add.
+    pub fn override_names(&self, restype: ResType) -> Vec<String> {
+        self.names_in(restype, |layer| in_folder(&layer.name) == "override")
+    }
+
     fn names_in(&self, restype: ResType, keep: impl Fn(&Layer) -> bool) -> Vec<String> {
         let mut names: Vec<String> = self
             .layers

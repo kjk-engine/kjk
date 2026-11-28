@@ -63,13 +63,29 @@ impl Seeds<'_> {
     }
 }
 
+/// The scripts the console's mod commands run: each resref in the `script`
+/// column of the campaign's `kjkconsole.2da` (`commands::mods`), lowercase.
+/// None when there is no such table or it does not parse.
+fn console_scripts(source: &dyn Source) -> Vec<String> {
+    let Some(table) = source
+        .read("kjkconsole", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
+    else {
+        return Vec::new();
+    };
+    (0..table.cells.len())
+        .filter_map(|row| table.resref(row, "script"))
+        .collect()
+}
+
 /// The module's compiled scripts and conversations: the scripts its hooks
 /// name (the module's, the area's, its objects') and those `hooked` (the
 /// creature templates' hooks), its traps' rows' scripts, the DLGs its objects speak and those of the
 /// creature templates (`spoken`: template, DLG) that are companions or that
 /// a script names, those of the templates the module carries in its own
 /// archives (`carried`: a script may make one by a name it builds), every
-/// script a DLG names, and every script or DLG a
+/// conversation and script in an override folder (a mod's script may name
+/// one by a name it builds), every script a DLG names, and every script or DLG a
 /// script names in a string constant (`ExecuteScript`'s,
 /// `ActionStartConversation`'s), with the game's routines; and every
 /// resref-like string the scripts hold. Its gathering taken from `bakes` when gathered
@@ -110,6 +126,9 @@ pub(crate) fn script_library(
         .chain(hooked)
         // The engine's own: what it runs as an in-game screen opens.
         .chain(sim::script::ENGINE_SCRIPTS.iter().map(|name| name.to_string()))
+        // The console's mod commands' (`kjkconsole.2da`): a mod's script that
+        // nothing in the module names still runs from the console.
+        .chain(console_scripts(source))
         // The traps' (`traps.2da`'s `trapscript`): a sprung trap without an
         // `OnTrapTriggered` of its own runs its row's.
         .chain(
@@ -118,6 +137,7 @@ pub(crate) fn script_library(
                 .filter(|row| !row.script.is_empty())
                 .map(|row| row.script.to_ascii_lowercase()),
         )
+        .chain(source.override_names(ResType::NCS))
         .collect();
     let talks = data
         .objects()
@@ -131,6 +151,12 @@ pub(crate) fn script_library(
                 .map(|(_, dialog)| dialog.clone()),
         )
         .chain(carried.iter().cloned())
+        // The override folders' (the files mods add): a script may start
+        // one of them, or run one, by a name it puts together as it runs,
+        // which no string of it holds whole (Expanded Jedi Training's
+        // `m_train_convo` starts "train" + "_form"). The original game
+        // opens any file of the install by name when a script asks for it.
+        .chain(source.override_names(ResType::DLG))
         .filter(|name| !name.is_empty())
         .collect();
     let seeds = Seeds {

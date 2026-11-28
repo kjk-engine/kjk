@@ -117,19 +117,22 @@ pub fn install(app: &mut World, setup: HudSetup) {
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(crate::dialogue_view::DialogueViewPlugin)
-            .init_resource::<crate::progress::Told>()
-            .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
-            .add_systems(
-                Update,
-                (
-                    follow,
-                    show.before(console::ConsoleQueue),
-                    crate::progress::marks.after(show),
-                )
-                    .run_if(resource_exists::<Hud>)
-                    .before(crate::ui_view::Stepped),
-            );
+        app.add_plugins((
+            crate::dialogue_view::DialogueViewPlugin,
+            crate::net_graph::NetGraphPlugin,
+        ))
+        .init_resource::<crate::progress::Told>()
+        .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
+        .add_systems(
+            Update,
+            (
+                follow,
+                show.before(console::ConsoleQueue),
+                crate::progress::marks.after(show),
+            )
+                .run_if(resource_exists::<Hud>)
+                .before(crate::ui_view::Stepped),
+        );
     }
 }
 
@@ -180,7 +183,7 @@ pub(crate) fn overlay_view() -> impl Bundle {
 fn own_camera(commands: &mut Commands) -> Entity {
     commands
         .spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             crate::scene::over_world(11),
             overlay_view(),
             crate::scene::encoded_view(),

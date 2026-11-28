@@ -610,6 +610,11 @@ fn requests(
         ResMut<crate::wheel_view::Wheel>,
         Option<ResMut<crate::photo_mode::PhotoMode>>,
     ),
+    (mut overlay, mut console_log, mut lines): (
+        Option<ResMut<crate::console_view::Overlay>>,
+        Option<ResMut<crate::console_view::ConsoleLog>>,
+        Option<ResMut<console::LineRequests>>,
+    ),
 ) {
     use sim::script::dialogue::Pick;
     let ui = &mut *ui;
@@ -679,6 +684,17 @@ fn requests(
             ["photo", what @ ..] => {
                 if !photo.as_deref_mut().is_some_and(|photo| photo.script(what)) {
                     warn!(target: "console", "ui photo: {what:?} is no photo mode request");
+                }
+            }
+            ["console", what @ ..] => {
+                let done = match (overlay.as_deref_mut(), console_log.as_deref_mut()) {
+                    (Some(overlay), Some(log)) => {
+                        crate::console_view::script(what, overlay, log, lines.as_deref_mut())
+                    }
+                    _ => false,
+                };
+                if !done {
+                    warn!(target: "console", "ui console: {what:?} is not open, close, type, paste or key")
                 }
             }
             ["script", what @ ..] => match crate::script_screens::parse(what) {
@@ -892,9 +908,11 @@ fn step(
     });
     // A movie or the startup splash over the screens takes the keys and the
     // pointer, and so does the main menu held back until its 3D view is
-    // drawn (`gui_scene`).
+    // drawn (`gui_scene`). The console takes them too, and a pad's buttons
+    // with them, while it is open (`console_view`).
     let movie = showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0);
-    let blind = movie || scenes.is_some_and(|scenes| scenes.holding());
+    let console = ui.vm.console.is_some();
+    let blind = movie || console || scenes.is_some_and(|scenes| scenes.holding());
     let (keys, mouse) = if blind { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
     let camera = cameras.iter().next();
@@ -990,7 +1008,9 @@ fn step(
         play_keys(
             ui,
             &mut input,
-            actions.as_deref().filter(|_| !movie && !waiting),
+            actions
+                .as_deref()
+                .filter(|_| !movie && !waiting && !console),
         );
     }
     ui.stack.veil_world = presented.is_some();
@@ -1120,10 +1140,22 @@ fn step(
             None => {}
         }
     }
+    let Ui {
+        over,
+        assets,
+        vm,
+        stack,
+        scale_factor,
+        settings_revision,
+        ..
+    } = &mut *ui;
+    if let Some(mut frame) = drawing((assets, vm, stack), (*scale_factor, *settings_revision)) {
+        layers.extend(over.console(&mut frame, window));
+    }
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
-    // holds the player as a screen does.
-    open.0 = ui.stack.is_open() || hold.0;
+    // holds the player as a screen does, and so does the console.
+    open.0 = ui.stack.is_open() || hold.0 || ui.vm.console.is_some();
     states.0.retain(|key, _| !key.starts_with("ui_"));
     for screen in ui.stack.screens() {
         states.0.insert(format!("ui_{}", screen.0), true);
@@ -1607,7 +1639,7 @@ fn draw(
         // It draws the HUD too, under the screens (`hud`): the HUD's view,
         // its layers given it while there is one.
         let mut camera = commands.spawn((
-            Camera3d::default(),
+            crate::reshade::overlay_camera(),
             crate::scene::over_world(13),
             crate::hud::overlay_view(),
             crate::scene::encoded_view(),

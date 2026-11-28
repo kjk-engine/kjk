@@ -2687,12 +2687,37 @@ impl PoseTotals {
 
 /// A body some line of a conversation (its `owner`'s, of `dialog`) has had
 /// as speaker or listener, whose DLG hides its item models until the
-/// conversation ends.
+/// conversation ends. Only the weapons it held when it was noted
+/// (`weapons`) stay hidden: TSL's executable hides a creature's weapon
+/// models once, as it joins the conversation, and a weapon a script equips
+/// later in the conversation is drawn (Atris holds the Exile's lightsaber,
+/// equipped by TSLRCM's `a_createpcsaber`, in a conversation that hides
+/// items).
 struct Unequipped {
     owner: ObjectId,
     dialog: String,
     who: SimId,
     hide: Hide,
+    weapons: [Option<sim::combat::sheet::Weapon>; 2],
+}
+
+/// The weapons `who` holds in `snapshot` (`worn_sheet`), its instances read
+/// once into `objects` when needed.
+fn weapons_held(
+    snapshot: &Snapshot,
+    level: &sim::Level,
+    objects: &mut Option<Instances>,
+    who: SimId,
+) -> Option<[Option<sim::combat::sheet::Weapon>; 2]> {
+    let entity = snapshot.get(who)?;
+    let sheet = match entity.sheet {
+        Some(worn) => worn,
+        None => sheet(
+            entity,
+            objects.get_or_insert_with(|| Instances::in_snapshot(level, snapshot)),
+        ),
+    };
+    Some(sheet.weapons)
 }
 
 /// The speaker of a conversation's lines (`Conversation::speaker`, `id`'s)
@@ -3566,7 +3591,24 @@ impl Cast {
         close: &[SimId],
         own: Option<&Own<'_>>,
     ) {
+        self.steer_filtered(history, ms, frame_ms, close, own, |_| true);
+    }
+
+    /// Steers figures matching `include` at `ms`, `frame_ms` after the last
+    /// step.
+    pub fn steer_filtered(
+        &mut self,
+        history: &[Arc<Snapshot>],
+        ms: f64,
+        frame_ms: f32,
+        close: &[SimId],
+        own: Option<&Own<'_>>,
+        mut include: impl FnMut(SimId) -> bool,
+    ) {
         for (&id, member) in &mut self.members {
+            if !include(id) {
+                continue;
+            }
             if let (Some(member), Some(at)) = (member, steered(history, id, ms, own)) {
                 member
                     .figure
@@ -3578,9 +3620,21 @@ impl Cast {
     /// The keyframed sounds every JA-animated figure passed since the last
     /// step, at `ms`, by character.
     pub fn keyframed(&mut self, ms: f64) -> Vec<(SimId, Keyed)> {
+        self.keyframed_filtered(ms, |_| true)
+    }
+
+    /// Keyframed sounds for figures matching `include` since the last step.
+    pub fn keyframed_filtered(
+        &mut self,
+        ms: f64,
+        mut include: impl FnMut(SimId) -> bool,
+    ) -> Vec<(SimId, Keyed)> {
         let events = self.rig.events.clone();
         let mut out = Vec::new();
         for (&id, member) in &mut self.members {
+            if !include(id) {
+                continue;
+            }
             let Some(member) = member else { continue };
             if matches!(member.body.look, Look::Clips(_)) {
                 continue;
@@ -3812,6 +3866,7 @@ impl Cast {
         let (Some(snapshot), Some(scripts)) = (snapshot, level.scripts()) else {
             return;
         };
+        let mut objects = None;
         for talk in talks {
             let Some(dlg) = scripts.dialogue(&talk.dialog) else {
                 continue;
@@ -3822,7 +3877,6 @@ impl Cast {
             if !dlg.unequip_items {
                 continue;
             }
-            let hide = Hide::All;
             let LinePair {
                 speaker, listener, ..
             } = line_pair(snapshot, talk);
@@ -3831,14 +3885,25 @@ impl Cast {
                     kept.who == who && kept.owner == talk.owner && kept.dialog == talk.dialog
                 });
                 if !noted {
+                    let weapons =
+                        weapons_held(snapshot, level, &mut objects, who).unwrap_or([None, None]);
                     self.unequipped.push(Unequipped {
                         owner: talk.owner,
                         dialog: talk.dialog.clone(),
                         who,
-                        hide,
+                        hide: Hide::All,
+                        weapons,
                     });
                 }
             }
+        }
+        // A weapon equipped since a body was noted is drawn.
+        for kept in &mut self.unequipped {
+            let now = weapons_held(snapshot, level, &mut objects, kept.who);
+            kept.hide = match now.is_none_or(|now| now == kept.weapons) {
+                true => Hide::All,
+                false => Hide::None,
+            };
         }
     }
 

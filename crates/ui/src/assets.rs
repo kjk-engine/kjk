@@ -658,6 +658,20 @@ impl GuiAssets {
         })
     }
 
+    /// The campaign's 2DA `table` as stored, not cached, or why it does not
+    /// read; `None` when no layer has it. A mod's own table is read this
+    /// way, so that a damaged one can say what is wrong with it.
+    pub fn table_bytes(&self, table: &str) -> Option<Result<Vec<u8>, String>> {
+        let found = self.resolver.find(table, ResType::TWO_DA)?;
+        Some(found.location.read().map_err(|error| error.to_string()))
+    }
+
+    /// The text of `strref` in the campaign's `dialog.tlk`, as the game's
+    /// bytes.
+    pub fn campaign_text(&self, strref: u32) -> Option<Vec<u8>> {
+        self.tlk.as_ref()?.text(strref).map(<[u8]>::to_vec)
+    }
+
     /// The modules' art (`MODULE_ART`) let go: its ids name nothing from
     /// now on, and asked for again (the module entered's) it is read anew.
     /// A module's or area's name has a digit in it, which keeps the art

@@ -121,6 +121,10 @@ pub fn groups() -> Vec<Group> {
         ("mutation", || mutation(MUTATIONS)),
         ("save copies", crate::session::probes::copy_probes),
         ("seats", crate::session::probes::seat_probes),
+        (
+            "transport fixes",
+            crate::session::probes::transport_fix_probes,
+        ),
         ("rewinds", crate::session::rewind_probes::probes),
     ]
 }
@@ -370,7 +374,7 @@ pub fn wire_probes() -> Probes {
         seq: 65_535,
         ack: Some(wire::Ack {
             seq: 7,
-            bits: 0x8000_0001,
+            bits: 0x8000_0000_8000_0001,
             delay: 12,
         }),
     };
@@ -468,7 +472,7 @@ pub fn wire_probes() -> Probes {
         .collect();
     probes.check(
         "wire: handshake packets",
-        "every handshake packet round-trips; requests are exactly 1200 bytes, replies shorter",
+        "every handshake packet round-trips; requests are padded to MAX_DATAGRAM (1120 B), replies shorter",
         sizes.iter().all(|&(_, fine)| fine),
         format!(
             "sizes {:?}",
@@ -704,8 +708,8 @@ pub fn reliable(seconds: u64) -> Probes {
     let keepalive = keepalive_len();
     probes.check(
         "overhead: header",
-        "the session header is 19 bytes (design section 4), and a packet with nothing to say is only that",
-        HEADER_LEN == 19 && keepalive == HEADER_LEN,
+        "the session header is 23 bytes, and a packet with nothing to say is only that",
+        HEADER_LEN == 23 && keepalive == HEADER_LEN,
         format!(
             "header {HEADER_LEN} B (47 B with UDP/IPv4), keepalive packet {keepalive} B, slice framing {slice_head} B (type, length, id, part, count), unreliable frame framing {} B for a {TICK_FRAME}-byte payload; mean per packet in the reliable run: a {:.1} B, b {:.1} B (header, acks and framing)",
             wire::frame_len(TICK_FRAME) - TICK_FRAME,
@@ -787,6 +791,38 @@ pub fn rtt() -> Probes {
         probes.measure(&format!("rtt.{key}.fast"), ms(stats[0].rtt_us), "ms");
         probes.measure(&format!("rtt.{key}.slow"), ms(stats[1].rtt_us), "ms");
     }
+
+    // 30-second sliding-window minimum decays old lows when path RTT rises.
+    let fast_path = conditions(25, 0);
+    let slow_path = conditions(75, 0);
+    let mut duo = Duo::new(20, fast_path, fast_path, Config::default());
+    let mut shifted = false;
+    let mut min_before = 0u64;
+    duo.run(|duo| {
+        let now = duo.now();
+        if now >= NetTime(42_000_000) {
+            return None;
+        }
+        if !shifted && now >= NetTime(10_000_000) {
+            min_before = duo.links[0].stats().rtt_min_us;
+            duo.net.set_path(duo.peers[0], duo.peers[1], slow_path);
+            duo.net.set_path(duo.peers[1], duo.peers[0], slow_path);
+            shifted = true;
+        }
+        let _ = duo.links[0].queue_unreliable(frame::COMMANDS, &[0; 16]);
+        let _ = duo.links[1].queue_unreliable(frame::COMMANDS, &[0; 16]);
+        duo.links[0].take_acked().for_each(drop);
+        duo.links[1].take_acked().for_each(drop);
+        Some(now.plus(50_000))
+    });
+    let min_after = duo.links[0].stats().rtt_min_us;
+    probes.check(
+        "rtt: 30s sliding min",
+        "rtt_min_us tracks the 50 ms baseline and rises to ~150 ms once the 30 s window expires",
+        (45_000..=60_000).contains(&min_before) && (135_000..=165_000).contains(&min_after),
+        format!("before {min_before} us, after {min_after} us"),
+    );
+
     probes
 }
 
@@ -1110,7 +1146,7 @@ pub fn handshake() -> Probes {
         "handshake: a Workshop item in words",
         "a refusal names the Steam Workshop item that differs, and the items past the groups a handshake carries",
         workshop
-            == "your tsl override folder, Steam Workshop item 485537937 and later Steam Workshop items differ from the host's",
+            == "Your KOTOR 2 files do not match the host's. The override folder, Steam Workshop item 485537937 and later Steam Workshop items differ. Check that you and the host have the same game files, the same mods and the same Steam Workshop items.",
         workshop.clone(),
     );
 
@@ -1359,10 +1395,19 @@ pub fn handshake() -> Probes {
         &hello,
         |_, _, _| Ok(()),
     );
+    let burst_low = 2 * handshake::HELLO_RATE - 1;
+    let burst_high = 2 * handshake::HELLO_RATE;
+    let challenged_u64 = u64::from(challenged);
     probes.check(
         "handshake: hello rate limit",
-        "1000 Hellos in a second from one address get 8 at once then one per 125 ms (15 or 16); another address is answered meanwhile; the flooder is answered again after a pause",
-        (15..=16).contains(&challenged) && bystander_ok && after.event == Event::Challenged,
+        &format!(
+            "1000 Hellos in a second from one address get {} at once then refills at {}/s ({burst_low} or {burst_high}); another address is answered meanwhile; the flooder is answered again after a pause",
+            handshake::HELLO_RATE,
+            handshake::HELLO_RATE,
+        ),
+        (burst_low..=burst_high).contains(&challenged_u64)
+            && bystander_ok
+            && after.event == Event::Challenged,
         format!(
             "{challenged} challenged, bystander {}, after a pause {:?}",
             if bystander_ok { "answered" } else { "NOT answered" },
@@ -1439,7 +1484,7 @@ pub fn handshake() -> Probes {
     let backwards = try_connect(3000, me, &challenge);
     probes.check(
         "handshake: unpadded and backwards",
-        "a Hello not padded to 1200 bytes and a Challenge sent to the server get no reply",
+        "a Hello not padded to MAX_DATAGRAM (1120 B) and a Challenge sent to the server get no reply",
         short_outcome.reply.is_none()
             && matches!(short_outcome.event, Event::Dropped(Dropped::Malformed(_)))
             && backwards.event == Event::Dropped(Dropped::NotARequest),
@@ -1965,7 +2010,7 @@ pub fn link_rules() -> Probes {
         seq: 1,
         ack: Some(wire::Ack {
             seq: 500,
-            bits: u32::MAX,
+            bits: u64::MAX,
             delay: 0,
         }),
     }
@@ -2006,13 +2051,77 @@ pub fn link_rules() -> Probes {
         ),
     );
     in_flight_past_the_ring(&mut probes);
+
+    // 64-bit ack bitmap acknowledges packets separated by > 32 sequence numbers.
+    let mut sender = Link::new(SESSION, NetTime(0));
+    let mut receiver = Link::new(SESSION, NetTime(0));
+    let mut packets = Vec::new();
+    for i in 0..50u64 {
+        let _ = sender.queue_unreliable(frame::SNAPSHOT, &[i as u8]);
+        packets.push(
+            sender
+                .poll_transmit(NetTime(i * 1000))
+                .unwrap_or_else(Vec::new),
+        );
+    }
+    let _ = receiver.receive(NetTime(60_000), &packets[0]);
+    let _ = receiver.receive(NetTime(60_000), &packets[49]);
+    let ack_pkt = receiver.poll_transmit(NetTime(60_000 + link::KEEPALIVE_US));
+    let acked: Vec<u16> = ack_pkt
+        .as_ref()
+        .map(|pkt| {
+            let _ = sender.receive(NetTime(61_000 + link::KEEPALIVE_US), pkt);
+            sender.take_acked().collect()
+        })
+        .unwrap_or_else(Vec::new);
+    probes.check(
+        "link: 64-bit ack window",
+        "receiving packets 0 and 49 (>32 apart) acks both without waiting on 1..48",
+        acked.len() == 2 && acked.contains(&0) && acked.contains(&49),
+        format!("acked {acked:?}"),
+    );
+
+    // Unreliable-only ACKs wait longer (`unreliable_ack_delay_us`) to piggyback,
+    // while reliable slice arrivals pull the ACK deadline forward to `max_ack_delay_us`.
+    let mut tx = Link::new(SESSION, NetTime(0));
+    let mut rx = Link::new(SESSION, NetTime(0));
+    let _ = tx.queue_unreliable(frame::SNAPSHOT, &[7; 16]);
+    let unrel_pkt1 = tx.poll_transmit(NetTime(0)).unwrap_or_else(Vec::new);
+    let _ = tx.queue_unreliable(frame::SNAPSHOT, &[8; 16]);
+    let unrel_pkt2 = tx.poll_transmit(NetTime(100_000)).unwrap_or_else(Vec::new);
+    let _ = tx.send_reliable(&[9; 8]);
+    let rel_pkt = tx.poll_transmit(NetTime(102_000)).unwrap_or_else(Vec::new);
+
+    let _ = rx.receive(NetTime(1_000), &unrel_pkt1);
+    let at_5ms = rx.poll_transmit(NetTime(1_000 + link::DEFAULT_ACK_DELAY_US));
+    let at_unrel = rx.poll_transmit(NetTime(1_000 + link::DEFAULT_UNRELIABLE_ACK_DELAY_US));
+    let _ = rx.receive(NetTime(100_000), &unrel_pkt2);
+    let _ = rx.receive(NetTime(102_000), &rel_pkt);
+    let before_rel_5ms = rx.poll_transmit(NetTime(106_000));
+    let at_rel_5ms = rx.poll_transmit(NetTime(102_000 + link::DEFAULT_ACK_DELAY_US));
+    probes.check(
+        "link: unreliable vs reliable ack pacing",
+        "unreliable-only ACKs wait DEFAULT_UNRELIABLE_ACK_DELAY_US while reliable arrivals pull the ACK deadline forward to DEFAULT_ACK_DELAY_US",
+        at_5ms.is_none()
+            && at_unrel.is_some()
+            && before_rel_5ms.is_none()
+            && at_rel_5ms.is_some(),
+        format!(
+            "at_5ms={} at_unrel={} before_rel_5ms={} at_rel_5ms={}",
+            at_5ms.is_some(),
+            at_unrel.is_some(),
+            before_rel_5ms.is_some(),
+            at_rel_5ms.is_some()
+        ),
+    );
+
     probes
 }
 
 /// More packets in flight than the sender keeps records of. The sender
 /// sends a snapshot fragment every millisecond and a keyframe-sized
-/// message every 2 s. Its peer sends nothing back from 1 s to 1.5 s, as a
-/// peer that hitches does, so more than 256 packets go unacked. Every
+/// message every 2 s. Its peer sends nothing back from 1 s to 2.5 s, as a
+/// peer that hitches does, so more than 1024 packets go unacked. Every
 /// message must still arrive through 2% bursty loss each way. A sender
 /// that read a newer packet's record as an older one's stopped resending,
 /// and the messages after the hitch never arrived.
@@ -2041,7 +2150,7 @@ fn in_flight_past_the_ring(probes: &mut Probes) {
             queued += 1;
         }
         let _ = duo.links[0].queue_unreliable(frame::SNAPSHOT, &[0; 1000]);
-        let hitch = (1_000_000..1_500_000).contains(&now.0);
+        let hitch = (1_000_000..2_500_000).contains(&now.0);
         if hitch != hitched {
             hitched = hitch;
             let (a, b) = (duo.peers[0], duo.peers[1]);
@@ -2052,7 +2161,7 @@ fn in_flight_past_the_ring(probes: &mut Probes) {
     });
     probes.check(
         "link: more packets in flight than records",
-        "a fragment every 1 ms and a 400 KB message every 2 s, the peer silent from 1 s to 1.5 s, 2% bursty loss each way: all five messages arrive intact",
+        "a fragment every 1 ms and a 400 KB message every 2 s, the peer silent from 1 s to 2.5 s, 2% bursty loss each way: all five messages arrive intact",
         got == messages,
         format!(
             "{} of {} delivered by {:.3} s, {} slices resent",
@@ -2107,7 +2216,7 @@ pub fn loopback() -> Probes {
     a.send(Peer::Local(7), &[0; 10]);
     probes.check(
         "loopback: a link pair",
-        "200 messages over Loopback arrive in order, intact; a datagram over 1200 bytes or to another address is dropped",
+        "200 messages over Loopback arrive in order, intact; a datagram over MAX_DATAGRAM bytes or to another address is dropped",
         delivered == 200 && wrong == 0 && a.dropped() == 2,
         format!("{delivered} delivered, {wrong} wrong, {} dropped", a.dropped()),
     );

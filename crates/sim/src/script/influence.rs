@@ -151,7 +151,7 @@ pub(super) fn facts<'a>(view: &'a View, out: &'a Out, who: ObjectId) -> Option<&
 
 /// `who`'s sheet as this step leaves it: a character's, or one made this
 /// step's (the party table's kept one, else its template's).
-pub(super) fn sheet(view: &View, out: &Out, who: ObjectId) -> Option<Sheet> {
+pub(crate) fn sheet(view: &View, out: &Out, who: ObjectId) -> Option<Sheet> {
     let worn = match view.thing(who) {
         Some(thing) => thing.character?.worn,
         None => {

@@ -883,7 +883,15 @@ and a stealth unit worn, out of combat, and ends on an attack, a power, a
 grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
-`docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
+`docs/SCRIPTS.md`); in it the body walks. A melee swing and a Force power
+end Stealth Mode on the step of the key press. A gun's shot ends it on the
+step the shot leaves the gun, and a grenade on the step it leaves the hand
+(`Covert::attacked`). Charging a Power Blast, steadying a Sniper Shot,
+raising a gun and charging a grenade throw keep Stealth Mode on, and the
+Sneak Attack Window opens when the shot or the grenade leaves. A wind-up
+that fires nothing leaves the character in Stealth Mode. This matches the
+originals, which end Stealth Mode when the attack is resolved, not when it
+is queued. Drawing a weapon does not end
 it, and a lightsaber in hand stays unlit until the attack that ends it
 (**Drawn** below). The HUD's stealth toggle
 (`TB_STEALTH`) is lit while it lasts. As stealth mode turns on, the
@@ -943,13 +951,29 @@ A mine keeps the Demolitions its setter had as it set it (TSL's
 `OwnerDemolitionsSkill`, the total rank then: `TrapState::owner_demolitions`):
 its trap script reads it (`GetOwnerDemolitionsSkill`), and a mine set on a
 door blasts by it, whatever the setter has since.
+**Shooting a mine** (`world::traps::shot`). A blaster bolt fired by a
+character that a player controls sets off a mine that the party has found.
+One bolt is enough. The bolt meets a box over the mine's middle that is
+0.8 m wide and 0.3 m high (`traps.shooting`). The mine's `traps.2da` script
+then runs as the mine with no creature entering it, as it does when one of
+KOTOR 2's droid powers is used on a mine. The mine explodes and is removed.
+`k_trp_generic` in both games hurts every creature in its blast that is not
+neutral toward the mine, so a mine can hurt its own side, and the shooter
+too when the shooter stands close. The party receives no experience and no
+kit for a mine that is shot. A mine that the party has not found, a
+disabled mine, a mine set on a lock and a mine with a story script of its
+own cannot be shot. Bolts fired by enemies, by companions that no player
+controls and by scripts fly through mines. `kjk script mines k1|tsl` lists
+every trap trigger with whether a bolt can set it off.
 **Perception** runs at KOTOR's cadence (each creature looks every 300 to
 699 ms while its AI runs, every 4 s while a conversation holds it); a
 stealthed character is seen only past the spot check and heard only past
 the listen check (Awareness against Stealth, rolls held 20 s; walls stop
 listening). `kjk combat stealth k1`: 4 checks against `tar_m09aa`'s Sith
 (seen plain at 10 m, unseen stealthed on the same spot for 5 s, the
-cadence, the opener's sneak attack); `kjk script traps k1`: the traps.
+cadence, the opener's sneak attack), then the armed openers, the unlit
+lightsabers and the gun wind-ups on the proving ground; `kjk script traps
+k1`: the traps.
 
 ## Items (`combat::items`)
 KOTOR's consumables, four kinds carried (`Sheet::items`: creatures from

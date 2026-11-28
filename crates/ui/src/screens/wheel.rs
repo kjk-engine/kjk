@@ -30,7 +30,7 @@
 use fmt_odyssey::gui::{Control, Gui, align};
 
 use crate::draw::DrawList;
-use crate::paint::{ControlState, Painter, rect_of};
+use crate::paint::{ControlState, Painter, intersect, rect_of};
 use crate::screens::hud::{BADGE_TALL, dot_at, label, ringed};
 use crate::vm::{WheelEntry, WheelView};
 
@@ -245,10 +245,12 @@ fn placed(control: &Control, rect: [f32; 4]) -> Control {
 /// the first, at most `STACKED`. `frame` is the slot's own frame control,
 /// and `rect` is where the slot stands (left, top, width, height). Each
 /// stacked frame stands a little further out along `outward` than the one
-/// before it, so the slot looks like the top of a pile. They are drawn
-/// dimmed when the slot is (`dim`). The power wheel, the HUD's action bar
-/// and the action bar setup screen all draw their stacks so. The slot itself
-/// is drawn over them afterwards.
+/// before it, so the slot looks like the top of a pile. Only the part of a
+/// stacked frame outside the slot is drawn, and each is fainter than the
+/// one before it (`STACK_FADE`). They are drawn dimmed when the slot is
+/// (`dim`). The power wheel, the HUD's action bar and the action bar setup
+/// screen all draw their stacks so. The slot itself is drawn over them
+/// afterwards.
 pub(crate) fn stacked(
     frame: &Control,
     (kinds, dim): (u8, bool),
@@ -265,8 +267,47 @@ pub(crate) fn stacked(
     for nth in (1..=behind).rev() {
         let shift = w.min(h) * STACK_STEP * nth as f32;
         let moved = [x + outward[0] * shift, y + outward[1] * shift, w, h];
-        painter.control(&placed(frame, moved), &state, out);
+        // The slot's frame is open in the middle. A stacked frame drawn
+        // whole would show its edges through the slot as a second border,
+        // so it is drawn only in the parts of the screen outside the slot.
+        for clip in outside(rect, moved) {
+            let from = out.quads.len();
+            painter.control(&placed(frame, moved), &state, out);
+            for quad in &mut out.quads[from..] {
+                quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
+                quad.color[3] *= STACK_FADE.powi(nth as i32);
+            }
+        }
     }
+}
+
+/// How opaque each stacked frame is, compared with the frame in front of
+/// it. The farther back a frame stands, the fainter it is drawn.
+const STACK_FADE: f32 = 0.6;
+
+/// The parts of `moved` that lie outside `slot` (left, top, width, height),
+/// as at most two rectangles that do not overlap. The first is the band
+/// above or below the slot, as wide as `moved`. The second is the band left
+/// or right of the slot, only as tall as the slot. A stacked frame is moved
+/// from the slot by less than the slot's size, so these two bands hold all
+/// of it that the slot does not cover.
+fn outside(slot: [f32; 4], moved: [f32; 4]) -> Vec<[f32; 4]> {
+    let [x, y, w, h] = slot;
+    let [mx, my, mw, mh] = moved;
+    let mut parts = Vec::new();
+    if my < y {
+        parts.push([mx, my, mw, y - my]);
+    } else if my > y {
+        parts.push([mx, y + h, mw, my + mh - (y + h)]);
+    }
+    let (top, bottom) = (my.max(y), (my + mh).min(y + h));
+    if mx > x {
+        parts.push([x + w, top, mx + mw - (x + w), bottom - top]);
+    } else if mx < x {
+        parts.push([mx, top, x - mx, bottom - top]);
+    }
+    parts.retain(|[_, _, w, h]| *w > 0.0 && *h > 0.0);
+    parts
 }
 
 /// The two controls an entry is drawn with: an action slot's frame and its

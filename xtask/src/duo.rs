@@ -660,6 +660,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "--moves".to_string(),
         options.moves_host.clone(),
         "--headless".to_string(),
+        "--mute".to_string(),
         "--cmds".to_string(),
         options.cmds_host.clone().unwrap_or_else(|| {
             format!(
@@ -680,6 +681,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &[
             ("KJK_NETEM", &format!("{},seed=1", options.netem)),
             ("KJK_SAVES", &host_saves_env),
+            ("KJK_NET_AUDIT", "1"),
         ],
         &repo_root(),
         &folder,
@@ -697,6 +699,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--moves".to_string(),
             options.moves_join.clone(),
             "--headless".to_string(),
+            "--mute".to_string(),
             "--cmds".to_string(),
             options.cmds_join.clone().unwrap_or_else(|| {
                 // It stays past the host's dump: a guest gone is a body
@@ -721,6 +724,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             &[
                 ("KJK_NETEM", &format!("{},seed=2", options.netem)),
                 ("KJK_SAVES", &player_saves_env),
+                ("KJK_NET_AUDIT", "1"),
             ],
             &repo_root(),
             &folder,

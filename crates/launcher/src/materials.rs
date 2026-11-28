@@ -227,6 +227,9 @@ fn tally_mesh(
             format!("{module}: {texture_name} ({frames} frames)")
         });
     }
+    if material::water(diffuse_facts).is_some() {
+        tally.add("water (env map alone, blended by wateralpha)", place);
+    }
     if mesh.uv_scroll.is_some() {
         tally.add("scrolling UVs", place);
     }

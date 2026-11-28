@@ -2133,10 +2133,16 @@ pub struct Character {
     /// Its walk has stalled again and again (`STUCK_STALLS`): it can come
     /// no nearer where it is going.
     pub stuck: bool,
+    /// KOTOR's walker gave up only on bumping into a body, and that body is
+    /// a seat's own character or is on the move, so it will clear the way
+    /// (`walk::Walker::bumped_stuck`).
+    pub bumped_stuck: bool,
     /// Its walk carries it on now: not stalled, its body moving.
     pub walking: bool,
     /// Off the floor: thrown, falling, jumping.
     pub airborne: bool,
+    /// Held still by pain, grapple or knockback.
+    pub held_still: bool,
     /// The last to hurt it, and when (sim ms).
     pub struck: Option<(ObjectId, u64)>,
     /// A party member down (I30 P11): out of the fight but still the
@@ -2611,6 +2617,9 @@ pub enum Change {
     Animate { who: ObjectId, play: (u16, u32) },
     /// As `Animate`, but a body already playing that clip goes on with it.
     KeepAnimating { who: ObjectId, play: (u16, u32) },
+    /// `who` stops `animation` if it plays it until stopped (`u32::MAX`): a
+    /// conversation's looping gesture whose entry has gone.
+    StopAnimating { who: ObjectId, animation: u16 },
     /// `who` struck by a scene's shot that landed without its bolt, its
     /// answer row `row` (`effects::blows::struck`).
     Struck { who: ObjectId, row: u16 },
@@ -2673,6 +2682,13 @@ pub enum Change {
         who: ObjectId,
         before: crate::combat::Sheet,
         after: crate::combat::Sheet,
+    },
+    /// `who`'s hit points and Force points full at the most `sheet` gives
+    /// it (the Debug Mode terminal's rebuild and restore,
+    /// `world::arena::edits`).
+    Whole {
+        who: ObjectId,
+        sheet: crate::combat::Sheet,
     },
     /// `who` leaves combat: no one to fight, out of it from now
     /// (`CancelCombat`).
@@ -3498,14 +3514,17 @@ impl Step<'_> {
                             self.moved(thing, started, ended, at);
                             true
                         }
-                        // Off the floor (thrown by a blow, falling): its
-                        // clock waits for it to land, so the way there is
-                        // judged from where it stands, as KOTOR's movers,
-                        // never off the floor, plan theirs (Malak knocked
-                        // off the Star Forge's ledge as a drain begins).
+                        // Off the floor or immobilized (thrown by a blow,
+                        // falling, stunned, grappled): its clock waits for it
+                        // to land or recover, so the way there is judged from
+                        // where it stands, as KOTOR's movers plan theirs
+                        // (Malak knocked off the Star Forge's ledge or
+                        // Whirlwinded as a drain begins).
                         Some((at, _))
                             if force_ms.is_none()
-                                && thing.character.as_ref().is_some_and(|c| c.airborne) =>
+                                && thing.character.as_ref().is_some_and(|c| {
+                                    c.airborne || c.debilitated || c.held_still
+                                }) =>
                         {
                             if let Some(front) =
                                 self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
@@ -3546,6 +3565,20 @@ impl Step<'_> {
                         Some((at, _))
                             if force_ms.is_some()
                                 && thing.character.as_ref().is_some_and(|c| c.stuck) =>
+                        {
+                            self.out.changes.push(Change::Walk { who, anew: false });
+                            self.goal(id, at, self.arrival(thing, to, *range), *run);
+                            false
+                        }
+                        // `ActionMoveToObject` stopped by a body that will
+                        // clear (a player's character, or one on the move)
+                        // walks again. One stopped by a creature standing
+                        // still gives up below, so what its script queued
+                        // after the move still runs.
+                        Some((at, _))
+                            if force_ms.is_none()
+                                && matches!(to, Target::Object(..))
+                                && thing.character.as_ref().is_some_and(|c| c.bumped_stuck) =>
                         {
                             self.out.changes.push(Change::Walk { who, anew: false });
                             self.goal(id, at, self.arrival(thing, to, *range), *run);
@@ -3905,7 +3938,7 @@ impl Step<'_> {
     ) -> bool {
         let who = thing.id;
         let module = self.view.module.name.clone();
-        let holder = items::holder(self.view, who);
+        let holder = items::holder(self.view, &self.state.party, who);
         let held = self.state.items.get(&item.0).map(|held| held.holder);
         if pick {
             let Some(lying) = self.state.lying(&module, item) else {
@@ -4364,6 +4397,7 @@ impl Step<'_> {
                 guest,
                 asker: pending.asker,
                 script_var: pending.script_var,
+                params: pending.params.clone(),
                 cue,
                 ..Event::default()
             };

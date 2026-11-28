@@ -8,12 +8,20 @@
 //! templates can be called in (`arena spawn TEMPLATE`).
 //!
 //! The player comes in as a level-20 Jedi who knows every K1 Force power
-//! (`sheet`), carries every hand weapon K1 has (`weapons`), and is back on
+//! (`sheet`), carries every item K1 has (`gear`), and is back on
 //! its feet at the start `RESPAWN_MS` after going down. Keys
 //! (`ArenaPlugin`): F2 calls in the chosen foe ahead of the player, F3
 //! chooses the next in `ROSTER`, F4 turns god mode on or off, F6 takes
 //! every foe away; a panel under the minimap says so
 //! (`ui::screens::arena_panel`).
+//!
+//! The sandbox has the Debug Mode terminal too: KOTOR 1's Rakatan computer
+//! beside the arrival (`terminal`), which opens a page that changes a
+//! party member's class, level, attributes, skills and alignment
+//! (`crate::debug_terminal`). The console's table of commands gives the
+//! same orders as `level`, `attribute`, `skill`, `alignment` and `restore`
+//! (`crates/commands`, run by `crate::console_view`).
+//! The arena's player starts with one of every item (`gear`).
 
 use std::sync::Arc;
 
@@ -31,6 +39,28 @@ pub const BASE_MODULE: &str = "end_m01aa";
 pub const SANDBOX: &str = "sandbox";
 pub const SANDBOX_MODULE: &str = "sta_m45ad";
 pub const SANDBOX_ARRIVAL: &str = "sta_way_player";
+/// The Debug Mode terminal's name, shown when the player aims at it.
+pub const TERMINAL_NAME: &str = "Debug Terminal";
+/// Where the terminal stands from the player's arrival on the sandbox
+/// (metres ahead and to the left of the way the player faces), and how far
+/// it turns from facing the way the player faces (degrees).
+const TERMINAL_AHEAD: f32 = -2.5;
+const TERMINAL_LEFT: f32 = 3.0;
+const TERMINAL_TURN: f32 = 180.0;
+
+/// Where the Debug Mode terminal stands and the way it faces, for an
+/// arrival at `at` facing `yaw` (`Stage::with_debug_terminal`).
+pub fn terminal(at: [f32; 3], yaw: f32) -> ([f32; 3], f32) {
+    let (sin, cos) = sim::math::sin_cos_deg(yaw);
+    let [x, y, z] = at;
+    let place = [
+        x + cos * TERMINAL_AHEAD - sin * TERMINAL_LEFT,
+        y + sin * TERMINAL_AHEAD + cos * TERMINAL_LEFT,
+        z,
+    ];
+    (place, yaw + TERMINAL_TURN)
+}
+
 /// Half the floor's side (metres), and its walls' height.
 const HALF: f32 = 18.0;
 const WALL: f32 = 4.0;
@@ -157,6 +187,7 @@ pub fn rules() -> sim::arena::Rules {
         yaw: YAW,
         pit: PIT_FLOOR,
         respawn_ms: RESPAWN_MS,
+        terminal: None,
     }
 }
 
@@ -327,24 +358,43 @@ pub fn sabers(sheet: &Sheet) -> Vec<(&'static str, u8)> {
 /// `baseitems.2da`'s double-bladed lightsaber.
 const STAFF_ROW: u16 = 9;
 
-/// Every hand weapon and every armour K1 has (`library`'s item templates a
-/// right hand holds or a body wears, but plot items), by template: what the
-/// arena's player carries, one of each, two of a gun the left hand takes too
-/// (a pistol, for a pair).
+/// How many of each grenade, mine, medical item and stimulant the arena's
+/// player starts with.
+const STACK: u16 = rules::world::arena::terminal::STACK;
+
+/// Every item the arena's player carries (`library`'s item templates but
+/// plot items, by template): what a body wears on its head, body, hands,
+/// arms, belt or as an implant, every hand weapon, every grenade and mine,
+/// and every medical item and stimulant. It has one of each thing it
+/// wears or holds, two of a gun the left hand takes too (a pistol, for a
+/// pair), and `STACK` of each grenade, mine, medical item and stimulant.
 pub fn gear(library: &sim::script::Library) -> Vec<(String, u16)> {
-    use sim::inventory::slots::{BODY, LEFT_WEAPON, RIGHT_WEAPON};
+    use sim::combat::items::{Shelf, use_of};
+    use sim::inventory::slots::{
+        BELT, BODY, HANDS, HEAD, IMPLANT, LEFT_ARM, LEFT_WEAPON, RIGHT_ARM, RIGHT_WEAPON,
+    };
+    let worn = [HEAD, BODY, HANDS, LEFT_ARM, RIGHT_ARM, IMPLANT, BELT];
     library
         .items()
         .iter()
         .filter(|item| !item.plot)
-        .filter(|item| {
-            item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
-                || item.slots & 1 << BODY != 0
-        })
-        .map(|item| {
+        .filter_map(|item| {
+            let fits = |slot: u8| item.slots & 1 << slot != 0;
+            let shelf = item
+                .spell
+                .and_then(|spell| use_of(spell.row))
+                .map(|of| of.shelf());
+            let used = matches!(shelf, Some(Shelf::Grenade | Shelf::Medpac | Shelf::Stim));
             let gun = item.weapon.is_some_and(|weapon| weapon.delivery.ranged());
-            let pistol = gun && item.slots & 1 << LEFT_WEAPON != 0;
-            (item.template.clone(), 1 + u16::from(pistol))
+            let pistol = gun && fits(LEFT_WEAPON);
+            let count = if item.slots == 0 && (used || item.trap.is_some()) {
+                STACK
+            } else if worn.into_iter().any(fits) || item.weapon.is_some() && fits(RIGHT_WEAPON) {
+                1 + u16::from(pistol)
+            } else {
+                return None;
+            };
+            Some((item.template.clone(), count))
         })
         .collect()
 }
@@ -372,42 +422,25 @@ type Shown<'w> = (
     Option<Res<'w, crate::sim_host::OwnSeat>>,
 );
 
-/// Where the arena's orders go: the actions sent to the sim, and the
-/// console's orders taken.
-type Orders<'w> = (
-    Option<ResMut<'w, crate::loot::Outgoing>>,
-    Option<ResMut<'w, console::ArenaRequests>>,
-);
-
 /// F2 to F6 (see the module documentation), only on the arena's level;
 /// the line says whether the player's body is in god mode now.
 fn keys(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     (swap, presented, own): Shown,
     mut chosen: ResMut<Chosen>,
-    (mut outgoing, mut requests): Orders,
-    mut ui: Option<ResMut<crate::ui_view::Ui>>,
+    mut outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    (mut ui, map): (
+        Option<ResMut<crate::ui_view::Ui>>,
+        Option<Res<crate::settings::KeyMap>>,
+    ),
 ) {
     let Some(swap) = swap.filter(|swap| swap.level.arena_rules().is_some()) else {
         return;
     };
-    // The console's orders (`arena spawn TEMPLATE`, `arena clear`, `arena
-    // god`), as the keys give them; `arena down N` (no key).
-    let asked = requests.as_mut().map_or_else(Vec::new, |requests| {
-        std::mem::take(&mut requests.0)
-            .into_iter()
-            .filter_map(|words| match words.as_slice() {
-                [spawn, template] if spawn == "spawn" => Some(ArenaOrder::Spawn(template.clone())),
-                [clear] if clear == "clear" => Some(ArenaOrder::Clear),
-                [god] if god == "god" => Some(ArenaOrder::God),
-                [down, n] if down == "down" => n.parse().ok().map(ArenaOrder::Down),
-                _ => None,
-            })
-            .collect()
-    });
-    if let Some(outgoing) = outgoing.as_mut() {
-        outgoing.0.extend(asked.into_iter().map(Action::Arena));
-    }
+    let me = presented
+        .as_ref()
+        .zip(own.as_ref())
+        .and_then(|(presented, own)| crate::cast::me(presented.0.current(), own.0));
     let god = presented
         .as_ref()
         .zip(own.as_ref())
@@ -435,42 +468,50 @@ fn keys(
         }
     }
     // The floors stage says the floor underfoot instead.
-    let me = presented
-        .as_ref()
-        .zip(own.as_ref())
-        .and_then(|(presented, own)| {
-            let current = presented.0.current();
-            let id = crate::cast::me(current, own.0)?;
-            current.get(id).map(|entity| entity.position)
-        });
+    let at = presented.as_ref().zip(me).and_then(|(presented, me)| {
+        let current = presented.0.current();
+        current.get(me).map(|entity| entity.position)
+    });
     let Some(ui) = ui.as_mut() else {
         return;
     };
     if swap.level.name() == crate::floor_arena::NAME {
-        ui.vm.arena = Some(crate::floor_arena::line(me.unwrap_or([0.0; 3])).into_bytes());
+        ui.vm.arena = Some(crate::floor_arena::line(at.unwrap_or([0.0; 3])).into_bytes());
     } else {
-        ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god));
+        // The terminal's row names the key that uses it, on a map that has one.
+        let map = map
+            .as_deref()
+            .unwrap_or(crate::settings::KeyMap::defaults());
+        let terminal = (swap.level.arena_rules())
+            .is_some_and(|rules| rules.terminal.is_some())
+            .then(|| map.shown(crate::settings::Action::Use));
+        ui.vm.arena_panel = Some(panel(ROSTER[chosen.foe].0, god, terminal));
     }
 }
 
 /// The panel's title and rows (`ui::screens::arena_panel`): `foe` the one
-/// F2 calls in, `god` whether the player's body is in god mode.
-fn panel(foe: &str, god: bool) -> ui::vm::ArenaPanelView {
-    let row = |key: &str, words: &str, state: &str, on: bool| ui::vm::ArenaRow {
+/// F2 calls in, `god` whether the player's body is in god mode, and the
+/// key that uses the Debug Mode terminal on a map that has one.
+fn panel(foe: &str, god: bool, terminal: Option<Vec<u8>>) -> ui::vm::ArenaPanelView {
+    let row = |key: &[u8], words: &str, state: &str, on: bool| ui::vm::ArenaRow {
         key: key.into(),
         words: words.into(),
         state: state.into(),
         on,
     };
+    let terminal = terminal.map(|key| row(&key, ui::strings::terminal::PANEL, "", false));
     ui::vm::ArenaPanelView {
         title: b"COMBAT DEBUG".to_vec(),
-        rows: vec![
-            row("F2", "Spawn", foe, true),
-            row("F3", "Next foe", "", false),
-            row("F4", "God mode", if god { "ON" } else { "off" }, god),
-            row("F6", "Clear foes", "", false),
-            row("[ ]", "Pick power", "", false),
-            row("F", "Cast power", "", false),
-        ],
+        rows: [
+            row(b"F2", "Spawn", foe, true),
+            row(b"F3", "Next foe", "", false),
+            row(b"F4", "God mode", if god { "ON" } else { "off" }, god),
+            row(b"F6", "Clear foes", "", false),
+            row(b"[ ]", "Pick power", "", false),
+            row(b"F", "Cast power", "", false),
+        ]
+        .into_iter()
+        .chain(terminal)
+        .collect(),
     }
 }

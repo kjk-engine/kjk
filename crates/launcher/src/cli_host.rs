@@ -109,6 +109,13 @@ pub(crate) struct HostArgs {
     /// (`kjk join --lobby-script`). Three seats; guests play companions
     #[arg(long)]
     lobby: Option<usize>,
+    /// Headless zero-GPU server duration in seconds (used with `--headless`)
+    #[arg(long)]
+    seconds: Option<u64>,
+    /// Minimum percent (1-100) of joined seats loaded before stepping after an
+    /// install when `seats > 4`
+    #[arg(long)]
+    quorum: Option<u8>,
 }
 
 pub(crate) fn parse_seats(text: &str) -> Result<u8, String> {
@@ -220,6 +227,26 @@ pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
     if args.lobby.is_some() && args.load.is_none() {
         eprintln!("--lobby: the lobby needs the save --load names");
         return ExitCode::from(2);
+    }
+    if args.headless
+        && args.cmds.is_none()
+        && args.lobby.is_none()
+        && args.load.is_none()
+        && (seats > 4 || args.seconds.is_some())
+    {
+        return crate::headless_net::run_host(&crate::headless_net::HostRun {
+            stage,
+            arrive: args.arrive.as_deref(),
+            seats,
+            guests,
+            address: std::net::SocketAddr::new(ip, args.port),
+            sheet,
+            conditions,
+            seconds: args.seconds.unwrap_or(60),
+            quorum: args.quorum,
+            aim: args.aim.as_deref(),
+            password: args.password.as_deref(),
+        });
     }
     let (lobby, id, port) = (args.lobby, args.load.clone(), args.port);
     launch(

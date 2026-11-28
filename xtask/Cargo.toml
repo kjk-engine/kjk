@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 blake3.workspace = true
 bumps.workspace = true
+# `cargo xtask console` writes docs/CONSOLE.md from the table of commands.
+commands.workspace = true
 image = { workspace = true, features = ["ico"] }
 # Renders the logo (docs/logo/kjk.svg) into the icons (`src/icon.rs`).
 resvg = { version = "0.49", default-features = false }

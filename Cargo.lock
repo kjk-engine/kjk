@@ -253,6 +253,7 @@ dependencies = [
  "bumps",
  "collision",
  "collision_odyssey",
+ "commands",
  "edit",
  "fmt_odyssey",
  "game",
@@ -2100,6 +2101,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "commands"
+version = "0.0.0"
+dependencies = [
+ "fmt_odyssey",
+ "sim",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3052,6 +3061,7 @@ dependencies = [
  "blake3",
  "collision",
  "collision_odyssey",
+ "commands",
  "console",
  "fmt_ja",
  "fmt_odyssey",
@@ -3074,6 +3084,7 @@ dependencies = [
  "ui",
  "vfs",
  "wgpu 29.0.4",
+ "windows-sys 0.61.2",
  "winit",
  "zip",
 ]
@@ -3876,6 +3887,7 @@ dependencies = [
  "clap",
  "collision",
  "collision_odyssey",
+ "commands",
  "console",
  "embed-resource",
  "fmt_ja",
@@ -4252,10 +4264,11 @@ version = "0.0.0"
 dependencies = [
  "blake3",
  "libc",
- "miniz_oxide 0.9.1",
+ "lz4_flex",
  "session",
  "sim",
  "steamworks",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7724,6 +7737,7 @@ version = "0.0.0"
 dependencies = [
  "blake3",
  "bumps",
+ "commands",
  "image",
  "resvg",
  "rules",

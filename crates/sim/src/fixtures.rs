@@ -148,7 +148,7 @@ fn fill(save: &mut Save, ground: &Level) {
         .map(|entity| entity.id)
         .into_iter()
         .collect();
-    snapshot.personas.push(crate::persona::Persona {
+    Arc::make_mut(&mut snapshot.personas).push(crate::persona::Persona {
         seat: crate::Seat(0),
         appearance: 91,
         gender: 1,
@@ -161,17 +161,20 @@ fn fill(save: &mut Save, ground: &Level) {
         yaw: 10.0,
         holds: vec![("g_i_credits".into(), 3)],
     });
-    snapshot
-        .progress
+    Arc::make_mut(&mut snapshot.progress)
         .journal
         .push(("k_fixture_quest".into(), 20));
-    snapshot.progress.xp = 1_500;
-    snapshot.goods.gold = 250;
+    Arc::make_mut(&mut snapshot.progress).xp = 1_500;
+    Arc::make_mut(&mut snapshot.goods).gold = 250;
     snapshot.screens.map_disabled = true;
-    snapshot.standing.insert((0, 7), 50);
+    Arc::make_mut(&mut snapshot.standing).insert((0, 7), 50);
     snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
     snapshot.targeted_blocks = true;
     snapshot.damage_taken = crate::combat::damage::Taken::new(50, 200);
+    snapshot.cheats = crate::cheats::Cheats {
+        rule: crate::cheats::Rule::All,
+        used: true,
+    };
     let fighter = snapshot
         .entities
         .iter_mut()
@@ -396,6 +399,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         targeted_blocks: _,
         waiting: _,
         damage_taken: _,
+        cheats: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -405,7 +409,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
         pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
-        targeted_blocks, waiting, damage_taken, shared, authority, next_id,
+        targeted_blocks, waiting, damage_taken, cheats, shared, authority, next_id,
     );
     let State {
         numbers: _,

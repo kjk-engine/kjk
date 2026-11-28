@@ -27,6 +27,10 @@ the mod's powers can be learned and shown, but casting them does nothing.
 - Files the mod put in the Override folder and modules it put in the
   Modules folder. A module that a mod ships as a `.mod` file is read in
   place of the game's own module files.
+- Every conversation and script in the Override folder, in every module.
+  A mod's script may start a conversation by a name it puts together as
+  it runs. For example, Expanded Jedi Training starts its training
+  conversation as "train" followed by "_form", "_spell" or "_feat".
 
 A power or feat that a mod adds at a place in the table where the game
 already has one keeps working. kjk finds the powers and feats its own rules
@@ -98,6 +102,76 @@ level-up.
 - A mod that adds effect icons to KOTOR 1 may take the numbers of KOTOR
   2's effect icons. A KOTOR 2 power then shows the mod's icon in the list
   of effects on a character, while the power itself works.
+
+## Console commands from a mod
+
+Mods can register custom console commands in `kjkconsole.2da` (placed in
+Override, a Steam Workshop mod, or a module archive). Each row defines one
+command that runs a compiled script (`.ncs`).
+
+| Column | Description |
+|---|---|
+| `label` | Command name (1–32 letters, digits, or `_`; case-insensitive). |
+| `script` | Script resref to run (1–16 letters, digits, or `_`). |
+| `args` | Comma-separated argument types: `int`, `text`, `item`, `creature`, `who`. Use `****` for no arguments. |
+| `help` | `dialog.tlk` string reference for the help description. |
+| `helptext` | Plain-text help description used when `help` is `****`. |
+
+Argument types:
+
+- `int`: an integer (at most 5 per command).
+- `text`: the rest of the line (must be the last argument).
+- `item` / `creature`: an item or creature template resref (validated against loaded game templates).
+- `who`: optional party slot (`me` or a number starting at `1`; must be the last argument).
+
+Each command can include at most one string argument (`text`, `item`, or
+`creature`) and at most one `who` argument. Because both `text` and `who`
+must be last, they cannot be combined in the same command.
+
+The script runs with the specified `who` party member as the caller
+(default: your character). In KOTOR 2, the script reads `int` arguments
+with `GetScriptParameter(1)`–`GetScriptParameter(5)` and the
+`text`/`item`/`creature` argument with `GetScriptStringParameter()`. KOTOR 1
+does not support script parameters, so KOTOR 1 mod commands only allow
+`who`.
+
+Example `kjkconsole.2da`:
+
+```
+2DA V2.0
+
+    label      script      args          help   helptext
+0   givekit    my_givekit  int,int,item  ****   "Gives the party credits and a number of an item."
+```
+
+Typing `givekit 500 2 g_w_lghtsbr01` passes `500` to
+`GetScriptParameter(1)`, `2` to `GetScriptParameter(2)`, and
+`"g_w_lghtsbr01"` to `GetScriptStringParameter()`.
+
+TSLPatcher and HoloPatcher can append rows to an existing `kjkconsole.2da`
+so multiple mods can add commands together.
+
+All mod commands count as cheats: they follow the session's cheat rules
+and permanently mark non-arena saves as **Cheats used**. In co-op, all
+players already share the same mod load order, and the host's lobby
+**Cheats** setting controls who can run them.
+
+Invalid rows never crash or block startup. Rows with bad labels, bad
+script resrefs, unsupported argument types/counts, built-in name conflicts,
+or duplicate labels (first row wins) are skipped and logged to `kjk.log`.
+Run `mods commands` in the console to list all active mod commands and any
+skipped rows with reasons. Typing a skipped command's name also prints why
+it was skipped.
+
+A row whose script is missing is kept and prints `Script "..." not found.`
+when run. Scripts follow standard limits (131,071 instructions max;
+unimplemented routines return default empty values).
+
+To run an ad-hoc script without adding a `kjkconsole.2da` row, use
+`runscript RESREF [WHO] [PARAMETERS]` (up to 5 integers followed by an
+optional trailing string after `WHO`). Note that kjk only preloads scripts
+referenced by a module or listed in `kjkconsole.2da`, so standalone mod
+scripts must appear in `kjkconsole.2da` to be loadable.
 
 ## Playing together
 

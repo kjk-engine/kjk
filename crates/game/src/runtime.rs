@@ -179,13 +179,21 @@ pub fn run(options: RunOptions) -> AppExit {
         ));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
-            primary_window: Some(game_window()),
+            primary_window: Some(Window {
+                mode: crate::display::opening_mode(),
+                ..game_window()
+            }),
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
+    // After Bevy's render plugin, which makes the render device that loads
+    // ReShade's Vulkan layer.
+    app.add_plugins(crate::reshade::ReshadePlugin {
+        window: !options.headless,
+    });
     app.add_plugins((
         ScenePlugin,
         crate::executors::ExecutorsPlugin,
@@ -282,6 +290,7 @@ pub fn run(options: RunOptions) -> AppExit {
             (
                 crate::bark_view::BarkViewPlugin,
                 crate::arena::ArenaPlugin,
+                crate::console_view::ConsoleViewPlugin,
                 crate::floaty_view::FloatyViewPlugin,
                 crate::duel_view::DuelViewPlugin,
                 crate::hitmarker_view::HitmarkerViewPlugin,
@@ -319,9 +328,12 @@ pub fn run(options: RunOptions) -> AppExit {
             .ok();
         app.add_plugins(crate::ui_view::UiViewPlugin::new(assets, start));
     }
+    app.insert_resource(crate::console_view::Scripted(!options.commands.is_empty()));
+    let exit_when_done = options.headless && !options.commands.is_empty();
     app.add_plugins((
         ConsolePlugin {
             commands: options.commands,
+            exit_when_done,
         },
         crate::launch_times::LaunchTimesPlugin,
         crate::crash::DeviceLostPlugin,

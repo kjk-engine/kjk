@@ -1163,9 +1163,10 @@ Stealth XP is not raised yet.
   Sensitive 40 FP: `passive::learn`; `GrantFeat`, TSL's, too), base attack
   bonus, saves and class defence to the class's next row, feats granted
   there (a class level past the class's tables keeps its last row), an
-  ability every fourth level, skill points (half of base + the INT
-  modifier, the raised one, at least 1, four times that for a first level:
-  what the screens count; a
+  ability every fourth level, skill points (`rules::skill_points`: at level 1 in
+  K1 half of base + the INT modifier, later levels half of base + INT modifier,
+  whole in TSL, at least 1, four times that for a first level, matching the
+  screens; a
   class skill's rank costs 1, another's 2; at most level + 3, half for
   another class's), feats and powers to pick. Picks that are not the
   level's (more than offered, a feat or power it may not have, points

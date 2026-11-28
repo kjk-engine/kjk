@@ -60,6 +60,7 @@ pub(crate) fn goodbye(link: &mut Link, now: NetTime, why: &Refusal) -> Vec<Vec<u
         .collect()
 }
 
+pub use crate::worker::PendingSignal;
 pub use client::{
     Cause, Client, ClientConfig, ClientEvent, ClientStats, ClockView, Frame, Memory, Mismatch,
 };
@@ -67,6 +68,6 @@ pub use msg::{
     CopyAssembly, InstallRequest, LevelRequest, MAX_SAVE_PARTS, SAVE_PART, SavePart, Welcome,
 };
 pub use server::{
-    CopyRefusal, CopySent, MAX_QUEUED_COPIES, RECONNECT_US, Server, ServerConfig, ServerEvent,
-    ServerStats, TAKEOVER_QUIET_US,
+    CopyRefusal, CopySent, EncodeJob, EncodedJob, MAX_QUEUED_COPIES, RECONNECT_US, Server,
+    ServerConfig, ServerEvent, ServerStats, TAKEOVER_QUIET_US,
 };

@@ -699,12 +699,7 @@ pub(super) fn hurt(
         // its damage ask none (a script's `ActionAttack` on an ally).
         let relation = match attacker {
             Some(by) => {
-                let aimed = !who[by].1.party && actors[by].5.0.target == Some(hit.target);
-                match crate::module::relation(repute, who[by].1, target_side) {
-                    Relation::Outsider { .. } => Relation::Outsider { aimed },
-                    Relation::Party if aimed => Relation::Outsider { aimed },
-                    relation => relation,
-                }
+                damage::strike_relation(repute, who[by].1, actors[by].5.0.target, target_side)
             }
             None => Relation::Outsider { aimed: true },
         };
@@ -1321,11 +1316,13 @@ fn float(progressed: &mut super::Progressed, level: &Static, over: SimId, row: u
         .scripts()
         .and_then(|library| library.presentation().feedback.get(row).copied())
         .unwrap_or(0);
-    progressed.0.feedback.push(crate::snapshot::Feedback {
-        over: over.0,
-        strref,
-        at_ms: now,
-    });
+    std::sync::Arc::make_mut(&mut progressed.0)
+        .feedback
+        .push(crate::snapshot::Feedback {
+            over: over.0,
+            strref,
+            at_ms: now,
+        });
 }
 
 /// How a script's hold on `actors[at]` by `by` until `until` takes hold

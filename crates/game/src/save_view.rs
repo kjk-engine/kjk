@@ -170,6 +170,7 @@ pub(crate) fn refresh(ui: &mut Ui) {
                 area: meta.area,
                 module: meta.module,
                 when: when(meta.saved),
+                cheats: meta.cheats,
             };
             (game, view)
         })

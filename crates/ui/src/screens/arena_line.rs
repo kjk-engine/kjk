@@ -8,9 +8,9 @@ use crate::skin::Source;
 use fmt_odyssey::gui::align;
 
 const FONT: &str = crate::paint::NUMBER_FONT;
-/// The band's colour, the words' colour, and the room round the words.
-const PANEL: [f32; 4] = [0.0, 0.03, 0.08, 0.72];
-const WORDS: [f32; 3] = [0.55, 0.75, 1.0];
+/// How opaque the band is, and the room round the words. The band and the
+/// words take the game's colours (`Palette::panel` and `Palette::base`).
+const PANEL_ALPHA: f32 = 0.72;
 const PAD: f32 = 6.0;
 
 /// How far down the window a line's band starts (a share of its height:
@@ -31,8 +31,9 @@ pub fn line(painter: &mut Painter, words: &[u8], window: (f32, f32)) -> DrawList
         .map_or(16.0, |(_, font)| font.line_height());
     let top = window.1 * LINE_TOP;
     let band = [0.0, top, window.0, line + 2.0 * PAD];
-    out.quads.push(Quad::solid(band, PANEL));
-    let [r, g, b] = WORDS;
+    let [r, g, b] = painter.palette.panel;
+    out.quads.push(Quad::solid(band, [r, g, b, PANEL_ALPHA]));
+    let [r, g, b] = painter.palette.base;
     let rect = [0.0, top + PAD, window.0, line];
     painter.text(
         FONT,

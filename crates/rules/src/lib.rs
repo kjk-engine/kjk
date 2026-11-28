@@ -11,6 +11,36 @@ pub mod page;
 pub mod rows;
 pub mod shown;
 
+/// Skill points granted by a level of a class with base `base` and
+/// Intelligence modifier `intelligence`.
+///
+/// When `whole` is true (KOTOR 2), `classes.2da` stores the per-level base, so
+/// `base + intelligence` is used at every level. When `whole` is false
+/// (KOTOR 1), `classes.2da` stores twice the base: at level 1
+/// (`first_level`), the base is halved before adding the full Intelligence
+/// modifier, then clamped and quadrupled; at later levels, `(base + intelligence)`
+/// is halved before clamping.
+pub fn skill_points(
+    base: u8,
+    intelligence: i32,
+    whole: bool,
+    first_level: bool,
+    divisor: i32,
+    least: i32,
+    first_times: i32,
+) -> i32 {
+    let base = i32::from(base);
+    let per_level = if whole {
+        base + intelligence
+    } else if first_level {
+        base / divisor + intelligence
+    } else {
+        (base + intelligence) / divisor
+    };
+    let times = if first_level { first_times } else { 1 };
+    per_level.max(least) * times
+}
+
 /// One entry of the book: a section heading the rules inside it, or a rule.
 #[derive(Debug)]
 pub struct Entry {

@@ -469,14 +469,15 @@ pub(super) fn scripts(
         ResMut<StatesEnded>,
         Res<super::minigame::Struck>,
     ),
-    (casts, presses, begun, ordered, let_go): (
+    (casts, presses, begun, ordered, let_go, mut shot): (
         Res<Casts>,
         Res<super::covert::Presses>,
         Res<Rounds>,
         Res<Ordered>,
         Res<LetGo>,
+        ResMut<super::traps::Shot>,
     ),
-    area: Res<super::Module>,
+    (area, mut cheats): (Res<super::Module>, ResMut<super::CheatState>),
     mut next_id: ResMut<super::NextId>,
     mut streams: ResMut<Streams>,
     mut scripts: ResMut<Scripts>,
@@ -497,6 +498,8 @@ pub(super) fn scripts(
     >,
 ) {
     let level = &level.0;
+    // The mines players' bolts met this step, emptied whatever the level.
+    let shot = std::mem::take(&mut shot.0);
     let (Some(library), Some(module)) = (level.scripts(), level.module()) else {
         return;
     };
@@ -518,6 +521,20 @@ pub(super) fn scripts(
     let mut own = Vec::new();
     let mut lives = Vec::new();
     let mut bodies = Vec::new();
+    // The bodies a walk stopped by may wait for (`Character::bumped_stuck`):
+    // a seat's own character, whose player can step aside, and any body on
+    // the move. A still creature may stand in the way for good.
+    let will_clear: BTreeSet<SimId> = rows
+        .iter()
+        .filter(|(_, avatar, object, player, ..)| {
+            (avatar.is_some() && object.is_none())
+                || player.is_some_and(|player| {
+                    crate::math::flat_length(player.0.velocity) * collision::UNIT
+                        >= rules::walking::pace::LEAST_WALK
+                })
+        })
+        .map(|(id, ..)| id.0)
+        .collect();
     for (id, avatar, object, player, placed, fighting, sheet, benched, away) in rows {
         let data = object.and_then(|object| object.facts.as_deref());
         // A character's sheet as it wears it, and with its effects and
@@ -614,12 +631,23 @@ pub(super) fn scripts(
             in_combat: fighter.in_combat(now),
             fake_combat: fighter.faking(now),
             stuck: fighter.mind.walker.is_some_and(|walker| walker.stuck()),
+            bumped_stuck: fighter.mind.walker.is_some_and(|walker| {
+                walker.bumped_stuck()
+                    && walker
+                        .bumped
+                        .is_some_and(|(body, _)| will_clear.contains(&body))
+            }),
             walking: fighter.mind.walker.is_some_and(|walker| walker.stalls == 0)
                 && player.is_some_and(|player| {
                     crate::math::flat_length(player.0.velocity) * collision::UNIT
                         >= rules::walking::pace::LEAST_WALK
                 }),
             airborne: player.is_some_and(|player| player.0.ground.is_none()),
+            held_still: fighter.pain_until > now
+                || fighter.grapple.is_some()
+                || player.is_some_and(|player| {
+                    player.0.flags & crate::motion::motion_flags::KNOCKBACK_HOLD != 0
+                }),
             struck: fighter.last_attacker.map(|(by, at)| (ObjectId(by.0), at)),
             downed: fighter.downed(),
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,
@@ -1091,14 +1119,30 @@ pub(super) fn scripts(
         &mut scripts.notices,
         &mut out,
     );
-    if level.arena_rules().is_some() {
-        let body = |seat: crate::input::Seat| {
-            seats
-                .iter()
-                .find(|(of, _)| *of == seat)
-                .map(|(_, player)| acting(&view, seat.0, *player))
-        };
-        super::arena::orders(library, &view, state, &inputs.0, body, &mut out);
+    // The arena's orders and the console's cheats (`cheats`).
+    let rules = level.arena_rules();
+    let cheating = (inputs.0.actions().iter())
+        .any(|(_, action)| matches!(action, Action::Arena(_) | Action::Cheat(_)));
+    let mut arena_edits = false;
+    if rules.is_some() || cheating {
+        let bodies: Vec<super::arena::SeatBody> = seats
+            .iter()
+            .map(|&(seat, player)| (seat, player, acting(&view, seat.0, player)))
+            .collect();
+        let cheats = &mut cheats.0;
+        super::cheats::policy(&inputs.0, &bodies, cheats, &mut out);
+        let orders = (&inputs.0, used.0.as_slice());
+        arena_edits = super::arena::orders(
+            library,
+            &view,
+            state,
+            orders,
+            &bodies,
+            (rules, cheats, &mut out),
+        );
+        let cheat_orders = (&inputs.0, bodies.as_slice());
+        let arena = (rules.is_some(), cheats);
+        arena_edits |= super::cheats::orders(library, &view, state, cheat_orders, arena, &mut out);
     }
     // The feat lines the minds' talents chose.
     for &(user, hand, row) in &feat_talents.0 {
@@ -1179,6 +1223,7 @@ pub(super) fn scripts(
         left_stores |= state.end_trade(body.0);
     }
     let handled = acted
+        || arena_edits
         || left_stores
         || !taken.is_empty()
         || talents_used
@@ -1199,6 +1244,7 @@ pub(super) fn scripts(
         &mut streams.authority,
     ) || handled;
     triggers(&view, level, library.items(), state, &mut out);
+    super::traps::shot(&view, state, &mut out, &shot);
     super::spawners::step(
         &view,
         level,
@@ -1534,11 +1580,13 @@ pub(super) fn scripts(
             state.reward(xp, &mut scripts.notices);
             script::xp::tell_pc_level(library, &view, state);
             if xp > 0 {
-                progressed.0.kills.push(crate::snapshot::Kill {
-                    dead: id.0,
-                    xp,
-                    at_ms: now,
-                });
+                std::sync::Arc::make_mut(&mut progressed.0)
+                    .kills
+                    .push(crate::snapshot::Kill {
+                        dead: id.0,
+                        xp,
+                        at_ms: now,
+                    });
             }
             // A creature not of the party is taken away a while after,
             // leaving its remains (`remains`).
@@ -1632,11 +1680,13 @@ pub(super) fn scripts(
         scripts.state.intents = out.intents;
         scripts.changes = out.changes;
         scripts.notices.extend(out.notices);
-        progressed.0.statuses.extend(
-            out.statuses
-                .into_iter()
-                .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
-        );
+        if !out.statuses.is_empty() {
+            std::sync::Arc::make_mut(&mut progressed.0).statuses.extend(
+                out.statuses
+                    .into_iter()
+                    .map(|kind| crate::snapshot::Status { kind, at_ms: now }),
+            );
+        }
         float(&mut progressed.0, out.feedback, now);
         scripts.area_sound = out.area_sound;
         scripts.fade = out.fade;
@@ -1778,8 +1828,8 @@ pub(super) fn scripts(
                 &from.containers,
                 &module.name,
             );
-            if holding.0 != goods {
-                holding.0 = goods;
+            if *holding.0 != goods {
+                *std::sync::Arc::make_mut(&mut holding.0) = goods;
             }
             scripts.members = members;
             scripts.open = open;
@@ -1878,21 +1928,39 @@ fn passes_on(
 fn show_progress(state: &State, now_ms: u64, progressed: &mut super::Progressed) {
     use crate::snapshot::{Feedback, Kill, Status};
     let xp = state.xp(crate::inventory::PARTY);
-    let shown = &mut progressed.0;
-    shown
+    let current = &progressed.0;
+    let expired = current
         .kills
-        .retain(|kill| now_ms < kill.at_ms + Kill::SHOWN_MS);
-    shown
-        .feedback
-        .retain(|feedback| now_ms < feedback.at_ms + Feedback::SHOWN_MS);
-    shown
-        .statuses
-        .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
-    if shown.xp != xp
-        || shown.journal != state.journal
-        || shown.careers != state.careers
-        || shown.unspent != state.unspent
-    {
+        .iter()
+        .any(|kill| now_ms >= kill.at_ms + Kill::SHOWN_MS)
+        || current
+            .feedback
+            .iter()
+            .any(|feedback| now_ms >= feedback.at_ms + Feedback::SHOWN_MS)
+        || current
+            .statuses
+            .iter()
+            .any(|status| now_ms >= status.at_ms + Status::KEPT_MS);
+    let differs = current.xp != xp
+        || current.journal != state.journal
+        || current.careers != state.careers
+        || current.unspent != state.unspent;
+    if !expired && !differs {
+        return;
+    }
+    let shown = std::sync::Arc::make_mut(&mut progressed.0);
+    if expired {
+        shown
+            .kills
+            .retain(|kill| now_ms < kill.at_ms + Kill::SHOWN_MS);
+        shown
+            .feedback
+            .retain(|feedback| now_ms < feedback.at_ms + Feedback::SHOWN_MS);
+        shown
+            .statuses
+            .retain(|status| now_ms < status.at_ms + Status::KEPT_MS);
+    }
+    if differs {
         shown.journal.clone_from(&state.journal);
         shown.xp = xp;
         shown.careers.clone_from(&state.careers);
@@ -2469,8 +2537,15 @@ fn come_alive(
 
 /// The feedback the step floated over objects (`Progress::feedback`), from
 /// `now`.
-fn float(progress: &mut crate::snapshot::Progress, feedback: Vec<(ObjectId, u32)>, now: u64) {
-    progress
+fn float(
+    progress: &mut std::sync::Arc<crate::snapshot::Progress>,
+    feedback: Vec<(ObjectId, u32)>,
+    now: u64,
+) {
+    if feedback.is_empty() {
+        return;
+    }
+    std::sync::Arc::make_mut(progress)
         .feedback
         .extend(
             feedback

@@ -10,7 +10,8 @@
 //! page is ours, on the graphics page's layout, opened from the gameplay
 //! page in its unused difficulty button's place. The Interface page is
 //! ours too. It is a list on the feedback page's layout, opened from the
-//! graphics page in its unused force speed box's place. The sabers' page is
+//! graphics page in its unused force speed box's place (or a button added
+//! below the grass box when a pre-Aspyr or modded layout lacks it). The sabers' page is
 //! ours as well, another list on the feedback page's layout, opened from
 //! the gameplay page in its unused "reverse" box's place. Its rows are the
 //! saber rules a session played here plays by (`docs/SABER-RULES.md`), the
@@ -584,6 +585,10 @@ enum Reshape {
     Stack((&'static str, &'static str), &'static [&'static str]),
     /// A control moved under another.
     Under(&'static str, &'static str),
+    /// A copy of a control (`from`) placed one row's pitch below it
+    /// (`screens::copy_below`), only when the layout has no control
+    /// tagged `tag` yet.
+    BelowIfMissing(&'static str, &'static str),
     /// A control drawn as another is.
     Like(&'static str, &'static str),
 }
@@ -593,8 +598,9 @@ enum Reshape {
 /// reads as the guns' own; the gameplay page's ways to the camera page and
 /// to the sabers' page and the graphics page's way to the Interface page
 /// framed buttons, as Mouse Settings and Advanced Options are, not check
-/// boxes.
-const RESHAPED: [(&str, Reshape); 5] = [
+/// boxes (first copying `CB_GRASS` into `CB_FORCESPEED`'s slot when a
+/// pre-Aspyr or modded graphics layout lacks it).
+const RESHAPED: [(&str, Reshape); 6] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -611,6 +617,10 @@ const RESHAPED: [(&str, Reshape); 5] = [
         Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
     ),
     ("options_gameplay", Reshape::Like("CB_REVERSE", "BTN_MOUSE")),
+    (
+        "options_graphics",
+        Reshape::BelowIfMissing("CB_GRASS", "CB_FORCESPEED"),
+    ),
     (
         "options_graphics",
         Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
@@ -642,7 +652,8 @@ const PAGES: [Spec; 12] = [
                 "CB_INVERTCAM",
                 ToggleAs("camera.invert", strings::INVERT_CAMERA),
             ),
-            ("CB_LEVELUP", Greyed),
+            // KOTOR 2's level-up box, unused: the console's switch.
+            ("CB_LEVELUP", ToggleAs(CONSOLE, strings::CONSOLE)),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
             // KOTOR 2's reverse box, unused: the sabers' page.
             ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
@@ -669,7 +680,7 @@ const PAGES: [Spec; 12] = [
             ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
             ("CB_DISABLEMOVE", Ours(strings::COLLISION_HELP)),
-            ("CB_LEVELUP", Told(42266)),
+            ("CB_LEVELUP", Ours(strings::CONSOLE_HELP)),
             ("CB_REVERSE", Ours(strings::SABERS_HELP)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
             ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
@@ -953,11 +964,13 @@ const PAGES: [Spec; 12] = [
 
 /// The Interface page's rows: the menu width, whether pictures keep their
 /// shape, the text size, the text scale, the notifications in the corner,
-/// the target block at the top centre, the frame rate limit, and whether
-/// the player joins nearby conversations in co-op. Each one but the last is
-/// off or at KOTOR 2's value while its setting is unset. The last is on
-/// while unset.
-const INTERFACE: [Line; 8] = [
+/// the target block at the top centre, the frame rate limit, the
+/// sharpening, and whether the player joins nearby conversations in co-op.
+/// Each one but the last is off or at KOTOR 2's value while its setting is
+/// unset. The last is on while unset. The sharpening is a graphics setting,
+/// but both graphics pages use every row of their layouts, so it sits here
+/// beside the frame rate limit.
+const INTERFACE: [Line; 9] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -993,12 +1006,46 @@ const INTERFACE: [Line; 8] = [
         FRAME_LIMIT,
         Values::Rates(FRAME_LIMITS),
     ),
+    stepped(
+        strings::SHARPENING,
+        strings::SHARPENING_HELP,
+        SHARPENING,
+        Values::Named(SHARPENINGS),
+    ),
     ticked_on_by(JOIN_TALKS, strings::JOIN_TALKS, strings::JOIN_TALKS_HELP),
+];
+
+/// The key of Sharpening (`game::sharpen`): the strength from 0 to 1, 0.35
+/// while unset.
+pub const SHARPENING: &str = "display.sharpening";
+
+/// Sharpening's steps (`display.sharpening`). Medium is the default.
+const SHARPENINGS: &[(&str, &str)] = &[
+    ("0", strings::SHARPENING_OFF),
+    ("0.2", strings::SHARPENING_LOW),
+    ("0.35", strings::SHARPENING_MEDIUM),
+    ("0.6", strings::SHARPENING_HIGH),
 ];
 
 /// The key of "Join nearby conversations" (`game::dialogue_view`): `true`
 /// or `false`, true while unset.
 pub const JOIN_TALKS: &str = "game.join_talks";
+
+/// The key of Console: whether the console's key opens the console
+/// (`kjk_game::console_view`). It is off until the player turns it on.
+pub const CONSOLE: &str = "game.console";
+
+/// The key of the lobby's Cheats row: who may use the console's commands
+/// that change the game in co-op (`sim::cheats::Rule`), and its default.
+pub const CHEATS: &str = "game.cheats";
+pub const CHEATS_DEFAULT: &str = "host";
+
+/// The Cheats row's values, as the settings file names them.
+pub const CHEAT_RULES: &[(&str, &str)] = &[
+    ("off", strings::CHEATS_OFF),
+    ("host", strings::CHEATS_HOST),
+    ("all", strings::CHEATS_ALL),
+];
 
 /// The key of the host's "Show chosen replies" (`game::lobby_host`): `true`
 /// or `false`, true while unset.
@@ -1425,6 +1472,24 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     }
 }
 
+/// The rows of list `tag` made as tall as the layout's row times the text
+/// size, as KOTOR 2 makes an options list's rows (`Page::fit_read`).
+pub(crate) fn fit_rows(gui: &mut fmt_odyssey::gui::Gui, textures: &mut dyn Textures, tag: &str) {
+    // The sizing's text counts layout pixels to a font pixel, and its
+    // pixel counts layout pixels to a physical pixel. So the text size is
+    // the one divided by the other.
+    let sizing = textures.sizing();
+    let size = sizing.text / sizing.pixel.max(f32::EPSILON);
+    if let Some(proto) = gui
+        .controls
+        .iter_mut()
+        .find(|control| control.tag == tag)
+        .and_then(|list| list.proto.as_deref_mut())
+    {
+        proto.extent.height = (proto.extent.height as f32 * size) as i32;
+    }
+}
+
 /// Where `key`'s value is among `choices` (the first when it is none of
 /// them, or when Movie Duels' absence holds it back: what is played then).
 /// A value a running session keeps is the session's (`kept_by_session`).
@@ -1478,6 +1543,11 @@ impl Screen for Page {
                 }
                 Reshape::Under(tag, after) => {
                     crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
+                }
+                Reshape::BelowIfMissing(from, tag) => {
+                    if gui.find(tag).is_none() {
+                        crate::screens::copy_below(gui, from, tag);
+                    }
                 }
                 Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
             }
@@ -1649,21 +1719,8 @@ impl Screen for Page {
         textures: &mut dyn Textures,
         _: Source,
     ) {
-        let Some((tag, _)) = self.list() else {
-            return;
-        };
-        // The sizing's text counts layout pixels to a font pixel, and its
-        // pixel counts layout pixels to a physical pixel. So the text size
-        // is the one divided by the other.
-        let sizing = textures.sizing();
-        let size = sizing.text / sizing.pixel.max(f32::EPSILON);
-        if let Some(proto) = gui
-            .controls
-            .iter_mut()
-            .find(|control| control.tag == tag)
-            .and_then(|list| list.proto.as_deref_mut())
-        {
-            proto.extent.height = (proto.extent.height as f32 * size) as i32;
+        if let Some((tag, _)) = self.list() {
+            fit_rows(gui, textures, tag);
         }
     }
 

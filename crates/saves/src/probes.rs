@@ -185,6 +185,7 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
         yaw: 0.0,
         pit: -100.0,
         respawn_ms: 3000,
+        terminal: None,
     };
     let arena = refusal(&quiet, seat, &level.clone().with_arena(rules));
     let arena_check = (
@@ -366,12 +367,12 @@ fn roster_save(save: &sim::Save) -> Result<sim::Save, String> {
     let Some(proto) = save.snapshot.entities.first().copied() else {
         return Err("the sink has no entity".into());
     };
-    save.snapshot.roster = Some(vec![
+    save.snapshot.roster = Some(std::sync::Arc::new(vec![
         origin(ObjectKind::Door, "door_a"),
         origin(ObjectKind::Placeable, "plc_b"),
         origin(ObjectKind::Creature, "cre_c"),
         origin(ObjectKind::Creature, "cre_d"),
-    ]);
+    ]));
     let made = |id, kind, number, state| sim::EntityState {
         id: sim::SimId(id),
         kind: sim::Kind::Object(kind, number),

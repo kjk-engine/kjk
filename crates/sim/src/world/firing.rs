@@ -228,6 +228,7 @@ pub(super) fn fire(
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;
+            fighter.covert.attacked(clock.time_ms);
             fighter.force.tricked = 0;
             motion::react(
                 &mut player.0,
@@ -470,6 +471,7 @@ pub(super) fn fire(
             let (penalty, _) = fighter.shooting.exposed(clock.time_ms);
             weapon.attack_bonus = weapon.attack_bonus.saturating_add(penalty);
             fighter.combat_until = clock.time_ms + COMBAT_MS;
+            fighter.covert.attacked(clock.time_ms);
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
             if !std::mem::replace(&mut torso_started, true) {

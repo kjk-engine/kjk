@@ -49,6 +49,7 @@ use asset_odyssey::model::ModelIr;
 use audio::{Channel, Clip};
 use bevy::input::gamepad::GamepadButton;
 use bevy::prelude::*;
+use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use fmt_odyssey::ResType;
 use fmt_odyssey::dlg::Node;
 use fmt_odyssey::lip::{self, Lip};
@@ -66,7 +67,7 @@ use crate::made::Made;
 use crate::pad::{PadPresses, Prompts};
 use crate::scene::{Animator, SceneContent, SceneModel};
 use crate::settings::{Action as KeyAction, KeyMap};
-use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap, view_ms};
+use crate::sim_host::{AuthoritySnapshot, OwnSeat, PresentedSnapshot, SceneSwap, view_ms};
 use crate::sound::{Added, Cue, Cues, Forget, Hush};
 use crate::ui_view::{Ui, UiOpen};
 
@@ -170,6 +171,7 @@ pub fn install(app: &mut World, setup: Setup) {
         voiced: VecDeque::new(),
         speaking: None,
         lip: None,
+        pending_voice: None,
         face: None,
         models: BTreeMap::new(),
     });
@@ -225,9 +227,28 @@ pub(crate) struct Screen {
     speaking: Option<SimId>,
     /// The line's mouth shapes, from when it was shown (ms).
     lip: Option<(Lip, u64)>,
+    /// In-flight background read + decode for the active line's voice/lip.
+    pending_voice: Option<PendingVoice>,
     /// The speaker's mouth posed with its `talk` clip.
     face: Option<Face>,
     models: BTreeMap<String, Option<ModelIr>>,
+}
+
+struct PendingVoice {
+    key: (u32, u32, u64, bool),
+    speaker: SimId,
+    speaker_pos: Vec3,
+    shown_ms: u64,
+    cue: String,
+    name: String,
+    task: Task<(Option<Clip>, Option<Lip>)>,
+}
+
+fn authority_or_presented<'a>(
+    authority: Option<&'a AuthoritySnapshot>,
+    presented: &'a PresentedSnapshot,
+) -> &'a Snapshot {
+    authority.map_or_else(|| presented.0.current(), |snap| snap.0.as_ref())
 }
 
 /// A speaker's head and its `talk` clip bound to it.
@@ -336,11 +357,15 @@ fn item_filler(fill: Fill) -> ui::assets::ItemWords {
 /// shown (`shown_name`), for the party's player (`Fill::party`). The
 /// screens read them from the assets' item cache, which reads every item
 /// again when the player's name, gender or the custom tokens change.
-fn item_words(presented: Res<PresentedSnapshot>, ui: Option<ResMut<Ui>>) {
+fn item_words(
+    presented: Res<PresentedSnapshot>,
+    authority: Option<Res<AuthoritySnapshot>>,
+    ui: Option<ResMut<Ui>>,
+) {
     let Some(mut ui) = ui else {
         return;
     };
-    let fill = Fill::party(presented.0.current());
+    let fill = Fill::party(authority_or_presented(authority.as_deref(), &presented));
     let key = format!(
         "{:?} {:?}",
         fill.pc.map(|pc| (&pc.name, pc.gender)),
@@ -606,7 +631,7 @@ pub(crate) struct Called(pub Option<bool>);
 /// nothing keeps the answer waiting (`Snapshot::request_wait`).
 fn requests_keys(
     actions: Option<Res<crate::pad::Actions>>,
-    presented: Res<PresentedSnapshot>,
+    (presented, authority): (Res<PresentedSnapshot>, Option<Res<AuthoritySnapshot>>),
     (own, open): (Option<Res<OwnSeat>>, Option<Res<UiOpen>>),
     mut called: ResMut<Called>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
@@ -615,7 +640,7 @@ fn requests_keys(
     let (Some(own), Some(mut outgoing)) = (own, outgoing) else {
         return;
     };
-    let snapshot = presented.0.current();
+    let snapshot = authority_or_presented(authority.as_deref(), &presented);
     // A ready check's key and the follow key are the request's by default,
     // and the sim drops an answer while the party fights or the host's own
     // conversation is locked: the keys wait meanwhile, as the card says.
@@ -659,7 +684,7 @@ pub(crate) struct SendTalkOptions(pub bool);
 fn talk_options(
     settings: Option<Res<crate::settings::Settings>>,
     open: Option<Res<UiOpen>>,
-    presented: Res<PresentedSnapshot>,
+    (presented, authority): (Res<PresentedSnapshot>, Option<Res<AuthoritySnapshot>>),
     swap: Option<Res<SceneSwap>>,
     mut again: ResMut<SendTalkOptions>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
@@ -668,7 +693,7 @@ fn talk_options(
     let Some(mut outgoing) = outgoing else {
         return;
     };
-    if !presented.0.current().together() {
+    if !authority_or_presented(authority.as_deref(), &presented).together() {
         *sent = None;
         return;
     }
@@ -698,7 +723,7 @@ pub(crate) fn computer(swap: &SceneSwap, talk: &Conversation) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn show(
     screen: Option<ResMut<Screen>>,
-    presented: Res<PresentedSnapshot>,
+    (presented, authority): (Res<PresentedSnapshot>, Option<Res<AuthoritySnapshot>>),
     own: Option<Res<OwnSeat>>,
     swap: Option<Res<SceneSwap>>,
     ui: Option<ResMut<Ui>>,
@@ -715,7 +740,7 @@ fn show(
     let (Some(mut screen), Some(own), Some(swap)) = (screen, own, swap) else {
         return;
     };
-    let snapshot = presented.0.current();
+    let snapshot = authority_or_presented(authority.as_deref(), &presented);
     let talk = shown(snapshot, own.0, watching.0);
     let leaves = talk.and_then(|talk| snapshot.may_leave(own.0, talk));
     let objects = sim::Instances::in_snapshot(&swap.level, snapshot);
@@ -811,6 +836,7 @@ fn show(
             hush.0.push((speaker, Channel::Voice));
         }
         screen.lip = None;
+        screen.pending_voice = None;
         return;
     };
     // A line played or skipped: its voice and lips stop.
@@ -819,6 +845,41 @@ fn show(
     {
         hush.0.push((was, Channel::Voice));
         screen.lip = None;
+        screen.pending_voice = None;
+    }
+    if let Some(mut pending) = screen.pending_voice.take() {
+        match block_on(poll_once(&mut pending.task)) {
+            Some((clip, lip)) if screen.showing == Some(pending.key) => {
+                if let Some(clip) = clip {
+                    if !screen.voiced.iter().any(|voiced| voiced == &pending.name) {
+                        added.0.push((pending.cue.clone(), clip));
+                        screen.voiced.push_back(pending.name);
+                        while screen.voiced.len() > VOICES_KEPT {
+                            let old = screen.voiced.pop_front().expect("more than kept");
+                            forget.0.push(format!("vo/{old}"));
+                        }
+                    }
+                    cues.0.push(Cue {
+                        entity: Some(pending.speaker),
+                        channel: Channel::Voice,
+                        follows: true,
+                        falloff: VOICE_FALLOFF,
+                        ..Cue::at(pending.cue, pending.speaker_pos, pending.shown_ms as f32)
+                    });
+                    screen.speaking = Some(pending.speaker);
+                    if let Some(fact) = facts.0.get_mut("dialogue") {
+                        fact["voiced"] = serde_json::json!(true);
+                    }
+                }
+                screen.lip = lip.map(|lip| (lip, pending.shown_ms));
+                if let Some(fact) = facts.0.get_mut("dialogue") {
+                    fact["lip_keys"] =
+                        serde_json::json!(screen.lip.as_ref().map(|(lip, _)| lip.keys.len()));
+                }
+            }
+            Some(_) => {}
+            None => screen.pending_voice = Some(pending),
+        }
     }
     let key = (talk.id, talk.entry, talk.shown_ms, talk.auto);
     if screen.showing == Some(key) {
@@ -856,9 +917,13 @@ fn show(
             hush.0.push((was, Channel::Voice));
         }
         screen.lip = None;
+        screen.pending_voice = None;
     }
     if let (Some((name, other)), Some(resolver)) = (voice, module_resolver(&mut screen, &swap)) {
-        if let Some(cue) = screen.voice_cue(&swap, &name, &mut added, &mut forget) {
+        let already_voiced = screen.voiced.iter().any(|voiced| voiced == &name);
+        let cue = format!("vo/{name}");
+        let speaker_pos = speaker_at(snapshot, speaker);
+        if already_voiced {
             // Unplaced, as reone and xoreos play a conversation's voice (a
             // speaker far from the shot, Taris's duel announcer, is heard);
             // in its speaker's voice slot, so a line skipped stops it.
@@ -867,18 +932,34 @@ fn show(
                 channel: Channel::Voice,
                 follows: true,
                 falloff: VOICE_FALLOFF,
-                ..Cue::at(cue, speaker_at(snapshot, speaker), talk.shown_ms as f32)
+                ..Cue::at(cue.clone(), speaker_pos, talk.shown_ms as f32)
             });
             screen.speaking = Some(speaker);
         }
-        let lip_type = ResType::LIP;
-        screen.lip = std::iter::once(name)
-            .chain(other)
-            .find_map(|name| {
-                let bytes = resolver.find(&name, lip_type)?.location.read().ok()?;
+        let load_clip = !already_voiced;
+        let shown_ms = talk.shown_ms;
+        let task_name = name.clone();
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            let clip = if load_clip {
+                voice_clip(&resolver, &task_name)
+            } else {
+                None
+            };
+            let lip = std::iter::once(task_name).chain(other).find_map(|entry| {
+                let bytes = resolver.find(&entry, ResType::LIP)?.location.read().ok()?;
                 Lip::parse(&bytes).ok()
-            })
-            .map(|lip| (lip, talk.shown_ms));
+            });
+            (clip, lip)
+        });
+        screen.pending_voice = Some(PendingVoice {
+            key,
+            speaker,
+            speaker_pos,
+            shown_ms,
+            cue,
+            name,
+            task,
+        });
     }
     let (said, replies) = words(&screen, talk, &swap, Fill::to(snapshot, talk.pc));
     facts.0.insert(
@@ -965,13 +1046,16 @@ fn answer(
         (&Window, &mut bevy::window::CursorOptions),
         With<bevy::window::PrimaryWindow>,
     >,
-    presented: Res<PresentedSnapshot>,
+    (presented, authority): (Res<PresentedSnapshot>, Option<Res<AuthoritySnapshot>>),
     (own, swap): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>),
     watching: Res<Watching>,
     map: Option<Res<KeyMap>>,
     (mut ui, open): (Option<ResMut<Ui>>, Option<Res<UiOpen>>),
     mut input: ResMut<ReplyInput>,
-    showing: Option<Res<crate::movie_view::Showing>>,
+    (showing, overlay): (
+        Option<Res<crate::movie_view::Showing>>,
+        Option<Res<crate::reshade::Overlay>>,
+    ),
     mut swallowed: ResMut<crate::swallow::Swallowed>,
     mut last: Local<Option<Vec2>>,
     pad: Res<PadPresses>,
@@ -979,7 +1063,7 @@ fn answer(
     let Some(own) = own else {
         return;
     };
-    let snapshot = presented.0.current();
+    let snapshot = authority_or_presented(authority.as_deref(), &presented);
     let talk = shown(snapshot, own.0, watching.0);
     let active = talk.is_some();
     // The line's replies this player only points at, once a line.
@@ -993,7 +1077,10 @@ fn answer(
     if active != input.active {
         input.active = active;
         input.focus = 0;
-        for (_, mut cursor) in &mut windows {
+        // A conversation that ends while ReShade's overlay is open leaves the
+        // cursor free. `grab_cursor` takes it again once the overlay closes.
+        let overlay = overlay.is_some_and(|overlay| overlay.0);
+        for (_, mut cursor) in windows.iter_mut().filter(|_| active || !overlay) {
             cursor.grab_mode = if active {
                 bevy::window::CursorGrabMode::None
             } else {

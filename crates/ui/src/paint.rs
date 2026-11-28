@@ -133,6 +133,9 @@ pub struct Palette {
     pub base: [f32; 3],
     pub hilight: [f32; 3],
     pub disabled: [f32; 3],
+    /// The dark fill behind a panel's words: KOTOR 1's navy, KOTOR 2's
+    /// near-black teal.
+    pub panel: [f32; 3],
 }
 
 impl Palette {
@@ -456,7 +459,7 @@ pub(crate) fn rect_of(control: &Control) -> [f32; 4] {
 }
 
 /// The border, when it has something to draw.
-fn textured(border: &Option<Border>) -> Option<&Border> {
+pub(crate) fn textured(border: &Option<Border>) -> Option<&Border> {
     border.as_ref().filter(|border| has_textures(border))
 }
 
@@ -934,7 +937,23 @@ impl<'a> Painter<'a> {
         if state.refused {
             return rgba(self.color(Some(RED)), 1.0);
         }
-        rgba(state.tint.unwrap_or_else(|| self.color(base)), 1.0)
+        let color = match state.tint {
+            Some(tint) => self.tint(tint),
+            None => self.color(base),
+        };
+        rgba(color, 1.0)
+    }
+
+    /// A text tint as drawn. A tint that is one of KOTOR 2's interface
+    /// colours (the character screen's plain green, `bonus_colour`) is
+    /// recoloured with the art, as a layout colour is. Any other tint, such
+    /// as a bonus's gold or a penalty's red, is drawn as it is.
+    fn tint(&self, tint: [f32; 3]) -> [f32; 3] {
+        if self.textures.recoloured(self.source) {
+            skin::recolour_palette(tint).unwrap_or(tint)
+        } else {
+            tint
+        }
     }
 
     /// One control as `state` says, without its children.
@@ -1423,7 +1442,7 @@ impl<'a> Painter<'a> {
         }
     }
 
-    fn scrollbar(
+    pub(crate) fn scrollbar(
         &mut self,
         bar: &Control,
         count: usize,
@@ -1570,7 +1589,9 @@ fn inner(rect: [f32; 4], dim: f32) -> [f32; 4] {
     [left, top, width, height]
 }
 
-fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+/// The part of rectangle `a` that is also in rectangle `b` (left, top,
+/// width, height). It is empty when they do not overlap.
+pub(crate) fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let left = a[0].max(b[0]);
     let top = a[1].max(b[1]);
     let right = (a[0] + a[2]).min(b[0] + b[2]);

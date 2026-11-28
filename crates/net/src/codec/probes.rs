@@ -19,11 +19,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use sim::determinism::{self, Run, Setup};
-use sim::{Parts, SimId, SimRng, Snapshot, SnapshotHash, Stash, StepReason};
+use sim::{EntityPart, Parts, SimId, SimRng, Snapshot, SnapshotHash, Stash, StepReason};
 
 use super::{
-    BLOB_WHOLE, CLIENT_RING, Check, ClientRing, CodecError, Confirmed, FrameHeader, OP_NEW,
-    Rebuilt, ServerRing, Stepped, decode, decode_frame, encode, encode_frame, put_varint,
+    BLOB_WHOLE, CLIENT_RING, Check, ClientRing, CodecError, Confirmed, FrameHeader, OP_HOT_XOR,
+    OP_KEEP, OP_NEW, Rebuilt, ServerRing, Stepped, decode, decode_frame, encode, encode_frame,
+    put_varint,
 };
 
 /// One check: what it expects, what it found, and whether that passes.
@@ -173,7 +174,7 @@ pub struct Exactness {
     pub keyframes: Sizes,
     pub by_distance: BTreeMap<usize, Sizes>,
     /// Of the frames one tick apart, those larger than a datagram's
-    /// payload less the packet header (1200 − 19), which would need
+    /// payload less the packet header (1120 − 23), which would need
     /// fragments.
     pub over_datagram: usize,
     /// The largest snapshot encoding (`Snapshot::encode`), bytes.
@@ -255,7 +256,7 @@ fn exactness_in(run: &Recorded, back: usize, shots: std::ops::Range<usize>) -> E
                         .0
                         .push(frame.len());
                 }
-                if distance == 1 && frame.len() > crate::MAX_DATAGRAM - 19 {
+                if distance == 1 && frame.len() > crate::MAX_DATAGRAM - crate::wire::HEADER_LEN {
                     found.over_datagram += 1;
                 }
                 decode_frame(&frame, base.map(|base| base.stepped.parts()))
@@ -511,9 +512,14 @@ fn made_up(records: &[(u32, usize)], seed: u64) -> Parts {
         head: bytes(112),
         entities: records
             .iter()
-            .map(|&(id, len)| (SimId(id), bytes(len)))
+            .map(|&(id, len)| EntityPart {
+                id: SimId(id),
+                hot: Arc::from(bytes(len)),
+                cold: Arc::from(&[][..]),
+            })
             .collect(),
         tail: bytes(40),
+        tail_cold: Default::default(),
         stash: Stash::default(),
     }
 }
@@ -535,19 +541,21 @@ pub fn synthetic() -> Probes {
     let (delta, same) = round_trip(Some(&base), &base);
     probes.check(
         "unchanged",
-        "a snapshot against itself: 4 bytes (head same, end, tail same, stash same)",
+        "a snapshot against itself: 11 bytes (head, end, tail hot, 7 cold tail, stash)",
         format!("{} bytes {delta:?}, rebuilt {same}", delta.len()),
-        same && delta == [0, 0, 0, 0],
+        same && delta == [0; 11],
     );
 
     let mut now = base.clone();
-    now.entities[0].1[17] ^= 0x40;
+    let mut hot = now.entities[0].hot.to_vec();
+    hot[17] ^= 0x40;
+    now.entities[0].hot = Arc::from(hot);
     let (delta, same) = round_trip(Some(&base), &now);
     probes.check(
         "one byte",
-        "one byte of the first record: 6 bytes (op, 3-byte group mask of a 154-byte record, byte mask, the byte), plus 4",
+        "one byte of the first record: 6 bytes (op, 3-byte group mask of a 154-byte record, byte mask, the byte), plus 11",
         format!("{} bytes, rebuilt {same}", delta.len()),
-        same && delta.len() == 4 + 6,
+        same && delta.len() == 11 + 6,
     );
 
     let mut now = base.clone();
@@ -556,9 +564,9 @@ pub fn synthetic() -> Probes {
     let (delta, same) = round_trip(Some(&base), &now);
     probes.check(
         "head and tail",
-        "a byte of each: masked (tag, 2-byte mask of 112 bytes, byte mask, byte = 5) and (tag, mask of 40 bytes, byte mask, byte = 4), plus the end and the stash",
+        "a byte of each: masked head (5) + end (1) + masked tail (4) + 7 cold tail + stash (1)",
         format!("{} bytes, rebuilt {same}", delta.len()),
-        same && delta.len() == 5 + 1 + 4 + 1,
+        same && delta.len() == 5 + 1 + 4 + 8,
     );
 
     let mut now = base.clone();
@@ -566,9 +574,9 @@ pub fn synthetic() -> Probes {
     let (delta, same) = round_trip(Some(&base), &now);
     probes.check(
         "tail grows",
-        "3 bytes inserted after the tail's first (a transition asked): spliced (tag, prefix, suffix, length, 3 bytes = 7), plus 3",
+        "3 bytes inserted after the tail's first: head (1) + end (1) + spliced (7) + 7 cold tail + stash (1)",
         format!("{} bytes, rebuilt {same}", delta.len()),
-        same && delta.len() == 7 + 3,
+        same && delta.len() == 7 + 10,
     );
 
     let edits: [(&str, &[(u32, usize)]); 7] = [
@@ -601,11 +609,12 @@ pub fn synthetic() -> Probes {
         // Records keep the baseline's bytes where the id and length agree.
         let mut now = made_up(records, 2);
         now.head.clone_from(&base.head);
-        for (id, record) in &mut now.entities {
-            if let Some((_, before)) = base.entities.iter().find(|(other, _)| other == id)
-                && before.len() == record.len()
+        for part in &mut now.entities {
+            if let Some(before) = base.entities.iter().find(|other| other.id == part.id)
+                && before.hot.len() == part.hot.len()
             {
-                record.clone_from(before);
+                part.hot = before.hot.clone();
+                part.cold = before.cold.clone();
             }
         }
         let (delta, same) = round_trip(Some(&base), &now);
@@ -621,12 +630,55 @@ pub fn synthetic() -> Probes {
     let whole = base.bytes().len();
     probes.check(
         "keyframe",
-        "every record new: the encoding plus 2 to 4 bytes a record",
+        "every record new: the encoding plus per-record framing and 34-byte stash digest",
         format!(
             "{} bytes for a {whole}-byte encoding, rebuilt {same}",
             delta.len()
         ),
-        same && delta.len() > whole && delta.len() <= whole + 4 * base.entities.len() + 8,
+        same && delta.len() > whole && delta.len() <= whole + 5 * base.entities.len() + 64,
+    );
+
+    let mut stashed = base.clone();
+    stashed.stash = Stash::new(vec![sim::Stashed {
+        place: sim::Place {
+            game: "kotor1".into(),
+            module: "m01aa".into(),
+            digest: [9u8; 32],
+            players: 2,
+        },
+        entities: Vec::new(),
+        spawned: Vec::new(),
+        roster: None,
+    }]);
+    let mut digest_delta = Vec::new();
+    encode(Some(&base), &stashed, &mut digest_delta);
+    let rebuilt_stash = decode(Some(&base), &digest_delta).ok();
+    probes.check(
+        "stash digest only",
+        "non-empty stash encodes to <= 37 B digest and decodes as DigestOnly equal to Full",
+        format!(
+            "{} bytes, digest_only={:?}, equal={:?}",
+            digest_delta.len(),
+            rebuilt_stash.as_ref().map(|p| p.stash.is_digest_only()),
+            rebuilt_stash.as_ref().map(|p| p.stash == stashed.stash),
+        ),
+        digest_delta.len() <= 10 + 37
+            && rebuilt_stash
+                .as_ref()
+                .is_some_and(|p| p.stash.is_digest_only() && p.stash == stashed.stash),
+    );
+
+    let mut sim_run = Run::new(&Setup::pinned());
+    let ground = determinism::proving_ground();
+    sim_run.install(&ground);
+    let parts = sim_run.last.split();
+    let hash_matches = parts.hash() == sim_run.last.hash();
+    let bytes_match = parts.bytes() == sim_run.last.encode();
+    probes.check(
+        "parts hash matches snapshot",
+        "Parts::hash and Parts::bytes match Snapshot::hash and Snapshot::encode byte for byte",
+        format!("hash={hash_matches}, bytes={bytes_match}"),
+        hash_matches && bytes_match,
     );
 
     frame_errors(&mut probes);
@@ -678,36 +730,37 @@ fn frame_errors(probes: &mut Probes) {
         found.is_err_and(|error| error == CodecError::Epoch { frame: 0, here: 1 }),
     );
 
-    // A client fed keyframes of ticks 1..=66 holds the last 64; tick 2 is
-    // then older than all of them.
+    // A client fed keyframes of shots 1..=131 (where shot 71 replaces tick
+    // 70, leaving 130 distinct ticks 1..=130) holds the last 128; tick 2
+    // is then older than all of them.
     let mut client = ClientRing::new(0, CLIENT_RING);
     let mut received = 0;
-    for tick in 1..=66 {
+    for shot in 1..=131 {
         frame.clear();
-        encode_frame(0, stepped(tick), None, &mut frame);
+        encode_frame(0, stepped(shot), None, &mut frame);
         received += usize::from(client.receive(&frame).is_ok());
     }
     frame.clear();
     encode_frame(0, stepped(2), None, &mut frame);
     let stale = client.receive(&frame).map(|rebuilt| rebuilt.tick);
     frame.clear();
-    encode_frame(0, stepped(67), Some(stepped(2)), &mut frame);
+    encode_frame(0, stepped(132), Some(stepped(2)), &mut frame);
     let gone = client.receive(&frame).map(|rebuilt| rebuilt.tick);
     frame.clear();
-    encode_frame(0, stepped(67), Some(stepped(66)), &mut frame);
+    encode_frame(0, stepped(132), Some(stepped(131)), &mut frame);
     let delta = client.receive(&frame).map(|rebuilt| rebuilt.tick);
     let again = client.receive(&frame).map(|rebuilt| rebuilt.tick);
     let held = client.newest().map(|rebuilt| rebuilt.tick);
     probes.check(
         "client ring",
-        "66 keyframes received; tick 2 then Stale; a delta on tick 2 NoBaseline; on 66 rebuilt, twice (a duplicate), newest 67",
+        "131 keyframes received; tick 2 then Stale; a delta on tick 2 NoBaseline; on 130 rebuilt, twice (a duplicate), newest 131",
         format!("{received} received, {stale:?}, {gone:?}, {delta:?}, {again:?}, newest {held:?}"),
-        received == 66
+        received == 131
             && stale == Err(CodecError::Stale { tick: 2 })
             && gone == Err(CodecError::NoBaseline { tick: 2 })
-            && delta == Ok(67)
-            && again == Ok(67)
-            && held == Some(67),
+            && delta == Ok(131)
+            && again == Ok(131)
+            && held == Some(131),
     );
 
     // A client that computed an install itself keeps that state as the
@@ -776,7 +829,7 @@ struct Refused {
 fn decoder_errors(probes: &mut Probes, base: &Parts) {
     // Head whole and empty, then 70 000 new records announced.
     let mut count_bomb = vec![BLOB_WHOLE, 0];
-    put_varint(&mut count_bomb, (70_000 << 2) | OP_NEW);
+    put_varint(&mut count_bomb, (70_000 << 3) | OP_NEW);
     let refused = |name, expect, delta, against_base, kind| Refused {
         name,
         expect,
@@ -795,7 +848,18 @@ fn decoder_errors(probes: &mut Probes, base: &Parts) {
         refused(
             "record bomb",
             "a new record of 2^40 bytes: Limit",
-            vec![2, 0, 7, 0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20],
+            vec![
+                2,
+                0,
+                ((1 << 3) | OP_NEW) as u8,
+                0,
+                0x80,
+                0x80,
+                0x80,
+                0x80,
+                0x80,
+                0x20,
+            ],
             false,
             "limit",
         ),
@@ -816,21 +880,21 @@ fn decoder_errors(probes: &mut Probes, base: &Parts) {
         refused(
             "keep without baseline",
             "a keep in a keyframe: Invalid",
-            vec![2, 0, 4, 0, 2, 0],
+            vec![2, 0, ((1 << 3) | OP_KEEP) as u8, 0, 2, 0],
             false,
             "invalid",
         ),
         refused(
             "zero XOR byte",
             "a changed byte of 0: Invalid",
-            vec![0, 6, 1, 0, 0, 1, 0],
+            vec![0, ((1 << 3) | OP_HOT_XOR) as u8, 1, 0, 0, 1, 0],
             true,
             "invalid",
         ),
         refused(
             "trailing",
             "a byte after the stash: Trailing",
-            vec![0, 0, 0, 0, 9],
+            [0; 11].into_iter().chain([9]).collect(),
             true,
             "trailing",
         ),

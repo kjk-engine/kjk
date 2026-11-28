@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cabb3b32628c7ec4`.
+Edition `879e3606a5187180`.
 
 ## Contents
 
@@ -210,6 +210,7 @@ Edition `cabb3b32628c7ec4`.
   - [Set Mine](#traps-lay)
   - [Triggering Mines](#traps-springing)
   - [Mines on Locks](#traps-door-mines)
+  - [Shooting Mines](#traps-shooting)
 - [Doors, Locks and Bashing](#interaction)
   - [Skill Checks](#interaction-checks)
   - [Locks and Security](#interaction-security)
@@ -239,6 +240,7 @@ Edition `cabb3b32628c7ec4`.
   - [Triggers](#world-triggers)
   - [Area Map](#world-map)
   - [Combat Arena](#world-arena)
+  - [Console Limits](#world-console)
   - [Force Point Cost](#world-force-costs)
   - [Sniper Bonus](#world-shots)
   - [Healing Over Time](#world-healing)
@@ -793,7 +795,7 @@ no key is held then, the key held when [Alt attack] was pressed picks it.
 When no key is held at either moment, the first finisher plays. No key or
 [Forward] punches the enemy and knocks it down. [Strafe left] or
 [Strafe right] catches its kick by the foot, swings it over and slams it to
-the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground, knocking it down. [Backward] chokes it and throws it to
 the ground. Each blow of a finisher deals the damage of
 a whole round of punches, and it always hits. An enemy that a blow would
 kill dies when the finisher lets it go. After [Backward], such an enemy
@@ -5078,6 +5080,24 @@ A falling lightsaber speeds up by 20.3 meters per second every second.
 
 <sub>Source: JA: gravity. Code: `sim::combat::saber::throw::GRAVITY`.</sub>
 
+<a id="saber-throw-down-bounce"></a>**Bounce** = **×0.65** · `saber_throw.down.bounce`
+
+A falling lightsaber bounces off walls and floors. After each bounce, it moves at 0.65 times the speed it had before.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
+<a id="saber-throw-down-rest-speed"></a>**Rest Speed** = **1 meter per second** (`40 units/s`) · `saber_throw.down.rest_speed`
+
+A falling lightsaber that hits a floor at less than 1 meter per second stops bouncing and lies there.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
+<a id="saber-throw-down-floor"></a>**Floor Slope** = **0.2** · `saber_throw.down.floor`
+
+Surfaces are rated from 0 for a wall to 1 for a level floor. A falling lightsaber can come to rest on a surface rated above 0.2. It always bounces off a steeper surface, so a lightsaber knocked into a wall drops to the floor below.
+
+<sub>Source: JA (a knocked-down saber's half bounce). Code: `sim::combat::saber::throw::bounce`.</sub>
+
 <a id="saber-throw-down-retrieve-ms"></a>**Recall Delay** = **3 seconds** (`3000 ms`) · `saber_throw.down.retrieve_ms`
 
 The owner cannot call back a lightsaber on the ground for the first 3 seconds.
@@ -5086,7 +5106,7 @@ The owner cannot call back a lightsaber on the ground for the first 3 seconds.
 
 <a id="saber-throw-down-auto-return-ms"></a>**Automatic Return** = **20 seconds** (`20000 ms`) · `saber_throw.down.auto_return_ms`
 
-A lightsaber on the ground returns to its owner by itself after 20 seconds.
+A lightsaber on the ground returns to its owner by itself after 20 seconds. A knocked lightsaber that is still falling after 20 seconds also returns by itself.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::AUTO_RETURN_MS`.</sub>
 
@@ -8589,9 +8609,11 @@ can use that skill.
 To enter Stealth Mode, a character needs ranks in the Stealth skill and a
 stealth unit equipped. A character cannot enter Stealth Mode during combat.
 A character in Stealth Mode cannot run, unless the character knows Stealth
-Run. Stealth Mode ends when the
-character attacks, uses a Force power, throws a grenade, enters combat,
-removes the stealth unit or starts a conversation.
+Run. Stealth Mode ends when the character fires a shot, throws a grenade,
+swings a melee weapon or uses a Force power. Charging a Power Blast,
+steadying a Sniper Shot and charging a grenade throw do not end it. Stealth
+Mode also ends when the character enters combat, removes the stealth unit
+or starts a conversation.
 
 Disarming, recovering or setting a mine does not end Stealth Mode. Opening
 doors and using objects do not end it either. Party members under computer
@@ -8600,13 +8622,19 @@ control never enter Stealth Mode.
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
 Mode stays unlit until the character attacks.
 
+A shot ends Stealth Mode on the moment it leaves the gun, and a grenade on
+the moment it leaves the hand. A Sniper Shot let go before it is steady
+fires nothing, so the character stays in Stealth Mode. A Power Blast whose
+charge is dropped by a change of weapons also fires nothing, and the
+character stays in Stealth Mode.
+
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 
-An attack that hits within 1.5 seconds after the character
-leaves Stealth Mode is a sneak attack. This only works against a target
-that has not yet noticed the attacker.
+An attack that hits within 1.5 seconds after the shot is
+fired or the swing begins is a sneak attack. This only works against a
+target that has not yet noticed the attacker.
 
-<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::world::covert::covert`.</sub>
+<sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::combat::fighter::Covert::attacked`.</sub>
 
 <a id="stealth-mode-walk-axis"></a>**Stealth Walk** = **64** · `stealth.mode.walk_axis`
 
@@ -9052,6 +9080,35 @@ Devastating mines add +12. Other mines
 add nothing.
 
 <sub>Source: TSL's executable's table. Code: `sim::traps::blast_strength`.</sub>
+
+### <a id="traps-shooting"></a>Shooting Mines
+
+A blaster bolt fired by a player's character sets off a mine that the party
+has found. The mine explodes and harms every creature in its blast, as if a
+creature had walked into it. The party receives no experience and no mine
+for a mine that is shot. A mine that the party has not found cannot be
+shot.
+
+One bolt is enough, whatever the blaster. The mine's own trap script decides
+who is hurt. The script hurts every creature in the blast that is not
+neutral toward the mine, so a mine can hurt its own side. A mine that a
+player's character set deals its damage as that character's attack. Bolts
+fired by enemies, and by companions that no player controls, fly through
+mines. A mine with a story script of its own, a disabled mine and a mine set
+on a lock cannot be shot. Neither original game lets a weapon set off a
+mine. KOTOR 2's droid powers set off a found mine in the same way.
+
+<a id="traps-shooting-radius-m"></a>**Mine Width for Bolts** = **0.4 m** · `traps.shooting.radius_m`
+
+A bolt sets off a mine when it passes within 0.4 meters of the mine's center, measured along each floor axis.
+
+<sub>Source: ours (the mine's drawn body is smaller; a box this wide can still be hit from a distance). Code: `sim::traps::shot_box`.</sub>
+
+<a id="traps-shooting-height-m"></a>**Mine Height for Bolts** = **0.3 m** · `traps.shooting.height_m`
+
+A bolt sets off a mine when it passes no higher than 0.3 meters above the mine.
+
+<sub>Source: ours. Code: `sim::traps::shot_box`.</sub>
 
 ## <a id="interaction"></a>Doors, Locks and Bashing
 
@@ -9540,12 +9597,16 @@ The character's base attack bonus, saving throws and Defense rise as the
 class's tables set out. Every 4th
 level, the character adds +1 to one ability score.
 
-At each level, the character gains skill points equal to the class's skill
-points plus the Intelligence modifier. In KOTOR, this number is divided by
-2. A level always grants at least
-1 skill point. A character's
-first level grants 4 times as
-many skill points.
+At character creation in KOTOR, a character gains skill points equal to the
+class's skill points divided by 2,
+plus the full Intelligence modifier, times
+4. At later levels in KOTOR, the
+class's skill points and the Intelligence modifier are added first and divided
+by 2. In KOTOR 2, each level adds
+the class's skill points and the Intelligence modifier whole, and the first
+level grants 4 times that amount. A
+level always grants at least 1 skill
+point.
 
 One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
@@ -9583,7 +9644,7 @@ A character's first level grants 4 times the skill points of a normal level.
 
 <a id="progression-levels-k1-points-divisor"></a>**KOTOR Skill Points** = **2** · `progression.levels.k1_points_divisor`
 
-In KOTOR, the skill points of a level are divided by 2. The skill points of a level are the class's skill points plus the Intelligence modifier.
+In KOTOR, character creation divides the class's skill points by 2 before adding the Intelligence modifier, and later levels divide the sum of the class's skill points and the Intelligence modifier by 2.
 
 <sub>Source: K1's level-up screen. Code: `sim::levels::Classes::skill_points`.</sub>
 
@@ -9951,6 +10012,70 @@ respawn point with full hit points. The player cannot lose in the arena.
 A creature called into the arena appears 5 meters in front of the player.
 
 <sub>Source: ours. Code: `sim::world::arena::orders`.</sub>
+
+#### <a id="world-arena-terminal"></a>Debug Character Page
+
+A computer on the Debug Mode map opens a page that changes a party member's
+class, level, attributes, skills and alignment. An attribute can be set from
+1 to
+50. A skill can be set from 0 to
+50 ranks. Alignment can be set from 0 to
+100. The character on the Debug Mode
+map starts with one of every item that is not a plot item, and
+10 of each grenade, mine, medical item and
+stimulant.
+
+<a id="world-arena-terminal-ability-least"></a>**Lowest Attribute** = **1** · `world.arena.terminal.ability_least`
+
+The Debug character page sets an attribute no lower than 1.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-ability-most"></a>**Highest Attribute** = **50** · `world.arena.terminal.ability_most`
+
+The Debug character page sets an attribute no higher than 50.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-skill-most"></a>**Highest Skill Rank** = **50** · `world.arena.terminal.skill_most`
+
+The Debug character page sets a skill no higher than 50 ranks.
+
+<sub>Source: ours. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-alignment-most"></a>**Full Light Side** = **100** · `world.arena.terminal.alignment_most`
+
+Alignment runs from 0 (dark) to 100 (light).
+
+<sub>Source: both games' alignment. Code: `sim::world::arena::edits`.</sub>
+
+<a id="world-arena-terminal-stack"></a>**Items in a Stack** = **10** · `world.arena.terminal.stack`
+
+The character on the Debug Mode map starts with 10 of each grenade, mine, medical item and stimulant.
+
+<sub>Source: ours. Code: `game::arena::gear`.</sub>
+
+### <a id="world-console"></a>Console Limits
+
+Caps on credits, XP, and item stack counts added through the console.
+
+<a id="world-console-credits-most"></a>**Max Console Credits** = **9999999** · `world.console.credits_most`
+
+Console commands cap party credits at 9999999.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
+
+<a id="world-console-xp-most"></a>**Max Console XP** = **9999999** · `world.console.xp_most`
+
+Console commands cap party XP at 9999999.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
+
+<a id="world-console-items-most"></a>**Max Items per Command** = **100** · `world.console.items_most`
+
+giveitem adds at most 100 items per command.
+
+<sub>Source: ours. Code: `sim::world::cheats`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 
@@ -11080,7 +11205,10 @@ An object counts as in sight if nothing blocks the line to its middle or its top
 
 Each kind of object can be targeted anywhere inside an upright cylinder
 that stands on the object's base. A door can also be targeted anywhere on
-its own surfaces.
+its own surfaces. A usable object can also be targeted anywhere on its
+drawn model, as in the original games. For such an object, the targeting
+range is measured to the nearest part of its model. A large object, such
+as a ship, can therefore be targeted anywhere on its hull.
 
 <a id="targeting-volumes-creature-radius"></a>**Creature Radius** = **0.4 m** · `targeting.volumes.creature_radius`
 
@@ -12834,7 +12962,7 @@ The first and the third finisher throw the victim back from the grabber at 140 u
 
 <a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
 
-The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+The second finisher lets the victim go 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim is knocked down then, or dies and falls limp from the pose it is in if a blow already marked it to die.
 
 <sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
 

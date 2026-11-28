@@ -10,7 +10,8 @@
 //! the pinned determinism world (the arena, the proving ground installed a
 //! third of the way in); the launcher adds a KOTOR module.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 
 use sim::determinism::{self as pinned, GROUND};
 use sim::{
@@ -27,7 +28,8 @@ use super::msg::{
     Message, Payload, SAVE_PART, SavePart,
 };
 use super::server::{
-    CopyRefusal, CopySent, Server, ServerConfig, ServerEvent, ServerStats, TAKEOVER_QUIET_US,
+    CopyRefusal, CopySent, EncodeJob, Server, ServerConfig, ServerEvent, ServerStats,
+    TAKEOVER_QUIET_US,
 };
 use crate::codec::FrameHeader;
 use crate::handshake::{self, Credentials, Refusal};
@@ -299,12 +301,21 @@ enum Pending {
     Install(InstallRequest),
 }
 
+/// Starts building a level, `plan_us` long, once the levels asked for
+/// before it are built.
+fn plan(plans: &mut VecDeque<(NetTime, Pending)>, plan_us: u64, now: NetTime, pending: Pending) {
+    let from = plans.back().map_or(now, |(due, _)| (*due).max(now));
+    plans.push_back((from.plus(plan_us), pending));
+}
+
 struct Player {
     joiner: Joiner,
     at: Peer,
     client: Option<Client>,
     next_frame: NetTime,
-    plan: Option<(NetTime, Pending)>,
+    /// The levels asked for, each due when built: built one after another,
+    /// in the order asked, as the game builds them.
+    plans: VecDeque<(NetTime, Pending)>,
     last_angles: [i16; 3],
     /// The clocks' current start, while they run.
     start: Option<NetTime>,
@@ -433,9 +444,10 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
     let (mut world, start_level, request) = scenario.start();
     let mut net = SimNet::new(setup.seed);
     let host_at = net.endpoint();
+    let seats = world.snapshot().seats();
     let mut server = Server::new(
         ServerConfig {
-            seats: world.snapshot().seats(),
+            seats,
             rate,
             every: setup.every,
             link: Config::default(),
@@ -445,6 +457,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             credentials: credentials("host"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: if seats > 4 { 80 } else { 100 },
         },
         request,
     );
@@ -493,7 +506,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 at,
                 client: None,
                 next_frame: NetTime(joiner.at_us),
-                plan: None,
+                plans: VecDeque::new(),
                 last_angles: [0; 3],
                 start: None,
                 starts: Vec::new(),
@@ -828,12 +841,20 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             while let Some(event) = client.poll_event() {
                 match event {
                     ClientEvent::NeedLevel(request) => {
-                        player.plan =
-                            Some((now.plus(player.joiner.plan_us), Pending::Join(request)));
+                        plan(
+                            &mut player.plans,
+                            player.joiner.plan_us,
+                            now,
+                            Pending::Join(request),
+                        );
                     }
                     ClientEvent::Installing(request) => {
-                        player.plan =
-                            Some((now.plus(player.joiner.plan_us), Pending::Install(request)));
+                        plan(
+                            &mut player.plans,
+                            player.joiner.plan_us,
+                            now,
+                            Pending::Install(request),
+                        );
                         stop(&mut player.start, &mut player.starts, now);
                         let delay = installing_at.map_or(0, |at| now.since(at));
                         player.install_delay_max_us = player.install_delay_max_us.max(delay);
@@ -870,9 +891,9 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                     _ => {}
                 }
             }
-            if let Some((due, _)) = &player.plan
+            if let Some((due, _)) = player.plans.front()
                 && now >= *due
-                && let Some((_, pending)) = player.plan.take()
+                && let Some((_, pending)) = player.plans.pop_front()
             {
                 let level = match &pending {
                     Pending::Join(request) => scenario.level(request),
@@ -979,7 +1000,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 Some(client) => {
                     consider(Some(player.next_frame));
                     consider(client.next_deadline());
-                    consider(player.plan.as_ref().map(|(due, _)| *due));
+                    consider(player.plans.front().map(|(due, _)| *due));
                 }
             }
         }
@@ -1541,6 +1562,7 @@ pub fn copy_probes() -> crate::probes::Probes {
             credentials: credentials("Ana"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: 100,
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1690,6 +1712,96 @@ fn unanswered(server: &mut Server, now: NetTime, at: Peer, token: Option<u64>) -
         .any(|connection| connection.peer == at)
 }
 
+/// Moves datagrams between `server` and the real client at `at` for
+/// `steps` steps of 10 ms of virtual time. The client is given `start` when
+/// it asks for the host's level, and `next` when it hears of an install.
+fn exchange(
+    (server, client, at): (&mut Server, &mut Client, Peer),
+    now: &mut NetTime,
+    (start, next): (&Level, &Level),
+    steps: usize,
+) {
+    for _ in 0..steps {
+        *now = now.plus(10_000);
+        while let Some((_, bytes)) = client.poll_transmit(*now) {
+            server.receive(*now, at, &bytes);
+        }
+        while let Some((to, bytes)) = server.poll_transmit(*now) {
+            if to == at {
+                client.receive(*now, HOST, &bytes);
+            }
+        }
+        while let Some(event) = client.poll_event() {
+            let level = match event {
+                ClientEvent::NeedLevel(_) => start,
+                ClientEvent::Installing(_) => next,
+                _ => continue,
+            };
+            client.provide_level(*now, Ok(level.clone()));
+        }
+    }
+}
+
+/// The actions a real client makes before the host hears it loaded the
+/// world they name (`Client::act`). The host's own player acts before its
+/// client has even joined, and the host takes that action once the client
+/// loaded. An action made while an install comes in is dropped. One made
+/// after the client committed the install, while it holds back telling the
+/// host (`hold_loaded`), does not reach the host then, and the host takes it
+/// once the client tells it.
+fn held_actions(probes: &mut crate::probes::Probes) {
+    let ground = pinned::proving_ground();
+    let arena = Level::arena();
+    let take = |container| vec![sim::action::Action::TakeAll(container)];
+    let at = Peer::Local(1);
+    let (mut server, snapshot) = one_seat();
+    server.in_process(at);
+    let mut now = NetTime(0);
+    let client = Client::connect(credentials("own"), HOST, 5, now, ClientConfig::default());
+    let seen = client.ok().and_then(|mut client| {
+        client.in_process();
+        let taken = |server: &mut Server| {
+            (server.actions().into_iter())
+                .map(|(_, action)| action)
+                .collect::<Vec<_>>()
+        };
+        client.act(sim::action::Action::TakeAll(1));
+        let levels = (&arena, &ground);
+        exchange((&mut server, &mut client, at), &mut now, levels, 20);
+        let early = taken(&mut server);
+        server.installing(InstallRequest {
+            game: "kjk".into(),
+            module: GROUND.into(),
+            arrival: String::new(),
+            seats: 1,
+            players: 1,
+        });
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(2));
+        client.hold_loaded(true);
+        let mut world = SimWorld::from_snapshot(&snapshot, arena.clone()).ok()?;
+        let after = world.install(ground.clone(), None).ok()?;
+        let announcement = sim::Announcement::new(&ground, None, &after)?;
+        server.installed(now, announcement, &after);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        client.act(sim::action::Action::TakeAll(3));
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let withheld = taken(&mut server);
+        client.hold_loaded(false);
+        exchange((&mut server, &mut client, at), &mut now, levels, 5);
+        let told = taken(&mut server);
+        Some((early, withheld, told))
+    });
+    probes.check(
+        "actions: held until the host hears the player loaded",
+        "the host's own player's action from before its client joined is taken once it loaded; one made while an install comes in is dropped; one made while the client holds back that it loaded the install is taken once it tells the host",
+        seen.as_ref().is_some_and(|(early, withheld, told)| {
+            *early == take(1) && withheld.is_empty() && *told == take(3)
+        }),
+        format!("{seen:?}"),
+    );
+}
+
 /// A host of one seat, its world stepped once.
 fn one_seat() -> (Server, Snapshot) {
     host_of(1)
@@ -1712,6 +1824,7 @@ fn host_of(seats: u8) -> (Server, Snapshot) {
             credentials: credentials("host"),
             stances: Vec::new(),
             collision: 1,
+            quorum_percent: if seats > 4 { 80 } else { 100 },
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1972,6 +2085,36 @@ pub fn seat_probes() -> crate::probes::Probes {
         }),
         format!("{taken:?}"),
     );
+    held_actions(&mut probes);
+
+    // A slow player still builds the level it joined in when the host
+    // installs the next one.
+    let hz = u64::from(TickRate::default().hz());
+    let report = run(&mut Determinism::new(6 * hz), &slow_first_level());
+    let slow = report.clients.last();
+    probes.check(
+        "installs: a player still building the level it joined in",
+        "a player joins at 4 s and builds each level in 3 s; the host installs the proving ground at 6 s, before that player's first level is built; the player hands its first level over, then the install's, and plays on in the new module",
+        report.installs == 1
+            && slow.is_some_and(|client| {
+                client.ended.is_none()
+                    && client.installs + client.stats.installs_differed == 1
+                    && client.starts.iter().any(|start| start.lasted_us > 0)
+            }),
+        slow.map_or("no such player".into(), |client| {
+            format!(
+                "ended: {}; installs agreed {}, differed {}; starts {}; the host's installs {}",
+                client
+                    .ended
+                    .as_ref()
+                    .map_or("no".to_string(), ToString::to_string),
+                client.installs,
+                client.stats.installs_differed,
+                client.starts.len(),
+                report.installs
+            )
+        }),
+    );
 
     // The host's own player, in this process, joins after a guest.
     let (mut server, _) = host_of(2);
@@ -2014,7 +2157,651 @@ pub fn seat_probes() -> crate::probes::Probes {
         matches!(joined, Some(Ok(_))),
         format!("{joined:?}"),
     );
+
+    // Hold when the client already confirmed newest: emits a tiny stub, never a keyframe.
+    let hold_stub = loaded_host().and_then(|(mut server, mut hand, snapshot)| {
+        let now = NetTime(10_000);
+        while server.poll_transmit(now).is_some() {}
+        let before_kf = server.stats().connections.first()?.stats.keyframes;
+        let before_bytes = server.stats().connections.first()?.link.bytes_sent;
+        server.hold();
+        let mut saw_hold = false;
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            if to == hand.at {
+                let _ = hand.link.receive(now, &bytes);
+            }
+        }
+        for msg in hand.link.take_messages() {
+            if let Ok(Message::Hold { payload }) = Message::decode(&msg) {
+                saw_hold = !payload.is_empty();
+            }
+        }
+        let after_kf = server.stats().connections.first()?.stats.keyframes;
+        let after_bytes = server.stats().connections.first()?.link.bytes_sent;
+        let sent = after_bytes.saturating_sub(before_bytes);
+        Some((saw_hold, sent, after_kf - before_kf, snapshot.tick))
+    });
+    probes.check(
+        "hold: confirmed client receives stub without keyframe",
+        "issuing Hold when a client already confirmed newest sends < 128 B and 0 keyframes",
+        hold_stub
+            .as_ref()
+            .is_some_and(|&(saw_hold, sent, kf, _)| saw_hold && sent < 128 && kf == 0),
+        format!("{hold_stub:?}"),
+    );
     probes
+}
+
+/// Regression probes for PR #830 review findings #1–#6: paced fragments
+/// completing across ticks, >4-seat large-entity convergence, stale encode job
+/// rejection, batched step-time slack reporting, staggered/adapted `sends_on`,
+/// and idle detection at non-zero view angles.
+pub fn transport_fix_probes() -> crate::probes::Probes {
+    let mut probes = crate::probes::Probes::default();
+    probe_paced_fragments(&mut probes);
+    probe_large_entity_convergence(&mut probes);
+    probe_stale_encode_jobs(&mut probes);
+    probe_stepped_at_slack(&mut probes);
+    probe_sends_on_stagger_and_adapt(&mut probes);
+    probe_idle_nonzero_angles(&mut probes);
+    probes
+}
+
+fn probe_paced_fragments(probes: &mut crate::probes::Probes) {
+    let arena = Level::arena();
+    let mut cfg = pinned::Setup::pinned().world;
+    cfg.seats = 2;
+    cfg.wanderers = 950;
+    let Ok(mut world) = SimWorld::new(cfg, arena.clone()) else {
+        probes.check("paced fragments", "world builds", false, "err".into());
+        return;
+    };
+    let snap1 = world.snapshot();
+    let mut server = Server::new(
+        ServerConfig {
+            seats: 2,
+            rate: TickRate::default(),
+            every: 2,
+            link: Config::default(),
+            load_wait_us: 1_000_000,
+            secret: [3; 32],
+            join_key: None,
+            credentials: credentials("host"),
+            stances: Vec::new(),
+            collision: 1,
+            quorum_percent: 100,
+        },
+        LevelRequest::Stage(arena.id()),
+    );
+    server.stepped(NetTime(0), &TickInput::default(), &snap1);
+    let at = Peer::Local(1);
+    let mut now = NetTime(0);
+    let Ok(mut client) =
+        Client::connect(credentials("guest"), HOST, 11, now, ClientConfig::default())
+    else {
+        probes.check(
+            "paced fragments",
+            "client connects",
+            false,
+            "connect err".into(),
+        );
+        return;
+    };
+    let levels = (&arena, &arena);
+    exchange((&mut server, &mut client, at), &mut now, levels, 30);
+    // Build a 10–14 fragment delta by mutating all 200 real wanderers.
+    let mut rng = SimRng::new(42, 0);
+    let mut snap2 = snap1.clone();
+    snap2.tick = 2;
+    snap2.time_ms = 16;
+    for ent in &mut snap2.entities {
+        if !matches!(ent.kind, sim::Kind::Wanderer) {
+            continue;
+        }
+        ent.position = [
+            (rng.below(10_000) as f32) * 0.01,
+            (rng.below(10_000) as f32) * 0.01,
+            (rng.below(1_000) as f32) * 0.01,
+        ];
+        if let Some(p) = ent.player.as_mut() {
+            p.origin = ent.position;
+            p.velocity = [
+                (rng.below(500) as f32) * 0.1,
+                (rng.below(500) as f32) * 0.1,
+                0.0,
+            ];
+            p.view = [rng.below(65_535) as f32, rng.below(65_535) as f32, 0.0];
+        }
+        if let Some(f) = ent.fighter.as_mut() {
+            f.hp = 10 + rng.below(200) as i32;
+            f.fp = 10 + rng.below(200) as i32;
+        }
+    }
+
+    let input = TickInput::default();
+    let mut snap_t1 = snap1.clone();
+    snap_t1.tick = 1;
+    snap_t1.time_ms = 8;
+    server.stepped_shared(now, &input, Arc::new(snap_t1));
+    now = now.plus(8_000);
+    server.stepped_shared(now, &input, Arc::new(snap2.clone()));
+    // Advance 16 ms (8 ticks of 2 ms), shorter than 10+ fragments * 2 ms, then drain up to step 45.
+    for step_idx in 1..=45 {
+        now = now.plus(2_000);
+        if step_idx == 8 {
+            let mut snap3 = snap2.clone();
+            snap3.tick = 3;
+            snap3.time_ms = 24;
+            server.stepped_shared(now, &input, Arc::new(snap3));
+            let mut snap4 = snap2.clone();
+            snap4.tick = 4;
+            snap4.time_ms = 32;
+            server.stepped_shared(now, &input, Arc::new(snap4));
+        }
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            if to == at {
+                client.receive(now, HOST, &bytes);
+            }
+        }
+        while let Some(event) = client.poll_event() {
+            if let ClientEvent::NeedLevel(_) = event {
+                client.provide_level(now, Ok(arena.clone()));
+            }
+        }
+        if step_idx % 4 == 0 {
+            let _ = client.frame(now, Command::default());
+        }
+        while let Some((_, bytes)) = client.poll_transmit(now) {
+            server.receive(now, at, &bytes);
+        }
+    }
+    let stats = server.stats();
+    let conn = stats.connections.first();
+    let confirmed_tick = client.authority().map_or(0, |s| s.tick);
+    let cstats = client.stats();
+    let pass = conn.is_some_and(|c| {
+        c.stats.reliable_deltas == 0 && c.stats.fragments >= 8 && c.stats.snapshots >= 2
+    }) && confirmed_tick >= 4;
+    probes.check(
+        "paced fragments: 10+ fragment delta finishes without next snapshot discarding it",
+        "reliable_deltas == 0, fragments >= 8, snapshots >= 2, client reaches tick >= 4",
+        pass,
+        format!(
+            "confirmed_tick={confirmed_tick}, conn={:?}, cstats={:?}",
+            conn.map(|c| (
+                c.stats.snapshots,
+                c.stats.fragments,
+                c.stats.reliable_deltas
+            )),
+            (
+                cstats.rebuilt,
+                cstats.keyframes,
+                cstats.no_baseline,
+                cstats.stale,
+                cstats.malformed,
+                cstats.check_failures,
+            )
+        ),
+    );
+}
+
+fn probe_large_entity_convergence(probes: &mut crate::probes::Probes) {
+    let arena = Level::arena();
+    let mut cfg = pinned::Setup::pinned().world;
+    cfg.seats = 5;
+    cfg.wanderers = 0;
+    cfg.guests = sim::Guests::Avatars;
+    let Ok(mut world) = SimWorld::new(cfg, arena.clone()) else {
+        probes.check("large entity >4 seats", "world builds", false, "err".into());
+        return;
+    };
+    let mut snap0 = world.snapshot();
+    // Place seat 1 near seat 0 (2 m) and seat 4 far away (50 m).
+    let near_id = snap0.own(Seat(1)).map(|e| e.id);
+    let far_id = snap0.own(Seat(4)).map(|e| e.id);
+    if let Some(e) = snap0.entities.iter_mut().find(|e| Some(e.id) == near_id) {
+        e.position = [2.0, 0.0, 0.0];
+        if let Some(p) = e.player.as_mut() {
+            p.origin = [2.0, 0.0, 0.0];
+        }
+    }
+    if let Some(e) = snap0.entities.iter_mut().find(|e| Some(e.id) == far_id) {
+        e.position = [50.0, 0.0, 0.0];
+        if let Some(p) = e.player.as_mut() {
+            p.origin = [50.0, 0.0, 0.0];
+        }
+    }
+
+    let mut server = Server::new(
+        ServerConfig {
+            seats: 5,
+            rate: TickRate::default(),
+            every: 2,
+            link: Config::default(),
+            load_wait_us: 1_000_000,
+            secret: [4; 32],
+            join_key: None,
+            credentials: credentials("host"),
+            stances: Vec::new(),
+            collision: 1,
+            quorum_percent: 80,
+        },
+        LevelRequest::Stage(arena.id()),
+    );
+    let mut now = NetTime(0);
+    server.stepped_shared(now, &TickInput::default(), Arc::new(snap0.clone()));
+    let at = Peer::Local(1);
+    let Ok(mut client) =
+        Client::connect(credentials("guest"), HOST, 12, now, ClientConfig::default())
+    else {
+        probes.check("large entity >4 seats", "connects", false, "err".into());
+        return;
+    };
+    let levels = (&arena, &arena);
+    exchange((&mut server, &mut client, at), &mut now, levels, 30);
+
+    // Mutate `far_id`'s cold sheet once on tick 2 (~500 B), while `near_id`
+    // mutates its cold sheet on every snapshot (~500 B), exhausting the 900 B
+    // budget before `far_id` can fit without skip-promotion.
+    let mut current = snap0;
+    for tick in 1..=40u64 {
+        current.tick = tick;
+        current.time_ms = tick * 8;
+        if tick.is_multiple_of(2)
+            && let Some(e) = current.entities.iter_mut().find(|e| Some(e.id) == near_id)
+            && let Some(sheet) = e.sheet.as_mut()
+        {
+            sheet.level = ((tick / 2) as u8).saturating_add(1);
+            sheet.max_hp = 100 + (tick / 2) as u16;
+        }
+        if tick == 2
+            && let Some(e) = current.entities.iter_mut().find(|e| Some(e.id) == far_id)
+            && let Some(sheet) = e.sheet.as_mut()
+        {
+            sheet.level = 19;
+            sheet.max_hp = 999;
+        }
+        now = now.plus(8_000);
+        server.stepped_shared(now, &TickInput::default(), Arc::new(current.clone()));
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            if to == at {
+                client.receive(now, HOST, &bytes);
+            }
+        }
+        if tick.is_multiple_of(2) {
+            let _ = client.frame(now, Command::default());
+        }
+        while let Some((_, bytes)) = client.poll_transmit(now) {
+            server.receive(now, at, &bytes);
+        }
+    }
+    let far_hp = client
+        .authority()
+        .and_then(|s| far_id.and_then(|id| s.get(id)))
+        .and_then(|e| e.sheet.as_ref())
+        .map(|s| s.max_hp);
+    let keyframes = server
+        .stats()
+        .connections
+        .first()
+        .map_or(99, |c| c.stats.keyframes);
+    probes.check(
+        "large entity >4 seats: overdue entity converges without starving",
+        "far entity sheet updates within <= 20 snapshots with no extra keyframe",
+        far_hp == Some(999) && keyframes <= 1,
+        format!("far_hp={far_hp:?}, keyframes={keyframes}"),
+    );
+}
+
+fn probe_stale_encode_jobs(probes: &mut crate::probes::Probes) {
+    // Subcase A: peer reconnects from same Peer while an EncodeJob is in flight.
+    let (mut server, snap) = host_of(2);
+    let mut now = NetTime(0);
+    let peer = Peer::Local(1);
+    let mut hand = match Hand::join(&mut server, now, peer, None) {
+        Ok(h) => h,
+        Err(e) => {
+            probes.check("stale encode: reconnect", "joins", false, format!("{e:?}"));
+            return;
+        }
+    };
+    let check = crate::codec::Stepped::new(&snap).check();
+    hand.send(
+        &mut server,
+        now,
+        &Message::Loaded {
+            epoch: 0,
+            tick: snap.tick,
+            check,
+        },
+    );
+    while server.poll_transmit(now).is_some() {}
+    let mut snap2 = snap.clone();
+    snap2.tick = 2;
+    snap2.time_ms = 16;
+    now = now.plus(16_000);
+    server.stepped_shared(now, &TickInput::default(), Arc::new(snap2));
+    let job_old = server.poll_encode_job(now);
+
+    // Reconnect from the exact same `peer` without calling `poll_transmit` yet.
+    now = now.plus(10_000);
+    let mut hs = handshake::Client::new(now, HOST, 77, credentials("new"), None).expect("hs");
+    for _ in 0..4 {
+        if let Some(bytes) = hs.poll_transmit(now) {
+            server.receive(now, peer, &bytes);
+        }
+        while let Some((to, bytes)) = server.poll_transmit_prepared(now, None) {
+            if to == peer && matches!(wire::classify(&bytes), Class::Handshake) {
+                hs.receive(now, HOST, &bytes);
+            }
+        }
+    }
+    if let Some(done) = job_old.map(EncodeJob::run) {
+        server.finish_encode(now, done);
+    }
+    let reconnect_clean = server
+        .stats()
+        .connections
+        .iter()
+        .find(|c| c.peer == peer)
+        .is_some_and(|c| c.stats.keyframes == 0 && c.stats.snapshots == 0);
+
+    // Subcase B: Hold/Resume starts a second job while an older job is still in flight.
+    let (mut server, snap) = host_of(2);
+    let mut now = NetTime(0);
+    let peer2 = Peer::Local(2);
+    let mut hand2 = Hand::join(&mut server, now, peer2, None).expect("hand2");
+    hand2.send(
+        &mut server,
+        now,
+        &Message::Loaded {
+            epoch: 0,
+            tick: snap.tick,
+            check,
+        },
+    );
+    while server.poll_transmit(now).is_some() {}
+    let mut s2 = snap.clone();
+    s2.tick = 2;
+    s2.time_ms = 16;
+    now = now.plus(16_000);
+    server.stepped_shared(now, &TickInput::default(), Arc::new(s2));
+    let job_before_hold = server.poll_encode_job(now);
+    let snaps_before = server
+        .stats()
+        .connections
+        .first()
+        .map_or(0, |c| c.stats.snapshots);
+    server.hold();
+    now = now.plus(10_000);
+    server.release(now);
+    while server.poll_transmit_prepared(now, None).is_some() {}
+    let mut s4 = snap.clone();
+    s4.tick = 4;
+    s4.time_ms = 32;
+    now = now.plus(16_000);
+    server.stepped_shared(now, &TickInput::default(), Arc::new(s4));
+    let job_after_resume = server.poll_encode_job(now);
+    if let Some(done) = job_before_hold.map(EncodeJob::run) {
+        server.finish_encode(now, done);
+    }
+    // `job_before_hold` must neither emit a snapshot nor clear `job_after_resume`'s encoding lock.
+    let still_locked = server.poll_encode_job(now).is_none()
+        && server
+            .stats()
+            .connections
+            .first()
+            .map_or(99, |c| c.stats.snapshots)
+            == snaps_before;
+    if let Some(done) = job_after_resume.map(EncodeJob::run) {
+        server.finish_encode(now, done);
+    }
+    let after_new_snaps = server
+        .stats()
+        .connections
+        .first()
+        .map_or(0, |c| c.stats.snapshots);
+    let hold_clean = still_locked && after_new_snaps == snaps_before + 1;
+    probes.check(
+        "stale encode: ignored across reconnect and overlapping Hold/Resume",
+        "reconnect ignores old job; Hold/Resume keeps new encoding lock until new job finishes",
+        reconnect_clean && hold_clean,
+        format!("reconnect_clean={reconnect_clean}, hold_clean={hold_clean}, still_locked={still_locked}, snaps={snaps_before}->{after_new_snaps}"),
+    );
+}
+
+fn probe_stepped_at_slack(probes: &mut crate::probes::Probes) {
+    let Some((mut server, mut hand, snap)) = loaded_host() else {
+        probes.check("batched slack", "loaded host", false, "init err".into());
+        return;
+    };
+    while server.poll_transmit(NetTime(0)).is_some() {}
+    let arrived = NetTime(10_000);
+    let mut cmd_frame = Commands::new(0, Some(0));
+    cmd_frame.push(2, Command::default(), 0);
+    let mut payload = Vec::new();
+    cmd_frame.encode(&mut payload);
+    let _ = hand.link.queue_unreliable(frame::COMMANDS, &payload);
+    hand.keep(&mut server, arrived);
+
+    let stepped_at = NetTime(13_000);
+    let input = server.commands_for(2);
+    let mut snap2 = snap.clone();
+    snap2.tick = 2;
+    snap2.time_ms = 16;
+    // Land the batched tick 16 ms later than `stepped_at`, as a 60 FPS frame does.
+    let landed_at = NetTime(29_000);
+    server.stepped_shared(stepped_at, &input, Arc::new(snap2));
+    let mut reported: Option<ClockReport> = None;
+    while let Some((to, bytes)) = server.poll_transmit(landed_at) {
+        if to == hand.at
+            && let Ok(received) = hand.link.receive(landed_at, &bytes)
+        {
+            for f in received.frames() {
+                if f.kind == frame::CLOCK
+                    && let Ok(report) = ClockReport::decode(f.payload)
+                {
+                    reported = Some(report);
+                }
+            }
+        }
+    }
+    let slack_sum = server
+        .stats()
+        .connections
+        .first()
+        .map(|c| c.stats.slack_sum_us);
+    let pass = reported
+        .as_ref()
+        .is_some_and(|r| r.least == Some((2, 3_000)))
+        && slack_sum == Some(3_000);
+    probes.check(
+        "batched slack: uses step time rather than frame landing time",
+        "ClockReport least == (2, 3000) us even when landed 16 ms later",
+        pass,
+        format!("reported={reported:?}, slack_sum={slack_sum:?}"),
+    );
+}
+
+fn probe_sends_on_stagger_and_adapt(probes: &mut crate::probes::Probes) {
+    let arena = Level::arena();
+    let mut server = Server::new(
+        ServerConfig {
+            seats: 6,
+            rate: TickRate::default(),
+            every: 4,
+            link: Config::default(),
+            load_wait_us: 1_000_000,
+            secret: [5; 32],
+            join_key: None,
+            credentials: credentials("host"),
+            stances: Vec::new(),
+            collision: 1,
+            quorum_percent: 80,
+        },
+        LevelRequest::Stage(arena.id()),
+    );
+    let snap = SimWorld::new(pinned::Setup::pinned().world, arena)
+        .expect("arena")
+        .snapshot();
+    server.stepped_shared(NetTime(0), &TickInput::default(), Arc::new(snap.clone()));
+    let check = crate::codec::Stepped::new(&snap).check();
+    for peer_id in [1u32, 2u32] {
+        let mut h = Hand::join(&mut server, NetTime(0), Peer::Local(peer_id), None).expect("join");
+        h.send(
+            &mut server,
+            NetTime(0),
+            &Message::Loaded {
+                epoch: 0,
+                tick: 0,
+                check,
+            },
+        );
+    }
+    let stagger_ok = server.sends_on(4) && server.sends_on(7) && !server.sends_on(5);
+
+    // Adapted interval: trigger >10% loss across a 2 s window so `every` steps 2 -> 3.
+    let Some((mut srv, mut hand, base_snap)) = loaded_host() else {
+        probes.check(
+            "sends_on stagger and adapt",
+            "loaded host",
+            false,
+            "err".into(),
+        );
+        return;
+    };
+    let mut now = NetTime(0);
+    while srv.poll_transmit(now).is_some() {}
+    let mut seq = 0u64;
+    for tick in 1..=350u64 {
+        now = now.plus(8_000);
+        let mut s = base_snap.clone();
+        s.tick = tick;
+        s.time_ms = tick * 8;
+        srv.stepped_shared(now, &TickInput::default(), Arc::new(s));
+        while let Some((to, bytes)) = srv.poll_transmit(now) {
+            if to == hand.at {
+                seq += 1;
+                // Drop half the server's packets so loss > 10% triggers `adapt`.
+                if seq.is_multiple_of(2) {
+                    let _ = hand.link.receive(now, &bytes);
+                }
+            }
+        }
+        hand.keep(&mut srv, now);
+    }
+    let adapted_every = srv.stats().connections.first().map_or(0, |c| c.every);
+    let idle_sends_ok = srv.sends_on(8);
+    // Wake out of idle on tick 351 so `sends_on` tests the adapted active interval.
+    now = now.plus(8_000);
+    let mut wake_snap = base_snap;
+    wake_snap.tick = 351;
+    wake_snap.time_ms = 351 * 8;
+    let mut wake_input = TickInput::default();
+    wake_input.insert(
+        Seat(0),
+        Command {
+            angles: [10, 0, 0],
+            ..Command::default()
+        },
+    );
+    srv.stepped_shared(now, &wake_input, Arc::new(wake_snap));
+    let active_tick = u64::from(adapted_every) * ((352 / u64::from(adapted_every)) + 1);
+    let adapt_ok = adapted_every >= 3 && idle_sends_ok && srv.sends_on(active_tick);
+    probes.check(
+        "sends_on: honours seat stagger and adapted snapshot intervals",
+        "6-seat stagger sends_on(7) == true and adapted every >= 3 matches sends_on(every)",
+        stagger_ok && adapt_ok,
+        format!("stagger_ok={stagger_ok}, adapted_every={adapted_every}, adapt_ok={adapt_ok}"),
+    );
+}
+
+fn probe_idle_nonzero_angles(probes: &mut crate::probes::Probes) {
+    let arena = Level::arena();
+    let (mut server, snap0) = host_of(2);
+    let at = Peer::Local(1);
+    let mut now = NetTime(0);
+    let Ok(mut client) =
+        Client::connect(credentials("guest"), HOST, 13, now, ClientConfig::default())
+    else {
+        probes.check("idle nonzero angles", "connects", false, "err".into());
+        return;
+    };
+    let levels = (&arena, &arena);
+    exchange((&mut server, &mut client, at), &mut now, levels, 30);
+
+    let idle_cmd = Command {
+        angles: [1234, -5678, 0],
+        ..Command::default()
+    };
+    let mut snap = snap0;
+    let mut snaps_during_idle = 0u64;
+    let mut cmds_during_idle = 0u64;
+    for tick in 1..=96u64 {
+        now = now.plus(8_000);
+        snap.tick = tick;
+        snap.time_ms = tick * 8;
+        let _ = client.frame(now, idle_cmd);
+        while let Some((_, bytes)) = client.poll_transmit(now) {
+            if tick >= 72 {
+                cmds_during_idle += 1;
+            }
+            server.receive(now, at, &bytes);
+        }
+        let mut input = TickInput::default();
+        input.insert(Seat(0), idle_cmd);
+        input.insert(Seat(1), idle_cmd);
+        server.stepped_shared(now, &input, Arc::new(snap.clone()));
+        while let Some((to, bytes)) = server.poll_transmit(now) {
+            if to == at {
+                client.receive(now, HOST, &bytes);
+            }
+        }
+        if tick == 72 {
+            snaps_during_idle = server
+                .stats()
+                .connections
+                .first()
+                .map_or(0, |c| c.stats.snapshots);
+        }
+    }
+    let snaps_after_idle = server
+        .stats()
+        .connections
+        .first()
+        .map_or(0, |c| c.stats.snapshots);
+    let idle_delta_snaps = snaps_after_idle - snaps_during_idle;
+
+    // Turning the camera must immediately wake out of idle.
+    now = now.plus(8_000);
+    snap.tick = 97;
+    snap.time_ms = 97 * 8;
+    let turn_cmd = Command {
+        angles: [1235, -5678, 0],
+        ..Command::default()
+    };
+    let mut input = TickInput::default();
+    input.insert(Seat(0), turn_cmd);
+    input.insert(Seat(1), turn_cmd);
+    server.stepped_shared(now, &input, Arc::new(snap));
+    while server.poll_transmit(now).is_some() {}
+    let snaps_after_turn = server
+        .stats()
+        .connections
+        .first()
+        .map_or(0, |c| c.stats.snapshots);
+
+    let pass =
+        idle_delta_snaps <= 4 && cmds_during_idle < 20 && snaps_after_turn == snaps_after_idle + 1;
+    probes.check(
+        "idle detection: throttles stationary non-zero view angles and wakes on look",
+        "<= 4 server snapshots and < 20 client command packets across 24 idle ticks; wakes on tick 97",
+        pass,
+        format!(
+            "idle_delta_snaps={idle_delta_snaps}, cmds_during_idle={cmds_during_idle}, wake={}->{}",
+            snaps_after_idle, snaps_after_turn
+        ),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2023,9 +2810,14 @@ pub fn seat_probes() -> crate::probes::Probes {
 /// The pinned determinism world (`sim::determinism`): four seats, 32
 /// wanderers and the spawner in the arena, the proving ground installed
 /// after `install_at`; seats driven by the determinism pilot.
+const STASHED_GROUND: &str = "stashed_ground";
+
 pub struct Determinism {
     setup: pinned::Setup,
     install_at: u64,
+    stash_at: Option<u64>,
+    idle: bool,
+    start_in_ground: bool,
     /// The host saves after this tick (`with_save`).
     save_at: Option<u64>,
     /// The host keeps the world after the first tick and reloads it in
@@ -2033,6 +2825,7 @@ pub struct Determinism {
     reload: Option<(u64, u64)>,
     kept: Option<Snapshot>,
     arena: Level,
+    stashed: Level,
     ground: Level,
 }
 
@@ -2041,11 +2834,42 @@ impl Determinism {
         Determinism {
             setup: pinned::Setup::pinned(),
             install_at,
+            stash_at: None,
+            idle: false,
+            start_in_ground: false,
             save_at: None,
             reload: None,
             kept: None,
             arena: Level::arena(),
+            stashed: pinned::proving_ground_named(STASHED_GROUND),
             ground: pinned::proving_ground(),
+        }
+    }
+
+    /// Also installs `STASHED_GROUND` first at `at` so the later install
+    /// leaves a populated module entry in `Snapshot::stash`.
+    pub fn with_stash(self, at: u64) -> Determinism {
+        Determinism {
+            stash_at: Some(at),
+            ..self
+        }
+    }
+
+    /// Sends idle zero commands for every seat instead of pilot actions.
+    pub fn idle(self) -> Determinism {
+        Determinism { idle: true, ..self }
+    }
+
+    /// Overrides the determinism world/pilot setup (e.g. 3p co-op budget tests).
+    pub fn with_setup(self, setup: pinned::Setup) -> Determinism {
+        Determinism { setup, ..self }
+    }
+
+    /// Starts directly in `proving_ground` rather than the placeholder `arena`.
+    pub fn in_ground(self) -> Determinism {
+        Determinism {
+            start_in_ground: true,
+            ..self
         }
     }
 
@@ -2069,13 +2893,28 @@ impl Determinism {
 
 impl Scenario for Determinism {
     fn start(&mut self) -> (SimWorld, Level, LevelRequest) {
-        let world = SimWorld::new(self.setup.world, self.arena.clone())
+        let level = if self.start_in_ground {
+            self.ground.clone()
+        } else {
+            self.arena.clone()
+        };
+        let mut world = SimWorld::new(self.setup.world, level.clone())
             .unwrap_or_else(|error| panic!("the determinism world: {error}"));
-        let request = LevelRequest::Stage(self.arena.id());
-        (world, self.arena.clone(), request)
+        let request = if self.start_in_ground {
+            let snapshot = world.snapshot();
+            let announcement =
+                sim::Announcement::new(&level, None, &snapshot).expect("ground announcement");
+            LevelRequest::Module(announcement)
+        } else {
+            LevelRequest::Stage(level.id())
+        };
+        (world, level, request)
     }
 
     fn command(&mut self, seat: Seat, tick: u64, _view: Option<&Snapshot>) -> Option<Command> {
+        if self.idle {
+            return Some(Command::default());
+        }
         pinned::pilot(self.setup.pilot, tick, self.setup.world.seats)
             .get(seat)
             .copied()
@@ -2087,6 +2926,9 @@ impl Scenario for Determinism {
             LevelRequest::Module(announcement) if announcement.module == GROUND => {
                 Ok(self.ground.clone())
             }
+            LevelRequest::Module(announcement) if announcement.module == STASHED_GROUND => {
+                Ok(self.stashed.clone())
+            }
             other => Err(format!("not this world's level: {other:?}")),
         }
     }
@@ -2094,28 +2936,41 @@ impl Scenario for Determinism {
     fn plan(&mut self, request: &InstallRequest) -> Result<Level, String> {
         if request.module == GROUND {
             Ok(self.ground.clone())
+        } else if request.module == STASHED_GROUND {
+            Ok(self.stashed.clone())
         } else {
             Err(format!("{}: not this world's module", request.module))
         }
     }
 
     fn install_after(&mut self, snapshot: &Snapshot) -> Option<InstallRequest> {
-        let ground = |players: u8| InstallRequest {
+        let module_req = |module: &str, players: u8| InstallRequest {
             game: "kjk".to_string(),
-            module: GROUND.to_string(),
+            module: module.to_string(),
             arrival: String::new(),
             seats: snapshot.seats(),
             players,
         };
-        if snapshot.tick == self.install_at && snapshot.place.is_none() {
-            return Some(ground(snapshot.players_for(GROUND)));
+        if Some(snapshot.tick) == self.stash_at && snapshot.place.is_none() {
+            return Some(module_req(
+                STASHED_GROUND,
+                snapshot.players_for(STASHED_GROUND),
+            ));
+        }
+        if snapshot.tick == self.install_at
+            && snapshot
+                .place
+                .as_ref()
+                .is_none_or(|place| place.module != GROUND)
+        {
+            return Some(module_req(GROUND, snapshot.players_for(GROUND)));
         }
         let (keep, reload) = self.reload?;
         if snapshot.tick == keep {
             self.kept = Some(snapshot.clone());
         }
         let kept = self.kept.as_ref().filter(|_| snapshot.tick == reload)?;
-        Some(ground(kept.place.as_ref()?.players))
+        Some(module_req(GROUND, kept.place.as_ref()?.players))
     }
 
     fn restored(&mut self, _request: &InstallRequest) -> Option<Snapshot> {
@@ -2142,6 +2997,36 @@ pub fn conditions(delay_ms: u64, jitter_ms: u64, loss_percent: u64, burst: u64) 
         loss_ppm: loss_percent * 10_000,
         burst_milli: burst.max(1) * 1000,
         ..Conditions::default()
+    }
+}
+
+/// Two clients on a clean 1 ms link as `kjk net session`'s `lan` has them,
+/// and a third joining at 4 s that builds each level in 3 s: the host's
+/// install at 6 s comes while it still builds the level it joined in.
+fn slow_first_level() -> Setup {
+    let mut clients = joiners(0, 100_000);
+    clients.push(Joiner {
+        at_us: 4_000_000,
+        frame_us: 16_667,
+        plan_us: 3_000_000,
+    });
+    Setup {
+        name: "slow_first_level".into(),
+        clients,
+        conditions: conditions(1, 0, 0, 1),
+        seconds: 14,
+        every: 2,
+        seed: 17,
+        load_wait_us: 5_000_000,
+        host_plan_us: 150_000,
+        corrupt_ppm: 0,
+        cut: None,
+        hold: None,
+        host_frame_us: 0,
+        hitches: Hitches::default(),
+        margins: Margins::default(),
+        rewinds: Rewinds::default(),
+        kill_threads_at_us: None,
     }
 }
 

@@ -67,7 +67,7 @@ use std::net::{IpAddr, SocketAddr};
 /// How long a cookie is good for.
 pub const COOKIE_LIFETIME_US: u64 = 5_000_000;
 /// Hellos per second per sending host (and the burst).
-pub const HELLO_RATE: u64 = 8;
+pub const HELLO_RATE: u64 = 32;
 /// Cells of the Hello rate limiter.
 pub const RATE_BUCKETS: usize = 4096;
 /// Wrong join passwords per second per sending host (and the burst).

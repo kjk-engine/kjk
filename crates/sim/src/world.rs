@@ -51,6 +51,13 @@ pub mod arena;
 pub mod arena_probes;
 mod bars;
 pub mod charting;
+pub mod cheats;
+#[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
+pub mod cheats_probes;
 pub mod containers;
 #[cfg(feature = "probes")]
 pub mod coop_items;
@@ -184,7 +191,7 @@ mod movement;
 #[cfg(feature = "probes")]
 pub mod push_probes;
 mod shut_in;
-mod state;
+pub(crate) mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;
 #[cfg(feature = "probes")]
@@ -332,6 +339,11 @@ impl Rules {
 #[derive(Resource, Default, Clone, Copy)]
 pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
 
+/// The session's cheat rule and whether a cheat was carried out
+/// (`Snapshot::cheats`, `cheats`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct CheatState(pub(crate) cheats::Cheats);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -344,12 +356,12 @@ struct Talking(Told);
 /// What players see of the items in play (`Snapshot::goods`): the
 /// authority's scripts gather it, a snapshot restores it.
 #[derive(Resource, Default)]
-struct Holding(crate::inventory::Goods);
+struct Holding(pub std::sync::Arc<crate::inventory::Goods>);
 
 /// The story's progress as everyone sees it (`Snapshot::progress`): the
 /// authority's scripts write it, a snapshot restores it.
 #[derive(Resource, Default)]
-struct Progressed(crate::snapshot::Progress);
+struct Progressed(pub std::sync::Arc<crate::snapshot::Progress>);
 
 /// The pazaak matches as everyone sees them (`Snapshot::pazaak`): the
 /// authority's scripts write them, a snapshot restores them.
@@ -359,7 +371,7 @@ struct Tabled(Vec<crate::pazaak::Match>);
 /// Who each seat's player is (`Snapshot::personas`): given where a session
 /// starts (`SimWorld::set_persona`), a snapshot restores it.
 #[derive(Resource, Default)]
-pub(crate) struct Personas(pub Vec<crate::persona::Persona>);
+pub(crate) struct Personas(pub std::sync::Arc<Vec<crate::persona::Persona>>);
 
 /// The party is in combat (`Snapshot::in_combat`): `party::combat` writes it
 /// every step after the hurts, a snapshot restores it. The test KOTOR
@@ -389,7 +401,7 @@ struct Module {
     /// made (`crate::instance`).
     pub(super) instances: Instances,
     /// Its placements as first installed (`Snapshot::roster`).
-    roster: Option<Vec<crate::reconcile::Origin>>,
+    roster: Option<Arc<Vec<crate::reconcile::Origin>>>,
     /// What reconciling the saved objects did as the world loaded or
     /// entered the module (`SimWorld::reconciled`): not state.
     reconciled: Option<crate::reconcile::Report>,
@@ -404,7 +416,7 @@ struct Module {
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,
     /// What the party explored of each area's map (`crate::fog`).
-    explored: Vec<crate::fog::Explored>,
+    explored: Arc<Vec<crate::fog::Explored>>,
     /// The scripts' visual effects on its doors and placeables
     /// (`crate::visuals`).
     visuals: Vec<crate::visuals::OnObject>,
@@ -921,7 +933,10 @@ impl SimWorld {
     /// Seat `persona.seat`'s player is `persona` from now on (character
     /// creation's, or the host's default for a seat without one).
     pub fn set_persona(&mut self, persona: crate::persona::Persona) {
-        crate::persona::put(&mut self.world.resource_mut::<Personas>().0, persona);
+        crate::persona::put(
+            Arc::make_mut(&mut self.world.resource_mut::<Personas>().0),
+            persona,
+        );
     }
 
     /// The blades play by `rules` from now on (the session's choice, on the
@@ -960,6 +975,13 @@ impl SimWorld {
     /// The share of the normal damage each side takes.
     pub fn damage_taken(&self) -> crate::combat::damage::Taken {
         self.world.resource::<DamageTaken>().0
+    }
+
+    /// The cheat rule, and whether a cheat was ever carried out outside an
+    /// arena level (`cheats`). The rule changes only by the first seat's
+    /// `CheatOrder::Policy`.
+    pub fn cheats(&self) -> cheats::Cheats {
+        self.world.resource::<CheatState>().0
     }
 
     /// Whether a reply a player takes is shown to the other players in the
@@ -1245,7 +1267,7 @@ impl SimWorld {
         let who = acting_body(seat, own_id, lent.map(|(id, _)| id));
         let at_tables = (
             &world.resource::<Talking>().0,
-            &world.resource::<Holding>().0,
+            &*world.resource::<Holding>().0,
             &world.resource::<Tabled>().0[..],
             &world.resource::<party::Embattled>().0[..],
         );

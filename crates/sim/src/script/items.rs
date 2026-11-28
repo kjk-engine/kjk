@@ -86,11 +86,26 @@ fn in_slots(fitted: &[String]) -> &[String] {
 
 /// Where `target`'s carried items are: the party's inventory for a party
 /// member, else its own.
-pub fn holder(view: &View, target: ObjectId) -> u32 {
-    let party = view
-        .thing(target)
-        .and_then(|thing| thing.character)
-        .is_some_and(|character| character.party);
+///
+/// The party table `table` decides for the first seat's characters, so a
+/// switch a script makes counts at once, in the same step, as `GetFirstPC`
+/// sees it (`View::main_characters`). The creature switched to carries the
+/// party's inventory, and the seat's own character waiting meanwhile carries
+/// only its own. Brotherhood of Shadow's Taris flashback relies on it. Its
+/// script switches to Channa and then empties `GetFirstPC()` into a
+/// container, which takes the party's inventory. Its last script switches
+/// back and empties the container into `GetFirstPC()`, which returns the
+/// items to the party's inventory.
+pub fn holder(view: &View, table: &super::party::Party, target: ObjectId) -> u32 {
+    if view.is_main_character(table, target) {
+        return PARTY;
+    }
+    let waiting = table.switched_body().is_some() && view.party.first() == Some(&target);
+    let party = !waiting
+        && view
+            .thing(target)
+            .and_then(|thing| thing.character)
+            .is_some_and(|character| character.party);
     if party { PARTY } else { target.0 }
 }
 
@@ -612,7 +627,7 @@ impl State {
         row: u16,
     ) -> Option<u32> {
         let race = view.thing(who)?.character?.race;
-        let item = self.casting(catalog, holder(view, who), who, row)?;
+        let item = self.casting(catalog, holder(view, &self.party, who), who, row)?;
         let facts = self.item_facts(catalog, &self.items.get(&item)?.template)?;
         facts.fits(race).then_some(item)
     }
@@ -689,7 +704,7 @@ impl State {
         let facts = self
             .item_facts(catalog, &held.template)
             .ok_or(Notice::CannotUse)?;
-        let carried = held.holder == holder(view, who) && held.slot.is_none();
+        let carried = held.holder == holder(view, &self.party, who) && held.slot.is_none();
         let worn = held.holder == who.0 && held.slot.is_some();
         let row = spell_for(library, facts, race, target == who)
             .filter(|_| (carried || worn) && facts.ready(worn))
@@ -1229,6 +1244,12 @@ impl State {
                 sheet: self.redress(catalog, worn, &before, &after),
             });
         }
+    }
+
+    /// `bare`, a sheet made without its items, dressed by what `who` wears
+    /// now (`world::arena::edits`).
+    pub(crate) fn dressed(&self, catalog: &Catalog, who: u32, bare: Sheet) -> Sheet {
+        self.redress(catalog, bare, &[], &self.worn(who))
     }
 
     /// `sheet` dressed anew for what was worn `before` now being `after`.

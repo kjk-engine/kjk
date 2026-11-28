@@ -593,6 +593,16 @@ pub struct Covert {
 }
 
 impl Covert {
+    /// An attack leaves at `now` (sim ms): a shot leaves the gun, or a
+    /// grenade leaves the hand. In Stealth Mode this opens the Sneak Attack
+    /// Window (`stealth::OPENER_MS`). Stealth Mode itself ends later in the
+    /// same step, in `world::covert`, which also tells the player.
+    pub fn attacked(&mut self, now: u64) {
+        if self.stealth {
+            self.opener_until = now + crate::stealth::OPENER_MS;
+        }
+    }
+
     fn encode(&self, out: &mut Writer) {
         out.u8(u8::from(self.stealth));
         out.u16(self.held);

@@ -211,7 +211,7 @@ fn arena_falls(
         }
         player.0.flags |= motion::motion_flags::DEAD;
     }
-    for &at in party {
+    for (seat_idx, &at) in party.iter().enumerate() {
         let (_, _, object, sheet, player, fighting) = &mut rows[at];
         let revived = fighting
             .0
@@ -234,6 +234,11 @@ fn arena_falls(
         fighter.fp = i32::from(sheet.pool()) * 100;
         // Standing on the point: its box's origin over the soles.
         let mut origin = scale(arena.respawn, 1.0 / collision::UNIT);
+        if party.len() > 4 {
+            let [dx, dy] = super::state::spawn_offset_m(seat_idx as u8, party.len() as u8);
+            origin[0] += dx / collision::UNIT;
+            origin[1] += dy / collision::UNIT;
+        }
         origin[2] += 0.125 - motion::SOLE_Z;
         player.0 = MotionState::standing(origin, arena.yaw);
     }

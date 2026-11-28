@@ -239,6 +239,7 @@ impl Bench {
             root: self.world.spawn(Transform::IDENTITY).id(),
             name: format!("weapon {blade}"),
             blades: vec![blade],
+            follows: vec![0],
             ends: Vec::new(),
             gun: None,
             power: None,
